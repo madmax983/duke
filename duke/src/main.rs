@@ -5,7 +5,8 @@ use duke_classfile::{
     ClassFile, parse,
     types::{AttributeData, CpEntry, CpIndex},
 };
-use duke_interpreter::{ClassContext, MethodEntry, execute_class};
+use duke_gc::Heap;
+use duke_interpreter::{build_class_context, execute_class};
 use duke_loader::{ClassLoader, DirectoryLoader};
 use duke_runtime::Slot;
 
@@ -125,43 +126,10 @@ fn exec_method(args: &[String]) {
         .unwrap_or("")
         .to_string();
 
-    // Build ClassContext -- decode all methods.
-    let methods: Vec<MethodEntry> = cf
-        .methods
-        .iter()
-        .filter_map(|m| {
-            let name = match cf.constant_pool.get(m.name_index.0 as usize) {
-                Some(Some(CpEntry::Utf8(s))) => s.clone(),
-                _ => return None,
-            };
-            let desc = match cf.constant_pool.get(m.descriptor_index.0 as usize) {
-                Some(Some(CpEntry::Utf8(s))) => s.clone(),
-                _ => return None,
-            };
-            let code = m.attributes.iter().find_map(|a| {
-                if let AttributeData::Code(c) = &a.data {
-                    Some(c)
-                } else {
-                    None
-                }
-            })?;
-            let instructions = decode(&code.code).ok()?;
-            Some(MethodEntry {
-                name,
-                descriptor: desc,
-                instructions,
-                max_stack: code.max_stack,
-                max_locals: code.max_locals,
-            })
-        })
-        .collect();
+    let mut ctx = build_class_context(&cf);
+    let mut heap = Heap::new();
 
-    let ctx = ClassContext {
-        constant_pool: cf.constant_pool,
-        methods,
-    };
-
-    match execute_class(&ctx, method_name, &descriptor, &int_args) {
+    match execute_class(&mut ctx, &mut heap, method_name, &descriptor, &int_args) {
         Ok(Some(result)) => println!("{result:?}"),
         Ok(None) => println!("(void)"),
         Err(e) => {
