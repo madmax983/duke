@@ -1367,6 +1367,140 @@ pub fn execute_class(
                 frame.pop()?;
                 frame.pop()?;
             }
+
+            // ---- Object allocation ----
+            Instruction::New(cp_idx) => {
+                let class_name = match ctx
+                    .constant_pool
+                    .get(usize::from(cp_idx.0))
+                    .and_then(|e| e.as_ref())
+                {
+                    Some(CpEntry::Class { name_index }) => {
+                        match ctx
+                            .constant_pool
+                            .get(name_index.0 as usize)
+                            .and_then(|e| e.as_ref())
+                        {
+                            Some(CpEntry::Utf8(s)) => s.clone(),
+                            _ => {
+                                return Err(VmError::InvalidCpIndex {
+                                    index: usize::from(cp_idx.0),
+                                })
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(VmError::InvalidCpIndex {
+                            index: usize::from(cp_idx.0),
+                        })
+                    }
+                };
+                let field_count = ctx.instance_field_count;
+                let r = heap.allocate(class_name, field_count);
+                frame.push(Slot::Reference(Some(r)))?;
+            }
+
+            // ---- Field access ----
+            Instruction::Getfield(cp_idx) => {
+                let (field_name, _) =
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let r = frame.pop_ref()?;
+                let fidx = instance_field_idx(ctx, &field_name)?;
+                let val = heap.get(r)?.fields[fidx].clone();
+                frame.push(val)?;
+            }
+            Instruction::Putfield(cp_idx) => {
+                let (field_name, _) =
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let val = frame.pop()?;
+                let r = frame.pop_ref()?;
+                let fidx = instance_field_idx(ctx, &field_name)?;
+                heap.get_mut(r)?.fields[fidx] = val;
+            }
+            Instruction::Getstatic(cp_idx) => {
+                let (field_name, _) =
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let sidx = static_field_idx(ctx, &field_name)?;
+                let val = ctx.static_fields[sidx].clone();
+                frame.push(val)?;
+            }
+            Instruction::Putstatic(cp_idx) => {
+                let (field_name, _) =
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let val = frame.pop()?;
+                let sidx = static_field_idx(ctx, &field_name)?;
+                ctx.static_fields[sidx] = val;
+            }
+
+            // ---- Instance method dispatch ----
+            //
+            // invokespecial and invokevirtual use the same dispatch in Phase 6:
+            // resolve name+descriptor, pop args + this ref, push a new CallFrame.
+            // Virtual dispatch via vtable is deferred to Phase 7.
+            Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
+                let (callee_name, callee_desc) =
+                    resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                // <clinit> (static initialiser) is not supported yet — skip silently.
+                if callee_name == "<clinit>" {
+                    idx += 1;
+                    continue;
+                }
+                let callee_idx = match ctx
+                    .methods
+                    .iter()
+                    .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                {
+                    Some(i) => i,
+                    None => {
+                        // Method not in this class (e.g. Object.<init>) — pop args + this
+                        // and treat as no-op. Multi-class dispatch is deferred to Phase 7.
+                        let arg_count = parse_arg_count(&callee_desc);
+                        for _ in 0..arg_count {
+                            frame.pop()?;
+                        }
+                        frame.pop()?; // pop `this`
+                        idx += 1;
+                        continue;
+                    }
+                };
+                let arg_count = parse_arg_count(&callee_desc);
+                let mut callee_args: Vec<Slot> = (0..arg_count)
+                    .map(|_| frame.pop())
+                    .collect::<VmResult<Vec<_>>>()?;
+                callee_args.reverse();
+                // Pop `this` ref and prepend as locals[0].
+                let this_slot = frame.pop()?;
+                callee_args.insert(0, this_slot);
+                let callee_pc_to_idx: HashMap<usize, usize> = ctx.methods[callee_idx]
+                    .instructions
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &(pc, _))| (pc, i))
+                    .collect();
+                let callee_frame = Frame::new(
+                    usize::from(ctx.methods[callee_idx].max_stack),
+                    usize::from(ctx.methods[callee_idx].max_locals),
+                    callee_args,
+                )?;
+                call_stack.push(CallFrame {
+                    frame,
+                    method_idx,
+                    pc_to_idx,
+                    resume_idx: idx + 1,
+                });
+                frame = callee_frame;
+                method_idx = callee_idx;
+                pc_to_idx = callee_pc_to_idx;
+                idx = 0;
+                continue;
+            }
+
+            // ---- Reference return ----
+            Instruction::Areturn => {
+                let v = frame.pop()?;
+                do_return!(Some(v));
+            }
+
             other => {
                 return Err(VmError::Unimplemented {
                     mnemonic: other.mnemonic(),
@@ -1561,6 +1695,55 @@ fn parse_arg_count(descriptor: &str) -> usize {
         }
     }
     count
+}
+
+/// Resolve a constant pool Fieldref to (field_name, descriptor).
+fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String)> {
+    match cp.get(idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::Fieldref {
+            name_and_type_index,
+            ..
+        }) => {
+            let nat_idx = name_and_type_index.0 as usize;
+            match cp.get(nat_idx).and_then(|e| e.as_ref()) {
+                Some(CpEntry::NameAndType {
+                    name_index,
+                    descriptor_index,
+                }) => {
+                    let name = match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(VmError::InvalidFieldref { index: idx }),
+                    };
+                    let desc =
+                        match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
+                            Some(CpEntry::Utf8(s)) => s.clone(),
+                            _ => return Err(VmError::InvalidFieldref { index: idx }),
+                        };
+                    Ok((name, desc))
+                }
+                _ => Err(VmError::InvalidFieldref { index: nat_idx }),
+            }
+        }
+        _ => Err(VmError::InvalidFieldref { index: idx }),
+    }
+}
+
+/// Index of a named instance field within ctx.fields (non-static only).
+fn instance_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
+    ctx.fields
+        .iter()
+        .filter(|f| !f.is_static)
+        .position(|f| f.name == name)
+        .ok_or(VmError::InvalidFieldref { index: 0 })
+}
+
+/// Index of a named static field within ctx.static_fields.
+fn static_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
+    ctx.fields
+        .iter()
+        .filter(|f| f.is_static)
+        .position(|f| f.name == name)
+        .ok_or(VmError::InvalidFieldref { index: 0 })
 }
 
 // ---------------------------------------------------------------------------
@@ -2046,5 +2229,70 @@ mod tests {
         let cp = make_cp(vec![Some(CpEntry::Utf8("not a methodref".to_string()))]);
         let err = resolve_methodref(&cp, 1).unwrap_err();
         assert!(matches!(err, VmError::InvalidMethodref { .. }));
+    }
+
+    // ---- Phase 6: object creation + field access ----
+
+    #[test]
+    fn point_sum_1_2_3_4() {
+        assert_eq!(
+            run_class_int("Point.class", "sumPoints", "(IIII)I", vec![1, 2, 3, 4]),
+            10
+        );
+    }
+
+    #[test]
+    fn point_sum_3_4_0_0() {
+        assert_eq!(
+            run_class_int("Point.class", "sumPoints", "(IIII)I", vec![3, 4, 0, 0]),
+            7
+        );
+    }
+
+    #[test]
+    fn point_sum_zeros() {
+        assert_eq!(
+            run_class_int("Point.class", "sumPoints", "(IIII)I", vec![0, 0, 0, 0]),
+            0
+        );
+    }
+
+    #[test]
+    fn point_sum_symmetry() {
+        let a = run_class_int("Point.class", "sumPoints", "(IIII)I", vec![1, 2, 3, 4]);
+        let b = run_class_int("Point.class", "sumPoints", "(IIII)I", vec![3, 4, 1, 2]);
+        assert_eq!(a, b);
+    }
+
+    // ---- Unit tests: resolve_fieldref ----
+
+    #[test]
+    fn resolve_fieldref_valid() {
+        use duke_classfile::types::CpIndex;
+        let cp = make_cp(vec![
+            Some(CpEntry::Fieldref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(4),
+                descriptor_index: CpIndex(5),
+            }),
+            Some(CpEntry::Utf8("x".to_string())),
+            Some(CpEntry::Utf8("I".to_string())),
+        ]);
+        let (name, desc) = resolve_fieldref(&cp, 1).unwrap();
+        assert_eq!(name, "x");
+        assert_eq!(desc, "I");
+    }
+
+    #[test]
+    fn resolve_fieldref_invalid() {
+        let cp = make_cp(vec![Some(CpEntry::Utf8("not a fieldref".to_string()))]);
+        let err = resolve_fieldref(&cp, 1).unwrap_err();
+        assert!(matches!(err, VmError::InvalidFieldref { .. }));
     }
 }
