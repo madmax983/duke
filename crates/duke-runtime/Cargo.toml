@@ -1,0 +1,8 @@
+[package]
+name = "duke-runtime"
+version.workspace = true
+edition.workspace = true
+description = "Duke JVM - Runtime data types (Slot, Frame, VmError)"
+
+[dependencies]
+thiserror.workspace = true

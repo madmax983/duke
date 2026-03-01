@@ -6,7 +6,9 @@ use duke_classfile::{
     types::{AttributeData, CpEntry, CpIndex},
     ClassFile,
 };
+use duke_interpreter::execute;
 use duke_loader::{ClassLoader, DirectoryLoader};
+use duke_runtime::Slot;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -14,12 +16,19 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke load <ClassName>");
+        eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         process::exit(1);
     }
 
     // Dispatch `load` before trying to read a file.
     if args.len() >= 3 && args[1] == "load" {
         load_and_dump(&args[2]);
+        return;
+    }
+
+    // Dispatch `exec`: run a static method and print the result.
+    if args.len() >= 4 && args[1] == "exec" {
+        exec_method(&args[2..]);
         return;
     }
 
@@ -64,6 +73,78 @@ fn load_and_dump(class_name: &str) {
         process::exit(1);
     });
     dump_class_file(&class_file);
+}
+
+// ---------------------------------------------------------------------------
+// Exec
+// ---------------------------------------------------------------------------
+
+/// `duke exec <classfile.class> <method> [int-arg...]`
+///
+/// Parses and executes a static method, printing the return value.
+fn exec_method(args: &[String]) {
+    if args.len() < 2 {
+        eprintln!("Usage: duke exec <classfile.class> <method> [int-arg...]");
+        process::exit(1);
+    }
+    let path = &args[0];
+    let method_name = &args[1];
+    let int_args: Vec<Slot> = args[2..]
+        .iter()
+        .map(|s| {
+            Slot::Int(s.parse::<i32>().unwrap_or_else(|_| {
+                eprintln!("duke: argument '{s}' is not an integer");
+                process::exit(1);
+            }))
+        })
+        .collect();
+
+    let bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("duke: cannot read '{path}': {e}");
+        process::exit(1);
+    });
+    let cf = parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error: {e}");
+        process::exit(1);
+    });
+
+    let method = cf
+        .methods
+        .iter()
+        .find(|m| {
+            let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize)
+            else {
+                return false;
+            };
+            s.as_str() == method_name.as_str()
+        })
+        .unwrap_or_else(|| {
+            eprintln!("duke: method '{method_name}' not found");
+            process::exit(1);
+        });
+
+    let code = method
+        .attributes
+        .iter()
+        .find_map(|a| if let AttributeData::Code(c) = &a.data { Some(c) } else { None })
+        .unwrap_or_else(|| {
+            eprintln!("duke: method '{method_name}' has no Code attribute");
+            process::exit(1);
+        });
+
+    let instructions = decode(&code.code).unwrap_or_else(|e| {
+        eprintln!("duke: decode error: {e}");
+        process::exit(1);
+    });
+
+    match execute(&instructions, &cf.constant_pool, int_args, code.max_stack, code.max_locals) {
+        Ok(Some(result)) => println!("{result:?}"),
+        Ok(None) => println!("(void)"),
+        Err(e) => {
+            eprintln!("duke: runtime error: {e}");
+            process::exit(1);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,10 @@
+[package]
+name = "duke-interpreter"
+version.workspace = true
+edition.workspace = true
+description = "Duke JVM - Switch-dispatch bytecode interpreter"
+
+[dependencies]
+duke-runtime = { path = "../duke-runtime" }
+duke-bytecode = { path = "../duke-bytecode" }
+duke-classfile = { path = "../duke-classfile" }

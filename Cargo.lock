@@ -62,7 +62,9 @@ version = "0.1.0"
 dependencies = [
  "duke-bytecode",
  "duke-classfile",
+ "duke-interpreter",
  "duke-loader",
+ "duke-runtime",
 ]
 
 [[package]]
@@ -84,11 +86,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "duke-interpreter"
+version = "0.1.0"
+dependencies = [
+ "duke-bytecode",
+ "duke-classfile",
+ "duke-runtime",
+]
+
+[[package]]
 name = "duke-loader"
 version = "0.1.0"
 dependencies = [
  "duke-classfile",
  "flate2",
+ "thiserror",
+]
+
+[[package]]
+name = "duke-runtime"
+version = "0.1.0"
+dependencies = [
  "thiserror",
 ]
 
