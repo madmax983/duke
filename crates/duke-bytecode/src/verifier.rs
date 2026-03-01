@@ -400,10 +400,10 @@ fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResu
         _ => None,
     };
 
-    if let Some(i) = idx {
-        if i >= max_locals {
-            return Err(VerifyError::LocalOutOfBounds { pc, index: i, max_locals });
-        }
+    if let Some(i) = idx
+        && i >= max_locals
+    {
+        return Err(VerifyError::LocalOutOfBounds { pc, index: i, max_locals });
     }
     Ok(())
 }

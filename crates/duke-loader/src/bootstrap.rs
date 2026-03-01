@@ -1,0 +1,48 @@
+use std::path::Path;
+
+use crate::{ClassLoader, DirectoryLoader, JImageReader, LoadError, LoadResult};
+
+/// Bootstrap class loader.
+///
+/// Resolves classes by trying the JDK jimage first (for standard library
+/// classes), then falling through to classpath directories (for application
+/// classes).
+pub struct BootstrapLoader {
+    jimage: JImageReader,
+    classpath: Vec<DirectoryLoader>,
+}
+
+impl BootstrapLoader {
+    /// Create a new bootstrap loader.
+    ///
+    /// - `modules_path`: path to the JDK `lib/modules` jimage file.
+    /// - `classpath_dirs`: directories to search for application classes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LoadError`] if the jimage file cannot be opened.
+    pub fn new(
+        modules_path: &Path,
+        classpath_dirs: Vec<impl AsRef<Path>>,
+    ) -> LoadResult<Self> {
+        let jimage = JImageReader::open(modules_path)?;
+        let classpath = classpath_dirs.into_iter().map(|p| DirectoryLoader::new(p)).collect();
+        Ok(Self { jimage, classpath })
+    }
+}
+
+impl ClassLoader for BootstrapLoader {
+    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+        // Standard library: try jimage first
+        if let Ok(bytes) = self.jimage.find_class(name) {
+            return Ok(bytes);
+        }
+        // Application classes: classpath directories
+        for loader in &self.classpath {
+            if let Ok(bytes) = loader.find_class(name) {
+                return Ok(bytes);
+            }
+        }
+        Err(LoadError::NotFound { name: name.to_string() })
+    }
+}

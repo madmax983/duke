@@ -1,0 +1,12 @@
+[package]
+name = "duke-loader"
+version.workspace = true
+edition.workspace = true
+description = "Duke JVM - Bootstrap class loader (classpath + jimage)"
+
+[dependencies]
+thiserror.workspace = true
+flate2.workspace = true
+
+[dev-dependencies]
+duke-classfile = { path = "../duke-classfile" }

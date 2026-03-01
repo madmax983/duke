@@ -6,16 +6,24 @@ use duke_classfile::{
     types::{AttributeData, CpEntry, CpIndex},
     ClassFile,
 };
+use duke_loader::{ClassLoader, DirectoryLoader};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
+        eprintln!("       duke load <ClassName>");
         process::exit(1);
     }
 
-    // Support an optional subcommand; default to "dump" for Phase 1.
+    // Dispatch `load` before trying to read a file.
+    if args.len() >= 3 && args[1] == "load" {
+        load_and_dump(&args[2]);
+        return;
+    }
+
+    // Default: dump — reads the file at the given path.
     let (subcommand, path) = if args.len() >= 3 {
         (args[1].as_str(), args[2].as_str())
     } else {
@@ -39,6 +47,23 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+/// `duke load <ClassName>` — load a class by internal name from the current
+/// directory and dump its structure.
+///
+/// Example: `duke load HelloWorld` loads `./HelloWorld.class`.
+fn load_and_dump(class_name: &str) {
+    let loader = DirectoryLoader::new(".");
+    let bytes = loader.find_class(class_name).unwrap_or_else(|e| {
+        eprintln!("duke: {e}");
+        process::exit(1);
+    });
+    let class_file = parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error for '{class_name}': {e}");
+        process::exit(1);
+    });
+    dump_class_file(&class_file);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +146,7 @@ fn dump_class_file(cf: &ClassFile) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn cp_str<'a>(cf: &'a ClassFile, idx: CpIndex) -> Option<&'a str> {
+fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
         .and_then(|slot| slot.as_ref())
@@ -134,7 +159,7 @@ fn cp_str<'a>(cf: &'a ClassFile, idx: CpIndex) -> Option<&'a str> {
         })
 }
 
-fn resolve_class_name<'a>(cf: &'a ClassFile, idx: CpIndex) -> &'a str {
+fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     if idx.0 == 0 {
         return "<none>";
     }

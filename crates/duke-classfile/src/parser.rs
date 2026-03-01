@@ -490,7 +490,7 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
-pub(crate) fn cp_utf8<'a>(pool: &'a [Option<CpEntry>], idx: CpIndex) -> ParseResult<&'a str> {
+pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&str> {
     let i = idx.0 as usize;
     if i == 0 {
         return Err(ParseError::CpIndexZero);

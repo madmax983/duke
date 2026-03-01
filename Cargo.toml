@@ -4,6 +4,7 @@ members = [
     "duke",
     "crates/duke-classfile",
     "crates/duke-bytecode",
+    "crates/duke-loader",
 ]
 
 [workspace.package]
@@ -15,6 +16,7 @@ authors = ["Mark"]
 thiserror = "2"
 proptest = "1"
 bitflags = "2"
+flate2 = "1"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
