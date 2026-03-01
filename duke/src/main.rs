@@ -6,7 +6,7 @@ use duke_classfile::{
     types::{AttributeData, CpEntry, CpIndex},
     ClassFile,
 };
-use duke_interpreter::execute;
+use duke_interpreter::{ClassContext, MethodEntry, execute_class};
 use duke_loader::{ClassLoader, DirectoryLoader};
 use duke_runtime::Slot;
 
@@ -108,7 +108,8 @@ fn exec_method(args: &[String]) {
         process::exit(1);
     });
 
-    let method = cf
+    // Find the target method's descriptor.
+    let target = cf
         .methods
         .iter()
         .find(|m| {
@@ -122,22 +123,38 @@ fn exec_method(args: &[String]) {
             eprintln!("duke: method '{method_name}' not found");
             process::exit(1);
         });
+    let descriptor = cp_str(&cf, target.descriptor_index).unwrap_or("").to_string();
 
-    let code = method
-        .attributes
+    // Build ClassContext -- decode all methods.
+    let methods: Vec<MethodEntry> = cf
+        .methods
         .iter()
-        .find_map(|a| if let AttributeData::Code(c) = &a.data { Some(c) } else { None })
-        .unwrap_or_else(|| {
-            eprintln!("duke: method '{method_name}' has no Code attribute");
-            process::exit(1);
-        });
+        .filter_map(|m| {
+            let name = match cf.constant_pool.get(m.name_index.0 as usize) {
+                Some(Some(CpEntry::Utf8(s))) => s.clone(),
+                _ => return None,
+            };
+            let desc = match cf.constant_pool.get(m.descriptor_index.0 as usize) {
+                Some(Some(CpEntry::Utf8(s))) => s.clone(),
+                _ => return None,
+            };
+            let code = m.attributes.iter().find_map(|a| {
+                if let AttributeData::Code(c) = &a.data { Some(c) } else { None }
+            })?;
+            let instructions = decode(&code.code).ok()?;
+            Some(MethodEntry {
+                name,
+                descriptor: desc,
+                instructions,
+                max_stack: code.max_stack,
+                max_locals: code.max_locals,
+            })
+        })
+        .collect();
 
-    let instructions = decode(&code.code).unwrap_or_else(|e| {
-        eprintln!("duke: decode error: {e}");
-        process::exit(1);
-    });
+    let ctx = ClassContext { constant_pool: cf.constant_pool, methods };
 
-    match execute(&instructions, &cf.constant_pool, int_args, code.max_stack, code.max_locals) {
+    match execute_class(&ctx, method_name, &descriptor, &int_args) {
         Ok(Some(result)) => println!("{result:?}"),
         Ok(None) => println!("(void)"),
         Err(e) => {
