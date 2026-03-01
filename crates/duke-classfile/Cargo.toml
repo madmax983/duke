@@ -1,0 +1,12 @@
+[package]
+name = "duke-classfile"
+version.workspace = true
+edition.workspace = true
+description = "JVM .class file parser for Duke JVM"
+
+[dependencies]
+thiserror.workspace = true
+bitflags.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

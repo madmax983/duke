@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "duke",
+    "crates/duke-classfile",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+authors = ["Mark"]
+
+[workspace.dependencies]
+thiserror = "2"
+proptest = "1"
+bitflags = "2"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }

@@ -1,0 +1,12 @@
+[package]
+name = "duke"
+version.workspace = true
+edition.workspace = true
+description = "Duke JVM - A JVM implementation in Rust"
+
+[[bin]]
+name = "duke"
+path = "src/main.rs"
+
+[dependencies]
+duke-classfile = { path = "../crates/duke-classfile" }
