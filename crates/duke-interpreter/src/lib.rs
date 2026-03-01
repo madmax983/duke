@@ -10,6 +10,21 @@ use duke_bytecode::Instruction;
 use duke_classfile::types::CpEntry;
 use duke_runtime::{Frame, Slot, VmError, VmResult};
 
+/// A decoded method ready for execution.
+pub struct MethodEntry {
+    pub name: String,
+    pub descriptor: String,
+    pub instructions: Vec<(usize, Instruction)>,
+    pub max_stack: u16,
+    pub max_locals: u16,
+}
+
+/// A parsed class with all methods decoded — the unit of execution for Phase 5+.
+pub struct ClassContext {
+    pub constant_pool: Vec<Option<CpEntry>>,
+    pub methods: Vec<MethodEntry>,
+}
+
 /// Execute a decoded JVM instruction stream.
 ///
 /// # Parameters
@@ -656,6 +671,303 @@ pub fn execute(
     }
 }
 
+/// Execute a static method by name within a loaded class context.
+///
+/// Supports `invokestatic` calls between methods in the same class.
+///
+/// # Errors
+/// Returns [`VmError`] on execution faults or if `method_name`/`descriptor`
+/// are not found in `ctx`.
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::too_many_lines
+)]
+pub fn execute_class(
+    ctx: &ClassContext,
+    method_name: &str,
+    descriptor: &str,
+    args: &[Slot],
+) -> VmResult<Option<Slot>> {
+    // Find entry method.
+    let entry_idx = ctx
+        .methods
+        .iter()
+        .position(|m| m.name == method_name && m.descriptor == descriptor)
+        .ok_or_else(|| VmError::MethodNotFound {
+            name: method_name.to_string(),
+            descriptor: descriptor.to_string(),
+        })?;
+
+    let mut call_stack: Vec<CallFrame> = Vec::new();
+    let mut method_idx = entry_idx;
+    let mut pc_to_idx: HashMap<usize, usize> = ctx.methods[method_idx]
+        .instructions
+        .iter()
+        .enumerate()
+        .map(|(i, &(pc, _))| (pc, i))
+        .collect();
+    let mut frame = Frame::new(
+        usize::from(ctx.methods[method_idx].max_stack),
+        usize::from(ctx.methods[method_idx].max_locals),
+        args.to_vec(),
+    )?;
+    let mut idx: usize = 0;
+
+    loop {
+        let Some(&(pc, ref instr)) = ctx.methods[method_idx].instructions.get(idx) else {
+            return Err(VmError::FellOffEnd);
+        };
+        // Clone to release borrow on ctx before the match body can mutate state.
+        let instr = instr.clone();
+
+        macro_rules! jump {
+            ($offset:expr) => {{
+                let target = (pc as i64).wrapping_add(i64::from($offset)) as usize;
+                idx = *pc_to_idx
+                    .get(&target)
+                    .ok_or(VmError::InvalidBranchTarget { pc: target })?;
+                continue;
+            }};
+        }
+
+        // Helper macro for return instructions: pop call stack or return to Rust.
+        macro_rules! do_return {
+            ($val:expr) => {{
+                match call_stack.pop() {
+                    None => return Ok($val),
+                    Some(caller) => {
+                        let ret_val = $val;
+                        frame = caller.frame;
+                        method_idx = caller.method_idx;
+                        pc_to_idx = caller.pc_to_idx;
+                        idx = caller.resume_idx;
+                        if let Some(v) = ret_val {
+                            frame.push(v)?;
+                        }
+                        continue;
+                    }
+                }
+            }};
+        }
+
+        match &instr {
+            // ---- invokestatic ----
+            Instruction::Invokestatic(cp_idx) => {
+                let (callee_name, callee_desc) =
+                    resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let callee_idx = ctx
+                    .methods
+                    .iter()
+                    .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                    .ok_or_else(|| VmError::MethodNotFound {
+                        name: callee_name.clone(),
+                        descriptor: callee_desc.clone(),
+                    })?;
+                let arg_count = parse_arg_count(&callee_desc);
+                let mut callee_args: Vec<Slot> =
+                    (0..arg_count).map(|_| frame.pop()).collect::<VmResult<Vec<_>>>()?;
+                callee_args.reverse();
+                let callee_pc_to_idx: HashMap<usize, usize> = ctx.methods[callee_idx]
+                    .instructions
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &(pc, _))| (pc, i))
+                    .collect();
+                let callee_frame = Frame::new(
+                    usize::from(ctx.methods[callee_idx].max_stack),
+                    usize::from(ctx.methods[callee_idx].max_locals),
+                    callee_args,
+                )?;
+                call_stack.push(CallFrame {
+                    frame,
+                    method_idx,
+                    pc_to_idx,
+                    resume_idx: idx + 1,
+                });
+                frame = callee_frame;
+                method_idx = callee_idx;
+                pc_to_idx = callee_pc_to_idx;
+                idx = 0;
+                continue;
+            }
+
+            // ---- returns ----
+            Instruction::Return => do_return!(None),
+            Instruction::Ireturn => { let v = frame.pop_int()?; do_return!(Some(Slot::Int(v))); }
+            Instruction::Lreturn => { let v = frame.pop_long()?; do_return!(Some(Slot::Long(v))); }
+            Instruction::Freturn => { let v = frame.pop_float()?; do_return!(Some(Slot::Float(v))); }
+            Instruction::Dreturn => { let v = frame.pop_double()?; do_return!(Some(Slot::Double(v))); }
+
+            // ---- all other instructions: same as execute() ----
+            Instruction::Nop => {}
+            Instruction::AconstNull => frame.push(Slot::Reference(None))?,
+            Instruction::IconstM1 => frame.push(Slot::Int(-1))?,
+            Instruction::Iconst0 => frame.push(Slot::Int(0))?,
+            Instruction::Iconst1 => frame.push(Slot::Int(1))?,
+            Instruction::Iconst2 => frame.push(Slot::Int(2))?,
+            Instruction::Iconst3 => frame.push(Slot::Int(3))?,
+            Instruction::Iconst4 => frame.push(Slot::Int(4))?,
+            Instruction::Iconst5 => frame.push(Slot::Int(5))?,
+            Instruction::Lconst0 => frame.push(Slot::Long(0))?,
+            Instruction::Lconst1 => frame.push(Slot::Long(1))?,
+            Instruction::Fconst0 => frame.push(Slot::Float(0.0))?,
+            Instruction::Fconst1 => frame.push(Slot::Float(1.0))?,
+            Instruction::Fconst2 => frame.push(Slot::Float(2.0))?,
+            Instruction::Dconst0 => frame.push(Slot::Double(0.0))?,
+            Instruction::Dconst1 => frame.push(Slot::Double(1.0))?,
+            Instruction::Bipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
+            Instruction::Sipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
+            Instruction::Ldc(raw_idx) => ldc_push(&mut frame, &ctx.constant_pool, usize::from(*raw_idx))?,
+            Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
+                ldc_push(&mut frame, &ctx.constant_pool, usize::from(cp_idx.0))?;
+            }
+            Instruction::Iload(i) | Instruction::Lload(i) | Instruction::Fload(i)
+            | Instruction::Dload(i) | Instruction::Aload(i) => {
+                let slot = frame.load_local(usize::from(*i))?;
+                frame.push(slot)?;
+            }
+            Instruction::Iload0 | Instruction::Lload0 | Instruction::Fload0
+            | Instruction::Dload0 | Instruction::Aload0 => { let s = frame.load_local(0)?; frame.push(s)?; }
+            Instruction::Iload1 | Instruction::Lload1 | Instruction::Fload1
+            | Instruction::Dload1 | Instruction::Aload1 => { let s = frame.load_local(1)?; frame.push(s)?; }
+            Instruction::Iload2 | Instruction::Lload2 | Instruction::Fload2
+            | Instruction::Dload2 | Instruction::Aload2 => { let s = frame.load_local(2)?; frame.push(s)?; }
+            Instruction::Iload3 | Instruction::Lload3 | Instruction::Fload3
+            | Instruction::Dload3 | Instruction::Aload3 => { let s = frame.load_local(3)?; frame.push(s)?; }
+            Instruction::IloadW(i) | Instruction::LloadW(i) | Instruction::FloadW(i)
+            | Instruction::DloadW(i) | Instruction::AloadW(i) => {
+                let slot = frame.load_local(usize::from(*i))?;
+                frame.push(slot)?;
+            }
+            Instruction::Istore(i) | Instruction::Lstore(i) | Instruction::Fstore(i)
+            | Instruction::Dstore(i) | Instruction::Astore(i) => {
+                let v = frame.pop()?; frame.store_local(usize::from(*i), v)?;
+            }
+            Instruction::Istore0 | Instruction::Lstore0 | Instruction::Fstore0
+            | Instruction::Dstore0 | Instruction::Astore0 => { let v = frame.pop()?; frame.store_local(0, v)?; }
+            Instruction::Istore1 | Instruction::Lstore1 | Instruction::Fstore1
+            | Instruction::Dstore1 | Instruction::Astore1 => { let v = frame.pop()?; frame.store_local(1, v)?; }
+            Instruction::Istore2 | Instruction::Lstore2 | Instruction::Fstore2
+            | Instruction::Dstore2 | Instruction::Astore2 => { let v = frame.pop()?; frame.store_local(2, v)?; }
+            Instruction::Istore3 | Instruction::Lstore3 | Instruction::Fstore3
+            | Instruction::Dstore3 | Instruction::Astore3 => { let v = frame.pop()?; frame.store_local(3, v)?; }
+            Instruction::IstoreW(i) | Instruction::LstoreW(i) | Instruction::FstoreW(i)
+            | Instruction::DstoreW(i) | Instruction::AstoreW(i) => {
+                let v = frame.pop()?; frame.store_local(usize::from(*i), v)?;
+            }
+            Instruction::Pop => { frame.pop()?; }
+            Instruction::Pop2 => { frame.pop()?; frame.pop()?; }
+            Instruction::Dup => { let v = frame.pop()?; frame.push(v.clone())?; frame.push(v)?; }
+            Instruction::Swap => { let a = frame.pop()?; let b = frame.pop()?; frame.push(a)?; frame.push(b)?; }
+            Instruction::Iadd => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_add(b)))?; }
+            Instruction::Isub => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_sub(b)))?; }
+            Instruction::Imul => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_mul(b)))?; }
+            Instruction::Idiv => { let b = frame.pop_int()?; let a = frame.pop_int()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Int(a.wrapping_div(b)))?; }
+            Instruction::Irem => { let b = frame.pop_int()?; let a = frame.pop_int()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Int(a.wrapping_rem(b)))?; }
+            Instruction::Ineg => { let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_neg()))?; }
+            Instruction::Ishl => { let s = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_shl((s & 0x1F) as u32)))?; }
+            Instruction::Ishr => { let s = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_shr((s & 0x1F) as u32)))?; }
+            Instruction::Iushr => { let s = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(((a as u32) >> (s as u32 & 0x1F)) as i32))?; }
+            Instruction::Iand => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a & b))?; }
+            Instruction::Ior => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a | b))?; }
+            Instruction::Ixor => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a ^ b))?; }
+            Instruction::Iinc { index, value } => {
+                let v = frame.load_local(usize::from(*index))?.as_int()?;
+                frame.store_local(usize::from(*index), Slot::Int(v.wrapping_add(i32::from(*value))))?;
+            }
+            Instruction::IincW { index, value } => {
+                let v = frame.load_local(usize::from(*index))?.as_int()?;
+                frame.store_local(usize::from(*index), Slot::Int(v.wrapping_add(i32::from(*value))))?;
+            }
+            Instruction::Ladd => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_add(b)))?; }
+            Instruction::Lsub => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_sub(b)))?; }
+            Instruction::Lmul => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_mul(b)))?; }
+            Instruction::Ldiv => { let b = frame.pop_long()?; let a = frame.pop_long()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Long(a.wrapping_div(b)))?; }
+            Instruction::Lrem => { let b = frame.pop_long()?; let a = frame.pop_long()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Long(a.wrapping_rem(b)))?; }
+            Instruction::Lneg => { let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_neg()))?; }
+            Instruction::Lshl => { let s = frame.pop_int()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_shl((s & 0x3F) as u32)))?; }
+            Instruction::Lshr => { let s = frame.pop_int()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_shr((s & 0x3F) as u32)))?; }
+            Instruction::Lushr => { let s = frame.pop_int()?; let a = frame.pop_long()?; frame.push(Slot::Long(((a as u64) >> (s as u32 & 0x3F)) as i64))?; }
+            Instruction::Land => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a & b))?; }
+            Instruction::Lor => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a | b))?; }
+            Instruction::Lxor => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a ^ b))?; }
+            Instruction::Lcmp => {
+                let b = frame.pop_long()?; let a = frame.pop_long()?;
+                let r = match a.cmp(&b) { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, std::cmp::Ordering::Greater => 1 };
+                frame.push(Slot::Int(r))?;
+            }
+            Instruction::Fadd => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a + b))?; }
+            Instruction::Fsub => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a - b))?; }
+            Instruction::Fmul => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a * b))?; }
+            Instruction::Fdiv => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a / b))?; }
+            Instruction::Frem => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a % b))?; }
+            Instruction::Fneg => { let a = frame.pop_float()?; frame.push(Slot::Float(-a))?; }
+            Instruction::Fcmpl | Instruction::Fcmpg => {
+                let b = frame.pop_float()?; let a = frame.pop_float()?;
+                let r = if a > b { 1 } else if a < b { -1 } else if a == b { 0 } else if matches!(instr, Instruction::Fcmpg) { 1 } else { -1 };
+                frame.push(Slot::Int(r))?;
+            }
+            Instruction::Dadd => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a + b))?; }
+            Instruction::Dsub => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a - b))?; }
+            Instruction::Dmul => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a * b))?; }
+            Instruction::Ddiv => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a / b))?; }
+            Instruction::Drem => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a % b))?; }
+            Instruction::Dneg => { let a = frame.pop_double()?; frame.push(Slot::Double(-a))?; }
+            Instruction::Dcmpl | Instruction::Dcmpg => {
+                let b = frame.pop_double()?; let a = frame.pop_double()?;
+                let r = if a > b { 1 } else if a < b { -1 } else if a == b { 0 } else if matches!(instr, Instruction::Dcmpg) { 1 } else { -1 };
+                frame.push(Slot::Int(r))?;
+            }
+            Instruction::I2l => { let v = frame.pop_int()?; frame.push(Slot::Long(i64::from(v)))?; }
+            Instruction::I2f => { let v = frame.pop_int()?; frame.push(Slot::Float(v as f32))?; }
+            Instruction::I2d => { let v = frame.pop_int()?; frame.push(Slot::Double(f64::from(v)))?; }
+            Instruction::L2i => { let v = frame.pop_long()?; frame.push(Slot::Int(v as i32))?; }
+            Instruction::L2f => { let v = frame.pop_long()?; frame.push(Slot::Float(v as f32))?; }
+            Instruction::L2d => { let v = frame.pop_long()?; frame.push(Slot::Double(v as f64))?; }
+            Instruction::F2i => { let v = frame.pop_float()?; frame.push(Slot::Int(v as i32))?; }
+            Instruction::F2l => { let v = frame.pop_float()?; frame.push(Slot::Long(v as i64))?; }
+            Instruction::F2d => { let v = frame.pop_float()?; frame.push(Slot::Double(f64::from(v)))?; }
+            Instruction::D2i => { let v = frame.pop_double()?; frame.push(Slot::Int(v as i32))?; }
+            Instruction::D2l => { let v = frame.pop_double()?; frame.push(Slot::Long(v as i64))?; }
+            Instruction::D2f => { let v = frame.pop_double()?; frame.push(Slot::Float(v as f32))?; }
+            Instruction::I2b => { let v = frame.pop_int()?; frame.push(Slot::Int(v as i8 as i32))?; }
+            Instruction::I2c => { let v = frame.pop_int()?; frame.push(Slot::Int(v as u16 as i32))?; }
+            Instruction::I2s => { let v = frame.pop_int()?; frame.push(Slot::Int(v as i16 as i32))?; }
+            Instruction::Goto(offset) => jump!(*offset),
+            Instruction::GotoW(offset) => jump!(*offset),
+            Instruction::Ifeq(offset) => { if frame.pop_int()? == 0 { jump!(*offset); } }
+            Instruction::Ifne(offset) => { if frame.pop_int()? != 0 { jump!(*offset); } }
+            Instruction::Iflt(offset) => { if frame.pop_int()? < 0 { jump!(*offset); } }
+            Instruction::Ifge(offset) => { if frame.pop_int()? >= 0 { jump!(*offset); } }
+            Instruction::Ifgt(offset) => { if frame.pop_int()? > 0 { jump!(*offset); } }
+            Instruction::Ifle(offset) => { if frame.pop_int()? <= 0 { jump!(*offset); } }
+            Instruction::Ifnull(offset) => { if matches!(frame.pop()?, Slot::Reference(None)) { jump!(*offset); } }
+            Instruction::Ifnonnull(offset) => { if !matches!(frame.pop()?, Slot::Reference(None)) { jump!(*offset); } }
+            Instruction::IfIcmpeq(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a == b { jump!(*offset); } }
+            Instruction::IfIcmpne(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a != b { jump!(*offset); } }
+            Instruction::IfIcmplt(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a < b { jump!(*offset); } }
+            Instruction::IfIcmpge(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a >= b { jump!(*offset); } }
+            Instruction::IfIcmpgt(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a > b { jump!(*offset); } }
+            Instruction::IfIcmple(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a <= b { jump!(*offset); } }
+            Instruction::IfAcmpeq(_) | Instruction::IfAcmpne(_) => { frame.pop()?; frame.pop()?; }
+            other => return Err(VmError::Unimplemented { mnemonic: other.mnemonic() }),
+        }
+
+        idx += 1;
+    }
+}
+
+/// Saved state of a caller frame suspended during an invokestatic call.
+struct CallFrame {
+    frame: Frame,
+    method_idx: usize,
+    pc_to_idx: HashMap<usize, usize>,
+    resume_idx: usize,
+}
+
 /// Push a constant pool value onto the frame's operand stack.
 fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<()> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
@@ -665,6 +977,64 @@ fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<(
         Some(CpEntry::Double(v)) => frame.push(Slot::Double(*v)),
         _ => Err(VmError::InvalidCpIndex { index: idx }),
     }
+}
+
+/// Resolve a constant pool Methodref to (method_name, descriptor).
+fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String)> {
+    match cp.get(idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::Methodref { name_and_type_index, .. }) => {
+            let nat_idx = name_and_type_index.0 as usize;
+            match cp.get(nat_idx).and_then(|e| e.as_ref()) {
+                Some(CpEntry::NameAndType { name_index, descriptor_index }) => {
+                    let name = match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(VmError::InvalidMethodref { index: idx }),
+                    };
+                    let desc = match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(VmError::InvalidMethodref { index: idx }),
+                    };
+                    Ok((name, desc))
+                }
+                _ => Err(VmError::InvalidMethodref { index: nat_idx }),
+            }
+        }
+        _ => Err(VmError::InvalidMethodref { index: idx }),
+    }
+}
+
+/// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
+fn parse_arg_count(descriptor: &str) -> usize {
+    let params = descriptor.find(')').map(|i| &descriptor[1..i]).unwrap_or("");
+    let mut count = 0;
+    let mut chars = params.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => count += 1,
+            '[' => {
+                while chars.peek() == Some(&'[') {
+                    chars.next();
+                }
+                if chars.peek() == Some(&'L') {
+                    chars.next();
+                    for c2 in chars.by_ref() {
+                        if c2 == ';' { break; }
+                    }
+                } else {
+                    chars.next();
+                }
+                count += 1;
+            }
+            'L' => {
+                for c2 in chars.by_ref() {
+                    if c2 == ';' { break; }
+                }
+                count += 1;
+            }
+            _ => {}
+        }
+    }
+    count
 }
 
 // ---------------------------------------------------------------------------
@@ -961,5 +1331,153 @@ mod tests {
     #[test]
     fn int_sum_to_100() {
         assert_eq!(run_static_int("Arithmetic.class", "sumTo", vec![100]), 5050);
+    }
+
+    // ---- Phase 5: ClassContext + execute_class() tests ----
+
+    fn load_class_context(class_name: &str) -> ClassContext {
+        use duke_bytecode::decode;
+        use duke_classfile::{parse, types::AttributeData};
+
+        let bytes = std::fs::read(fixture(class_name)).expect("fixture not found");
+        let cf = parse(&bytes).expect("parse failed");
+
+        let methods = cf
+            .methods
+            .iter()
+            .filter_map(|m| {
+                let name = match cf.constant_pool.get(m.name_index.0 as usize) {
+                    Some(Some(CpEntry::Utf8(s))) => s.clone(),
+                    _ => return None,
+                };
+                let descriptor = match cf.constant_pool.get(m.descriptor_index.0 as usize) {
+                    Some(Some(CpEntry::Utf8(s))) => s.clone(),
+                    _ => return None,
+                };
+                let code = m.attributes.iter().find_map(|a| {
+                    if let AttributeData::Code(c) = &a.data { Some(c) } else { None }
+                })?;
+                let instructions = decode(&code.code).ok()?;
+                Some(MethodEntry {
+                    name,
+                    descriptor,
+                    instructions,
+                    max_stack: code.max_stack,
+                    max_locals: code.max_locals,
+                })
+            })
+            .collect();
+
+        ClassContext {
+            constant_pool: cf.constant_pool,
+            methods,
+        }
+    }
+
+    fn run_class_int(class_name: &str, method_name: &str, descriptor: &str, args: Vec<i32>) -> i32 {
+        let ctx = load_class_context(class_name);
+        let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
+        match execute_class(&ctx, method_name, descriptor, &slots).expect("execute_class failed") {
+            Some(Slot::Int(v)) => v,
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn class_square() {
+        assert_eq!(run_class_int("MathUtils.class", "square", "(I)I", vec![7]), 49);
+    }
+
+    #[test]
+    fn class_sum_of_squares_3_4() {
+        assert_eq!(run_class_int("MathUtils.class", "sumOfSquares", "(II)I", vec![3, 4]), 25);
+    }
+
+    #[test]
+    fn class_sum_of_squares_5_12() {
+        assert_eq!(run_class_int("MathUtils.class", "sumOfSquares", "(II)I", vec![5, 12]), 169);
+    }
+
+    #[test]
+    fn class_power_2_10() {
+        assert_eq!(run_class_int("MathUtils.class", "power", "(II)I", vec![2, 10]), 1024);
+    }
+
+    #[test]
+    fn class_gcd_48_18() {
+        assert_eq!(run_class_int("MathUtils.class", "gcd", "(II)I", vec![48, 18]), 6);
+    }
+
+    #[test]
+    fn class_method_not_found() {
+        let ctx = load_class_context("MathUtils.class");
+        let err = execute_class(&ctx, "nonExistent", "(I)I", &[]).unwrap_err();
+        assert!(matches!(err, VmError::MethodNotFound { .. }));
+    }
+
+    // ---- Unit tests: parse_arg_count ----
+
+    #[test]
+    fn arg_count_empty() { assert_eq!(parse_arg_count("()V"), 0); }
+
+    #[test]
+    fn arg_count_single_int() { assert_eq!(parse_arg_count("(I)I"), 1); }
+
+    #[test]
+    fn arg_count_two_ints() { assert_eq!(parse_arg_count("(II)I"), 2); }
+
+    #[test]
+    fn arg_count_long_double() { assert_eq!(parse_arg_count("(JD)V"), 2); }
+
+    #[test]
+    fn arg_count_object_ref() { assert_eq!(parse_arg_count("(Ljava/lang/String;I)V"), 2); }
+
+    #[test]
+    fn arg_count_array() { assert_eq!(parse_arg_count("([II)I"), 2); }
+
+    #[test]
+    fn arg_count_mixed() { assert_eq!(parse_arg_count("(ILjava/lang/Object;Z)V"), 3); }
+
+    // ---- Unit tests: resolve_methodref ----
+
+    fn make_cp(entries: Vec<Option<CpEntry>>) -> Vec<Option<CpEntry>> {
+        let mut cp = vec![None]; // slot 0 reserved
+        cp.extend(entries);
+        cp
+    }
+
+    #[test]
+    fn resolve_methodref_valid() {
+        use duke_classfile::types::CpIndex;
+        let cp = make_cp(vec![
+            Some(CpEntry::Methodref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class { name_index: CpIndex(4) }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(4),
+                descriptor_index: CpIndex(5),
+            }),
+            Some(CpEntry::Utf8("square".to_string())),
+            Some(CpEntry::Utf8("(I)I".to_string())),
+        ]);
+        let (name, desc) = resolve_methodref(&cp, 1).unwrap();
+        assert_eq!(name, "square");
+        assert_eq!(desc, "(I)I");
+    }
+
+    #[test]
+    fn resolve_methodref_invalid_index() {
+        let cp = make_cp(vec![]);
+        let err = resolve_methodref(&cp, 99).unwrap_err();
+        assert!(matches!(err, VmError::InvalidMethodref { index: 99 }));
+    }
+
+    #[test]
+    fn resolve_methodref_not_a_methodref() {
+        let cp = make_cp(vec![Some(CpEntry::Utf8("not a methodref".to_string()))]);
+        let err = resolve_methodref(&cp, 1).unwrap_err();
+        assert!(matches!(err, VmError::InvalidMethodref { .. }));
     }
 }
