@@ -2,9 +2,8 @@ use std::process;
 
 use duke_bytecode::decode;
 use duke_classfile::{
-    parse,
+    ClassFile, parse,
     types::{AttributeData, CpEntry, CpIndex},
-    ClassFile,
 };
 use duke_interpreter::{ClassContext, MethodEntry, execute_class};
 use duke_loader::{ClassLoader, DirectoryLoader};
@@ -113,8 +112,7 @@ fn exec_method(args: &[String]) {
         .methods
         .iter()
         .find(|m| {
-            let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize)
-            else {
+            let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize) else {
                 return false;
             };
             s.as_str() == method_name.as_str()
@@ -123,7 +121,9 @@ fn exec_method(args: &[String]) {
             eprintln!("duke: method '{method_name}' not found");
             process::exit(1);
         });
-    let descriptor = cp_str(&cf, target.descriptor_index).unwrap_or("").to_string();
+    let descriptor = cp_str(&cf, target.descriptor_index)
+        .unwrap_or("")
+        .to_string();
 
     // Build ClassContext -- decode all methods.
     let methods: Vec<MethodEntry> = cf
@@ -139,7 +139,11 @@ fn exec_method(args: &[String]) {
                 _ => return None,
             };
             let code = m.attributes.iter().find_map(|a| {
-                if let AttributeData::Code(c) = &a.data { Some(c) } else { None }
+                if let AttributeData::Code(c) = &a.data {
+                    Some(c)
+                } else {
+                    None
+                }
             })?;
             let instructions = decode(&code.code).ok()?;
             Some(MethodEntry {
@@ -152,7 +156,10 @@ fn exec_method(args: &[String]) {
         })
         .collect();
 
-    let ctx = ClassContext { constant_pool: cf.constant_pool, methods };
+    let ctx = ClassContext {
+        constant_pool: cf.constant_pool,
+        methods,
+    };
 
     match execute_class(&ctx, method_name, &descriptor, &int_args) {
         Ok(Some(result)) => println!("{result:?}"),
@@ -179,7 +186,10 @@ fn dump_class_file(cf: &ClassFile) {
     println!();
 
     // Constant pool
-    println!("=== Constant Pool ({} slots) ===", cf.constant_pool.len() - 1);
+    println!(
+        "=== Constant Pool ({} slots) ===",
+        cf.constant_pool.len() - 1
+    );
     for (i, entry) in cf.constant_pool.iter().enumerate() {
         if i == 0 {
             continue; // slot 0 is reserved
@@ -261,7 +271,10 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     if idx.0 == 0 {
         return "<none>";
     }
-    let class_entry = cf.constant_pool.get(idx.0 as usize).and_then(|s| s.as_ref());
+    let class_entry = cf
+        .constant_pool
+        .get(idx.0 as usize)
+        .and_then(|s| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
     } else {
@@ -284,34 +297,70 @@ fn format_cp_entry(cf: &ClassFile, entry: &CpEntry) -> String {
             let s = cp_str(cf, *string_index).unwrap_or("?");
             format!("String          #{} // \"{s}\"", string_index.0)
         }
-        CpEntry::Fieldref { class_index, name_and_type_index } => {
-            format!("Fieldref        #{}.#{}", class_index.0, name_and_type_index.0)
+        CpEntry::Fieldref {
+            class_index,
+            name_and_type_index,
+        } => {
+            format!(
+                "Fieldref        #{}.#{}",
+                class_index.0, name_and_type_index.0
+            )
         }
-        CpEntry::Methodref { class_index, name_and_type_index } => {
-            format!("Methodref       #{}.#{}", class_index.0, name_and_type_index.0)
+        CpEntry::Methodref {
+            class_index,
+            name_and_type_index,
+        } => {
+            format!(
+                "Methodref       #{}.#{}",
+                class_index.0, name_and_type_index.0
+            )
         }
-        CpEntry::InterfaceMethodref { class_index, name_and_type_index } => {
-            format!("IfaceMethodref  #{}.#{}", class_index.0, name_and_type_index.0)
+        CpEntry::InterfaceMethodref {
+            class_index,
+            name_and_type_index,
+        } => {
+            format!(
+                "IfaceMethodref  #{}.#{}",
+                class_index.0, name_and_type_index.0
+            )
         }
-        CpEntry::NameAndType { name_index, descriptor_index } => {
+        CpEntry::NameAndType {
+            name_index,
+            descriptor_index,
+        } => {
             let name = cp_str(cf, *name_index).unwrap_or("?");
             let desc = cp_str(cf, *descriptor_index).unwrap_or("?");
-            format!("NameAndType     #{}.#{} // {name}:{desc}", name_index.0, descriptor_index.0)
+            format!(
+                "NameAndType     #{}.#{} // {name}:{desc}",
+                name_index.0, descriptor_index.0
+            )
         }
-        CpEntry::MethodHandle { reference_kind, reference_index } => {
-            format!("MethodHandle    kind={reference_kind} ref=#{}", reference_index.0)
+        CpEntry::MethodHandle {
+            reference_kind,
+            reference_index,
+        } => {
+            format!(
+                "MethodHandle    kind={reference_kind} ref=#{}",
+                reference_index.0
+            )
         }
         CpEntry::MethodType { descriptor_index } => {
             let desc = cp_str(cf, *descriptor_index).unwrap_or("?");
             format!("MethodType      #{} // {desc}", descriptor_index.0)
         }
-        CpEntry::Dynamic { bootstrap_method_attr_index, name_and_type_index } => {
+        CpEntry::Dynamic {
+            bootstrap_method_attr_index,
+            name_and_type_index,
+        } => {
             format!(
                 "Dynamic         bsm={bootstrap_method_attr_index} nat=#{}",
                 name_and_type_index.0
             )
         }
-        CpEntry::InvokeDynamic { bootstrap_method_attr_index, name_and_type_index } => {
+        CpEntry::InvokeDynamic {
+            bootstrap_method_attr_index,
+            name_and_type_index,
+        } => {
             format!(
                 "InvokeDynamic   bsm={bootstrap_method_attr_index} nat=#{}",
                 name_and_type_index.0

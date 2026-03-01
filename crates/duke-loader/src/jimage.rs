@@ -100,8 +100,7 @@ impl JImageReader {
             source: e,
         })?;
 
-        let (resource_count, table_length, locations_size, strings_size) =
-            parse_header(&data)?;
+        let (resource_count, table_length, locations_size, strings_size) = parse_header(&data)?;
 
         let tl = table_length as usize;
         let ls = locations_size as usize;
@@ -127,7 +126,12 @@ impl JImageReader {
 
         let index = build_index(&data, locations_offset, ls, strings_offset);
 
-        Ok(Self { data, resource_count, data_offset, index })
+        Ok(Self {
+            data,
+            resource_count,
+            data_offset,
+            index,
+        })
     }
 
     /// Total number of resources declared in the jimage header.
@@ -178,9 +182,11 @@ impl JImageReader {
             let cap = usize::try_from(info.uncompressed).unwrap_or(0);
             let mut decoder = DeflateDecoder::new(raw);
             let mut out = Vec::with_capacity(cap);
-            decoder.read_to_end(&mut out).map_err(|_| LoadError::Decompress {
-                name: path.to_string(),
-            })?;
+            decoder
+                .read_to_end(&mut out)
+                .map_err(|_| LoadError::Decompress {
+                    name: path.to_string(),
+                })?;
             Ok(out)
         } else {
             Ok(raw.to_vec())
@@ -216,7 +222,9 @@ impl ClassLoader for JImageReader {
                 return self.read_resource(&path);
             }
         }
-        Err(LoadError::NotFound { name: name.to_string() })
+        Err(LoadError::NotFound {
+            name: name.to_string(),
+        })
     }
 }
 
@@ -322,7 +330,14 @@ fn build_index(
 
         let path = build_jimage_path(mod_str, par_str, base_str, ext_str);
         if !path.is_empty() {
-            index.insert(path, ResourceInfo { offset, compressed, uncompressed });
+            index.insert(
+                path,
+                ResourceInfo {
+                    offset,
+                    compressed,
+                    uncompressed,
+                },
+            );
         }
     }
 
@@ -357,7 +372,8 @@ fn build_jimage_path(module: &str, parent: &str, base: &str, extension: &str) ->
 /// Split `"java/lang/Object"` into `("java/lang", "Object")`.
 /// For a top-level name `"Foo"` returns `("", "Foo")`.
 fn split_class_name(name: &str) -> (&str, &str) {
-    name.rfind('/').map_or(("", name), |pos| (&name[..pos], &name[pos + 1..]))
+    name.rfind('/')
+        .map_or(("", name), |pos| (&name[..pos], &name[pos + 1..]))
 }
 
 /// Read a null-terminated UTF-8 string from the string table.

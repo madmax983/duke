@@ -55,8 +55,11 @@ pub fn execute(
     max_locals: u16,
 ) -> VmResult<Option<Slot>> {
     // Build PC → instruction-index map for O(1) branch resolution.
-    let pc_to_idx: HashMap<usize, usize> =
-        instructions.iter().enumerate().map(|(i, &(pc, _))| (pc, i)).collect();
+    let pc_to_idx: HashMap<usize, usize> = instructions
+        .iter()
+        .enumerate()
+        .map(|(i, &(pc, _))| (pc, i))
+        .collect();
 
     let mut frame = Frame::new(usize::from(max_stack), usize::from(max_locals), args)?;
     let mut idx: usize = 0;
@@ -663,7 +666,9 @@ pub fn execute(
             }
 
             other => {
-                return Err(VmError::Unimplemented { mnemonic: other.mnemonic() });
+                return Err(VmError::Unimplemented {
+                    mnemonic: other.mnemonic(),
+                });
             }
         }
 
@@ -767,8 +772,9 @@ pub fn execute_class(
                         descriptor: callee_desc.clone(),
                     })?;
                 let arg_count = parse_arg_count(&callee_desc);
-                let mut callee_args: Vec<Slot> =
-                    (0..arg_count).map(|_| frame.pop()).collect::<VmResult<Vec<_>>>()?;
+                let mut callee_args: Vec<Slot> = (0..arg_count)
+                    .map(|_| frame.pop())
+                    .collect::<VmResult<Vec<_>>>()?;
                 callee_args.reverse();
                 let callee_pc_to_idx: HashMap<usize, usize> = ctx.methods[callee_idx]
                     .instructions
@@ -796,10 +802,22 @@ pub fn execute_class(
 
             // ---- returns ----
             Instruction::Return => do_return!(None),
-            Instruction::Ireturn => { let v = frame.pop_int()?; do_return!(Some(Slot::Int(v))); }
-            Instruction::Lreturn => { let v = frame.pop_long()?; do_return!(Some(Slot::Long(v))); }
-            Instruction::Freturn => { let v = frame.pop_float()?; do_return!(Some(Slot::Float(v))); }
-            Instruction::Dreturn => { let v = frame.pop_double()?; do_return!(Some(Slot::Double(v))); }
+            Instruction::Ireturn => {
+                let v = frame.pop_int()?;
+                do_return!(Some(Slot::Int(v)));
+            }
+            Instruction::Lreturn => {
+                let v = frame.pop_long()?;
+                do_return!(Some(Slot::Long(v)));
+            }
+            Instruction::Freturn => {
+                let v = frame.pop_float()?;
+                do_return!(Some(Slot::Float(v)));
+            }
+            Instruction::Dreturn => {
+                let v = frame.pop_double()?;
+                do_return!(Some(Slot::Double(v)));
+            }
 
             // ---- all other instructions: same as execute() ----
             Instruction::Nop => {}
@@ -820,140 +838,523 @@ pub fn execute_class(
             Instruction::Dconst1 => frame.push(Slot::Double(1.0))?,
             Instruction::Bipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
             Instruction::Sipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
-            Instruction::Ldc(raw_idx) => ldc_push(&mut frame, &ctx.constant_pool, usize::from(*raw_idx))?,
+            Instruction::Ldc(raw_idx) => {
+                ldc_push(&mut frame, &ctx.constant_pool, usize::from(*raw_idx))?
+            }
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
                 ldc_push(&mut frame, &ctx.constant_pool, usize::from(cp_idx.0))?;
             }
-            Instruction::Iload(i) | Instruction::Lload(i) | Instruction::Fload(i)
-            | Instruction::Dload(i) | Instruction::Aload(i) => {
+            Instruction::Iload(i)
+            | Instruction::Lload(i)
+            | Instruction::Fload(i)
+            | Instruction::Dload(i)
+            | Instruction::Aload(i) => {
                 let slot = frame.load_local(usize::from(*i))?;
                 frame.push(slot)?;
             }
-            Instruction::Iload0 | Instruction::Lload0 | Instruction::Fload0
-            | Instruction::Dload0 | Instruction::Aload0 => { let s = frame.load_local(0)?; frame.push(s)?; }
-            Instruction::Iload1 | Instruction::Lload1 | Instruction::Fload1
-            | Instruction::Dload1 | Instruction::Aload1 => { let s = frame.load_local(1)?; frame.push(s)?; }
-            Instruction::Iload2 | Instruction::Lload2 | Instruction::Fload2
-            | Instruction::Dload2 | Instruction::Aload2 => { let s = frame.load_local(2)?; frame.push(s)?; }
-            Instruction::Iload3 | Instruction::Lload3 | Instruction::Fload3
-            | Instruction::Dload3 | Instruction::Aload3 => { let s = frame.load_local(3)?; frame.push(s)?; }
-            Instruction::IloadW(i) | Instruction::LloadW(i) | Instruction::FloadW(i)
-            | Instruction::DloadW(i) | Instruction::AloadW(i) => {
+            Instruction::Iload0
+            | Instruction::Lload0
+            | Instruction::Fload0
+            | Instruction::Dload0
+            | Instruction::Aload0 => {
+                let s = frame.load_local(0)?;
+                frame.push(s)?;
+            }
+            Instruction::Iload1
+            | Instruction::Lload1
+            | Instruction::Fload1
+            | Instruction::Dload1
+            | Instruction::Aload1 => {
+                let s = frame.load_local(1)?;
+                frame.push(s)?;
+            }
+            Instruction::Iload2
+            | Instruction::Lload2
+            | Instruction::Fload2
+            | Instruction::Dload2
+            | Instruction::Aload2 => {
+                let s = frame.load_local(2)?;
+                frame.push(s)?;
+            }
+            Instruction::Iload3
+            | Instruction::Lload3
+            | Instruction::Fload3
+            | Instruction::Dload3
+            | Instruction::Aload3 => {
+                let s = frame.load_local(3)?;
+                frame.push(s)?;
+            }
+            Instruction::IloadW(i)
+            | Instruction::LloadW(i)
+            | Instruction::FloadW(i)
+            | Instruction::DloadW(i)
+            | Instruction::AloadW(i) => {
                 let slot = frame.load_local(usize::from(*i))?;
                 frame.push(slot)?;
             }
-            Instruction::Istore(i) | Instruction::Lstore(i) | Instruction::Fstore(i)
-            | Instruction::Dstore(i) | Instruction::Astore(i) => {
-                let v = frame.pop()?; frame.store_local(usize::from(*i), v)?;
+            Instruction::Istore(i)
+            | Instruction::Lstore(i)
+            | Instruction::Fstore(i)
+            | Instruction::Dstore(i)
+            | Instruction::Astore(i) => {
+                let v = frame.pop()?;
+                frame.store_local(usize::from(*i), v)?;
             }
-            Instruction::Istore0 | Instruction::Lstore0 | Instruction::Fstore0
-            | Instruction::Dstore0 | Instruction::Astore0 => { let v = frame.pop()?; frame.store_local(0, v)?; }
-            Instruction::Istore1 | Instruction::Lstore1 | Instruction::Fstore1
-            | Instruction::Dstore1 | Instruction::Astore1 => { let v = frame.pop()?; frame.store_local(1, v)?; }
-            Instruction::Istore2 | Instruction::Lstore2 | Instruction::Fstore2
-            | Instruction::Dstore2 | Instruction::Astore2 => { let v = frame.pop()?; frame.store_local(2, v)?; }
-            Instruction::Istore3 | Instruction::Lstore3 | Instruction::Fstore3
-            | Instruction::Dstore3 | Instruction::Astore3 => { let v = frame.pop()?; frame.store_local(3, v)?; }
-            Instruction::IstoreW(i) | Instruction::LstoreW(i) | Instruction::FstoreW(i)
-            | Instruction::DstoreW(i) | Instruction::AstoreW(i) => {
-                let v = frame.pop()?; frame.store_local(usize::from(*i), v)?;
+            Instruction::Istore0
+            | Instruction::Lstore0
+            | Instruction::Fstore0
+            | Instruction::Dstore0
+            | Instruction::Astore0 => {
+                let v = frame.pop()?;
+                frame.store_local(0, v)?;
             }
-            Instruction::Pop => { frame.pop()?; }
-            Instruction::Pop2 => { frame.pop()?; frame.pop()?; }
-            Instruction::Dup => { let v = frame.pop()?; frame.push(v.clone())?; frame.push(v)?; }
-            Instruction::Swap => { let a = frame.pop()?; let b = frame.pop()?; frame.push(a)?; frame.push(b)?; }
-            Instruction::Iadd => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_add(b)))?; }
-            Instruction::Isub => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_sub(b)))?; }
-            Instruction::Imul => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_mul(b)))?; }
-            Instruction::Idiv => { let b = frame.pop_int()?; let a = frame.pop_int()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Int(a.wrapping_div(b)))?; }
-            Instruction::Irem => { let b = frame.pop_int()?; let a = frame.pop_int()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Int(a.wrapping_rem(b)))?; }
-            Instruction::Ineg => { let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_neg()))?; }
-            Instruction::Ishl => { let s = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_shl((s & 0x1F) as u32)))?; }
-            Instruction::Ishr => { let s = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a.wrapping_shr((s & 0x1F) as u32)))?; }
-            Instruction::Iushr => { let s = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(((a as u32) >> (s as u32 & 0x1F)) as i32))?; }
-            Instruction::Iand => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a & b))?; }
-            Instruction::Ior => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a | b))?; }
-            Instruction::Ixor => { let b = frame.pop_int()?; let a = frame.pop_int()?; frame.push(Slot::Int(a ^ b))?; }
+            Instruction::Istore1
+            | Instruction::Lstore1
+            | Instruction::Fstore1
+            | Instruction::Dstore1
+            | Instruction::Astore1 => {
+                let v = frame.pop()?;
+                frame.store_local(1, v)?;
+            }
+            Instruction::Istore2
+            | Instruction::Lstore2
+            | Instruction::Fstore2
+            | Instruction::Dstore2
+            | Instruction::Astore2 => {
+                let v = frame.pop()?;
+                frame.store_local(2, v)?;
+            }
+            Instruction::Istore3
+            | Instruction::Lstore3
+            | Instruction::Fstore3
+            | Instruction::Dstore3
+            | Instruction::Astore3 => {
+                let v = frame.pop()?;
+                frame.store_local(3, v)?;
+            }
+            Instruction::IstoreW(i)
+            | Instruction::LstoreW(i)
+            | Instruction::FstoreW(i)
+            | Instruction::DstoreW(i)
+            | Instruction::AstoreW(i) => {
+                let v = frame.pop()?;
+                frame.store_local(usize::from(*i), v)?;
+            }
+            Instruction::Pop => {
+                frame.pop()?;
+            }
+            Instruction::Pop2 => {
+                frame.pop()?;
+                frame.pop()?;
+            }
+            Instruction::Dup => {
+                let v = frame.pop()?;
+                frame.push(v.clone())?;
+                frame.push(v)?;
+            }
+            Instruction::Swap => {
+                let a = frame.pop()?;
+                let b = frame.pop()?;
+                frame.push(a)?;
+                frame.push(b)?;
+            }
+            Instruction::Iadd => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a.wrapping_add(b)))?;
+            }
+            Instruction::Isub => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a.wrapping_sub(b)))?;
+            }
+            Instruction::Imul => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a.wrapping_mul(b)))?;
+            }
+            Instruction::Idiv => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if b == 0 {
+                    return Err(VmError::DivisionByZero);
+                }
+                frame.push(Slot::Int(a.wrapping_div(b)))?;
+            }
+            Instruction::Irem => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if b == 0 {
+                    return Err(VmError::DivisionByZero);
+                }
+                frame.push(Slot::Int(a.wrapping_rem(b)))?;
+            }
+            Instruction::Ineg => {
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a.wrapping_neg()))?;
+            }
+            Instruction::Ishl => {
+                let s = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a.wrapping_shl((s & 0x1F) as u32)))?;
+            }
+            Instruction::Ishr => {
+                let s = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a.wrapping_shr((s & 0x1F) as u32)))?;
+            }
+            Instruction::Iushr => {
+                let s = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(((a as u32) >> (s as u32 & 0x1F)) as i32))?;
+            }
+            Instruction::Iand => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a & b))?;
+            }
+            Instruction::Ior => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a | b))?;
+            }
+            Instruction::Ixor => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                frame.push(Slot::Int(a ^ b))?;
+            }
             Instruction::Iinc { index, value } => {
                 let v = frame.load_local(usize::from(*index))?.as_int()?;
-                frame.store_local(usize::from(*index), Slot::Int(v.wrapping_add(i32::from(*value))))?;
+                frame.store_local(
+                    usize::from(*index),
+                    Slot::Int(v.wrapping_add(i32::from(*value))),
+                )?;
             }
             Instruction::IincW { index, value } => {
                 let v = frame.load_local(usize::from(*index))?.as_int()?;
-                frame.store_local(usize::from(*index), Slot::Int(v.wrapping_add(i32::from(*value))))?;
+                frame.store_local(
+                    usize::from(*index),
+                    Slot::Int(v.wrapping_add(i32::from(*value))),
+                )?;
             }
-            Instruction::Ladd => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_add(b)))?; }
-            Instruction::Lsub => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_sub(b)))?; }
-            Instruction::Lmul => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_mul(b)))?; }
-            Instruction::Ldiv => { let b = frame.pop_long()?; let a = frame.pop_long()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Long(a.wrapping_div(b)))?; }
-            Instruction::Lrem => { let b = frame.pop_long()?; let a = frame.pop_long()?; if b == 0 { return Err(VmError::DivisionByZero); } frame.push(Slot::Long(a.wrapping_rem(b)))?; }
-            Instruction::Lneg => { let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_neg()))?; }
-            Instruction::Lshl => { let s = frame.pop_int()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_shl((s & 0x3F) as u32)))?; }
-            Instruction::Lshr => { let s = frame.pop_int()?; let a = frame.pop_long()?; frame.push(Slot::Long(a.wrapping_shr((s & 0x3F) as u32)))?; }
-            Instruction::Lushr => { let s = frame.pop_int()?; let a = frame.pop_long()?; frame.push(Slot::Long(((a as u64) >> (s as u32 & 0x3F)) as i64))?; }
-            Instruction::Land => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a & b))?; }
-            Instruction::Lor => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a | b))?; }
-            Instruction::Lxor => { let b = frame.pop_long()?; let a = frame.pop_long()?; frame.push(Slot::Long(a ^ b))?; }
+            Instruction::Ladd => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a.wrapping_add(b)))?;
+            }
+            Instruction::Lsub => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a.wrapping_sub(b)))?;
+            }
+            Instruction::Lmul => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a.wrapping_mul(b)))?;
+            }
+            Instruction::Ldiv => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                if b == 0 {
+                    return Err(VmError::DivisionByZero);
+                }
+                frame.push(Slot::Long(a.wrapping_div(b)))?;
+            }
+            Instruction::Lrem => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                if b == 0 {
+                    return Err(VmError::DivisionByZero);
+                }
+                frame.push(Slot::Long(a.wrapping_rem(b)))?;
+            }
+            Instruction::Lneg => {
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a.wrapping_neg()))?;
+            }
+            Instruction::Lshl => {
+                let s = frame.pop_int()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a.wrapping_shl((s & 0x3F) as u32)))?;
+            }
+            Instruction::Lshr => {
+                let s = frame.pop_int()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a.wrapping_shr((s & 0x3F) as u32)))?;
+            }
+            Instruction::Lushr => {
+                let s = frame.pop_int()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(((a as u64) >> (s as u32 & 0x3F)) as i64))?;
+            }
+            Instruction::Land => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a & b))?;
+            }
+            Instruction::Lor => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a | b))?;
+            }
+            Instruction::Lxor => {
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                frame.push(Slot::Long(a ^ b))?;
+            }
             Instruction::Lcmp => {
-                let b = frame.pop_long()?; let a = frame.pop_long()?;
-                let r = match a.cmp(&b) { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, std::cmp::Ordering::Greater => 1 };
+                let b = frame.pop_long()?;
+                let a = frame.pop_long()?;
+                let r = match a.cmp(&b) {
+                    std::cmp::Ordering::Less => -1,
+                    std::cmp::Ordering::Equal => 0,
+                    std::cmp::Ordering::Greater => 1,
+                };
                 frame.push(Slot::Int(r))?;
             }
-            Instruction::Fadd => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a + b))?; }
-            Instruction::Fsub => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a - b))?; }
-            Instruction::Fmul => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a * b))?; }
-            Instruction::Fdiv => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a / b))?; }
-            Instruction::Frem => { let b = frame.pop_float()?; let a = frame.pop_float()?; frame.push(Slot::Float(a % b))?; }
-            Instruction::Fneg => { let a = frame.pop_float()?; frame.push(Slot::Float(-a))?; }
+            Instruction::Fadd => {
+                let b = frame.pop_float()?;
+                let a = frame.pop_float()?;
+                frame.push(Slot::Float(a + b))?;
+            }
+            Instruction::Fsub => {
+                let b = frame.pop_float()?;
+                let a = frame.pop_float()?;
+                frame.push(Slot::Float(a - b))?;
+            }
+            Instruction::Fmul => {
+                let b = frame.pop_float()?;
+                let a = frame.pop_float()?;
+                frame.push(Slot::Float(a * b))?;
+            }
+            Instruction::Fdiv => {
+                let b = frame.pop_float()?;
+                let a = frame.pop_float()?;
+                frame.push(Slot::Float(a / b))?;
+            }
+            Instruction::Frem => {
+                let b = frame.pop_float()?;
+                let a = frame.pop_float()?;
+                frame.push(Slot::Float(a % b))?;
+            }
+            Instruction::Fneg => {
+                let a = frame.pop_float()?;
+                frame.push(Slot::Float(-a))?;
+            }
             Instruction::Fcmpl | Instruction::Fcmpg => {
-                let b = frame.pop_float()?; let a = frame.pop_float()?;
-                let r = if a > b { 1 } else if a < b { -1 } else if a == b { 0 } else if matches!(instr, Instruction::Fcmpg) { 1 } else { -1 };
+                let b = frame.pop_float()?;
+                let a = frame.pop_float()?;
+                let r = if a > b {
+                    1
+                } else if a < b {
+                    -1
+                } else if a == b {
+                    0
+                } else if matches!(instr, Instruction::Fcmpg) {
+                    1
+                } else {
+                    -1
+                };
                 frame.push(Slot::Int(r))?;
             }
-            Instruction::Dadd => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a + b))?; }
-            Instruction::Dsub => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a - b))?; }
-            Instruction::Dmul => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a * b))?; }
-            Instruction::Ddiv => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a / b))?; }
-            Instruction::Drem => { let b = frame.pop_double()?; let a = frame.pop_double()?; frame.push(Slot::Double(a % b))?; }
-            Instruction::Dneg => { let a = frame.pop_double()?; frame.push(Slot::Double(-a))?; }
+            Instruction::Dadd => {
+                let b = frame.pop_double()?;
+                let a = frame.pop_double()?;
+                frame.push(Slot::Double(a + b))?;
+            }
+            Instruction::Dsub => {
+                let b = frame.pop_double()?;
+                let a = frame.pop_double()?;
+                frame.push(Slot::Double(a - b))?;
+            }
+            Instruction::Dmul => {
+                let b = frame.pop_double()?;
+                let a = frame.pop_double()?;
+                frame.push(Slot::Double(a * b))?;
+            }
+            Instruction::Ddiv => {
+                let b = frame.pop_double()?;
+                let a = frame.pop_double()?;
+                frame.push(Slot::Double(a / b))?;
+            }
+            Instruction::Drem => {
+                let b = frame.pop_double()?;
+                let a = frame.pop_double()?;
+                frame.push(Slot::Double(a % b))?;
+            }
+            Instruction::Dneg => {
+                let a = frame.pop_double()?;
+                frame.push(Slot::Double(-a))?;
+            }
             Instruction::Dcmpl | Instruction::Dcmpg => {
-                let b = frame.pop_double()?; let a = frame.pop_double()?;
-                let r = if a > b { 1 } else if a < b { -1 } else if a == b { 0 } else if matches!(instr, Instruction::Dcmpg) { 1 } else { -1 };
+                let b = frame.pop_double()?;
+                let a = frame.pop_double()?;
+                let r = if a > b {
+                    1
+                } else if a < b {
+                    -1
+                } else if a == b {
+                    0
+                } else if matches!(instr, Instruction::Dcmpg) {
+                    1
+                } else {
+                    -1
+                };
                 frame.push(Slot::Int(r))?;
             }
-            Instruction::I2l => { let v = frame.pop_int()?; frame.push(Slot::Long(i64::from(v)))?; }
-            Instruction::I2f => { let v = frame.pop_int()?; frame.push(Slot::Float(v as f32))?; }
-            Instruction::I2d => { let v = frame.pop_int()?; frame.push(Slot::Double(f64::from(v)))?; }
-            Instruction::L2i => { let v = frame.pop_long()?; frame.push(Slot::Int(v as i32))?; }
-            Instruction::L2f => { let v = frame.pop_long()?; frame.push(Slot::Float(v as f32))?; }
-            Instruction::L2d => { let v = frame.pop_long()?; frame.push(Slot::Double(v as f64))?; }
-            Instruction::F2i => { let v = frame.pop_float()?; frame.push(Slot::Int(v as i32))?; }
-            Instruction::F2l => { let v = frame.pop_float()?; frame.push(Slot::Long(v as i64))?; }
-            Instruction::F2d => { let v = frame.pop_float()?; frame.push(Slot::Double(f64::from(v)))?; }
-            Instruction::D2i => { let v = frame.pop_double()?; frame.push(Slot::Int(v as i32))?; }
-            Instruction::D2l => { let v = frame.pop_double()?; frame.push(Slot::Long(v as i64))?; }
-            Instruction::D2f => { let v = frame.pop_double()?; frame.push(Slot::Float(v as f32))?; }
-            Instruction::I2b => { let v = frame.pop_int()?; frame.push(Slot::Int(v as i8 as i32))?; }
-            Instruction::I2c => { let v = frame.pop_int()?; frame.push(Slot::Int(v as u16 as i32))?; }
-            Instruction::I2s => { let v = frame.pop_int()?; frame.push(Slot::Int(v as i16 as i32))?; }
+            Instruction::I2l => {
+                let v = frame.pop_int()?;
+                frame.push(Slot::Long(i64::from(v)))?;
+            }
+            Instruction::I2f => {
+                let v = frame.pop_int()?;
+                frame.push(Slot::Float(v as f32))?;
+            }
+            Instruction::I2d => {
+                let v = frame.pop_int()?;
+                frame.push(Slot::Double(f64::from(v)))?;
+            }
+            Instruction::L2i => {
+                let v = frame.pop_long()?;
+                frame.push(Slot::Int(v as i32))?;
+            }
+            Instruction::L2f => {
+                let v = frame.pop_long()?;
+                frame.push(Slot::Float(v as f32))?;
+            }
+            Instruction::L2d => {
+                let v = frame.pop_long()?;
+                frame.push(Slot::Double(v as f64))?;
+            }
+            Instruction::F2i => {
+                let v = frame.pop_float()?;
+                frame.push(Slot::Int(v as i32))?;
+            }
+            Instruction::F2l => {
+                let v = frame.pop_float()?;
+                frame.push(Slot::Long(v as i64))?;
+            }
+            Instruction::F2d => {
+                let v = frame.pop_float()?;
+                frame.push(Slot::Double(f64::from(v)))?;
+            }
+            Instruction::D2i => {
+                let v = frame.pop_double()?;
+                frame.push(Slot::Int(v as i32))?;
+            }
+            Instruction::D2l => {
+                let v = frame.pop_double()?;
+                frame.push(Slot::Long(v as i64))?;
+            }
+            Instruction::D2f => {
+                let v = frame.pop_double()?;
+                frame.push(Slot::Float(v as f32))?;
+            }
+            Instruction::I2b => {
+                let v = frame.pop_int()?;
+                frame.push(Slot::Int(v as i8 as i32))?;
+            }
+            Instruction::I2c => {
+                let v = frame.pop_int()?;
+                frame.push(Slot::Int(v as u16 as i32))?;
+            }
+            Instruction::I2s => {
+                let v = frame.pop_int()?;
+                frame.push(Slot::Int(v as i16 as i32))?;
+            }
             Instruction::Goto(offset) => jump!(*offset),
             Instruction::GotoW(offset) => jump!(*offset),
-            Instruction::Ifeq(offset) => { if frame.pop_int()? == 0 { jump!(*offset); } }
-            Instruction::Ifne(offset) => { if frame.pop_int()? != 0 { jump!(*offset); } }
-            Instruction::Iflt(offset) => { if frame.pop_int()? < 0 { jump!(*offset); } }
-            Instruction::Ifge(offset) => { if frame.pop_int()? >= 0 { jump!(*offset); } }
-            Instruction::Ifgt(offset) => { if frame.pop_int()? > 0 { jump!(*offset); } }
-            Instruction::Ifle(offset) => { if frame.pop_int()? <= 0 { jump!(*offset); } }
-            Instruction::Ifnull(offset) => { if matches!(frame.pop()?, Slot::Reference(None)) { jump!(*offset); } }
-            Instruction::Ifnonnull(offset) => { if !matches!(frame.pop()?, Slot::Reference(None)) { jump!(*offset); } }
-            Instruction::IfIcmpeq(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a == b { jump!(*offset); } }
-            Instruction::IfIcmpne(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a != b { jump!(*offset); } }
-            Instruction::IfIcmplt(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a < b { jump!(*offset); } }
-            Instruction::IfIcmpge(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a >= b { jump!(*offset); } }
-            Instruction::IfIcmpgt(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a > b { jump!(*offset); } }
-            Instruction::IfIcmple(offset) => { let b = frame.pop_int()?; let a = frame.pop_int()?; if a <= b { jump!(*offset); } }
-            Instruction::IfAcmpeq(_) | Instruction::IfAcmpne(_) => { frame.pop()?; frame.pop()?; }
-            other => return Err(VmError::Unimplemented { mnemonic: other.mnemonic() }),
+            Instruction::Ifeq(offset) => {
+                if frame.pop_int()? == 0 {
+                    jump!(*offset);
+                }
+            }
+            Instruction::Ifne(offset) => {
+                if frame.pop_int()? != 0 {
+                    jump!(*offset);
+                }
+            }
+            Instruction::Iflt(offset) => {
+                if frame.pop_int()? < 0 {
+                    jump!(*offset);
+                }
+            }
+            Instruction::Ifge(offset) => {
+                if frame.pop_int()? >= 0 {
+                    jump!(*offset);
+                }
+            }
+            Instruction::Ifgt(offset) => {
+                if frame.pop_int()? > 0 {
+                    jump!(*offset);
+                }
+            }
+            Instruction::Ifle(offset) => {
+                if frame.pop_int()? <= 0 {
+                    jump!(*offset);
+                }
+            }
+            Instruction::Ifnull(offset) => {
+                if matches!(frame.pop()?, Slot::Reference(None)) {
+                    jump!(*offset);
+                }
+            }
+            Instruction::Ifnonnull(offset) => {
+                if !matches!(frame.pop()?, Slot::Reference(None)) {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfIcmpeq(offset) => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if a == b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfIcmpne(offset) => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if a != b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfIcmplt(offset) => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if a < b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfIcmpge(offset) => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if a >= b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfIcmpgt(offset) => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if a > b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfIcmple(offset) => {
+                let b = frame.pop_int()?;
+                let a = frame.pop_int()?;
+                if a <= b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfAcmpeq(_) | Instruction::IfAcmpne(_) => {
+                frame.pop()?;
+                frame.pop()?;
+            }
+            other => {
+                return Err(VmError::Unimplemented {
+                    mnemonic: other.mnemonic(),
+                });
+            }
         }
 
         idx += 1;
@@ -982,10 +1383,16 @@ fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<(
 /// Resolve a constant pool Methodref to (method_name, descriptor).
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
-        Some(CpEntry::Methodref { name_and_type_index, .. }) => {
+        Some(CpEntry::Methodref {
+            name_and_type_index,
+            ..
+        }) => {
             let nat_idx = name_and_type_index.0 as usize;
             match cp.get(nat_idx).and_then(|e| e.as_ref()) {
-                Some(CpEntry::NameAndType { name_index, descriptor_index }) => {
+                Some(CpEntry::NameAndType {
+                    name_index,
+                    descriptor_index,
+                }) => {
                     let name = match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
                         Some(CpEntry::Utf8(s)) => s.clone(),
                         _ => return Err(VmError::InvalidMethodref { index: idx }),
@@ -1005,7 +1412,10 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor.find(')').map(|i| &descriptor[1..i]).unwrap_or("");
+    let params = descriptor
+        .find(')')
+        .map(|i| &descriptor[1..i])
+        .unwrap_or("");
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -1018,7 +1428,9 @@ fn parse_arg_count(descriptor: &str) -> usize {
                 if chars.peek() == Some(&'L') {
                     chars.next();
                     for c2 in chars.by_ref() {
-                        if c2 == ';' { break; }
+                        if c2 == ';' {
+                            break;
+                        }
                     }
                 } else {
                     chars.next();
@@ -1027,7 +1439,9 @@ fn parse_arg_count(descriptor: &str) -> usize {
             }
             'L' => {
                 for c2 in chars.by_ref() {
-                    if c2 == ';' { break; }
+                    if c2 == ';' {
+                        break;
+                    }
                 }
                 count += 1;
             }
@@ -1076,8 +1490,7 @@ mod tests {
             (2, Instruction::Pop),
             (3, Instruction::Ireturn),
         ];
-        let result =
-            execute(&instructions, &[], vec![Slot::Int(99), Slot::Int(0)], 2, 2).unwrap();
+        let result = execute(&instructions, &[], vec![Slot::Int(99), Slot::Int(0)], 2, 2).unwrap();
         assert_eq!(result, Some(Slot::Int(99)));
     }
 
@@ -1097,8 +1510,7 @@ mod tests {
             (2, Instruction::Iadd),
             (3, Instruction::Ireturn),
         ];
-        let result =
-            execute(&instrs, &[], vec![Slot::Int(3), Slot::Int(4)], 2, 2).unwrap();
+        let result = execute(&instrs, &[], vec![Slot::Int(3), Slot::Int(4)], 2, 2).unwrap();
         assert_eq!(result, Some(Slot::Int(7)));
     }
 
@@ -1110,8 +1522,7 @@ mod tests {
             (2, Instruction::Idiv),
             (3, Instruction::Ireturn),
         ];
-        let err =
-            execute(&instrs, &[], vec![Slot::Int(10), Slot::Int(0)], 2, 2).unwrap_err();
+        let err = execute(&instrs, &[], vec![Slot::Int(10), Slot::Int(0)], 2, 2).unwrap_err();
         assert!(matches!(err, VmError::DivisionByZero));
     }
 
@@ -1153,9 +1564,9 @@ mod tests {
     #[test]
     fn hand_coded_ifeq_not_taken() {
         let instrs = vec![
-            (0, Instruction::Iconst1),  // push 1
-            (1, Instruction::Ifeq(5)),  // 1 != 0, NOT taken
-            (4, Instruction::Iconst1),  // reached
+            (0, Instruction::Iconst1), // push 1
+            (1, Instruction::Ifeq(5)), // 1 != 0, NOT taken
+            (4, Instruction::Iconst1), // reached
             (5, Instruction::Ireturn),
             (6, Instruction::Iconst2),
             (7, Instruction::Ireturn),
@@ -1203,8 +1614,7 @@ mod tests {
             .methods
             .iter()
             .find(|m| {
-                let Some(Some(CpEntry::Utf8(s))) =
-                    cf.constant_pool.get(m.name_index.0 as usize)
+                let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize)
                 else {
                     return false;
                 };
@@ -1215,14 +1625,26 @@ mod tests {
         let code = method
             .attributes
             .iter()
-            .find_map(|a| if let AttributeData::Code(c) = &a.data { Some(c) } else { None })
+            .find_map(|a| {
+                if let AttributeData::Code(c) = &a.data {
+                    Some(c)
+                } else {
+                    None
+                }
+            })
             .expect("no Code attribute");
 
         let instructions = decode(&code.code).expect("decode failed");
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
 
-        match execute(&instructions, &cf.constant_pool, slots, code.max_stack, code.max_locals)
-            .expect("execute failed")
+        match execute(
+            &instructions,
+            &cf.constant_pool,
+            slots,
+            code.max_stack,
+            code.max_locals,
+        )
+        .expect("execute failed")
         {
             Some(Slot::Int(v)) => v,
             other => panic!("unexpected result: {other:?}"),
@@ -1236,11 +1658,17 @@ mod tests {
     }
     #[test]
     fn int_subtract() {
-        assert_eq!(run_static_int("Arithmetic.class", "subtract", vec![10, 3]), 7);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "subtract", vec![10, 3]),
+            7
+        );
     }
     #[test]
     fn int_multiply() {
-        assert_eq!(run_static_int("Arithmetic.class", "multiply", vec![3, 4]), 12);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "multiply", vec![3, 4]),
+            12
+        );
     }
     #[test]
     fn int_divide() {
@@ -1248,7 +1676,10 @@ mod tests {
     }
     #[test]
     fn int_remainder() {
-        assert_eq!(run_static_int("Arithmetic.class", "remainder", vec![10, 3]), 1);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "remainder", vec![10, 3]),
+            1
+        );
     }
     #[test]
     fn int_negate() {
@@ -1256,7 +1687,10 @@ mod tests {
     }
     #[test]
     fn int_shift_left() {
-        assert_eq!(run_static_int("Arithmetic.class", "shiftLeft", vec![1, 4]), 16);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "shiftLeft", vec![1, 4]),
+            16
+        );
     }
     #[test]
     fn int_bitwise_and() {
@@ -1292,15 +1726,24 @@ mod tests {
     }
     #[test]
     fn int_clamp_mid() {
-        assert_eq!(run_static_int("Arithmetic.class", "clamp", vec![5, 1, 10]), 5);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "clamp", vec![5, 1, 10]),
+            5
+        );
     }
     #[test]
     fn int_clamp_lo() {
-        assert_eq!(run_static_int("Arithmetic.class", "clamp", vec![0, 1, 10]), 1);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "clamp", vec![0, 1, 10]),
+            1
+        );
     }
     #[test]
     fn int_clamp_hi() {
-        assert_eq!(run_static_int("Arithmetic.class", "clamp", vec![15, 1, 10]), 10);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "clamp", vec![15, 1, 10]),
+            10
+        );
     }
 
     // Control flow / loops
@@ -1310,11 +1753,17 @@ mod tests {
     }
     #[test]
     fn int_factorial_5() {
-        assert_eq!(run_static_int("Arithmetic.class", "factorial", vec![5]), 120);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "factorial", vec![5]),
+            120
+        );
     }
     #[test]
     fn int_factorial_10() {
-        assert_eq!(run_static_int("Arithmetic.class", "factorial", vec![10]), 3_628_800);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "factorial", vec![10]),
+            3_628_800
+        );
     }
     #[test]
     fn int_fibonacci_0() {
@@ -1326,7 +1775,10 @@ mod tests {
     }
     #[test]
     fn int_fibonacci_10() {
-        assert_eq!(run_static_int("Arithmetic.class", "fibonacci", vec![10]), 55);
+        assert_eq!(
+            run_static_int("Arithmetic.class", "fibonacci", vec![10]),
+            55
+        );
     }
     #[test]
     fn int_sum_to_100() {
@@ -1355,7 +1807,11 @@ mod tests {
                     _ => return None,
                 };
                 let code = m.attributes.iter().find_map(|a| {
-                    if let AttributeData::Code(c) = &a.data { Some(c) } else { None }
+                    if let AttributeData::Code(c) = &a.data {
+                        Some(c)
+                    } else {
+                        None
+                    }
                 })?;
                 let instructions = decode(&code.code).ok()?;
                 Some(MethodEntry {
@@ -1385,27 +1841,42 @@ mod tests {
 
     #[test]
     fn class_square() {
-        assert_eq!(run_class_int("MathUtils.class", "square", "(I)I", vec![7]), 49);
+        assert_eq!(
+            run_class_int("MathUtils.class", "square", "(I)I", vec![7]),
+            49
+        );
     }
 
     #[test]
     fn class_sum_of_squares_3_4() {
-        assert_eq!(run_class_int("MathUtils.class", "sumOfSquares", "(II)I", vec![3, 4]), 25);
+        assert_eq!(
+            run_class_int("MathUtils.class", "sumOfSquares", "(II)I", vec![3, 4]),
+            25
+        );
     }
 
     #[test]
     fn class_sum_of_squares_5_12() {
-        assert_eq!(run_class_int("MathUtils.class", "sumOfSquares", "(II)I", vec![5, 12]), 169);
+        assert_eq!(
+            run_class_int("MathUtils.class", "sumOfSquares", "(II)I", vec![5, 12]),
+            169
+        );
     }
 
     #[test]
     fn class_power_2_10() {
-        assert_eq!(run_class_int("MathUtils.class", "power", "(II)I", vec![2, 10]), 1024);
+        assert_eq!(
+            run_class_int("MathUtils.class", "power", "(II)I", vec![2, 10]),
+            1024
+        );
     }
 
     #[test]
     fn class_gcd_48_18() {
-        assert_eq!(run_class_int("MathUtils.class", "gcd", "(II)I", vec![48, 18]), 6);
+        assert_eq!(
+            run_class_int("MathUtils.class", "gcd", "(II)I", vec![48, 18]),
+            6
+        );
     }
 
     #[test]
@@ -1418,25 +1889,39 @@ mod tests {
     // ---- Unit tests: parse_arg_count ----
 
     #[test]
-    fn arg_count_empty() { assert_eq!(parse_arg_count("()V"), 0); }
+    fn arg_count_empty() {
+        assert_eq!(parse_arg_count("()V"), 0);
+    }
 
     #[test]
-    fn arg_count_single_int() { assert_eq!(parse_arg_count("(I)I"), 1); }
+    fn arg_count_single_int() {
+        assert_eq!(parse_arg_count("(I)I"), 1);
+    }
 
     #[test]
-    fn arg_count_two_ints() { assert_eq!(parse_arg_count("(II)I"), 2); }
+    fn arg_count_two_ints() {
+        assert_eq!(parse_arg_count("(II)I"), 2);
+    }
 
     #[test]
-    fn arg_count_long_double() { assert_eq!(parse_arg_count("(JD)V"), 2); }
+    fn arg_count_long_double() {
+        assert_eq!(parse_arg_count("(JD)V"), 2);
+    }
 
     #[test]
-    fn arg_count_object_ref() { assert_eq!(parse_arg_count("(Ljava/lang/String;I)V"), 2); }
+    fn arg_count_object_ref() {
+        assert_eq!(parse_arg_count("(Ljava/lang/String;I)V"), 2);
+    }
 
     #[test]
-    fn arg_count_array() { assert_eq!(parse_arg_count("([II)I"), 2); }
+    fn arg_count_array() {
+        assert_eq!(parse_arg_count("([II)I"), 2);
+    }
 
     #[test]
-    fn arg_count_mixed() { assert_eq!(parse_arg_count("(ILjava/lang/Object;Z)V"), 3); }
+    fn arg_count_mixed() {
+        assert_eq!(parse_arg_count("(ILjava/lang/Object;Z)V"), 3);
+    }
 
     // ---- Unit tests: resolve_methodref ----
 
@@ -1454,7 +1939,9 @@ mod tests {
                 class_index: CpIndex(2),
                 name_and_type_index: CpIndex(3),
             }),
-            Some(CpEntry::Class { name_index: CpIndex(4) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
             Some(CpEntry::NameAndType {
                 name_index: CpIndex(4),
                 descriptor_index: CpIndex(5),

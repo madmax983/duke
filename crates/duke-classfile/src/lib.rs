@@ -127,9 +127,7 @@ mod tests {
         assert!(
             matches!(&cf.constant_pool[2], Some(CpEntry::Class { name_index }) if *name_index == CpIndex(1))
         );
-        assert!(
-            matches!(&cf.constant_pool[3], Some(CpEntry::Utf8(s)) if s == "java/lang/Object")
-        );
+        assert!(matches!(&cf.constant_pool[3], Some(CpEntry::Utf8(s)) if s == "java/lang/Object"));
         assert!(
             matches!(&cf.constant_pool[4], Some(CpEntry::Class { name_index }) if *name_index == CpIndex(3))
         );
@@ -177,7 +175,11 @@ mod tests {
         assert_eq!(cf.major_version, 65);
 
         // Counter has a private static field and a private instance field
-        assert!(cf.fields.len() >= 2, "expected at least 2 fields, got {}", cf.fields.len());
+        assert!(
+            cf.fields.len() >= 2,
+            "expected at least 2 fields, got {}",
+            cf.fields.len()
+        );
 
         // Should have constructor, increment, getInstanceCount
         let method_names: Vec<&str> = cf
@@ -192,8 +194,14 @@ mod tests {
                 }
             })
             .collect();
-        assert!(method_names.contains(&"<init>"), "Counter should have a constructor");
-        assert!(method_names.contains(&"increment"), "Counter should have increment()");
+        assert!(
+            method_names.contains(&"<init>"),
+            "Counter should have a constructor"
+        );
+        assert!(
+            method_names.contains(&"increment"),
+            "Counter should have increment()"
+        );
         assert!(
             method_names.contains(&"getInstanceCount"),
             "Counter should have getInstanceCount()"

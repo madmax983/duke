@@ -36,7 +36,11 @@ impl Frame {
         for (i, arg) in args.into_iter().enumerate() {
             locals[i] = arg;
         }
-        Ok(Self { locals, stack: Vec::new(), max_stack })
+        Ok(Self {
+            locals,
+            stack: Vec::new(),
+            max_stack,
+        })
     }
 
     /// Push a slot onto the operand stack.
@@ -105,10 +109,13 @@ impl Frame {
     ///
     /// Returns [`VmError::LocalOutOfBounds`] if `index >= max_locals`.
     pub fn load_local(&self, index: usize) -> VmResult<Slot> {
-        self.locals.get(index).cloned().ok_or(VmError::LocalOutOfBounds {
-            index,
-            max_locals: self.locals.len(),
-        })
+        self.locals
+            .get(index)
+            .cloned()
+            .ok_or(VmError::LocalOutOfBounds {
+                index,
+                max_locals: self.locals.len(),
+            })
     }
 
     /// Store a slot into a local variable slot.

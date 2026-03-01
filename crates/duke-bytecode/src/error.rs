@@ -27,18 +27,22 @@ pub type DecodeResult<T> = Result<T, DecodeError>;
 /// Errors produced by the structural bytecode verifier.
 #[derive(Debug, Error)]
 pub enum VerifyError {
-    #[error(
-        "stack overflow at pc={pc}: depth would be {depth} but max_stack={max_stack}"
-    )]
-    StackOverflow { pc: usize, depth: usize, max_stack: usize },
+    #[error("stack overflow at pc={pc}: depth would be {depth} but max_stack={max_stack}")]
+    StackOverflow {
+        pc: usize,
+        depth: usize,
+        max_stack: usize,
+    },
 
     #[error("stack underflow at pc={pc}: tried to pop from empty stack")]
     StackUnderflow { pc: usize },
 
-    #[error(
-        "local variable index {index} at pc={pc} exceeds max_locals={max_locals}"
-    )]
-    LocalOutOfBounds { pc: usize, index: usize, max_locals: usize },
+    #[error("local variable index {index} at pc={pc} exceeds max_locals={max_locals}")]
+    LocalOutOfBounds {
+        pc: usize,
+        index: usize,
+        max_locals: usize,
+    },
 
     #[error("non-empty stack on return at pc={pc}: {depth} value(s) remaining")]
     NonEmptyStackOnReturn { pc: usize, depth: usize },

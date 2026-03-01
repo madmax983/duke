@@ -52,7 +52,11 @@ pub fn verify(
         // Overflow check
         depth += pushes;
         if depth > max_stack {
-            return Err(VerifyError::StackOverflow { pc, depth, max_stack });
+            return Err(VerifyError::StackOverflow {
+                pc,
+                depth,
+                max_stack,
+            });
         }
 
         // Empty-stack-on-return check
@@ -234,10 +238,7 @@ fn stack_effect(instr: &Instruction) -> (usize, usize) {
         | Instruction::Lxor => (2, 1),
 
         // Unary arithmetic — pop 1, push 1
-        Instruction::Ineg
-        | Instruction::Lneg
-        | Instruction::Fneg
-        | Instruction::Dneg => (1, 1),
+        Instruction::Ineg | Instruction::Lneg | Instruction::Fneg | Instruction::Dneg => (1, 1),
 
         // iinc — operates on local, no stack change
         Instruction::Iinc { .. } | Instruction::IincW { .. } => (0, 0),
@@ -377,24 +378,48 @@ fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResu
         Instruction::IincW { index, .. } => Some(*index as usize),
 
         // Short-form loads/stores use fixed indices 0-3, always valid if max_locals >= 1
-        Instruction::Iload0 | Instruction::Lload0 | Instruction::Fload0
-        | Instruction::Dload0 | Instruction::Aload0 | Instruction::Istore0
-        | Instruction::Lstore0 | Instruction::Fstore0 | Instruction::Dstore0
+        Instruction::Iload0
+        | Instruction::Lload0
+        | Instruction::Fload0
+        | Instruction::Dload0
+        | Instruction::Aload0
+        | Instruction::Istore0
+        | Instruction::Lstore0
+        | Instruction::Fstore0
+        | Instruction::Dstore0
         | Instruction::Astore0 => Some(0),
 
-        Instruction::Iload1 | Instruction::Lload1 | Instruction::Fload1
-        | Instruction::Dload1 | Instruction::Aload1 | Instruction::Istore1
-        | Instruction::Lstore1 | Instruction::Fstore1 | Instruction::Dstore1
+        Instruction::Iload1
+        | Instruction::Lload1
+        | Instruction::Fload1
+        | Instruction::Dload1
+        | Instruction::Aload1
+        | Instruction::Istore1
+        | Instruction::Lstore1
+        | Instruction::Fstore1
+        | Instruction::Dstore1
         | Instruction::Astore1 => Some(1),
 
-        Instruction::Iload2 | Instruction::Lload2 | Instruction::Fload2
-        | Instruction::Dload2 | Instruction::Aload2 | Instruction::Istore2
-        | Instruction::Lstore2 | Instruction::Fstore2 | Instruction::Dstore2
+        Instruction::Iload2
+        | Instruction::Lload2
+        | Instruction::Fload2
+        | Instruction::Dload2
+        | Instruction::Aload2
+        | Instruction::Istore2
+        | Instruction::Lstore2
+        | Instruction::Fstore2
+        | Instruction::Dstore2
         | Instruction::Astore2 => Some(2),
 
-        Instruction::Iload3 | Instruction::Lload3 | Instruction::Fload3
-        | Instruction::Dload3 | Instruction::Aload3 | Instruction::Istore3
-        | Instruction::Lstore3 | Instruction::Fstore3 | Instruction::Dstore3
+        Instruction::Iload3
+        | Instruction::Lload3
+        | Instruction::Fload3
+        | Instruction::Dload3
+        | Instruction::Aload3
+        | Instruction::Istore3
+        | Instruction::Lstore3
+        | Instruction::Fstore3
+        | Instruction::Dstore3
         | Instruction::Astore3 => Some(3),
 
         _ => None,
@@ -403,7 +428,11 @@ fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResu
     if let Some(i) = idx
         && i >= max_locals
     {
-        return Err(VerifyError::LocalOutOfBounds { pc, index: i, max_locals });
+        return Err(VerifyError::LocalOutOfBounds {
+            pc,
+            index: i,
+            max_locals,
+        });
     }
     Ok(())
 }

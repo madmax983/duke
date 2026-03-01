@@ -38,10 +38,7 @@ mod tests {
         p
     }
 
-    fn get_method_code<'a>(
-        class_bytes: &'a [u8],
-        method_name: &str,
-    ) -> (Vec<u8>, u16, u16) {
+    fn get_method_code<'a>(class_bytes: &'a [u8], method_name: &str) -> (Vec<u8>, u16, u16) {
         let cf = parse(class_bytes).expect("parse failed");
         let method = cf
             .methods
@@ -65,8 +62,7 @@ mod tests {
 
     #[test]
     fn decode_hello_world_main() {
-        let bytes =
-            std::fs::read(fixture("HelloWorld.class")).expect("fixture missing");
+        let bytes = std::fs::read(fixture("HelloWorld.class")).expect("fixture missing");
         let (code, max_stack, max_locals) = get_method_code(&bytes, "main");
 
         let instructions = decode(&code).expect("decode should succeed");
@@ -79,7 +75,10 @@ mod tests {
         assert_eq!(instructions.len(), 4, "expected 4 instructions in main");
         assert!(matches!(instructions[0], (0, Instruction::Getstatic(_))));
         assert!(matches!(instructions[1], (3, Instruction::Ldc(_))));
-        assert!(matches!(instructions[2], (5, Instruction::Invokevirtual(_))));
+        assert!(matches!(
+            instructions[2],
+            (5, Instruction::Invokevirtual(_))
+        ));
         assert!(matches!(instructions[3], (8, Instruction::Return)));
 
         // Note: structural verify intentionally skips stack-depth for invocations
@@ -94,18 +93,22 @@ mod tests {
         let (code, max_stack, max_locals) = get_method_code(&bytes, "increment");
 
         let instructions = decode(&code).expect("decode should succeed");
-        assert!(!instructions.is_empty(), "increment should have instructions");
+        assert!(
+            !instructions.is_empty(),
+            "increment should have instructions"
+        );
 
         // Must contain iinc or similar (++value)
         let has_load_store = instructions.iter().any(|(_, i)| {
             matches!(
                 i,
-                Instruction::Iinc { .. }
-                    | Instruction::Getfield(_)
-                    | Instruction::Putfield(_)
+                Instruction::Iinc { .. } | Instruction::Getfield(_) | Instruction::Putfield(_)
             )
         });
-        assert!(has_load_store, "increment should contain field access or iinc");
+        assert!(
+            has_load_store,
+            "increment should contain field access or iinc"
+        );
 
         verify(&instructions, max_stack, max_locals).expect("verify should pass");
     }
@@ -142,7 +145,10 @@ mod tests {
     #[test]
     fn decode_empty_bytecode() {
         let result = decode(&[]);
-        assert!(result.is_ok(), "empty bytecode is valid (zero instructions)");
+        assert!(
+            result.is_ok(),
+            "empty bytecode is valid (zero instructions)"
+        );
         assert!(result.unwrap().is_empty());
     }
 

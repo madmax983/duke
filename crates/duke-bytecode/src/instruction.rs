@@ -193,7 +193,10 @@ pub enum Instruction {
     Ixor,
     Lxor,
     /// `iinc index const` — increment local by constant.
-    Iinc { index: u8, value: i8 },
+    Iinc {
+        index: u8,
+        value: i8,
+    },
 
     // -----------------------------------------------------------------------
     // Conversions
@@ -279,7 +282,10 @@ pub enum Instruction {
     Invokespecial(CpIndex),
     Invokestatic(CpIndex),
     /// `invokeinterface index count` — `count` is the number of arguments.
-    Invokeinterface { index: CpIndex, count: u8 },
+    Invokeinterface {
+        index: CpIndex,
+        count: u8,
+    },
     Invokedynamic(CpIndex),
 
     // -----------------------------------------------------------------------
@@ -298,7 +304,10 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Extended
     // -----------------------------------------------------------------------
-    Multianewarray { index: CpIndex, dimensions: u8 },
+    Multianewarray {
+        index: CpIndex,
+        dimensions: u8,
+    },
     Ifnull(i16),
     Ifnonnull(i16),
     GotoW(i32),
@@ -318,7 +327,10 @@ pub enum Instruction {
     DstoreW(u16),
     AstoreW(u16),
     RetW(u16),
-    IincW { index: u16, value: i16 },
+    IincW {
+        index: u16,
+        value: i16,
+    },
 }
 
 impl Instruction {

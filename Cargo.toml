@@ -5,6 +5,8 @@ members = [
     "crates/duke-classfile",
     "crates/duke-bytecode",
     "crates/duke-loader",
+    "crates/duke-runtime",
+    "crates/duke-interpreter",
 ]
 
 [workspace.package]

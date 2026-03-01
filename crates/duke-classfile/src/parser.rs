@@ -265,7 +265,9 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
             15 => {
                 let reference_kind = c.read_u8()?;
                 if !(1..=9).contains(&reference_kind) {
-                    return Err(ParseError::InvalidMethodHandleKind { kind: reference_kind });
+                    return Err(ParseError::InvalidMethodHandleKind {
+                        kind: reference_kind,
+                    });
                 }
                 CpEntry::MethodHandle {
                     reference_kind,
@@ -293,7 +295,7 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
                 return Err(ParseError::UnknownCpTag {
                     tag: other,
                     index: i as u16,
-                })
+                });
             }
         };
         pool.push(Some(entry));

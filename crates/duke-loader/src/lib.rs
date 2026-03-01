@@ -46,10 +46,12 @@ mod tests {
 
     #[test]
     fn directory_loader_finds_hello_world() {
-        let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures");
+        let fixtures =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
         let loader = DirectoryLoader::new(fixtures);
-        let bytes = loader.find_class("HelloWorld").expect("should find HelloWorld");
+        let bytes = loader
+            .find_class("HelloWorld")
+            .expect("should find HelloWorld");
         assert!(!bytes.is_empty());
         assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
     }
@@ -100,7 +102,11 @@ mod tests {
             .read_resource("/java.base/java/lang/Object.class")
             .expect("read Object.class");
         assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE], "bad magic");
-        assert_eq!(bytes.len(), 2487, "Object.class should be 2487 bytes (JDK 21.0.4)");
+        assert_eq!(
+            bytes.len(),
+            2487,
+            "Object.class should be 2487 bytes (JDK 21.0.4)"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -113,16 +119,20 @@ mod tests {
         if !jdk_modules.exists() {
             return;
         }
-        let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures");
+        let fixtures =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
 
         let loader =
             BootstrapLoader::new(&jdk_modules, vec![fixtures]).expect("create bootstrap loader");
 
-        let obj = loader.find_class("java/lang/Object").expect("Object from jimage");
+        let obj = loader
+            .find_class("java/lang/Object")
+            .expect("Object from jimage");
         assert_eq!(&obj[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
 
-        let hw = loader.find_class("HelloWorld").expect("HelloWorld from classpath");
+        let hw = loader
+            .find_class("HelloWorld")
+            .expect("HelloWorld from classpath");
         assert_eq!(&hw[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
     }
 
@@ -147,8 +157,8 @@ mod tests {
 
     #[test]
     fn loaded_hello_world_parses_correctly() {
-        let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures");
+        let fixtures =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
         let loader = DirectoryLoader::new(fixtures);
         let bytes = loader.find_class("HelloWorld").expect("load HelloWorld");
         let cf = duke_classfile::parse(&bytes).expect("parse HelloWorld.class");

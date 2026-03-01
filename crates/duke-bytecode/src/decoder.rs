@@ -315,7 +315,12 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             for _ in 0..count {
                 offsets.push(c.read_i32()?);
             }
-            Instruction::Tableswitch { default, low, high, offsets }
+            Instruction::Tableswitch {
+                default,
+                low,
+                high,
+                offsets,
+            }
         }
 
         // -- Lookupswitch (§6.5 lookupswitch) --------------------------------
@@ -368,8 +373,8 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::NEW => Instruction::New(c.read_cp()?),
         op::NEWARRAY => {
             let t = c.read_u8()?;
-            let array_type =
-                ArrayType::from_u8(t).ok_or(DecodeError::InvalidNewarrayType { pc, type_code: t })?;
+            let array_type = ArrayType::from_u8(t)
+                .ok_or(DecodeError::InvalidNewarrayType { pc, type_code: t })?;
             Instruction::Newarray(array_type)
         }
         op::ANEWARRAY => Instruction::Anewarray(c.read_cp()?),
@@ -422,12 +427,7 @@ fn decode_wide(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
             index: c.read_u16()?,
             value: c.read_i16()?,
         },
-        other => {
-            return Err(DecodeError::InvalidWideTarget {
-                pc,
-                opcode: other,
-            })
-        }
+        other => return Err(DecodeError::InvalidWideTarget { pc, opcode: other }),
     };
     Ok(instr)
 }

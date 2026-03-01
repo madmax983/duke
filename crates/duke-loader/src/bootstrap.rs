@@ -21,12 +21,12 @@ impl BootstrapLoader {
     /// # Errors
     ///
     /// Returns [`LoadError`] if the jimage file cannot be opened.
-    pub fn new(
-        modules_path: &Path,
-        classpath_dirs: Vec<impl AsRef<Path>>,
-    ) -> LoadResult<Self> {
+    pub fn new(modules_path: &Path, classpath_dirs: Vec<impl AsRef<Path>>) -> LoadResult<Self> {
         let jimage = JImageReader::open(modules_path)?;
-        let classpath = classpath_dirs.into_iter().map(|p| DirectoryLoader::new(p)).collect();
+        let classpath = classpath_dirs
+            .into_iter()
+            .map(|p| DirectoryLoader::new(p))
+            .collect();
         Ok(Self { jimage, classpath })
     }
 }
@@ -43,6 +43,8 @@ impl ClassLoader for BootstrapLoader {
                 return Ok(bytes);
             }
         }
-        Err(LoadError::NotFound { name: name.to_string() })
+        Err(LoadError::NotFound {
+            name: name.to_string(),
+        })
     }
 }

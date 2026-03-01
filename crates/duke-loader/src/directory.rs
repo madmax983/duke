@@ -12,7 +12,9 @@ pub struct DirectoryLoader {
 
 impl DirectoryLoader {
     pub fn new(root: impl AsRef<Path>) -> Self {
-        Self { root: root.as_ref().to_path_buf() }
+        Self {
+            root: root.as_ref().to_path_buf(),
+        }
     }
 }
 
@@ -25,6 +27,8 @@ impl ClassLoader for DirectoryLoader {
         }
         path.set_extension("class");
 
-        std::fs::read(&path).map_err(|_| LoadError::NotFound { name: name.to_string() })
+        std::fs::read(&path).map_err(|_| LoadError::NotFound {
+            name: name.to_string(),
+        })
     }
 }
