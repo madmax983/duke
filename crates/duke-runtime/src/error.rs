@@ -32,6 +32,12 @@ pub enum VmError {
 
     #[error("invalid constant pool index {index}")]
     InvalidCpIndex { index: usize },
+
+    #[error("method not found: {name}{descriptor}")]
+    MethodNotFound { name: String, descriptor: String },
+
+    #[error("constant pool index {index} is not a valid Methodref")]
+    InvalidMethodref { index: usize },
 }
 
 /// Convenience alias for `Result<T, VmError>`.
