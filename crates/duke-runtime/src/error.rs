@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 /// Runtime errors that can occur during JVM bytecode execution.
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum VmError {
     #[error("operand stack overflow")]
     StackOverflow,
@@ -38,6 +38,15 @@ pub enum VmError {
 
     #[error("constant pool index {index} is not a valid Methodref")]
     InvalidMethodref { index: usize },
+
+    #[error("null pointer dereference")]
+    NullPointerException,
+
+    #[error("invalid heap reference: address={address}")]
+    InvalidRef { address: u64 },
+
+    #[error("constant pool index {index} is not a valid Fieldref")]
+    InvalidFieldref { index: usize },
 }
 
 /// Convenience alias for `Result<T, VmError>`.

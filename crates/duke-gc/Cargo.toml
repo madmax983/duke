@@ -1,0 +1,8 @@
+[package]
+name = "duke-gc"
+version.workspace = true
+edition.workspace = true
+description = "Duke JVM - Heap allocator and garbage collector"
+
+[dependencies]
+duke-runtime = { path = "../duke-runtime" }

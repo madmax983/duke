@@ -6,6 +6,7 @@ members = [
     "crates/duke-bytecode",
     "crates/duke-loader",
     "crates/duke-runtime",
+    "crates/duke-gc",
     "crates/duke-interpreter",
 ]
 
