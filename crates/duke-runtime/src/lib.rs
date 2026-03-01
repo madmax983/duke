@@ -62,4 +62,22 @@ mod tests {
             VmError::NullPointerException
         ));
     }
+
+    #[test]
+    fn array_index_oob_error_message() {
+        let e = VmError::ArrayIndexOutOfBounds { index: 5, length: 3 };
+        assert_eq!(e.to_string(), "array index 5 out of bounds for length 3");
+    }
+
+    #[test]
+    fn negative_array_size_error_message() {
+        let e = VmError::NegativeArraySize { size: -1 };
+        assert_eq!(e.to_string(), "negative array size: -1");
+    }
+
+    #[test]
+    fn java_exception_error_message() {
+        let e = VmError::JavaException { class_name: "java/lang/RuntimeException".to_string() };
+        assert_eq!(e.to_string(), "java exception: java/lang/RuntimeException");
+    }
 }

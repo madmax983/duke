@@ -47,6 +47,15 @@ pub enum VmError {
 
     #[error("constant pool index {index} is not a valid Fieldref")]
     InvalidFieldref { index: usize },
+
+    #[error("array index {index} out of bounds for length {length}")]
+    ArrayIndexOutOfBounds { index: i32, length: usize },
+
+    #[error("negative array size: {size}")]
+    NegativeArraySize { size: i32 },
+
+    #[error("java exception: {class_name}")]
+    JavaException { class_name: String },
 }
 
 /// Convenience alias for `Result<T, VmError>`.
