@@ -1,5 +1,6 @@
 use std::process;
 
+use duke_bytecode::decode;
 use duke_classfile::{
     parse,
     types::{AttributeData, CpEntry, CpIndex},
@@ -92,20 +93,27 @@ fn dump_class_file(cf: &ClassFile) {
     for method in &cf.methods {
         let name = cp_str(cf, method.name_index).unwrap_or("<invalid>");
         let desc = cp_str(cf, method.descriptor_index).unwrap_or("<invalid>");
-        print!("  [{:?}] {name}{desc}", method.access_flags);
+        println!("  [{:?}] {name}{desc}", method.access_flags);
 
-        // Print bytecode length if Code attribute present
         for attr in &method.attributes {
             if let AttributeData::Code(code) = &attr.data {
-                print!(
-                    "  [code: {} bytes, max_stack={}, max_locals={}]",
+                println!(
+                    "    code: {} bytes, max_stack={}, max_locals={}",
                     code.code.len(),
                     code.max_stack,
                     code.max_locals,
                 );
+                // Decode and print instructions
+                match decode(&code.code) {
+                    Ok(instructions) => {
+                        for (pc, instr) in &instructions {
+                            println!("      {:4}: {}", pc, instr.mnemonic());
+                        }
+                    }
+                    Err(e) => println!("      [decode error: {e}]"),
+                }
             }
         }
-        println!();
     }
 }
 

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "duke",
     "crates/duke-classfile",
+    "crates/duke-bytecode",
 ]
 
 [workspace.package]
