@@ -22,7 +22,7 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Int`.
-    pub fn as_int(&self) -> VmResult<i32> {
+    pub const fn as_int(&self) -> VmResult<i32> {
         if let Self::Int(v) = self {
             Ok(*v)
         } else {
@@ -37,7 +37,7 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Long`.
-    pub fn as_long(&self) -> VmResult<i64> {
+    pub const fn as_long(&self) -> VmResult<i64> {
         if let Self::Long(v) = self {
             Ok(*v)
         } else {
@@ -52,7 +52,7 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Float`.
-    pub fn as_float(&self) -> VmResult<f32> {
+    pub const fn as_float(&self) -> VmResult<f32> {
         if let Self::Float(v) = self {
             Ok(*v)
         } else {
@@ -67,7 +67,7 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Double`.
-    pub fn as_double(&self) -> VmResult<f64> {
+    pub const fn as_double(&self) -> VmResult<f64> {
         if let Self::Double(v) = self {
             Ok(*v)
         } else {
@@ -78,7 +78,8 @@ impl Slot {
         }
     }
 
-    fn type_name(&self) -> &'static str {
+    #[must_use]
+    pub const fn type_name(&self) -> &'static str {
         match self {
             Self::Int(_) => "int",
             Self::Long(_) => "long",

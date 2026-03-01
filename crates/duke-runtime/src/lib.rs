@@ -45,4 +45,21 @@ mod tests {
         let err = frame.pop().unwrap_err();
         assert!(matches!(err, VmError::StackUnderflow));
     }
+
+    #[test]
+    fn pop_ref_non_null() {
+        let mut f = Frame::new(2, 1, vec![]).unwrap();
+        f.push(Slot::Reference(Some(42))).unwrap();
+        assert_eq!(f.pop_ref().unwrap(), 42u64);
+    }
+
+    #[test]
+    fn pop_ref_null_gives_npe() {
+        let mut f = Frame::new(2, 1, vec![]).unwrap();
+        f.push(Slot::Reference(None)).unwrap();
+        assert!(matches!(
+            f.pop_ref().unwrap_err(),
+            VmError::NullPointerException
+        ));
+    }
 }

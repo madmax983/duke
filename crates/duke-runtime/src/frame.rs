@@ -97,6 +97,22 @@ impl Frame {
         self.pop()?.as_double()
     }
 
+    /// Pop and unwrap as a non-null heap reference.
+    ///
+    /// # Errors
+    /// Returns [`VmError::StackUnderflow`], [`VmError::TypeMismatch`], or
+    /// [`VmError::NullPointerException`] if the reference is null.
+    pub fn pop_ref(&mut self) -> VmResult<u64> {
+        match self.pop()? {
+            Slot::Reference(Some(r)) => Ok(r),
+            Slot::Reference(None) => Err(VmError::NullPointerException),
+            other => Err(VmError::TypeMismatch {
+                expected: "reference",
+                got: other.type_name(),
+            }),
+        }
+    }
+
     /// Peek at the top of the stack without consuming it.
     #[must_use]
     pub fn peek(&self) -> Option<&Slot> {
@@ -137,7 +153,7 @@ impl Frame {
 
     /// Current operand stack depth.
     #[must_use]
-    pub fn stack_depth(&self) -> usize {
+    pub const fn stack_depth(&self) -> usize {
         self.stack.len()
     }
 }
