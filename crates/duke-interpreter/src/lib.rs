@@ -1385,14 +1385,14 @@ pub fn execute_class(
                             _ => {
                                 return Err(VmError::InvalidCpIndex {
                                     index: usize::from(cp_idx.0),
-                                })
+                                });
                             }
                         }
                     }
                     _ => {
                         return Err(VmError::InvalidCpIndex {
                             index: usize::from(cp_idx.0),
-                        })
+                        });
                     }
                 };
                 let field_count = ctx.instance_field_count;
@@ -1402,31 +1402,27 @@ pub fn execute_class(
 
             // ---- Field access ----
             Instruction::Getfield(cp_idx) => {
-                let (field_name, _) =
-                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
                 let r = frame.pop_ref()?;
                 let fidx = instance_field_idx(ctx, &field_name)?;
                 let val = heap.get(r)?.fields[fidx].clone();
                 frame.push(val)?;
             }
             Instruction::Putfield(cp_idx) => {
-                let (field_name, _) =
-                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
                 let val = frame.pop()?;
                 let r = frame.pop_ref()?;
                 let fidx = instance_field_idx(ctx, &field_name)?;
                 heap.get_mut(r)?.fields[fidx] = val;
             }
             Instruction::Getstatic(cp_idx) => {
-                let (field_name, _) =
-                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
                 let sidx = static_field_idx(ctx, &field_name)?;
                 let val = ctx.static_fields[sidx].clone();
                 frame.push(val)?;
             }
             Instruction::Putstatic(cp_idx) => {
-                let (field_name, _) =
-                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
                 let val = frame.pop()?;
                 let sidx = static_field_idx(ctx, &field_name)?;
                 ctx.static_fields[sidx] = val;
@@ -1714,11 +1710,10 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
                         Some(CpEntry::Utf8(s)) => s.clone(),
                         _ => return Err(VmError::InvalidFieldref { index: idx }),
                     };
-                    let desc =
-                        match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
-                            Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(VmError::InvalidFieldref { index: idx }),
-                        };
+                    let desc = match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(VmError::InvalidFieldref { index: idx }),
+                    };
                     Ok((name, desc))
                 }
                 _ => Err(VmError::InvalidFieldref { index: nat_idx }),
@@ -2294,5 +2289,83 @@ mod tests {
         let cp = make_cp(vec![Some(CpEntry::Utf8("not a fieldref".to_string()))]);
         let err = resolve_fieldref(&cp, 1).unwrap_err();
         assert!(matches!(err, VmError::InvalidFieldref { .. }));
+    }
+
+    // ---- Phase 7: Arrays ----
+
+    fn run_class_long(
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: Vec<i32>,
+    ) -> i64 {
+        let mut ctx = load_class_context(class_name);
+        let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
+        let mut heap = duke_gc::Heap::new();
+        match execute_class(&mut ctx, &mut heap, method_name, descriptor, &slots)
+            .expect("execute_class failed")
+        {
+            Some(Slot::Long(v)) => v,
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    fn run_class_double(
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: Vec<i32>,
+    ) -> f64 {
+        let mut ctx = load_class_context(class_name);
+        let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
+        let mut heap = duke_gc::Heap::new();
+        match execute_class(&mut ctx, &mut heap, method_name, descriptor, &slots)
+            .expect("execute_class failed")
+        {
+            Some(Slot::Double(v)) => v,
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn array_sum_5() {
+        // sumArray(5) = 1+2+3+4+5 = 15
+        assert_eq!(
+            run_class_int("ArrayOps.class", "sumArray", "(I)I", vec![5]),
+            15
+        );
+    }
+
+    #[test]
+    fn array_length() {
+        assert_eq!(
+            run_class_int("ArrayOps.class", "arrayLength", "(I)I", vec![7]),
+            7
+        );
+    }
+
+    #[test]
+    fn array_sum_long() {
+        // sumLongArray(3) = 0*1e6 + 1*1e6 + 2*1e6 = 3_000_000
+        assert_eq!(
+            run_class_long("ArrayOps.class", "sumLongArray", "(I)J", vec![3]),
+            3_000_000
+        );
+    }
+
+    #[test]
+    fn array_first_double() {
+        // firstDouble(3): a[0] = 0 * 0.5 = 0.0
+        let result = run_class_double("ArrayOps.class", "firstDouble", "(I)D", vec![3]);
+        assert!((result - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn array_empty_sum() {
+        // sumArray(0) = sum of empty = 0
+        assert_eq!(
+            run_class_int("ArrayOps.class", "sumArray", "(I)I", vec![0]),
+            0
+        );
     }
 }
