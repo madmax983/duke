@@ -8,3 +8,4 @@ description = "Duke JVM - Switch-dispatch bytecode interpreter"
 duke-runtime = { path = "../duke-runtime" }
 duke-bytecode = { path = "../duke-bytecode" }
 duke-classfile = { path = "../duke-classfile" }
+duke-gc = { path = "../duke-gc" }

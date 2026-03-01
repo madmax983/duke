@@ -19,10 +19,26 @@ pub struct MethodEntry {
     pub max_locals: u16,
 }
 
+/// A field declaration extracted from a parsed class.
+pub struct FieldEntry {
+    pub name: String,
+    pub descriptor: String,
+    /// True if declared `static`.
+    pub is_static: bool,
+}
+
 /// A parsed class with all methods decoded — the unit of execution for Phase 5+.
 pub struct ClassContext {
+    /// Internal JVM class name (e.g. `"Point"`).
+    pub class_name: String,
     pub constant_pool: Vec<Option<CpEntry>>,
     pub methods: Vec<MethodEntry>,
+    /// All field declarations (static and instance), in class file order.
+    pub fields: Vec<FieldEntry>,
+    /// Values of static fields, indexed by position among static-only fields.
+    pub static_fields: Vec<Slot>,
+    /// Number of instance (non-static) fields — used to size heap objects at `new`.
+    pub instance_field_count: usize,
 }
 
 /// Execute a decoded JVM instruction stream.
@@ -691,7 +707,8 @@ pub fn execute(
     clippy::too_many_lines
 )]
 pub fn execute_class(
-    ctx: &ClassContext,
+    ctx: &mut ClassContext,
+    heap: &mut duke_gc::Heap,
     method_name: &str,
     descriptor: &str,
     args: &[Slot],
@@ -1369,6 +1386,101 @@ struct CallFrame {
     resume_idx: usize,
 }
 
+/// Build a [`ClassContext`] from a parsed [`ClassFile`].
+///
+/// Decodes all methods with a Code attribute and extracts field metadata.
+/// Methods without Code (abstract, native) are silently skipped.
+pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
+    use duke_bytecode::decode;
+    use duke_classfile::access_flags::FieldAccessFlags;
+    use duke_classfile::types::{AttributeData, CpEntry};
+
+    // Resolve this_class -> class name string.
+    let class_name = {
+        let entry = cf
+            .constant_pool
+            .get(cf.this_class.0 as usize)
+            .and_then(|e| e.as_ref());
+        if let Some(CpEntry::Class { name_index }) = entry {
+            match cf
+                .constant_pool
+                .get(name_index.0 as usize)
+                .and_then(|e| e.as_ref())
+            {
+                Some(CpEntry::Utf8(s)) => s.clone(),
+                _ => String::new(),
+            }
+        } else {
+            String::new()
+        }
+    };
+
+    let methods = cf
+        .methods
+        .iter()
+        .filter_map(|m| {
+            let name = match cf.constant_pool.get(m.name_index.0 as usize) {
+                Some(Some(CpEntry::Utf8(s))) => s.clone(),
+                _ => return None,
+            };
+            let descriptor = match cf.constant_pool.get(m.descriptor_index.0 as usize) {
+                Some(Some(CpEntry::Utf8(s))) => s.clone(),
+                _ => return None,
+            };
+            let code = m.attributes.iter().find_map(|a| {
+                if let AttributeData::Code(c) = &a.data {
+                    Some(c)
+                } else {
+                    None
+                }
+            })?;
+            let instructions = decode(&code.code).ok()?;
+            Some(MethodEntry {
+                name,
+                descriptor,
+                instructions,
+                max_stack: code.max_stack,
+                max_locals: code.max_locals,
+            })
+        })
+        .collect();
+
+    let mut fields = Vec::new();
+    let mut static_count = 0usize;
+    let mut instance_count = 0usize;
+
+    for f in &cf.fields {
+        let name = match cf.constant_pool.get(f.name_index.0 as usize) {
+            Some(Some(CpEntry::Utf8(s))) => s.clone(),
+            _ => continue,
+        };
+        let descriptor = match cf.constant_pool.get(f.descriptor_index.0 as usize) {
+            Some(Some(CpEntry::Utf8(s))) => s.clone(),
+            _ => continue,
+        };
+        let is_static = f.access_flags.contains(FieldAccessFlags::STATIC);
+        if is_static {
+            static_count += 1;
+        } else {
+            instance_count += 1;
+        }
+        fields.push(FieldEntry {
+            name,
+            descriptor,
+            is_static,
+        });
+    }
+
+    ClassContext {
+        class_name,
+        constant_pool: cf.constant_pool.clone(),
+        methods,
+        fields,
+        static_fields: vec![Slot::Int(0); static_count],
+        instance_field_count: instance_count,
+    }
+}
+
 /// Push a constant pool value onto the frame's operand stack.
 fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<()> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
@@ -1788,52 +1900,19 @@ mod tests {
     // ---- Phase 5: ClassContext + execute_class() tests ----
 
     fn load_class_context(class_name: &str) -> ClassContext {
-        use duke_bytecode::decode;
-        use duke_classfile::{parse, types::AttributeData};
-
+        use duke_classfile::parse;
         let bytes = std::fs::read(fixture(class_name)).expect("fixture not found");
         let cf = parse(&bytes).expect("parse failed");
-
-        let methods = cf
-            .methods
-            .iter()
-            .filter_map(|m| {
-                let name = match cf.constant_pool.get(m.name_index.0 as usize) {
-                    Some(Some(CpEntry::Utf8(s))) => s.clone(),
-                    _ => return None,
-                };
-                let descriptor = match cf.constant_pool.get(m.descriptor_index.0 as usize) {
-                    Some(Some(CpEntry::Utf8(s))) => s.clone(),
-                    _ => return None,
-                };
-                let code = m.attributes.iter().find_map(|a| {
-                    if let AttributeData::Code(c) = &a.data {
-                        Some(c)
-                    } else {
-                        None
-                    }
-                })?;
-                let instructions = decode(&code.code).ok()?;
-                Some(MethodEntry {
-                    name,
-                    descriptor,
-                    instructions,
-                    max_stack: code.max_stack,
-                    max_locals: code.max_locals,
-                })
-            })
-            .collect();
-
-        ClassContext {
-            constant_pool: cf.constant_pool,
-            methods,
-        }
+        build_class_context(&cf)
     }
 
     fn run_class_int(class_name: &str, method_name: &str, descriptor: &str, args: Vec<i32>) -> i32 {
-        let ctx = load_class_context(class_name);
+        let mut ctx = load_class_context(class_name);
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
-        match execute_class(&ctx, method_name, descriptor, &slots).expect("execute_class failed") {
+        let mut heap = duke_gc::Heap::new();
+        match execute_class(&mut ctx, &mut heap, method_name, descriptor, &slots)
+            .expect("execute_class failed")
+        {
             Some(Slot::Int(v)) => v,
             other => panic!("unexpected result: {other:?}"),
         }
@@ -1881,8 +1960,9 @@ mod tests {
 
     #[test]
     fn class_method_not_found() {
-        let ctx = load_class_context("MathUtils.class");
-        let err = execute_class(&ctx, "nonExistent", "(I)I", &[]).unwrap_err();
+        let mut ctx = load_class_context("MathUtils.class");
+        let mut heap = duke_gc::Heap::new();
+        let err = execute_class(&mut ctx, &mut heap, "nonExistent", "(I)I", &[]).unwrap_err();
         assert!(matches!(err, VmError::MethodNotFound { .. }));
     }
 
