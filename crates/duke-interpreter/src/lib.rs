@@ -18,6 +18,7 @@ pub struct MethodEntry {
     pub instructions: Vec<(usize, Instruction)>,
     pub max_stack: u16,
     pub max_locals: u16,
+    pub exception_table: Vec<ExceptionEntry>,
 }
 
 /// A field declaration extracted from a parsed class.
@@ -26,6 +27,18 @@ pub struct FieldEntry {
     pub descriptor: String,
     /// True if declared `static`.
     pub is_static: bool,
+}
+
+/// A resolved exception table entry for handler dispatch.
+///
+/// Built from `duke_classfile::types::ExceptionTableEntry` with catch_type
+/// resolved from a CP index to a class name string.
+pub struct ExceptionEntry {
+    pub start_pc: u16,
+    pub end_pc: u16,
+    pub handler_pc: u16,
+    /// `None` for catch-all (finally). `Some(class_name)` for typed catches.
+    pub catch_type: Option<String>,
 }
 
 /// A parsed class with all methods decoded — the unit of execution for Phase 5+.
@@ -2210,12 +2223,46 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                 }
             })?;
             let instructions = decode(&code.code).ok()?;
+            let exception_table: Vec<ExceptionEntry> = code
+                .exception_table
+                .iter()
+                .map(|e| {
+                    let catch_type = if e.catch_type.0 == 0 {
+                        None // catch-all (finally)
+                    } else {
+                        match cf
+                            .constant_pool
+                            .get(e.catch_type.0 as usize)
+                            .and_then(|x| x.as_ref())
+                        {
+                            Some(CpEntry::Class { name_index }) => {
+                                match cf
+                                    .constant_pool
+                                    .get(name_index.0 as usize)
+                                    .and_then(|x| x.as_ref())
+                                {
+                                    Some(CpEntry::Utf8(s)) => Some(s.clone()),
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        }
+                    };
+                    ExceptionEntry {
+                        start_pc: e.start_pc,
+                        end_pc: e.end_pc,
+                        handler_pc: e.handler_pc,
+                        catch_type,
+                    }
+                })
+                .collect();
             Some(MethodEntry {
                 name,
                 descriptor,
                 instructions,
                 max_stack: code.max_stack,
                 max_locals: code.max_locals,
+                exception_table,
             })
         })
         .collect();
@@ -3089,5 +3136,82 @@ mod tests {
         let instrs = vec![(0, Iconst1), (1, Newarray(ArrayType::Int)), (3, Athrow)];
         let err = execute(&instrs, &[], vec![], 2, 0).unwrap_err();
         assert!(matches!(err, VmError::JavaException { .. }));
+    }
+
+    // ---- Phase 8: Exceptions ----
+
+    #[test]
+    fn exception_catch_simple() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "catchSimple", "()I", vec![]),
+            42
+        );
+    }
+
+    #[test]
+    fn exception_uncaught_propagates() {
+        let mut ctx = load_class_context("ExceptionTest.class");
+        let mut heap = duke_gc::Heap::new();
+        let result = execute_class(&mut ctx, &mut heap, "uncaught", "()I", &[]);
+        let err = result.unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
+    }
+
+    #[test]
+    fn exception_finally_block() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "finallyBlock", "()I", vec![]),
+            11 // 10 + 1
+        );
+    }
+
+    #[test]
+    fn exception_catch_from_callee() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "catchFromCallee", "()I", vec![]),
+            99
+        );
+    }
+
+    // ---- Phase 8: Switch statements ----
+
+    #[test]
+    fn switch_dense_case0() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "switchDense", "(I)I", vec![0]),
+            10
+        );
+    }
+
+    #[test]
+    fn switch_dense_case2() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "switchDense", "(I)I", vec![2]),
+            30
+        );
+    }
+
+    #[test]
+    fn switch_dense_default() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "switchDense", "(I)I", vec![99]),
+            -1
+        );
+    }
+
+    #[test]
+    fn switch_sparse_case200() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "switchSparse", "(I)I", vec![200]),
+            2
+        );
+    }
+
+    #[test]
+    fn switch_sparse_default() {
+        assert_eq!(
+            run_class_int("ExceptionTest.class", "switchSparse", "(I)I", vec![999]),
+            0
+        );
     }
 }
