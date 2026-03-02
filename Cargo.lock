@@ -62,6 +62,7 @@ version = "0.1.0"
 dependencies = [
  "duke-bytecode",
  "duke-classfile",
+ "duke-gc",
  "duke-interpreter",
  "duke-loader",
  "duke-runtime",
@@ -86,11 +87,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "duke-gc"
+version = "0.1.0"
+dependencies = [
+ "duke-runtime",
+]
+
+[[package]]
 name = "duke-interpreter"
 version = "0.1.0"
 dependencies = [
  "duke-bytecode",
  "duke-classfile",
+ "duke-gc",
  "duke-runtime",
 ]
 

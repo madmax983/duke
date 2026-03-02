@@ -65,7 +65,10 @@ mod tests {
 
     #[test]
     fn array_index_oob_error_message() {
-        let e = VmError::ArrayIndexOutOfBounds { index: 5, length: 3 };
+        let e = VmError::ArrayIndexOutOfBounds {
+            index: 5,
+            length: 3,
+        };
         assert_eq!(e.to_string(), "array index 5 out of bounds for length 3");
     }
 
@@ -77,7 +80,9 @@ mod tests {
 
     #[test]
     fn java_exception_error_message() {
-        let e = VmError::JavaException { class_name: "java/lang/RuntimeException".to_string() };
+        let e = VmError::JavaException {
+            class_name: "java/lang/RuntimeException".to_string(),
+        };
         assert_eq!(e.to_string(), "java exception: java/lang/RuntimeException");
     }
 }

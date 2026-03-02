@@ -40,14 +40,18 @@ impl Heap {
     /// Returns [`VmError::InvalidRef`] if out of bounds.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         let idx = usize::try_from(r).map_err(|_| VmError::InvalidRef { address: r })?;
-        self.objects.get(idx).ok_or(VmError::InvalidRef { address: r })
+        self.objects
+            .get(idx)
+            .ok_or(VmError::InvalidRef { address: r })
     }
 
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if out of bounds.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         let idx = usize::try_from(r).map_err(|_| VmError::InvalidRef { address: r })?;
-        self.objects.get_mut(idx).ok_or(VmError::InvalidRef { address: r })
+        self.objects
+            .get_mut(idx)
+            .ok_or(VmError::InvalidRef { address: r })
     }
 
     #[must_use]
