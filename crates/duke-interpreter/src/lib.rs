@@ -5,6 +5,7 @@
 //! allocation, field access, and method invocation are not yet implemented.
 
 use std::collections::HashMap;
+use std::io::Write;
 
 use duke_bytecode::Instruction;
 use duke_bytecode::instruction::ArrayType;
@@ -130,6 +131,60 @@ impl ClassRegistry {
 }
 
 impl Default for ClassRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Signature for native method implementations.
+///
+/// Arguments:
+/// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
+/// - `&mut Heap`: the object heap for reading/writing objects
+/// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
+pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
+
+/// Registry of native method implementations.
+///
+/// Maps `(class_name, method_name, descriptor)` to a Rust function pointer.
+pub struct NativeRegistry {
+    methods: HashMap<(String, String, String), NativeHandler>,
+}
+
+impl NativeRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            methods: HashMap::new(),
+        }
+    }
+
+    /// Register a native method handler.
+    pub fn register(
+        &mut self,
+        class: &str,
+        method: &str,
+        descriptor: &str,
+        handler: NativeHandler,
+    ) {
+        self.methods.insert(
+            (class.to_string(), method.to_string(), descriptor.to_string()),
+            handler,
+        );
+    }
+
+    /// Look up a native handler for the given class/method/descriptor.
+    #[must_use]
+    pub fn get(&self, class: &str, method: &str, descriptor: &str) -> Option<&NativeHandler> {
+        self.methods.get(&(
+            class.to_string(),
+            method.to_string(),
+            descriptor.to_string(),
+        ))
+    }
+}
+
+impl Default for NativeRegistry {
     fn default() -> Self {
         Self::new()
     }
@@ -4181,5 +4236,30 @@ mod tests {
             ),
             10
         );
+    }
+
+    #[test]
+    fn native_registry_stores_and_retrieves() {
+        fn dummy_handler(
+            _args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            _out: &mut dyn std::io::Write,
+        ) -> VmResult<Option<Slot>> {
+            Ok(Some(Slot::Int(99)))
+        }
+        let mut natives = NativeRegistry::new();
+        natives.register("Foo", "bar", "(I)I", dummy_handler);
+        let handler = natives.get("Foo", "bar", "(I)I");
+        assert!(handler.is_some());
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let result = handler.unwrap()(&[Slot::Int(1)], &mut heap, &mut out).unwrap();
+        assert_eq!(result, Some(Slot::Int(99)));
+    }
+
+    #[test]
+    fn native_registry_returns_none_for_missing() {
+        let natives = NativeRegistry::new();
+        assert!(natives.get("Foo", "bar", "(I)I").is_none());
     }
 }
