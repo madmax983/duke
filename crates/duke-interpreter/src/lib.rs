@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use duke_bytecode::Instruction;
+use duke_bytecode::instruction::ArrayType;
 use duke_classfile::types::CpEntry;
 use duke_runtime::{Frame, Slot, VmError, VmResult};
 
@@ -79,6 +80,8 @@ pub fn execute(
 
     let mut frame = Frame::new(usize::from(max_stack), usize::from(max_locals), args)?;
     let mut idx: usize = 0;
+    // Local heap for array objects allocated during single-method execution.
+    let mut local_heap: Vec<(String, Vec<Slot>)> = Vec::new();
 
     loop {
         let Some((pc, instr)) = instructions.get(idx) else {
@@ -679,6 +682,339 @@ pub fn execute(
             Instruction::IfAcmpeq(_) | Instruction::IfAcmpne(_) => {
                 frame.pop()?;
                 frame.pop()?;
+            }
+
+            // ----------------------------------------------------------------
+            // Array allocation
+            // ----------------------------------------------------------------
+            Instruction::Newarray(array_type) => {
+                let count = frame.pop_int()?;
+                if count < 0 {
+                    return Err(VmError::NegativeArraySize { size: count });
+                }
+                let class_name = match array_type {
+                    ArrayType::Boolean => "[Z",
+                    ArrayType::Char => "[C",
+                    ArrayType::Float => "[F",
+                    ArrayType::Double => "[D",
+                    ArrayType::Byte => "[B",
+                    ArrayType::Short => "[S",
+                    ArrayType::Int => "[I",
+                    ArrayType::Long => "[J",
+                };
+                let init_slot = match array_type {
+                    ArrayType::Long => Slot::Long(0),
+                    ArrayType::Float => Slot::Float(0.0),
+                    ArrayType::Double => Slot::Double(0.0),
+                    _ => Slot::Int(0),
+                };
+                let r = local_heap.len() as u64;
+                local_heap.push((class_name.to_string(), vec![init_slot; count as usize]));
+                frame.push(Slot::Reference(Some(r)))?;
+            }
+            Instruction::Anewarray(_) => {
+                let count = frame.pop_int()?;
+                if count < 0 {
+                    return Err(VmError::NegativeArraySize { size: count });
+                }
+                let r = local_heap.len() as u64;
+                local_heap.push((
+                    "[Ljava/lang/Object;".to_string(),
+                    vec![Slot::Reference(None); count as usize],
+                ));
+                frame.push(Slot::Reference(Some(r)))?;
+            }
+            Instruction::Arraylength => {
+                let r = frame.pop_ref()?;
+                let len = local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1
+                    .len();
+                frame.push(Slot::Int(len as i32))?;
+            }
+
+            // ---- Int array ----
+            Instruction::Iaload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].as_int()?;
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Iastore => {
+                let val = frame.pop_int()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- Long array ----
+            Instruction::Laload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].as_long()?;
+                frame.push(Slot::Long(v))?;
+            }
+            Instruction::Lastore => {
+                let val = frame.pop_long()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = Slot::Long(val);
+            }
+
+            // ---- Float array ----
+            Instruction::Faload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].as_float()?;
+                frame.push(Slot::Float(v))?;
+            }
+            Instruction::Fastore => {
+                let val = frame.pop_float()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = Slot::Float(val);
+            }
+
+            // ---- Double array ----
+            Instruction::Daload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].as_double()?;
+                frame.push(Slot::Double(v))?;
+            }
+            Instruction::Dastore => {
+                let val = frame.pop_double()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = Slot::Double(val);
+            }
+
+            // ---- Reference array ----
+            Instruction::Aaload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].clone();
+                frame.push(v)?;
+            }
+            Instruction::Aastore => {
+                let val = frame.pop()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = val;
+            }
+
+            // ---- Byte/boolean array (stored as Int, truncated to i8) ----
+            Instruction::Baload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].as_int()? as i8 as i32;
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Bastore => {
+                let val = frame.pop_int()? as i8 as i32;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- Char array (stored as Int, masked to u16) ----
+            Instruction::Caload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].as_int()? as u16 as i32;
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Castore => {
+                let val = frame.pop_int()? as u16 as i32;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- Short array (stored as Int, truncated to i16) ----
+            Instruction::Saload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                let v = fields[idx_val as usize].as_int()? as i16 as i32;
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Sastore => {
+                let val = frame.pop_int()? as i16 as i32;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let fields = &mut local_heap
+                    .get_mut(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .1;
+                if idx_val < 0 || idx_val as usize >= fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: fields.len(),
+                    });
+                }
+                fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- athrow ----
+            Instruction::Athrow => {
+                let r = frame.pop_ref()?;
+                let class_name = local_heap
+                    .get(r as usize)
+                    .ok_or(VmError::InvalidRef { address: r })?
+                    .0
+                    .clone();
+                return Err(VmError::JavaException { class_name });
             }
 
             other => {
@@ -1495,6 +1831,315 @@ pub fn execute_class(
             Instruction::Areturn => {
                 let v = frame.pop()?;
                 do_return!(Some(v));
+            }
+
+            // ----------------------------------------------------------------
+            // Array allocation
+            // ----------------------------------------------------------------
+            Instruction::Newarray(array_type) => {
+                let count = frame.pop_int()?;
+                if count < 0 {
+                    return Err(VmError::NegativeArraySize { size: count });
+                }
+                let class_name = match array_type {
+                    ArrayType::Boolean => "[Z",
+                    ArrayType::Char => "[C",
+                    ArrayType::Float => "[F",
+                    ArrayType::Double => "[D",
+                    ArrayType::Byte => "[B",
+                    ArrayType::Short => "[S",
+                    ArrayType::Int => "[I",
+                    ArrayType::Long => "[J",
+                };
+                let r = heap.allocate(class_name.to_string(), count as usize);
+                // Fix element types for non-int primitive arrays.
+                match array_type {
+                    ArrayType::Long => {
+                        let obj = heap.get_mut(r)?;
+                        for slot in &mut obj.fields {
+                            *slot = Slot::Long(0);
+                        }
+                    }
+                    ArrayType::Float => {
+                        let obj = heap.get_mut(r)?;
+                        for slot in &mut obj.fields {
+                            *slot = Slot::Float(0.0);
+                        }
+                    }
+                    ArrayType::Double => {
+                        let obj = heap.get_mut(r)?;
+                        for slot in &mut obj.fields {
+                            *slot = Slot::Double(0.0);
+                        }
+                    }
+                    _ => {} // Int/Boolean/Byte/Char/Short default to Slot::Int(0)
+                }
+                frame.push(Slot::Reference(Some(r)))?;
+            }
+            Instruction::Anewarray(_) => {
+                let count = frame.pop_int()?;
+                if count < 0 {
+                    return Err(VmError::NegativeArraySize { size: count });
+                }
+                let r = heap.allocate("[Ljava/lang/Object;".to_string(), count as usize);
+                // Fix elements to Reference(None).
+                let obj = heap.get_mut(r)?;
+                for slot in &mut obj.fields {
+                    *slot = Slot::Reference(None);
+                }
+                frame.push(Slot::Reference(Some(r)))?;
+            }
+            Instruction::Arraylength => {
+                let r = frame.pop_ref()?;
+                let len = heap.get(r)?.fields.len();
+                frame.push(Slot::Int(len as i32))?;
+            }
+
+            // ---- Int array ----
+            Instruction::Iaload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].as_int()?
+                };
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Iastore => {
+                let val = frame.pop_int()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- Long array ----
+            Instruction::Laload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].as_long()?
+                };
+                frame.push(Slot::Long(v))?;
+            }
+            Instruction::Lastore => {
+                let val = frame.pop_long()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = Slot::Long(val);
+            }
+
+            // ---- Float array ----
+            Instruction::Faload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].as_float()?
+                };
+                frame.push(Slot::Float(v))?;
+            }
+            Instruction::Fastore => {
+                let val = frame.pop_float()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = Slot::Float(val);
+            }
+
+            // ---- Double array ----
+            Instruction::Daload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].as_double()?
+                };
+                frame.push(Slot::Double(v))?;
+            }
+            Instruction::Dastore => {
+                let val = frame.pop_double()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = Slot::Double(val);
+            }
+
+            // ---- Reference array ----
+            Instruction::Aaload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].clone()
+                };
+                frame.push(v)?;
+            }
+            Instruction::Aastore => {
+                let val = frame.pop()?;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = val;
+            }
+
+            // ---- Byte/boolean array (stored as Int, truncated to i8) ----
+            Instruction::Baload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].as_int()? as i8 as i32
+                };
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Bastore => {
+                let val = frame.pop_int()? as i8 as i32;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- Char array (stored as Int, masked to u16) ----
+            Instruction::Caload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].as_int()? as u16 as i32
+                };
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Castore => {
+                let val = frame.pop_int()? as u16 as i32;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- Short array (stored as Int, truncated to i16) ----
+            Instruction::Saload => {
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let v = {
+                    let fields = &heap.get(r)?.fields;
+                    if idx_val < 0 || idx_val as usize >= fields.len() {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: fields.len(),
+                        });
+                    }
+                    fields[idx_val as usize].as_int()? as i16 as i32
+                };
+                frame.push(Slot::Int(v))?;
+            }
+            Instruction::Sastore => {
+                let val = frame.pop_int()? as i16 as i32;
+                let idx_val = frame.pop_int()?;
+                let r = frame.pop_ref()?;
+                let obj = heap.get_mut(r)?;
+                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
+                    return Err(VmError::ArrayIndexOutOfBounds {
+                        index: idx_val,
+                        length: obj.fields.len(),
+                    });
+                }
+                obj.fields[idx_val as usize] = Slot::Int(val);
+            }
+
+            // ---- athrow ----
+            Instruction::Athrow => {
+                let r = frame.pop_ref()?;
+                let class_name = heap.get(r)?.class_name.clone();
+                return Err(VmError::JavaException { class_name });
             }
 
             other => {
@@ -2367,5 +3012,82 @@ mod tests {
             run_class_int("ArrayOps.class", "sumArray", "(I)I", vec![0]),
             0
         );
+    }
+
+    // ---- Phase 7: Array unit tests (no fixture needed) ----
+
+    #[test]
+    fn newarray_int_arraylength() {
+        // newarray T_INT count=3 -> arraylength -> 3
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, Iconst3),
+            (1, Newarray(ArrayType::Int)),
+            (3, Arraylength),
+            (4, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 3, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(3)));
+    }
+
+    #[test]
+    fn newarray_iastore_iaload() {
+        use duke_bytecode::Instruction::*;
+        // int[] a = new int[1]; a[0] = 42; return a[0];
+        let instrs = vec![
+            (0, Iconst1),
+            (1, Newarray(ArrayType::Int)),
+            (3, Dup),
+            (4, Iconst0),
+            (5, Bipush(42)),
+            (7, Iastore),
+            (8, Iconst0),
+            (9, Iaload),
+            (10, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 4, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(42)));
+    }
+
+    #[test]
+    fn newarray_int_bounds_error() {
+        use duke_bytecode::Instruction::*;
+        // new int[1], then iaload at index 5 -> ArrayIndexOutOfBounds
+        let instrs = vec![
+            (0, Iconst1),
+            (1, Newarray(ArrayType::Int)),
+            (3, Bipush(5)),
+            (5, Iaload),
+            (6, Ireturn),
+        ];
+        let err = execute(&instrs, &[], vec![], 3, 0).unwrap_err();
+        assert!(matches!(
+            err,
+            VmError::ArrayIndexOutOfBounds {
+                index: 5,
+                length: 1
+            }
+        ));
+    }
+
+    #[test]
+    fn newarray_negative_size() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, IconstM1),
+            (1, Newarray(ArrayType::Int)),
+            (3, Arraylength),
+            (4, Ireturn),
+        ];
+        let err = execute(&instrs, &[], vec![], 2, 0).unwrap_err();
+        assert!(matches!(err, VmError::NegativeArraySize { size: -1 }));
+    }
+
+    #[test]
+    fn athrow_propagates_as_java_exception() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![(0, Iconst1), (1, Newarray(ArrayType::Int)), (3, Athrow)];
+        let err = execute(&instrs, &[], vec![], 2, 0).unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
     }
 }
