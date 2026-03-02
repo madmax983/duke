@@ -94,7 +94,8 @@ pub fn execute(
     let mut frame = Frame::new(usize::from(max_stack), usize::from(max_locals), args)?;
     let mut idx: usize = 0;
     // Local heap for array objects allocated during single-method execution.
-    let mut local_heap: Vec<(String, Vec<Slot>)> = Vec::new();
+    let mut local_heap: Vec<(String, Vec<Slot>, Option<String>)> = Vec::new();
+    let mut string_intern: HashMap<usize, u64> = HashMap::new();
 
     loop {
         let Some((pc, instr)) = instructions.get(idx) else {
@@ -139,9 +140,51 @@ pub fn execute(
             // ----------------------------------------------------------------
             // Constant pool load
             // ----------------------------------------------------------------
-            Instruction::Ldc(raw_idx) => ldc_push(&mut frame, cp, usize::from(*raw_idx))?,
+            Instruction::Ldc(raw_idx) => {
+                let cp_idx = usize::from(*raw_idx);
+                if let Some(CpEntry::String { string_index }) =
+                    cp.get(cp_idx).and_then(|e| e.as_ref())
+                {
+                    let si = string_index.0 as usize;
+                    let r = if let Some(&cached) = string_intern.get(&cp_idx) {
+                        cached
+                    } else {
+                        let s = match cp.get(si).and_then(|e| e.as_ref()) {
+                            Some(CpEntry::Utf8(s)) => s.clone(),
+                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                        };
+                        let r = local_heap.len() as u64;
+                        local_heap.push(("java/lang/String".to_string(), Vec::new(), Some(s)));
+                        string_intern.insert(cp_idx, r);
+                        r
+                    };
+                    frame.push(Slot::Reference(Some(r)))?;
+                } else {
+                    ldc_push(&mut frame, cp, cp_idx)?;
+                }
+            }
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
-                ldc_push(&mut frame, cp, usize::from(cp_idx.0))?;
+                let idx_val = usize::from(cp_idx.0);
+                if let Some(CpEntry::String { string_index }) =
+                    cp.get(idx_val).and_then(|e| e.as_ref())
+                {
+                    let si = string_index.0 as usize;
+                    let r = if let Some(&cached) = string_intern.get(&idx_val) {
+                        cached
+                    } else {
+                        let s = match cp.get(si).and_then(|e| e.as_ref()) {
+                            Some(CpEntry::Utf8(s)) => s.clone(),
+                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                        };
+                        let r = local_heap.len() as u64;
+                        local_heap.push(("java/lang/String".to_string(), Vec::new(), Some(s)));
+                        string_intern.insert(idx_val, r);
+                        r
+                    };
+                    frame.push(Slot::Reference(Some(r)))?;
+                } else {
+                    ldc_push(&mut frame, cp, idx_val)?;
+                }
             }
 
             // ----------------------------------------------------------------
@@ -691,10 +734,20 @@ pub fn execute(
                     jump!(*offset);
                 }
             }
-            // Reference comparisons: stub — just pop values (no heap in Phase 4).
-            Instruction::IfAcmpeq(_) | Instruction::IfAcmpne(_) => {
-                frame.pop()?;
-                frame.pop()?;
+            // Reference comparisons
+            Instruction::IfAcmpeq(offset) => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                if a == b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfAcmpne(offset) => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                if a != b {
+                    jump!(*offset);
+                }
             }
 
             // ----------------------------------------------------------------
@@ -722,7 +775,11 @@ pub fn execute(
                     _ => Slot::Int(0),
                 };
                 let r = local_heap.len() as u64;
-                local_heap.push((class_name.to_string(), vec![init_slot; count as usize]));
+                local_heap.push((
+                    class_name.to_string(),
+                    vec![init_slot; count as usize],
+                    None,
+                ));
                 frame.push(Slot::Reference(Some(r)))?;
             }
             Instruction::Anewarray(_) => {
@@ -734,6 +791,7 @@ pub fn execute(
                 local_heap.push((
                     "[Ljava/lang/Object;".to_string(),
                     vec![Slot::Reference(None); count as usize],
+                    None,
                 ));
                 frame.push(Slot::Reference(Some(r)))?;
             }
@@ -1043,6 +1101,65 @@ pub fn execute(
                 jump!(offset);
             }
 
+            // ---- checkcast / instanceof ----
+            Instruction::Checkcast(cp_idx) => {
+                let slot = frame.pop()?;
+                match &slot {
+                    Slot::Reference(None) => {
+                        frame.push(slot)?;
+                    }
+                    Slot::Reference(Some(r)) => {
+                        let target = resolve_class_name(cp, usize::from(cp_idx.0))?;
+                        let actual = local_heap
+                            .get(*r as usize)
+                            .ok_or(VmError::InvalidRef { address: *r })?
+                            .0
+                            .clone();
+                        if actual == target {
+                            frame.push(slot)?;
+                        } else {
+                            return Err(VmError::ClassCastException {
+                                from: actual,
+                                to: target,
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(VmError::TypeMismatch {
+                            expected: "reference",
+                            got: "non-reference",
+                        });
+                    }
+                }
+            }
+            Instruction::Instanceof(cp_idx) => {
+                let slot = frame.pop()?;
+                match &slot {
+                    Slot::Reference(None) => {
+                        frame.push(Slot::Int(0))?;
+                    }
+                    Slot::Reference(Some(r)) => {
+                        let target = resolve_class_name(cp, usize::from(cp_idx.0))?;
+                        let actual = local_heap
+                            .get(*r as usize)
+                            .ok_or(VmError::InvalidRef { address: *r })?
+                            .0
+                            .clone();
+                        if actual == target {
+                            frame.push(Slot::Int(1))?;
+                        } else {
+                            frame.push(Slot::Int(0))?;
+                        }
+                    }
+                    _ => {
+                        return Err(VmError::TypeMismatch {
+                            expected: "reference",
+                            got: "non-reference",
+                        });
+                    }
+                }
+            }
+
             // ---- athrow ----
             Instruction::Athrow => {
                 let r = frame.pop_ref()?;
@@ -1110,6 +1227,7 @@ pub fn execute_class(
         args.to_vec(),
     )?;
     let mut idx: usize = 0;
+    let mut string_intern: HashMap<usize, u64> = HashMap::new();
 
     loop {
         let Some(&(pc, ref instr)) = ctx.methods[method_idx].instructions.get(idx) else {
@@ -1229,10 +1347,48 @@ pub fn execute_class(
             Instruction::Bipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
             Instruction::Sipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
             Instruction::Ldc(raw_idx) => {
-                ldc_push(&mut frame, &ctx.constant_pool, usize::from(*raw_idx))?
+                let cp_idx = usize::from(*raw_idx);
+                if let Some(CpEntry::String { string_index }) =
+                    ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
+                {
+                    let si = string_index.0 as usize;
+                    let r = if let Some(&cached) = string_intern.get(&cp_idx) {
+                        cached
+                    } else {
+                        let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
+                            Some(CpEntry::Utf8(s)) => s.clone(),
+                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                        };
+                        let r = heap.allocate_string(s);
+                        string_intern.insert(cp_idx, r);
+                        r
+                    };
+                    frame.push(Slot::Reference(Some(r)))?;
+                } else {
+                    ldc_push(&mut frame, &ctx.constant_pool, cp_idx)?;
+                }
             }
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
-                ldc_push(&mut frame, &ctx.constant_pool, usize::from(cp_idx.0))?;
+                let idx_val = usize::from(cp_idx.0);
+                if let Some(CpEntry::String { string_index }) =
+                    ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
+                {
+                    let si = string_index.0 as usize;
+                    let r = if let Some(&cached) = string_intern.get(&idx_val) {
+                        cached
+                    } else {
+                        let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
+                            Some(CpEntry::Utf8(s)) => s.clone(),
+                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                        };
+                        let r = heap.allocate_string(s);
+                        string_intern.insert(idx_val, r);
+                        r
+                    };
+                    frame.push(Slot::Reference(Some(r)))?;
+                } else {
+                    ldc_push(&mut frame, &ctx.constant_pool, idx_val)?;
+                }
             }
             Instruction::Iload(i)
             | Instruction::Lload(i)
@@ -1736,9 +1892,19 @@ pub fn execute_class(
                     jump!(*offset);
                 }
             }
-            Instruction::IfAcmpeq(_) | Instruction::IfAcmpne(_) => {
-                frame.pop()?;
-                frame.pop()?;
+            Instruction::IfAcmpeq(offset) => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                if a == b {
+                    jump!(*offset);
+                }
+            }
+            Instruction::IfAcmpne(offset) => {
+                let b = frame.pop()?;
+                let a = frame.pop()?;
+                if a != b {
+                    jump!(*offset);
+                }
             }
 
             // ---- Object allocation ----
@@ -2199,6 +2365,57 @@ pub fn execute_class(
                 jump!(offset);
             }
 
+            // ---- checkcast / instanceof ----
+            Instruction::Checkcast(cp_idx) => {
+                let slot = frame.pop()?;
+                match &slot {
+                    Slot::Reference(None) => {
+                        frame.push(slot)?;
+                    }
+                    Slot::Reference(Some(r)) => {
+                        let target = resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                        let actual = heap.get(*r)?.class_name.clone();
+                        if actual == target {
+                            frame.push(slot)?;
+                        } else {
+                            return Err(VmError::ClassCastException {
+                                from: actual,
+                                to: target,
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(VmError::TypeMismatch {
+                            expected: "reference",
+                            got: "non-reference",
+                        });
+                    }
+                }
+            }
+            Instruction::Instanceof(cp_idx) => {
+                let slot = frame.pop()?;
+                match &slot {
+                    Slot::Reference(None) => {
+                        frame.push(Slot::Int(0))?;
+                    }
+                    Slot::Reference(Some(r)) => {
+                        let target = resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                        let actual = heap.get(*r)?.class_name.clone();
+                        if actual == target {
+                            frame.push(Slot::Int(1))?;
+                        } else {
+                            frame.push(Slot::Int(0))?;
+                        }
+                    }
+                    _ => {
+                        return Err(VmError::TypeMismatch {
+                            expected: "reference",
+                            got: "non-reference",
+                        });
+                    }
+                }
+            }
+
             // ---- athrow with exception table dispatch ----
             Instruction::Athrow => {
                 let exception_ref = frame.pop_ref()?;
@@ -2404,6 +2621,21 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         fields,
         static_fields: vec![Slot::Int(0); static_count],
         instance_field_count: instance_count,
+    }
+}
+
+/// Resolve a CP Class entry to its name string.
+fn resolve_class_name(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> {
+    match cp.get(cp_idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::Class { name_index }) => {
+            match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
+                Some(CpEntry::Utf8(s)) => Ok(s.clone()),
+                _ => Err(VmError::InvalidCpIndex {
+                    index: name_index.0 as usize,
+                }),
+            }
+        }
+        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
     }
 }
 
@@ -3510,5 +3742,42 @@ mod tests {
     fn ref_not_equal() {
         let result = run_class_int("StringAndTypes.class", "refNotEqual", "()I", vec![]);
         assert_eq!(result, 1);
+    }
+
+    // ---- Phase 9: if_acmpeq / if_acmpne unit tests ----
+
+    #[test]
+    fn if_acmpeq_same_ref() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, Iconst1),
+            (1, Newarray(ArrayType::Int)),
+            (3, Dup),
+            (4, IfAcmpeq(10)),
+            (7, Iconst0),
+            (8, Ireturn),
+            (14, Iconst1),
+            (15, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 3, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn if_acmpne_different_refs() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, Iconst1),
+            (1, Newarray(ArrayType::Int)),
+            (3, Iconst1),
+            (4, Newarray(ArrayType::Int)),
+            (6, IfAcmpne(10)),
+            (9, Iconst0),
+            (10, Ireturn),
+            (16, Iconst1),
+            (17, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 3, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
     }
 }
