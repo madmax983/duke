@@ -560,6 +560,52 @@ pub fn execute(
                 frame.push(v.clone())?;
                 frame.push(v)?;
             }
+            Instruction::DupX1 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::DupX2 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                let v3 = frame.pop()?;
+                frame.push(v1.clone())?;
+                frame.push(v3)?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::Dup2 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                frame.push(v2.clone())?;
+                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::Dup2X1 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                let v3 = frame.pop()?;
+                frame.push(v2.clone())?;
+                frame.push(v1.clone())?;
+                frame.push(v3)?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::Dup2X2 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                let v3 = frame.pop()?;
+                let v4 = frame.pop()?;
+                frame.push(v2.clone())?;
+                frame.push(v1.clone())?;
+                frame.push(v4)?;
+                frame.push(v3)?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
             Instruction::Swap => {
                 let a = frame.pop()?;
                 let b = frame.pop()?;
@@ -1820,6 +1866,52 @@ pub fn execute_class(
                 let v = frame.pop()?;
                 frame.push(v.clone())?;
                 frame.push(v)?;
+            }
+            Instruction::DupX1 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::DupX2 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                let v3 = frame.pop()?;
+                frame.push(v1.clone())?;
+                frame.push(v3)?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::Dup2 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                frame.push(v2.clone())?;
+                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::Dup2X1 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                let v3 = frame.pop()?;
+                frame.push(v2.clone())?;
+                frame.push(v1.clone())?;
+                frame.push(v3)?;
+                frame.push(v2)?;
+                frame.push(v1)?;
+            }
+            Instruction::Dup2X2 => {
+                let v1 = frame.pop()?;
+                let v2 = frame.pop()?;
+                let v3 = frame.pop()?;
+                let v4 = frame.pop()?;
+                frame.push(v2.clone())?;
+                frame.push(v1.clone())?;
+                frame.push(v4)?;
+                frame.push(v3)?;
+                frame.push(v2)?;
+                frame.push(v1)?;
             }
             Instruction::Swap => {
                 let a = frame.pop()?;
@@ -4575,5 +4667,93 @@ mod tests {
         .unwrap();
         assert_eq!(result, None);
         assert_eq!(String::from_utf8_lossy(&out), "\n");
+    }
+
+    // ---- Phase 12: stack manipulation tests ----
+
+    #[test]
+    fn stack_ops_dup_x1() {
+        // dup_x1: ..., v2, v1 → ..., v1, v2, v1
+        let instrs = vec![
+            (0, Instruction::Iconst2),   // push 2 (v2)
+            (1, Instruction::Iconst3),   // push 3 (v1)
+            (2, Instruction::DupX1),     // → 3, 2, 3
+            (3, Instruction::Iadd),      // → 3, 5
+            (4, Instruction::Iadd),      // → 8
+            (5, Instruction::Ireturn),
+        ];
+        let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
+        assert_eq!(r, Some(Slot::Int(8)));
+    }
+
+    #[test]
+    fn stack_ops_dup_x2() {
+        // dup_x2: ..., v3, v2, v1 → ..., v1, v3, v2, v1
+        let instrs = vec![
+            (0, Instruction::Iconst1),   // push 1 (v3)
+            (1, Instruction::Iconst2),   // push 2 (v2)
+            (2, Instruction::Iconst3),   // push 3 (v1)
+            (3, Instruction::DupX2),     // → 3, 1, 2, 3
+            (4, Instruction::Iadd),      // → 3, 1, 5
+            (5, Instruction::Iadd),      // → 3, 6
+            (6, Instruction::Iadd),      // → 9
+            (7, Instruction::Ireturn),
+        ];
+        let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
+        assert_eq!(r, Some(Slot::Int(9)));
+    }
+
+    #[test]
+    fn stack_ops_dup2() {
+        // dup2: ..., v2, v1 → ..., v2, v1, v2, v1
+        let instrs = vec![
+            (0, Instruction::Iconst4),   // push 4 (v2)
+            (1, Instruction::Iconst5),   // push 5 (v1)
+            (2, Instruction::Dup2),      // → 4, 5, 4, 5
+            (3, Instruction::Iadd),      // → 4, 5, 9
+            (4, Instruction::Iadd),      // → 4, 14
+            (5, Instruction::Iadd),      // → 18
+            (6, Instruction::Ireturn),
+        ];
+        let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
+        assert_eq!(r, Some(Slot::Int(18)));
+    }
+
+    #[test]
+    fn stack_ops_dup2_x1() {
+        // dup2_x1: ..., v3, v2, v1 → ..., v2, v1, v3, v2, v1
+        let instrs = vec![
+            (0, Instruction::Iconst1),   // 1 (v3)
+            (1, Instruction::Iconst2),   // 2 (v2)
+            (2, Instruction::Iconst3),   // 3 (v1)
+            (3, Instruction::Dup2X1),    // → 2, 3, 1, 2, 3
+            (4, Instruction::Iadd),      // → 2, 3, 1, 5
+            (5, Instruction::Iadd),      // → 2, 3, 6
+            (6, Instruction::Iadd),      // → 2, 9
+            (7, Instruction::Iadd),      // → 11
+            (8, Instruction::Ireturn),
+        ];
+        let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
+        assert_eq!(r, Some(Slot::Int(11)));
+    }
+
+    #[test]
+    fn stack_ops_dup2_x2() {
+        // dup2_x2: ..., v4, v3, v2, v1 → ..., v2, v1, v4, v3, v2, v1
+        let instrs = vec![
+            (0, Instruction::Iconst1),   // 1 (v4)
+            (1, Instruction::Iconst2),   // 2 (v3)
+            (2, Instruction::Iconst3),   // 3 (v2)
+            (3, Instruction::Iconst4),   // 4 (v1)
+            (4, Instruction::Dup2X2),    // → 3, 4, 1, 2, 3, 4
+            (5, Instruction::Iadd),      // → 3, 4, 1, 2, 7
+            (6, Instruction::Iadd),      // → 3, 4, 1, 9
+            (7, Instruction::Iadd),      // → 3, 4, 10
+            (8, Instruction::Iadd),      // → 3, 14
+            (9, Instruction::Iadd),      // → 17
+            (10, Instruction::Ireturn),
+        ];
+        let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
+        assert_eq!(r, Some(Slot::Int(17)));
     }
 }
