@@ -6,7 +6,7 @@ use duke_classfile::{
     types::{AttributeData, CpEntry, CpIndex},
 };
 use duke_gc::Heap;
-use duke_interpreter::{ClassRegistry, build_class_context, execute_class};
+use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
 use duke_loader::{ClassLoader, DirectoryLoader};
 use duke_runtime::Slot;
 
@@ -138,11 +138,14 @@ fn exec_method(args: &[String]) {
         .unwrap_or(std::path::Path::new("."));
     let loader = DirectoryLoader::new(parent);
     let mut heap = Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
 
+    let mut stdout = std::io::stdout();
     match execute_class(
         &mut registry,
         &loader,
         &mut heap,
+        &mut stdout,
         &entry_class,
         method_name,
         &descriptor,

@@ -62,6 +62,7 @@ pub struct ClassContext {
 /// Used by `execute_class` for cross-class method dispatch.
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
+    natives: NativeRegistry,
 }
 
 impl ClassRegistry {
@@ -69,7 +70,19 @@ impl ClassRegistry {
     pub fn new() -> Self {
         Self {
             classes: HashMap::new(),
+            natives: NativeRegistry::new(),
         }
+    }
+
+    /// Access the native method registry.
+    #[must_use]
+    pub fn natives(&self) -> &NativeRegistry {
+        &self.natives
+    }
+
+    /// Access the native method registry mutably.
+    pub fn natives_mut(&mut self) -> &mut NativeRegistry {
+        &mut self.natives
     }
 
     /// Register a pre-built ClassContext.
@@ -168,7 +181,11 @@ impl NativeRegistry {
         handler: NativeHandler,
     ) {
         self.methods.insert(
-            (class.to_string(), method.to_string(), descriptor.to_string()),
+            (
+                class.to_string(),
+                method.to_string(),
+                descriptor.to_string(),
+            ),
             handler,
         );
     }
@@ -188,6 +205,108 @@ impl Default for NativeRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Bootstrap minimal JDK standard library classes for native method support.
+///
+/// Creates synthetic `java/lang/System` and `java/io/PrintStream` classes and
+/// registers native `println` handlers for `(Ljava/lang/String;)V`, `(I)V`,
+/// and `()V`.
+pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    // Allocate a PrintStream object on the heap.
+    let ps_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
+
+    // Create java/lang/System ClassContext with a single static field `out`.
+    let system_ctx = ClassContext {
+        class_name: "java/lang/System".to_string(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "out".to_string(),
+            descriptor: "Ljava/io/PrintStream;".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Reference(Some(ps_ref))],
+        instance_field_count: 0,
+    };
+    registry.register(system_ctx);
+
+    // Create java/io/PrintStream ClassContext (empty — all methods are native).
+    let ps_ctx = ClassContext {
+        class_name: "java/io/PrintStream".to_string(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+    };
+    registry.register(ps_ctx);
+
+    // Register native println handlers.
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "println",
+        "(Ljava/lang/String;)V",
+        native_println_string,
+    );
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "println", "(I)V", native_println_int);
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "println", "()V", native_println_void);
+}
+
+fn native_println_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let string_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => {
+            writeln!(out, "null").ok();
+            return Ok(None);
+        }
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let obj = heap.get(string_ref)?;
+    let text = obj.string_value.as_deref().unwrap_or("null");
+    writeln!(out, "{text}").ok();
+    Ok(None)
+}
+
+fn native_println_int(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    writeln!(out, "{val}").ok();
+    Ok(None)
+}
+
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+fn native_println_void(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    writeln!(out).ok();
+    Ok(None)
 }
 
 /// Execute a decoded JVM instruction stream.
@@ -1335,6 +1454,7 @@ pub fn execute_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
     heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
     class_name: &str,
     method_name: &str,
     descriptor: &str,
@@ -1428,44 +1548,69 @@ pub fn execute_class(
                     ctx.methods
                         .iter()
                         .position(|m| m.name == callee_name && m.descriptor == callee_desc)
-                        .ok_or_else(|| VmError::MethodNotFound {
-                            name: callee_name.clone(),
-                            descriptor: callee_desc.clone(),
-                        })?
                 };
-                let arg_count = parse_arg_count(&callee_desc);
-                let mut callee_args: Vec<Slot> = (0..arg_count)
-                    .map(|_| frame.pop())
-                    .collect::<VmResult<Vec<_>>>()?;
-                callee_args.reverse();
-                let (callee_pc_to_idx, callee_frame) = {
-                    let ctx = registry.get(&callee_class)?;
-                    let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
-                        .instructions
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &(pc, _))| (pc, i))
-                        .collect();
-                    let f = Frame::new(
-                        usize::from(ctx.methods[callee_idx].max_stack),
-                        usize::from(ctx.methods[callee_idx].max_locals),
-                        callee_args,
-                    )?;
-                    (pci, f)
-                };
-                call_stack.push(CallFrame {
-                    frame,
-                    method_idx,
-                    pc_to_idx,
-                    resume_idx: idx + 1,
-                    class_name: current_class.clone(),
-                });
-                frame = callee_frame;
-                method_idx = callee_idx;
-                pc_to_idx = callee_pc_to_idx;
-                current_class = callee_class;
-                idx = 0;
-                continue;
+                match callee_idx {
+                    Some(callee_idx) => {
+                        let arg_count = parse_arg_count(&callee_desc);
+                        let mut callee_args: Vec<Slot> = (0..arg_count)
+                            .map(|_| frame.pop())
+                            .collect::<VmResult<Vec<_>>>()?;
+                        callee_args.reverse();
+                        let (callee_pc_to_idx, callee_frame) = {
+                            let ctx = registry.get(&callee_class)?;
+                            let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
+                                .instructions
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &(pc, _))| (pc, i))
+                                .collect();
+                            let f = Frame::new(
+                                usize::from(ctx.methods[callee_idx].max_stack),
+                                usize::from(ctx.methods[callee_idx].max_locals),
+                                callee_args,
+                            )?;
+                            (pci, f)
+                        };
+                        call_stack.push(CallFrame {
+                            frame,
+                            method_idx,
+                            pc_to_idx,
+                            resume_idx: idx + 1,
+                            class_name: current_class.clone(),
+                        });
+                        frame = callee_frame;
+                        method_idx = callee_idx;
+                        pc_to_idx = callee_pc_to_idx;
+                        current_class = callee_class;
+                        idx = 0;
+                        continue;
+                    }
+                    None => {
+                        // Check native registry before erroring.
+                        if let Some(handler) =
+                            registry
+                                .natives()
+                                .get(&callee_class, &callee_name, &callee_desc)
+                        {
+                            let handler = *handler;
+                            let arg_count = parse_arg_count(&callee_desc);
+                            let mut native_args: Vec<Slot> = (0..arg_count)
+                                .map(|_| frame.pop())
+                                .collect::<VmResult<Vec<_>>>()?;
+                            native_args.reverse();
+                            let result = handler(&native_args, heap, stdout)?;
+                            if let Some(val) = result {
+                                frame.push(val)?;
+                            }
+                            idx += 1;
+                            continue;
+                        }
+                        return Err(VmError::MethodNotFound {
+                            name: callee_name,
+                            descriptor: callee_desc,
+                        });
+                    }
+                }
             }
 
             // ---- returns ----
@@ -2172,6 +2317,27 @@ pub fn execute_class(
                 let callee_idx = match callee_idx {
                     Some(i) => i,
                     None => {
+                        // Check native registry before no-op fallback.
+                        if let Some(handler) =
+                            registry
+                                .natives()
+                                .get(&callee_class, &callee_name, &callee_desc)
+                        {
+                            let handler = *handler;
+                            let arg_count = parse_arg_count(&callee_desc);
+                            let mut native_args: Vec<Slot> = (0..arg_count)
+                                .map(|_| frame.pop())
+                                .collect::<VmResult<Vec<_>>>()?;
+                            native_args.reverse();
+                            let this_slot = frame.pop()?; // pop `this`
+                            native_args.insert(0, this_slot);
+                            let result = handler(&native_args, heap, stdout)?;
+                            if let Some(val) = result {
+                                frame.push(val)?;
+                            }
+                            idx += 1;
+                            continue;
+                        }
                         // Unloadable or missing — pop args + this and continue.
                         let arg_count = parse_arg_count(&callee_desc);
                         for _ in 0..arg_count {
@@ -3372,10 +3538,12 @@ mod tests {
         );
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
         let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
         match execute_class(
             &mut registry,
             &loader,
             &mut heap,
+            &mut sink,
             &entry_class,
             method_name,
             descriptor,
@@ -3444,10 +3612,12 @@ mod tests {
                 .join("fixtures"),
         );
         let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
         let err = execute_class(
             &mut registry,
             &loader,
             &mut heap,
+            &mut sink,
             &entry_class,
             "nonExistent",
             "(I)I",
@@ -3631,10 +3801,12 @@ mod tests {
         );
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
         let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
         match execute_class(
             &mut registry,
             &loader,
             &mut heap,
+            &mut sink,
             &entry_class,
             method_name,
             descriptor,
@@ -3668,10 +3840,12 @@ mod tests {
         );
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
         let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
         match execute_class(
             &mut registry,
             &loader,
             &mut heap,
+            &mut sink,
             &entry_class,
             method_name,
             descriptor,
@@ -3829,10 +4003,12 @@ mod tests {
                 .join("fixtures"),
         );
         let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
         let result = execute_class(
             &mut registry,
             &loader,
             &mut heap,
+            &mut sink,
             &entry_class,
             "uncaught",
             "()I",
@@ -4124,10 +4300,12 @@ mod tests {
         );
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
         let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
         match execute_class(
             &mut registry,
             &loader,
             &mut heap,
+            &mut sink,
             entry_class,
             method_name,
             descriptor,
@@ -4261,5 +4439,141 @@ mod tests {
     fn native_registry_returns_none_for_missing() {
         let natives = NativeRegistry::new();
         assert!(natives.get("Foo", "bar", "(I)I").is_none());
+    }
+
+    // ---- Phase 11: native println tests ----
+
+    fn load_hello_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("Hello.class")).expect("Hello.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn hello_greet_prints_to_output() {
+        let ctx = load_hello_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "Hello",
+            "greet",
+            "()V",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, None);
+        assert_eq!(String::from_utf8_lossy(&out), "Hello, Duke!\n");
+    }
+
+    #[test]
+    fn hello_print_num() {
+        let ctx = load_hello_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "Hello",
+            "printNum",
+            "(I)V",
+            &[Slot::Int(42)],
+        )
+        .unwrap();
+        assert_eq!(result, None);
+        assert_eq!(String::from_utf8_lossy(&out), "42\n");
+    }
+
+    #[test]
+    fn hello_greet_and_return() {
+        let ctx = load_hello_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "Hello",
+            "greetAndReturn",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(42)));
+        assert_eq!(String::from_utf8_lossy(&out), "Greetings!\n");
+    }
+
+    #[test]
+    fn hello_blank_line() {
+        let ctx = load_hello_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "Hello",
+            "blankLine",
+            "()V",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, None);
+        assert_eq!(String::from_utf8_lossy(&out), "\n");
     }
 }
