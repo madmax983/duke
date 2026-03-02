@@ -85,4 +85,16 @@ mod tests {
         };
         assert_eq!(e.to_string(), "java exception: java/lang/RuntimeException");
     }
+
+    #[test]
+    fn class_cast_exception_error_message() {
+        let e = VmError::ClassCastException {
+            from: "java/lang/RuntimeException".to_string(),
+            to: "java/lang/String".to_string(),
+        };
+        assert_eq!(
+            e.to_string(),
+            "class cast exception: java/lang/RuntimeException cannot be cast to java/lang/String"
+        );
+    }
 }

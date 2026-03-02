@@ -10,6 +10,8 @@ use duke_runtime::{Slot, VmError, VmResult};
 pub struct HeapObject {
     pub class_name: String,
     pub fields: Vec<Slot>,
+    /// String content for `java/lang/String` objects. `None` for non-string objects.
+    pub string_value: Option<String>,
 }
 
 /// The object heap — a Vec-backed bump allocator.
@@ -32,6 +34,18 @@ impl Heap {
         self.objects.push(HeapObject {
             class_name,
             fields: vec![Slot::Int(0); field_count],
+            string_value: None,
+        });
+        idx
+    }
+
+    /// Allocate a new String object with the given content.
+    pub fn allocate_string(&mut self, value: String) -> u64 {
+        let idx = self.objects.len() as u64;
+        self.objects.push(HeapObject {
+            class_name: "java/lang/String".to_string(),
+            fields: Vec::new(),
+            string_value: Some(value),
         });
         idx
     }
@@ -103,5 +117,15 @@ mod tests {
         let heap = Heap::new();
         let err = heap.get(999).unwrap_err();
         assert!(matches!(err, VmError::InvalidRef { address: 999 }));
+    }
+
+    #[test]
+    fn allocate_string_stores_value() {
+        let mut heap = Heap::new();
+        let r = heap.allocate_string("hello".to_string());
+        let obj = heap.get(r).unwrap();
+        assert_eq!(obj.class_name, "java/lang/String");
+        assert_eq!(obj.string_value, Some("hello".to_string()));
+        assert!(obj.fields.is_empty());
     }
 }

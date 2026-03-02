@@ -56,6 +56,9 @@ pub enum VmError {
 
     #[error("java exception: {class_name}")]
     JavaException { class_name: String },
+
+    #[error("class cast exception: {from} cannot be cast to {to}")]
+    ClassCastException { from: String, to: String },
 }
 
 /// Convenience alias for `Result<T, VmError>`.
