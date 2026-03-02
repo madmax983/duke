@@ -47,6 +47,8 @@ pub struct ExceptionEntry {
 pub struct ClassContext {
     /// Internal JVM class name (e.g. `"Point"`).
     pub class_name: String,
+    /// Superclass name (`None` for `java/lang/Object`).
+    pub super_class: Option<String>,
     pub constant_pool: Vec<Option<CpEntry>>,
     pub methods: Vec<MethodEntry>,
     /// All field declarations (static and instance), in class file order.
@@ -233,6 +235,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // Create java/lang/System ClassContext with a single static field `out`.
     let system_ctx = ClassContext {
         class_name: "java/lang/System".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![FieldEntry {
@@ -248,6 +251,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // Create java/io/PrintStream ClassContext (empty — all methods are native).
     let ps_ctx = ClassContext {
         class_name: "java/io/PrintStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: Vec::new(),
@@ -1096,14 +1100,16 @@ pub fn execute(
                 ));
                 frame.push(Slot::Reference(Some(r)))?;
             }
-            Instruction::Anewarray(_) => {
+            Instruction::Anewarray(cp_idx) => {
+                let element_type = resolve_class_name(cp, usize::from(cp_idx.0))?;
+                let array_type = format!("[L{element_type};");
                 let count = frame.pop_int()?;
                 if count < 0 {
                     return Err(VmError::NegativeArraySize { size: count });
                 }
                 let r = local_heap.len() as u64;
                 local_heap.push((
-                    "[Ljava/lang/Object;".to_string(),
+                    array_type,
                     vec![Slot::Reference(None); count as usize],
                     None,
                 ));
@@ -2591,12 +2597,17 @@ pub fn execute_class(
                 }
                 frame.push(Slot::Reference(Some(r)))?;
             }
-            Instruction::Anewarray(_) => {
+            Instruction::Anewarray(cp_idx) => {
+                let element_type = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
+                let array_type = format!("[L{element_type};");
                 let count = frame.pop_int()?;
                 if count < 0 {
                     return Err(VmError::NegativeArraySize { size: count });
                 }
-                let r = heap.allocate("[Ljava/lang/Object;".to_string(), count as usize);
+                let r = heap.allocate(array_type, count as usize);
                 // Fix elements to Reference(None).
                 let obj = heap.get_mut(r)?;
                 for slot in &mut obj.fields {
@@ -2887,7 +2898,7 @@ pub fn execute_class(
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
-                        if actual == target {
+                        if is_assignable_from(registry, loader, &actual, &target) {
                             frame.push(slot)?;
                         } else {
                             return Err(VmError::ClassCastException {
@@ -2916,11 +2927,9 @@ pub fn execute_class(
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
-                        if actual == target {
-                            frame.push(Slot::Int(1))?;
-                        } else {
-                            frame.push(Slot::Int(0))?;
-                        }
+                        let result =
+                            i32::from(is_assignable_from(registry, loader, &actual, &target));
+                        frame.push(Slot::Int(result))?;
                     }
                     _ => {
                         return Err(VmError::TypeMismatch {
@@ -2936,15 +2945,20 @@ pub fn execute_class(
                 let exception_ref = frame.pop_ref()?;
                 let exc_class_name = heap.get(exception_ref)?.class_name.clone();
 
-                // Search current method's exception table.
-                let handler = {
-                    let ctx = registry.get(&current_class)?;
-                    find_exception_handler(
-                        &ctx.methods[method_idx].exception_table,
-                        pc,
-                        &exc_class_name,
-                    )
-                };
+                // Clone the exception table to release the borrow on registry,
+                // so find_exception_handler can use &mut registry for hierarchy checks.
+                let exc_table = registry.get(&current_class)?.methods[method_idx]
+                    .exception_table
+                    .iter()
+                    .map(|e| ExceptionEntry {
+                        start_pc: e.start_pc,
+                        end_pc: e.end_pc,
+                        handler_pc: e.handler_pc,
+                        catch_type: e.catch_type.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                let handler =
+                    find_exception_handler(&exc_table, pc, &exc_class_name, registry, loader);
                 if let Some(handler_pc) = handler {
                     frame.clear_stack();
                     frame.push(Slot::Reference(Some(exception_ref)))?;
@@ -2970,20 +2984,33 @@ pub fn execute_class(
                             pc_to_idx = caller.pc_to_idx;
                             current_class = caller.class_name;
 
-                            // PC of the invoke instruction in the caller.
-                            let handler = {
+                            // Clone exception table and compute caller_pc before hierarchy check.
+                            let (caller_exc_table, caller_pc) = {
                                 let ctx = registry.get(&current_class)?;
-                                let caller_pc = if caller.resume_idx > 0 {
+                                let cpc = if caller.resume_idx > 0 {
                                     ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
                                 } else {
                                     0
                                 };
-                                find_exception_handler(
-                                    &ctx.methods[method_idx].exception_table,
-                                    caller_pc,
-                                    &exc_class_name,
-                                )
+                                let tbl = ctx.methods[method_idx]
+                                    .exception_table
+                                    .iter()
+                                    .map(|e| ExceptionEntry {
+                                        start_pc: e.start_pc,
+                                        end_pc: e.end_pc,
+                                        handler_pc: e.handler_pc,
+                                        catch_type: e.catch_type.clone(),
+                                    })
+                                    .collect::<Vec<_>>();
+                                (tbl, cpc)
                             };
+                            let handler = find_exception_handler(
+                                &caller_exc_table,
+                                caller_pc,
+                                &exc_class_name,
+                                registry,
+                                loader,
+                            );
 
                             if let Some(handler_pc) = handler {
                                 frame.clear_stack();
@@ -3142,8 +3169,16 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         });
     }
 
+    // Resolve super_class: if the index is 0, this is java/lang/Object (no super).
+    let super_class = if cf.super_class.0 != 0 {
+        resolve_class_name(&cf.constant_pool, cf.super_class.0 as usize).ok()
+    } else {
+        None
+    };
+
     ClassContext {
         class_name,
+        super_class,
         constant_pool: cf.constant_pool.clone(),
         methods,
         fields,
@@ -3178,17 +3213,58 @@ fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<(
     }
 }
 
-/// Search a method's exception table for a handler matching the given pc and class name.
+/// Check if `from` is a subtype of `to` (i.e., `from` can be assigned where `to` is expected).
+///
+/// Walks the class hierarchy from `from` upward through superclasses.
+/// Returns `true` if `to` is found in the chain, or if `to` is `"java/lang/Object"`.
+fn is_assignable_from(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    from: &str,
+    to: &str,
+) -> bool {
+    if from == to {
+        return true;
+    }
+    if to == "java/lang/Object" {
+        return true;
+    }
+    let mut current = from.to_string();
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current.clone()) {
+            return false; // circular hierarchy — bail
+        }
+        let _ = registry.ensure_loaded(&current, loader);
+        let super_name = match registry.get(&current) {
+            Ok(ctx) => ctx.super_class.clone(),
+            Err(_) => return false,
+        };
+        match super_name {
+            Some(s) if s == to => return true,
+            Some(s) => current = s,
+            None => return false,
+        }
+    }
+}
+
+/// Search a method's exception table for a handler matching the given pc and exception class.
+///
+/// Uses hierarchy-aware type checking: a `catch(Exception)` will match a thrown
+/// `RuntimeException` because `RuntimeException` is a subclass of `Exception`.
 fn find_exception_handler(
     exception_table: &[ExceptionEntry],
     pc: usize,
     class_name: &str,
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
 ) -> Option<u16> {
     exception_table.iter().find_map(|entry| {
         let in_range = pc >= entry.start_pc as usize && pc < entry.end_pc as usize;
+        #[allow(clippy::option_if_let_else)] // match is clearer with &mut registry
         let type_matches = match &entry.catch_type {
             None => true, // catch-all (finally)
-            Some(ct) => ct == class_name,
+            Some(ct) => is_assignable_from(registry, loader, class_name, ct),
         };
         if in_range && type_matches {
             Some(entry.handler_pc)
