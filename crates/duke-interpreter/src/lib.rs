@@ -3455,4 +3455,60 @@ mod tests {
         let result = execute(&instrs, &[], vec![], 2, 0).unwrap();
         assert_eq!(result, Some(Slot::Int(0)));
     }
+
+    // ---- Phase 9: String constants ----
+
+    #[test]
+    fn string_non_null() {
+        let result = run_class_int("StringAndTypes.class", "stringNonNull", "()I", vec![]);
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn string_intern() {
+        let result = run_class_int("StringAndTypes.class", "stringIntern", "()I", vec![]);
+        assert_eq!(result, 1);
+    }
+
+    // ---- Phase 9: instanceof ----
+
+    #[test]
+    fn instanceof_match() {
+        let result = run_class_int("StringAndTypes.class", "instanceOfMatch", "()I", vec![]);
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn instanceof_mismatch() {
+        let result = run_class_int("StringAndTypes.class", "instanceOfMismatch", "()I", vec![]);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn instanceof_null() {
+        let result = run_class_int("StringAndTypes.class", "instanceOfNull", "()I", vec![]);
+        assert_eq!(result, 0);
+    }
+
+    // ---- Phase 9: checkcast ----
+
+    #[test]
+    fn checkcast_ok() {
+        let result = run_class_int("StringAndTypes.class", "checkcastOk", "()I", vec![]);
+        assert_eq!(result, 42);
+    }
+
+    // ---- Phase 9: Reference comparison ----
+
+    #[test]
+    fn ref_equal() {
+        let result = run_class_int("StringAndTypes.class", "refEqual", "()I", vec![]);
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn ref_not_equal() {
+        let result = run_class_int("StringAndTypes.class", "refNotEqual", "()I", vec![]);
+        assert_eq!(result, 1);
+    }
 }
