@@ -9,3 +9,4 @@ duke-runtime = { path = "../duke-runtime" }
 duke-bytecode = { path = "../duke-bytecode" }
 duke-classfile = { path = "../duke-classfile" }
 duke-gc = { path = "../duke-gc" }
+duke-loader = { path = "../duke-loader" }

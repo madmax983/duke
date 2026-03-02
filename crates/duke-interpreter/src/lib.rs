@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use duke_bytecode::Instruction;
 use duke_bytecode::instruction::ArrayType;
 use duke_classfile::types::CpEntry;
+use duke_loader::ClassLoader;
 use duke_runtime::{Frame, Slot, VmError, VmResult};
 
 /// A decoded method ready for execution.
@@ -53,6 +54,85 @@ pub struct ClassContext {
     pub static_fields: Vec<Slot>,
     /// Number of instance (non-static) fields — used to size heap objects at `new`.
     pub instance_field_count: usize,
+}
+
+/// Registry of loaded classes — maps class name to its ClassContext.
+///
+/// Used by `execute_class` for cross-class method dispatch.
+pub struct ClassRegistry {
+    classes: HashMap<String, ClassContext>,
+}
+
+impl ClassRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            classes: HashMap::new(),
+        }
+    }
+
+    /// Register a pre-built ClassContext.
+    pub fn register(&mut self, ctx: ClassContext) {
+        self.classes.insert(ctx.class_name.clone(), ctx);
+    }
+
+    /// Get a reference to a loaded class.
+    ///
+    /// # Errors
+    /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
+    pub fn get(&self, name: &str) -> VmResult<&ClassContext> {
+        self.classes
+            .get(name)
+            .ok_or_else(|| VmError::ClassNotFound {
+                name: name.to_string(),
+            })
+    }
+
+    /// Get a mutable reference to a loaded class.
+    ///
+    /// # Errors
+    /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
+    pub fn get_mut(&mut self, name: &str) -> VmResult<&mut ClassContext> {
+        self.classes
+            .get_mut(name)
+            .ok_or_else(|| VmError::ClassNotFound {
+                name: name.to_string(),
+            })
+    }
+
+    /// Ensure a class is loaded. If not already present, loads it via the class
+    /// loader, parses it, builds a ClassContext, and registers it.
+    ///
+    /// Returns `Ok(true)` if loaded, `Ok(false)` if the class could not be found
+    /// (soft failure — for classes like `java/lang/Object` that we can't load yet).
+    pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
+        if self.classes.contains_key(name) {
+            return Ok(true);
+        }
+        let bytes = match loader.find_class(name) {
+            Ok(b) => b,
+            Err(_) => return Ok(false),
+        };
+        let cf = match duke_classfile::parse(&bytes) {
+            Ok(cf) => cf,
+            Err(_) => return Ok(false),
+        };
+        let ctx = build_class_context(&cf);
+        self.classes.insert(name.to_string(), ctx);
+        Ok(true)
+    }
+
+    /// Check if a class is loaded.
+    #[must_use]
+    pub fn contains(&self, name: &str) -> bool {
+        self.classes.contains_key(name)
+    }
+}
+
+impl Default for ClassRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Execute a decoded JVM instruction stream.

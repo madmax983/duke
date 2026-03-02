@@ -97,4 +97,12 @@ mod tests {
             "class cast exception: java/lang/RuntimeException cannot be cast to java/lang/String"
         );
     }
+
+    #[test]
+    fn class_not_found_error_message() {
+        let e = VmError::ClassNotFound {
+            name: "com/example/Missing".to_string(),
+        };
+        assert_eq!(e.to_string(), "class not found: com/example/Missing");
+    }
 }

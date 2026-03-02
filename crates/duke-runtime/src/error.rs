@@ -59,6 +59,9 @@ pub enum VmError {
 
     #[error("class cast exception: {from} cannot be cast to {to}")]
     ClassCastException { from: String, to: String },
+
+    #[error("class not found: {name}")]
+    ClassNotFound { name: String },
 }
 
 /// Convenience alias for `Result<T, VmError>`.
