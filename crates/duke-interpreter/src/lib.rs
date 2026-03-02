@@ -4,7 +4,7 @@
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use duke_bytecode::Instruction;
@@ -63,6 +63,8 @@ pub struct ClassContext {
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
     natives: NativeRegistry,
+    /// Tracks which classes have had their `<clinit>` run.
+    initialized: HashSet<String>,
 }
 
 impl ClassRegistry {
@@ -71,7 +73,19 @@ impl ClassRegistry {
         Self {
             classes: HashMap::new(),
             natives: NativeRegistry::new(),
+            initialized: HashSet::new(),
         }
+    }
+
+    /// Check if a class has been initialized (clinit has run).
+    #[must_use]
+    pub fn is_initialized(&self, name: &str) -> bool {
+        self.initialized.contains(name)
+    }
+
+    /// Mark a class as initialized.
+    pub fn mark_initialized(&mut self, name: &str) {
+        self.initialized.insert(name.to_string());
     }
 
     /// Access the native method registry.
@@ -1482,6 +1496,49 @@ pub fn execute(
     }
 }
 
+/// Ensure a class is initialized. Runs `<clinit>` if present and not yet run.
+///
+/// Must be called before first active use of a class (new, getstatic, putstatic, invokestatic).
+fn ensure_initialized(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    class_name: &str,
+) -> VmResult<()> {
+    if registry.is_initialized(class_name) {
+        return Ok(());
+    }
+    // Mark as initialized BEFORE running clinit to prevent infinite recursion.
+    registry.mark_initialized(class_name);
+
+    // Check if the class has a <clinit> method.
+    let has_clinit = {
+        match registry.get(class_name) {
+            Ok(ctx) => ctx
+                .methods
+                .iter()
+                .any(|m| m.name == "<clinit>" && m.descriptor == "()V"),
+            Err(_) => false,
+        }
+    };
+
+    if has_clinit {
+        // Run <clinit> by calling it through execute_class.
+        execute_class(
+            registry,
+            loader,
+            heap,
+            stdout,
+            class_name,
+            "<clinit>",
+            "()V",
+            &[],
+        )?;
+    }
+    Ok(())
+}
+
 /// Execute a static method by name within a loaded class context.
 ///
 /// Supports `invokestatic` calls between methods in the same class.
@@ -1517,6 +1574,9 @@ pub fn execute_class(
                 descriptor: descriptor.to_string(),
             })?
     };
+
+    // Ensure the entry class has been initialized (<clinit> run).
+    ensure_initialized(registry, loader, heap, stdout, class_name)?;
 
     let mut current_class = class_name.to_string();
     let mut call_stack: Vec<CallFrame> = Vec::new();
@@ -1589,6 +1649,7 @@ pub fn execute_class(
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&callee_class, loader)?;
+                ensure_initialized(registry, loader, heap, stdout, &callee_class)?;
                 let callee_idx = {
                     let ctx = registry.get(&callee_class)?;
                     ctx.methods
@@ -2329,6 +2390,7 @@ pub fn execute_class(
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class)?;
                 let field_count = registry
                     .get(&target_class)
                     .map(|c| c.instance_field_count)
@@ -2366,6 +2428,7 @@ pub fn execute_class(
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 let val = registry.get(&target_class)?.static_fields[sidx].clone();
                 frame.push(val)?;
@@ -2377,6 +2440,7 @@ pub fn execute_class(
                 };
                 let val = frame.pop()?;
                 registry.ensure_loaded(&target_class, loader)?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 registry.get_mut(&target_class)?.static_fields[sidx] = val;
             }
@@ -4675,11 +4739,11 @@ mod tests {
     fn stack_ops_dup_x1() {
         // dup_x1: ..., v2, v1 → ..., v1, v2, v1
         let instrs = vec![
-            (0, Instruction::Iconst2),   // push 2 (v2)
-            (1, Instruction::Iconst3),   // push 3 (v1)
-            (2, Instruction::DupX1),     // → 3, 2, 3
-            (3, Instruction::Iadd),      // → 3, 5
-            (4, Instruction::Iadd),      // → 8
+            (0, Instruction::Iconst2), // push 2 (v2)
+            (1, Instruction::Iconst3), // push 3 (v1)
+            (2, Instruction::DupX1),   // → 3, 2, 3
+            (3, Instruction::Iadd),    // → 3, 5
+            (4, Instruction::Iadd),    // → 8
             (5, Instruction::Ireturn),
         ];
         let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
@@ -4690,13 +4754,13 @@ mod tests {
     fn stack_ops_dup_x2() {
         // dup_x2: ..., v3, v2, v1 → ..., v1, v3, v2, v1
         let instrs = vec![
-            (0, Instruction::Iconst1),   // push 1 (v3)
-            (1, Instruction::Iconst2),   // push 2 (v2)
-            (2, Instruction::Iconst3),   // push 3 (v1)
-            (3, Instruction::DupX2),     // → 3, 1, 2, 3
-            (4, Instruction::Iadd),      // → 3, 1, 5
-            (5, Instruction::Iadd),      // → 3, 6
-            (6, Instruction::Iadd),      // → 9
+            (0, Instruction::Iconst1), // push 1 (v3)
+            (1, Instruction::Iconst2), // push 2 (v2)
+            (2, Instruction::Iconst3), // push 3 (v1)
+            (3, Instruction::DupX2),   // → 3, 1, 2, 3
+            (4, Instruction::Iadd),    // → 3, 1, 5
+            (5, Instruction::Iadd),    // → 3, 6
+            (6, Instruction::Iadd),    // → 9
             (7, Instruction::Ireturn),
         ];
         let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
@@ -4707,12 +4771,12 @@ mod tests {
     fn stack_ops_dup2() {
         // dup2: ..., v2, v1 → ..., v2, v1, v2, v1
         let instrs = vec![
-            (0, Instruction::Iconst4),   // push 4 (v2)
-            (1, Instruction::Iconst5),   // push 5 (v1)
-            (2, Instruction::Dup2),      // → 4, 5, 4, 5
-            (3, Instruction::Iadd),      // → 4, 5, 9
-            (4, Instruction::Iadd),      // → 4, 14
-            (5, Instruction::Iadd),      // → 18
+            (0, Instruction::Iconst4), // push 4 (v2)
+            (1, Instruction::Iconst5), // push 5 (v1)
+            (2, Instruction::Dup2),    // → 4, 5, 4, 5
+            (3, Instruction::Iadd),    // → 4, 5, 9
+            (4, Instruction::Iadd),    // → 4, 14
+            (5, Instruction::Iadd),    // → 18
             (6, Instruction::Ireturn),
         ];
         let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
@@ -4723,14 +4787,14 @@ mod tests {
     fn stack_ops_dup2_x1() {
         // dup2_x1: ..., v3, v2, v1 → ..., v2, v1, v3, v2, v1
         let instrs = vec![
-            (0, Instruction::Iconst1),   // 1 (v3)
-            (1, Instruction::Iconst2),   // 2 (v2)
-            (2, Instruction::Iconst3),   // 3 (v1)
-            (3, Instruction::Dup2X1),    // → 2, 3, 1, 2, 3
-            (4, Instruction::Iadd),      // → 2, 3, 1, 5
-            (5, Instruction::Iadd),      // → 2, 3, 6
-            (6, Instruction::Iadd),      // → 2, 9
-            (7, Instruction::Iadd),      // → 11
+            (0, Instruction::Iconst1), // 1 (v3)
+            (1, Instruction::Iconst2), // 2 (v2)
+            (2, Instruction::Iconst3), // 3 (v1)
+            (3, Instruction::Dup2X1),  // → 2, 3, 1, 2, 3
+            (4, Instruction::Iadd),    // → 2, 3, 1, 5
+            (5, Instruction::Iadd),    // → 2, 3, 6
+            (6, Instruction::Iadd),    // → 2, 9
+            (7, Instruction::Iadd),    // → 11
             (8, Instruction::Ireturn),
         ];
         let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
@@ -4741,19 +4805,185 @@ mod tests {
     fn stack_ops_dup2_x2() {
         // dup2_x2: ..., v4, v3, v2, v1 → ..., v2, v1, v4, v3, v2, v1
         let instrs = vec![
-            (0, Instruction::Iconst1),   // 1 (v4)
-            (1, Instruction::Iconst2),   // 2 (v3)
-            (2, Instruction::Iconst3),   // 3 (v2)
-            (3, Instruction::Iconst4),   // 4 (v1)
-            (4, Instruction::Dup2X2),    // → 3, 4, 1, 2, 3, 4
-            (5, Instruction::Iadd),      // → 3, 4, 1, 2, 7
-            (6, Instruction::Iadd),      // → 3, 4, 1, 9
-            (7, Instruction::Iadd),      // → 3, 4, 10
-            (8, Instruction::Iadd),      // → 3, 14
-            (9, Instruction::Iadd),      // → 17
+            (0, Instruction::Iconst1), // 1 (v4)
+            (1, Instruction::Iconst2), // 2 (v3)
+            (2, Instruction::Iconst3), // 3 (v2)
+            (3, Instruction::Iconst4), // 4 (v1)
+            (4, Instruction::Dup2X2),  // → 3, 4, 1, 2, 3, 4
+            (5, Instruction::Iadd),    // → 3, 4, 1, 2, 7
+            (6, Instruction::Iadd),    // → 3, 4, 1, 9
+            (7, Instruction::Iadd),    // → 3, 4, 10
+            (8, Instruction::Iadd),    // → 3, 14
+            (9, Instruction::Iadd),    // → 17
             (10, Instruction::Ireturn),
         ];
         let r = execute(&instrs, &[], vec![], 10, 1).unwrap();
         assert_eq!(r, Some(Slot::Int(17)));
+    }
+
+    // ---- Phase 12: static initializer tests ----
+
+    fn load_static_init_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("StaticInit.class")).expect("StaticInit.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    fn fixtures_loader() -> duke_loader::DirectoryLoader {
+        duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        )
+    }
+
+    #[test]
+    fn clinit_initializes_static_field_x() {
+        let ctx = load_static_init_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = fixtures_loader();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StaticInit",
+            "getX",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(42)));
+    }
+
+    #[test]
+    fn clinit_initializes_dependent_field_y() {
+        let ctx = load_static_init_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = fixtures_loader();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StaticInit",
+            "getY",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(50)));
+    }
+
+    #[test]
+    fn clinit_runs_static_block() {
+        let ctx = load_static_init_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = fixtures_loader();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StaticInit",
+            "getZ",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(92)));
+    }
+
+    #[test]
+    fn clinit_sum_all_statics() {
+        let ctx = load_static_init_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = fixtures_loader();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StaticInit",
+            "sum",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(184)));
+    }
+
+    // ---- Phase 12: stack ops integration tests ----
+
+    fn load_stack_ops_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("StackOps.class")).expect("StackOps.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn stack_ops_array_store_dup() {
+        let ctx = load_stack_ops_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = fixtures_loader();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StackOps",
+            "arrayStoreDup",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(60)));
+    }
+
+    #[test]
+    fn stack_ops_multi_assign() {
+        let ctx = load_stack_ops_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = fixtures_loader();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StackOps",
+            "multiAssign",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(10)));
     }
 }
