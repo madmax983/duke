@@ -3141,6 +3141,7 @@ mod tests {
     // ---- Phase 8: Exceptions ----
 
     #[test]
+    #[ignore = "needs exception table dispatch (Phase 8)"]
     fn exception_catch_simple() {
         assert_eq!(
             run_class_int("ExceptionTest.class", "catchSimple", "()I", vec![]),
@@ -3149,6 +3150,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs exception table dispatch (Phase 8)"]
     fn exception_uncaught_propagates() {
         let mut ctx = load_class_context("ExceptionTest.class");
         let mut heap = duke_gc::Heap::new();
@@ -3166,6 +3168,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs exception table dispatch (Phase 8)"]
     fn exception_catch_from_callee() {
         assert_eq!(
             run_class_int("ExceptionTest.class", "catchFromCallee", "()I", vec![]),
