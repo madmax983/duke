@@ -1019,6 +1019,30 @@ pub fn execute(
                 fields[idx_val as usize] = Slot::Int(val);
             }
 
+            // ---- Switch ----
+            Instruction::Tableswitch {
+                default,
+                low,
+                high,
+                offsets,
+            } => {
+                let key = frame.pop_int()?;
+                let offset = if key >= *low && key <= *high {
+                    offsets[(key - low) as usize]
+                } else {
+                    *default
+                };
+                jump!(offset);
+            }
+            Instruction::Lookupswitch { default, pairs } => {
+                let key = frame.pop_int()?;
+                let offset = pairs
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map_or(*default, |(_, off)| *off);
+                jump!(offset);
+            }
+
             // ---- athrow ----
             Instruction::Athrow => {
                 let r = frame.pop_ref()?;
@@ -1127,7 +1151,7 @@ pub fn execute_class(
         match &instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
-                let (callee_name, callee_desc) =
+                let (_callee_class, callee_name, callee_desc) =
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?;
                 let callee_idx = ctx
                     .methods
@@ -1779,26 +1803,29 @@ pub fn execute_class(
 
             // ---- Instance method dispatch ----
             //
-            // invokespecial and invokevirtual use the same dispatch in Phase 6:
-            // resolve name+descriptor, pop args + this ref, push a new CallFrame.
-            // Virtual dispatch via vtable is deferred to Phase 7.
+            // invokespecial and invokevirtual: resolve class+name+descriptor from
+            // the Methodref.  Only dispatch into this class; cross-class calls
+            // (e.g. Object.<init>) are treated as no-ops (pop args + this).
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
-                let (callee_name, callee_desc) =
+                let (callee_class, callee_name, callee_desc) =
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?;
                 // <clinit> (static initialiser) is not supported yet — skip silently.
                 if callee_name == "<clinit>" {
                     idx += 1;
                     continue;
                 }
-                let callee_idx = match ctx
-                    .methods
-                    .iter()
-                    .position(|m| m.name == callee_name && m.descriptor == callee_desc)
-                {
+                // Only dispatch into this class; cross-class calls are no-ops.
+                let callee_idx = if callee_class != ctx.class_name {
+                    None
+                } else {
+                    ctx.methods
+                        .iter()
+                        .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                };
+                let callee_idx = match callee_idx {
                     Some(i) => i,
                     None => {
-                        // Method not in this class (e.g. Object.<init>) — pop args + this
-                        // and treat as no-op. Multi-class dispatch is deferred to Phase 7.
+                        // Cross-class or missing — pop args + this and continue.
                         let arg_count = parse_arg_count(&callee_desc);
                         for _ in 0..arg_count {
                             frame.pop()?;
@@ -2148,11 +2175,88 @@ pub fn execute_class(
                 obj.fields[idx_val as usize] = Slot::Int(val);
             }
 
-            // ---- athrow ----
+            // ---- Switch ----
+            Instruction::Tableswitch {
+                default,
+                low,
+                high,
+                offsets,
+            } => {
+                let key = frame.pop_int()?;
+                let offset = if key >= *low && key <= *high {
+                    offsets[(key - low) as usize]
+                } else {
+                    *default
+                };
+                jump!(offset);
+            }
+            Instruction::Lookupswitch { default, pairs } => {
+                let key = frame.pop_int()?;
+                let offset = pairs
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map_or(*default, |(_, off)| *off);
+                jump!(offset);
+            }
+
+            // ---- athrow with exception table dispatch ----
             Instruction::Athrow => {
-                let r = frame.pop_ref()?;
-                let class_name = heap.get(r)?.class_name.clone();
-                return Err(VmError::JavaException { class_name });
+                let exception_ref = frame.pop_ref()?;
+                let class_name = heap.get(exception_ref)?.class_name.clone();
+
+                // Search current method's exception table.
+                if let Some(handler_pc) = find_exception_handler(
+                    &ctx.methods[method_idx].exception_table,
+                    pc,
+                    &class_name,
+                ) {
+                    frame.clear_stack();
+                    frame.push(Slot::Reference(Some(exception_ref)))?;
+                    idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
+                        VmError::InvalidBranchTarget {
+                            pc: handler_pc as usize,
+                        },
+                    )?;
+                    continue;
+                }
+
+                // No handler in current method — unwind call stack.
+                loop {
+                    match call_stack.pop() {
+                        None => {
+                            return Err(VmError::JavaException { class_name });
+                        }
+                        Some(caller) => {
+                            frame = caller.frame;
+                            method_idx = caller.method_idx;
+                            pc_to_idx = caller.pc_to_idx;
+
+                            // PC of the invoke instruction in the caller.
+                            let caller_pc = if caller.resume_idx > 0 {
+                                ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
+                            } else {
+                                0
+                            };
+
+                            if let Some(handler_pc) = find_exception_handler(
+                                &ctx.methods[method_idx].exception_table,
+                                caller_pc,
+                                &class_name,
+                            ) {
+                                frame.clear_stack();
+                                frame.push(Slot::Reference(Some(exception_ref)))?;
+                                idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
+                                    VmError::InvalidBranchTarget {
+                                        pc: handler_pc as usize,
+                                    },
+                                )?;
+                                break;
+                            }
+                            // No handler here either — keep unwinding.
+                        }
+                    }
+                }
+                continue;
             }
 
             other => {
@@ -2314,13 +2418,42 @@ fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<(
     }
 }
 
-/// Resolve a constant pool Methodref to (method_name, descriptor).
-fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String)> {
+/// Search a method's exception table for a handler matching the given pc and class name.
+fn find_exception_handler(
+    exception_table: &[ExceptionEntry],
+    pc: usize,
+    class_name: &str,
+) -> Option<u16> {
+    exception_table.iter().find_map(|entry| {
+        let in_range = pc >= entry.start_pc as usize && pc < entry.end_pc as usize;
+        let type_matches = match &entry.catch_type {
+            None => true, // catch-all (finally)
+            Some(ct) => ct == class_name,
+        };
+        if in_range && type_matches {
+            Some(entry.handler_pc)
+        } else {
+            None
+        }
+    })
+}
+
+/// Resolve a constant pool Methodref to (class_name, method_name, descriptor).
+fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Methodref {
+            class_index,
             name_and_type_index,
-            ..
         }) => {
+            let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
+                Some(CpEntry::Class { name_index }) => {
+                    match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(VmError::InvalidMethodref { index: idx }),
+                    }
+                }
+                _ => return Err(VmError::InvalidMethodref { index: idx }),
+            };
             let nat_idx = name_and_type_index.0 as usize;
             match cp.get(nat_idx).and_then(|e| e.as_ref()) {
                 Some(CpEntry::NameAndType {
@@ -2335,7 +2468,7 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
                         Some(CpEntry::Utf8(s)) => s.clone(),
                         _ => return Err(VmError::InvalidMethodref { index: idx }),
                     };
-                    Ok((name, desc))
+                    Ok((class_name, name, desc))
                 }
                 _ => Err(VmError::InvalidMethodref { index: nat_idx }),
             }
@@ -2890,7 +3023,7 @@ mod tests {
                 name_and_type_index: CpIndex(3),
             }),
             Some(CpEntry::Class {
-                name_index: CpIndex(4),
+                name_index: CpIndex(6),
             }),
             Some(CpEntry::NameAndType {
                 name_index: CpIndex(4),
@@ -2898,8 +3031,10 @@ mod tests {
             }),
             Some(CpEntry::Utf8("square".to_string())),
             Some(CpEntry::Utf8("(I)I".to_string())),
+            Some(CpEntry::Utf8("MathUtils".to_string())),
         ]);
-        let (name, desc) = resolve_methodref(&cp, 1).unwrap();
+        let (class_name, name, desc) = resolve_methodref(&cp, 1).unwrap();
+        assert_eq!(class_name, "MathUtils");
         assert_eq!(name, "square");
         assert_eq!(desc, "(I)I");
     }
@@ -3141,7 +3276,6 @@ mod tests {
     // ---- Phase 8: Exceptions ----
 
     #[test]
-    #[ignore = "needs exception table dispatch (Phase 8)"]
     fn exception_catch_simple() {
         assert_eq!(
             run_class_int("ExceptionTest.class", "catchSimple", "()I", vec![]),
@@ -3150,7 +3284,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs exception table dispatch (Phase 8)"]
     fn exception_uncaught_propagates() {
         let mut ctx = load_class_context("ExceptionTest.class");
         let mut heap = duke_gc::Heap::new();
@@ -3168,7 +3301,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs exception table dispatch (Phase 8)"]
     fn exception_catch_from_callee() {
         assert_eq!(
             run_class_int("ExceptionTest.class", "catchFromCallee", "()I", vec![]),
@@ -3216,5 +3348,111 @@ mod tests {
             run_class_int("ExceptionTest.class", "switchSparse", "(I)I", vec![999]),
             0
         );
+    }
+
+    // ---- Phase 8: Switch (unit tests) ----
+
+    #[test]
+    fn tableswitch_match() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, Iconst1),
+            (
+                1,
+                Tableswitch {
+                    default: 100,
+                    low: 0,
+                    high: 2,
+                    offsets: vec![10, 20, 30],
+                },
+            ),
+            (11, Bipush(10)),
+            (13, Ireturn),
+            (21, Bipush(20)),
+            (23, Ireturn),
+            (31, Bipush(30)),
+            (33, Ireturn),
+            (101, Bipush(-1)),
+            (103, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 2, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(20))); // case 1
+    }
+
+    #[test]
+    fn tableswitch_default() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, Bipush(99)),
+            (
+                2,
+                Tableswitch {
+                    default: 100,
+                    low: 0,
+                    high: 2,
+                    offsets: vec![10, 20, 30],
+                },
+            ),
+            (12, Bipush(10)),
+            (14, Ireturn),
+            (22, Bipush(20)),
+            (24, Ireturn),
+            (32, Bipush(30)),
+            (34, Ireturn),
+            (102, Bipush(-1)),
+            (104, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 2, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(-1)));
+    }
+
+    #[test]
+    fn lookupswitch_match() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, Sipush(200)),
+            (
+                3,
+                Lookupswitch {
+                    default: 100,
+                    pairs: vec![(100, 10), (200, 20), (300, 30)],
+                },
+            ),
+            (13, Bipush(1)),
+            (15, Ireturn),
+            (23, Bipush(2)),
+            (25, Ireturn),
+            (33, Bipush(3)),
+            (35, Ireturn),
+            (103, Bipush(0)),
+            (105, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 2, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(2)));
+    }
+
+    #[test]
+    fn lookupswitch_default() {
+        use duke_bytecode::Instruction::*;
+        let instrs = vec![
+            (0, Sipush(999)),
+            (
+                3,
+                Lookupswitch {
+                    default: 100,
+                    pairs: vec![(100, 10), (200, 20), (300, 30)],
+                },
+            ),
+            (13, Bipush(1)),
+            (15, Ireturn),
+            (23, Bipush(2)),
+            (25, Ireturn),
+            (33, Bipush(3)),
+            (35, Ireturn),
+            (103, Bipush(0)),
+            (105, Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 2, 0).unwrap();
+        assert_eq!(result, Some(Slot::Int(0)));
     }
 }

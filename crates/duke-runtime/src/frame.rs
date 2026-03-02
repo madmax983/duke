@@ -151,6 +151,11 @@ impl Frame {
         }
     }
 
+    /// Clear the operand stack (used by exception handler dispatch).
+    pub fn clear_stack(&mut self) {
+        self.stack.clear();
+    }
+
     /// Current operand stack depth.
     #[must_use]
     pub const fn stack_depth(&self) -> usize {
