@@ -6,7 +6,7 @@ use duke_classfile::{
     types::{AttributeData, CpEntry, CpIndex},
 };
 use duke_gc::Heap;
-use duke_interpreter::{build_class_context, execute_class};
+use duke_interpreter::{ClassRegistry, build_class_context, execute_class};
 use duke_loader::{ClassLoader, DirectoryLoader};
 use duke_runtime::Slot;
 
@@ -126,10 +126,28 @@ fn exec_method(args: &[String]) {
         .unwrap_or("")
         .to_string();
 
-    let mut ctx = build_class_context(&cf);
+    let ctx = build_class_context(&cf);
+    let entry_class = ctx.class_name.clone();
+    let mut registry = ClassRegistry::new();
+    registry.register(ctx);
+
+    // Create a DirectoryLoader from the class file's parent directory so that
+    // cross-class references can be resolved at runtime.
+    let parent = std::path::Path::new(path)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let loader = DirectoryLoader::new(parent);
     let mut heap = Heap::new();
 
-    match execute_class(&mut ctx, &mut heap, method_name, &descriptor, &int_args) {
+    match execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &entry_class,
+        method_name,
+        &descriptor,
+        &int_args,
+    ) {
         Ok(Some(result)) => println!("{result:?}"),
         Ok(None) => println!("(void)"),
         Err(e) => {

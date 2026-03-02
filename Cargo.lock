@@ -100,6 +100,7 @@ dependencies = [
  "duke-bytecode",
  "duke-classfile",
  "duke-gc",
+ "duke-loader",
  "duke-runtime",
 ]
 

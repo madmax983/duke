@@ -1277,44 +1277,57 @@ pub fn execute(
     clippy::too_many_lines
 )]
 pub fn execute_class(
-    ctx: &mut ClassContext,
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
     heap: &mut duke_gc::Heap,
+    class_name: &str,
     method_name: &str,
     descriptor: &str,
     args: &[Slot],
 ) -> VmResult<Option<Slot>> {
     // Find entry method.
-    let entry_idx = ctx
-        .methods
-        .iter()
-        .position(|m| m.name == method_name && m.descriptor == descriptor)
-        .ok_or_else(|| VmError::MethodNotFound {
-            name: method_name.to_string(),
-            descriptor: descriptor.to_string(),
-        })?;
+    let entry_idx = {
+        let ctx = registry.get(class_name)?;
+        ctx.methods
+            .iter()
+            .position(|m| m.name == method_name && m.descriptor == descriptor)
+            .ok_or_else(|| VmError::MethodNotFound {
+                name: method_name.to_string(),
+                descriptor: descriptor.to_string(),
+            })?
+    };
 
+    let mut current_class = class_name.to_string();
     let mut call_stack: Vec<CallFrame> = Vec::new();
     let mut method_idx = entry_idx;
-    let mut pc_to_idx: HashMap<usize, usize> = ctx.methods[method_idx]
-        .instructions
-        .iter()
-        .enumerate()
-        .map(|(i, &(pc, _))| (pc, i))
-        .collect();
-    let mut frame = Frame::new(
-        usize::from(ctx.methods[method_idx].max_stack),
-        usize::from(ctx.methods[method_idx].max_locals),
-        args.to_vec(),
-    )?;
+    let mut pc_to_idx: HashMap<usize, usize> = {
+        let ctx = registry.get(&current_class)?;
+        ctx.methods[method_idx]
+            .instructions
+            .iter()
+            .enumerate()
+            .map(|(i, &(pc, _))| (pc, i))
+            .collect()
+    };
+    let mut frame = {
+        let ctx = registry.get(&current_class)?;
+        Frame::new(
+            usize::from(ctx.methods[method_idx].max_stack),
+            usize::from(ctx.methods[method_idx].max_locals),
+            args.to_vec(),
+        )?
+    };
     let mut idx: usize = 0;
     let mut string_intern: HashMap<usize, u64> = HashMap::new();
 
     loop {
-        let Some(&(pc, ref instr)) = ctx.methods[method_idx].instructions.get(idx) else {
-            return Err(VmError::FellOffEnd);
+        let (pc, instr) = {
+            let ctx = registry.get(&current_class)?;
+            let Some(&(pc, ref instr)) = ctx.methods[method_idx].instructions.get(idx) else {
+                return Err(VmError::FellOffEnd);
+            };
+            (pc, instr.clone())
         };
-        // Clone to release borrow on ctx before the match body can mutate state.
-        let instr = instr.clone();
 
         macro_rules! jump {
             ($offset:expr) => {{
@@ -1337,6 +1350,7 @@ pub fn execute_class(
                         method_idx = caller.method_idx;
                         pc_to_idx = caller.pc_to_idx;
                         idx = caller.resume_idx;
+                        current_class = caller.class_name;
                         if let Some(v) = ret_val {
                             frame.push(v)?;
                         }
@@ -1349,41 +1363,52 @@ pub fn execute_class(
         match &instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
-                let (_callee_class, callee_name, callee_desc) =
-                    resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?;
-                let callee_idx = ctx
-                    .methods
-                    .iter()
-                    .position(|m| m.name == callee_name && m.descriptor == callee_desc)
-                    .ok_or_else(|| VmError::MethodNotFound {
-                        name: callee_name.clone(),
-                        descriptor: callee_desc.clone(),
-                    })?;
+                let (callee_class, callee_name, callee_desc) = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
+                registry.ensure_loaded(&callee_class, loader)?;
+                let callee_idx = {
+                    let ctx = registry.get(&callee_class)?;
+                    ctx.methods
+                        .iter()
+                        .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                        .ok_or_else(|| VmError::MethodNotFound {
+                            name: callee_name.clone(),
+                            descriptor: callee_desc.clone(),
+                        })?
+                };
                 let arg_count = parse_arg_count(&callee_desc);
                 let mut callee_args: Vec<Slot> = (0..arg_count)
                     .map(|_| frame.pop())
                     .collect::<VmResult<Vec<_>>>()?;
                 callee_args.reverse();
-                let callee_pc_to_idx: HashMap<usize, usize> = ctx.methods[callee_idx]
-                    .instructions
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &(pc, _))| (pc, i))
-                    .collect();
-                let callee_frame = Frame::new(
-                    usize::from(ctx.methods[callee_idx].max_stack),
-                    usize::from(ctx.methods[callee_idx].max_locals),
-                    callee_args,
-                )?;
+                let (callee_pc_to_idx, callee_frame) = {
+                    let ctx = registry.get(&callee_class)?;
+                    let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
+                        .instructions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &(pc, _))| (pc, i))
+                        .collect();
+                    let f = Frame::new(
+                        usize::from(ctx.methods[callee_idx].max_stack),
+                        usize::from(ctx.methods[callee_idx].max_locals),
+                        callee_args,
+                    )?;
+                    (pci, f)
+                };
                 call_stack.push(CallFrame {
                     frame,
                     method_idx,
                     pc_to_idx,
                     resume_idx: idx + 1,
+                    class_name: current_class.clone(),
                 });
                 frame = callee_frame;
                 method_idx = callee_idx;
                 pc_to_idx = callee_pc_to_idx;
+                current_class = callee_class;
                 idx = 0;
                 continue;
             }
@@ -1428,45 +1453,63 @@ pub fn execute_class(
             Instruction::Sipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
             Instruction::Ldc(raw_idx) => {
                 let cp_idx = usize::from(*raw_idx);
-                if let Some(CpEntry::String { string_index }) =
-                    ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
-                {
-                    let si = string_index.0 as usize;
-                    let r = if let Some(&cached) = string_intern.get(&cp_idx) {
-                        cached
-                    } else {
+                let string_info = {
+                    let ctx = registry.get(&current_class)?;
+                    if let Some(CpEntry::String { string_index }) =
+                        ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
+                    {
+                        let si = string_index.0 as usize;
                         let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
                             Some(CpEntry::Utf8(s)) => s.clone(),
                             _ => return Err(VmError::InvalidCpIndex { index: si }),
                         };
+                        Some(s)
+                    } else {
+                        None
+                    }
+                };
+                if let Some(s) = string_info {
+                    let r = if let Some(&cached) = string_intern.get(&cp_idx) {
+                        cached
+                    } else {
                         let r = heap.allocate_string(s);
                         string_intern.insert(cp_idx, r);
                         r
                     };
                     frame.push(Slot::Reference(Some(r)))?;
                 } else {
+                    let ctx = registry.get(&current_class)?;
                     ldc_push(&mut frame, &ctx.constant_pool, cp_idx)?;
                 }
             }
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
                 let idx_val = usize::from(cp_idx.0);
-                if let Some(CpEntry::String { string_index }) =
-                    ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
-                {
-                    let si = string_index.0 as usize;
-                    let r = if let Some(&cached) = string_intern.get(&idx_val) {
-                        cached
-                    } else {
+                let string_info = {
+                    let ctx = registry.get(&current_class)?;
+                    if let Some(CpEntry::String { string_index }) =
+                        ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
+                    {
+                        let si = string_index.0 as usize;
                         let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
                             Some(CpEntry::Utf8(s)) => s.clone(),
                             _ => return Err(VmError::InvalidCpIndex { index: si }),
                         };
+                        Some(s)
+                    } else {
+                        None
+                    }
+                };
+                if let Some(s) = string_info {
+                    let r = if let Some(&cached) = string_intern.get(&idx_val) {
+                        cached
+                    } else {
                         let r = heap.allocate_string(s);
                         string_intern.insert(idx_val, r);
                         r
                     };
                     frame.push(Slot::Reference(Some(r)))?;
                 } else {
+                    let ctx = registry.get(&current_class)?;
                     ldc_push(&mut frame, &ctx.constant_pool, idx_val)?;
                 }
             }
@@ -1989,89 +2032,92 @@ pub fn execute_class(
 
             // ---- Object allocation ----
             Instruction::New(cp_idx) => {
-                let class_name = match ctx
-                    .constant_pool
-                    .get(usize::from(cp_idx.0))
-                    .and_then(|e| e.as_ref())
-                {
-                    Some(CpEntry::Class { name_index }) => {
-                        match ctx
-                            .constant_pool
-                            .get(name_index.0 as usize)
-                            .and_then(|e| e.as_ref())
-                        {
-                            Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => {
-                                return Err(VmError::InvalidCpIndex {
-                                    index: usize::from(cp_idx.0),
-                                });
-                            }
-                        }
-                    }
-                    _ => {
-                        return Err(VmError::InvalidCpIndex {
-                            index: usize::from(cp_idx.0),
-                        });
-                    }
+                let target_class = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
-                let field_count = ctx.instance_field_count;
-                let r = heap.allocate(class_name, field_count);
+                registry.ensure_loaded(&target_class, loader)?;
+                let field_count = registry
+                    .get(&target_class)
+                    .map(|c| c.instance_field_count)
+                    .unwrap_or(0);
+                let r = heap.allocate(target_class, field_count);
                 frame.push(Slot::Reference(Some(r)))?;
             }
 
             // ---- Field access ----
             Instruction::Getfield(cp_idx) => {
-                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (target_class, field_name, _) = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
                 let r = frame.pop_ref()?;
-                let fidx = instance_field_idx(ctx, &field_name)?;
+                registry.ensure_loaded(&target_class, loader)?;
+                let fidx = instance_field_idx(registry.get(&target_class)?, &field_name)?;
                 let val = heap.get(r)?.fields[fidx].clone();
                 frame.push(val)?;
             }
             Instruction::Putfield(cp_idx) => {
-                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (target_class, field_name, _) = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
                 let val = frame.pop()?;
                 let r = frame.pop_ref()?;
-                let fidx = instance_field_idx(ctx, &field_name)?;
+                registry.ensure_loaded(&target_class, loader)?;
+                let fidx = instance_field_idx(registry.get(&target_class)?, &field_name)?;
                 heap.get_mut(r)?.fields[fidx] = val;
             }
             Instruction::Getstatic(cp_idx) => {
-                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
-                let sidx = static_field_idx(ctx, &field_name)?;
-                let val = ctx.static_fields[sidx].clone();
+                let (target_class, field_name, _) = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
+                registry.ensure_loaded(&target_class, loader)?;
+                let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
+                let val = registry.get(&target_class)?.static_fields[sidx].clone();
                 frame.push(val)?;
             }
             Instruction::Putstatic(cp_idx) => {
-                let (field_name, _) = resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (target_class, field_name, _) = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
                 let val = frame.pop()?;
-                let sidx = static_field_idx(ctx, &field_name)?;
-                ctx.static_fields[sidx] = val;
+                registry.ensure_loaded(&target_class, loader)?;
+                let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
+                registry.get_mut(&target_class)?.static_fields[sidx] = val;
             }
 
             // ---- Instance method dispatch ----
             //
             // invokespecial and invokevirtual: resolve class+name+descriptor from
-            // the Methodref.  Only dispatch into this class; cross-class calls
-            // (e.g. Object.<init>) are treated as no-ops (pop args + this).
+            // the Methodref.  Dispatch cross-class via registry; unloadable
+            // classes (e.g. java/lang/Object) fall back to no-op.
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
-                let (callee_class, callee_name, callee_desc) =
-                    resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                let (callee_class, callee_name, callee_desc) = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
                 // <clinit> (static initialiser) is not supported yet — skip silently.
                 if callee_name == "<clinit>" {
                     idx += 1;
                     continue;
                 }
-                // Only dispatch into this class; cross-class calls are no-ops.
-                let callee_idx = if callee_class != ctx.class_name {
-                    None
-                } else {
+                // Attempt to load the target class; soft-fail for unloadable.
+                let loaded = registry.ensure_loaded(&callee_class, loader)?;
+                let callee_idx = if loaded {
+                    let ctx = registry.get(&callee_class)?;
                     ctx.methods
                         .iter()
                         .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                } else {
+                    None
                 };
                 let callee_idx = match callee_idx {
                     Some(i) => i,
                     None => {
-                        // Cross-class or missing — pop args + this and continue.
+                        // Unloadable or missing — pop args + this and continue.
                         let arg_count = parse_arg_count(&callee_desc);
                         for _ in 0..arg_count {
                             frame.pop()?;
@@ -2089,26 +2135,32 @@ pub fn execute_class(
                 // Pop `this` ref and prepend as locals[0].
                 let this_slot = frame.pop()?;
                 callee_args.insert(0, this_slot);
-                let callee_pc_to_idx: HashMap<usize, usize> = ctx.methods[callee_idx]
-                    .instructions
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &(pc, _))| (pc, i))
-                    .collect();
-                let callee_frame = Frame::new(
-                    usize::from(ctx.methods[callee_idx].max_stack),
-                    usize::from(ctx.methods[callee_idx].max_locals),
-                    callee_args,
-                )?;
+                let (callee_pc_to_idx, callee_frame) = {
+                    let ctx = registry.get(&callee_class)?;
+                    let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
+                        .instructions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &(pc, _))| (pc, i))
+                        .collect();
+                    let f = Frame::new(
+                        usize::from(ctx.methods[callee_idx].max_stack),
+                        usize::from(ctx.methods[callee_idx].max_locals),
+                        callee_args,
+                    )?;
+                    (pci, f)
+                };
                 call_stack.push(CallFrame {
                     frame,
                     method_idx,
                     pc_to_idx,
                     resume_idx: idx + 1,
+                    class_name: current_class.clone(),
                 });
                 frame = callee_frame;
                 method_idx = callee_idx;
                 pc_to_idx = callee_pc_to_idx;
+                current_class = callee_class;
                 idx = 0;
                 continue;
             }
@@ -2453,7 +2505,10 @@ pub fn execute_class(
                         frame.push(slot)?;
                     }
                     Slot::Reference(Some(r)) => {
-                        let target = resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                        let target = {
+                            let ctx = registry.get(&current_class)?;
+                            resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                        };
                         let actual = heap.get(*r)?.class_name.clone();
                         if actual == target {
                             frame.push(slot)?;
@@ -2479,7 +2534,10 @@ pub fn execute_class(
                         frame.push(Slot::Int(0))?;
                     }
                     Slot::Reference(Some(r)) => {
-                        let target = resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?;
+                        let target = {
+                            let ctx = registry.get(&current_class)?;
+                            resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                        };
                         let actual = heap.get(*r)?.class_name.clone();
                         if actual == target {
                             frame.push(Slot::Int(1))?;
@@ -2499,14 +2557,18 @@ pub fn execute_class(
             // ---- athrow with exception table dispatch ----
             Instruction::Athrow => {
                 let exception_ref = frame.pop_ref()?;
-                let class_name = heap.get(exception_ref)?.class_name.clone();
+                let exc_class_name = heap.get(exception_ref)?.class_name.clone();
 
                 // Search current method's exception table.
-                if let Some(handler_pc) = find_exception_handler(
-                    &ctx.methods[method_idx].exception_table,
-                    pc,
-                    &class_name,
-                ) {
+                let handler = {
+                    let ctx = registry.get(&current_class)?;
+                    find_exception_handler(
+                        &ctx.methods[method_idx].exception_table,
+                        pc,
+                        &exc_class_name,
+                    )
+                };
+                if let Some(handler_pc) = handler {
                     frame.clear_stack();
                     frame.push(Slot::Reference(Some(exception_ref)))?;
                     idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
@@ -2521,25 +2583,32 @@ pub fn execute_class(
                 loop {
                     match call_stack.pop() {
                         None => {
-                            return Err(VmError::JavaException { class_name });
+                            return Err(VmError::JavaException {
+                                class_name: exc_class_name,
+                            });
                         }
                         Some(caller) => {
                             frame = caller.frame;
                             method_idx = caller.method_idx;
                             pc_to_idx = caller.pc_to_idx;
+                            current_class = caller.class_name;
 
                             // PC of the invoke instruction in the caller.
-                            let caller_pc = if caller.resume_idx > 0 {
-                                ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
-                            } else {
-                                0
+                            let handler = {
+                                let ctx = registry.get(&current_class)?;
+                                let caller_pc = if caller.resume_idx > 0 {
+                                    ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
+                                } else {
+                                    0
+                                };
+                                find_exception_handler(
+                                    &ctx.methods[method_idx].exception_table,
+                                    caller_pc,
+                                    &exc_class_name,
+                                )
                             };
 
-                            if let Some(handler_pc) = find_exception_handler(
-                                &ctx.methods[method_idx].exception_table,
-                                caller_pc,
-                                &class_name,
-                            ) {
+                            if let Some(handler_pc) = handler {
                                 frame.clear_stack();
                                 frame.push(Slot::Reference(Some(exception_ref)))?;
                                 idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
@@ -2567,12 +2636,14 @@ pub fn execute_class(
     }
 }
 
-/// Saved state of a caller frame suspended during an invokestatic call.
+/// Saved state of a caller frame suspended during a method call.
 struct CallFrame {
     frame: Frame,
     method_idx: usize,
     pc_to_idx: HashMap<usize, usize>,
     resume_idx: usize,
+    /// Class that was executing when this frame was pushed.
+    class_name: String,
 }
 
 /// Build a [`ClassContext`] from a parsed [`ClassFile`].
@@ -2830,13 +2901,22 @@ fn parse_arg_count(descriptor: &str) -> usize {
     count
 }
 
-/// Resolve a constant pool Fieldref to (field_name, descriptor).
-fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String)> {
+/// Resolve a constant pool Fieldref to (class_name, field_name, descriptor).
+fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Fieldref {
+            class_index,
             name_and_type_index,
-            ..
         }) => {
+            let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
+                Some(CpEntry::Class { name_index }) => {
+                    match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(VmError::InvalidFieldref { index: idx }),
+                    }
+                }
+                _ => return Err(VmError::InvalidFieldref { index: idx }),
+            };
             let nat_idx = name_and_type_index.0 as usize;
             match cp.get(nat_idx).and_then(|e| e.as_ref()) {
                 Some(CpEntry::NameAndType {
@@ -2851,7 +2931,7 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
                         Some(CpEntry::Utf8(s)) => s.clone(),
                         _ => return Err(VmError::InvalidFieldref { index: idx }),
                     };
-                    Ok((name, desc))
+                    Ok((class_name, name, desc))
                 }
                 _ => Err(VmError::InvalidFieldref { index: nat_idx }),
             }
@@ -3222,11 +3302,31 @@ mod tests {
     }
 
     fn run_class_int(class_name: &str, method_name: &str, descriptor: &str, args: Vec<i32>) -> i32 {
-        let mut ctx = load_class_context(class_name);
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
         let mut heap = duke_gc::Heap::new();
-        match execute_class(&mut ctx, &mut heap, method_name, descriptor, &slots)
-            .expect("execute_class failed")
+        match execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &entry_class,
+            method_name,
+            descriptor,
+            &slots,
+        )
+        .expect("execute_class failed")
         {
             Some(Slot::Int(v)) => v,
             other => panic!("unexpected result: {other:?}"),
@@ -3275,9 +3375,30 @@ mod tests {
 
     #[test]
     fn class_method_not_found() {
-        let mut ctx = load_class_context("MathUtils.class");
+        let ctx = load_class_context("MathUtils.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
         let mut heap = duke_gc::Heap::new();
-        let err = execute_class(&mut ctx, &mut heap, "nonExistent", "(I)I", &[]).unwrap_err();
+        let err = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &entry_class,
+            "nonExistent",
+            "(I)I",
+            &[],
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::MethodNotFound { .. }));
     }
 
@@ -3409,7 +3530,7 @@ mod tests {
                 name_and_type_index: CpIndex(3),
             }),
             Some(CpEntry::Class {
-                name_index: CpIndex(4),
+                name_index: CpIndex(6),
             }),
             Some(CpEntry::NameAndType {
                 name_index: CpIndex(4),
@@ -3417,8 +3538,10 @@ mod tests {
             }),
             Some(CpEntry::Utf8("x".to_string())),
             Some(CpEntry::Utf8("I".to_string())),
+            Some(CpEntry::Utf8("Point".to_string())),
         ]);
-        let (name, desc) = resolve_fieldref(&cp, 1).unwrap();
+        let (class_name, name, desc) = resolve_fieldref(&cp, 1).unwrap();
+        assert_eq!(class_name, "Point");
         assert_eq!(name, "x");
         assert_eq!(desc, "I");
     }
@@ -3438,11 +3561,31 @@ mod tests {
         descriptor: &str,
         args: Vec<i32>,
     ) -> i64 {
-        let mut ctx = load_class_context(class_name);
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
         let mut heap = duke_gc::Heap::new();
-        match execute_class(&mut ctx, &mut heap, method_name, descriptor, &slots)
-            .expect("execute_class failed")
+        match execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &entry_class,
+            method_name,
+            descriptor,
+            &slots,
+        )
+        .expect("execute_class failed")
         {
             Some(Slot::Long(v)) => v,
             other => panic!("unexpected result: {other:?}"),
@@ -3455,11 +3598,31 @@ mod tests {
         descriptor: &str,
         args: Vec<i32>,
     ) -> f64 {
-        let mut ctx = load_class_context(class_name);
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
         let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
         let mut heap = duke_gc::Heap::new();
-        match execute_class(&mut ctx, &mut heap, method_name, descriptor, &slots)
-            .expect("execute_class failed")
+        match execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &entry_class,
+            method_name,
+            descriptor,
+            &slots,
+        )
+        .expect("execute_class failed")
         {
             Some(Slot::Double(v)) => v,
             other => panic!("unexpected result: {other:?}"),
@@ -3597,9 +3760,29 @@ mod tests {
 
     #[test]
     fn exception_uncaught_propagates() {
-        let mut ctx = load_class_context("ExceptionTest.class");
+        let ctx = load_class_context("ExceptionTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
         let mut heap = duke_gc::Heap::new();
-        let result = execute_class(&mut ctx, &mut heap, "uncaught", "()I", &[]);
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &entry_class,
+            "uncaught",
+            "()I",
+            &[],
+        );
         let err = result.unwrap_err();
         assert!(matches!(err, VmError::JavaException { .. }));
     }
@@ -3859,5 +4042,144 @@ mod tests {
         ];
         let result = execute(&instrs, &[], vec![], 3, 0).unwrap();
         assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    // ---- Phase 10: Cross-class dispatch ----
+
+    fn run_cross_class_int(
+        class_files: &[&str],
+        entry_class: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: Vec<i32>,
+    ) -> i32 {
+        let mut registry = ClassRegistry::new();
+        for name in class_files {
+            let ctx = load_class_context(name);
+            registry.register(ctx);
+        }
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("tests")
+                .join("fixtures"),
+        );
+        let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
+        let mut heap = duke_gc::Heap::new();
+        match execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            entry_class,
+            method_name,
+            descriptor,
+            &slots,
+        )
+        .expect("execute_class failed")
+        {
+            Some(Slot::Int(v)) => v,
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cross_class_add() {
+        assert_eq!(
+            run_cross_class_int(
+                &["CrossCall.class", "Callee.class"],
+                "CrossCall",
+                "callAdd",
+                "(II)I",
+                vec![3, 4],
+            ),
+            7
+        );
+    }
+
+    #[test]
+    fn cross_class_double() {
+        assert_eq!(
+            run_cross_class_int(
+                &["CrossCall.class", "Callee.class"],
+                "CrossCall",
+                "callDouble",
+                "(I)I",
+                vec![5],
+            ),
+            10
+        );
+    }
+
+    #[test]
+    fn cross_class_chain() {
+        assert_eq!(
+            run_cross_class_int(
+                &["CrossCall.class", "Callee.class"],
+                "CrossCall",
+                "chainCall",
+                "(I)I",
+                vec![3],
+            ),
+            9
+        );
+    }
+
+    #[test]
+    fn cross_class_add_negated() {
+        assert_eq!(
+            run_cross_class_int(
+                &["CrossCall.class", "Callee.class"],
+                "CrossCall",
+                "addNegated",
+                "(I)I",
+                vec![5],
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn cross_class_pair_sum() {
+        assert_eq!(
+            run_cross_class_int(
+                &["PairUser.class", "Pair.class"],
+                "PairUser",
+                "makePairSum",
+                "(II)I",
+                vec![3, 7],
+            ),
+            10
+        );
+    }
+
+    #[test]
+    fn cross_class_pair_diff() {
+        assert_eq!(
+            run_cross_class_int(
+                &["PairUser.class", "Pair.class"],
+                "PairUser",
+                "makePairDiff",
+                "(II)I",
+                vec![10, 3],
+            ),
+            7
+        );
+    }
+
+    #[test]
+    fn cross_class_two_pairs() {
+        assert_eq!(
+            run_cross_class_int(
+                &["PairUser.class", "Pair.class"],
+                "PairUser",
+                "twoPairsSum",
+                "(IIII)I",
+                vec![1, 2, 3, 4],
+            ),
+            10
+        );
     }
 }
