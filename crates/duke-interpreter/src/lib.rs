@@ -2956,6 +2956,14 @@ pub fn execute(
                 return Err(VmError::JavaException { class_name });
             }
 
+            // ---- monitor (no-op, single-threaded) ----
+            Instruction::Monitorenter => {
+                let _obj = frame.pop()?;
+            }
+            Instruction::Monitorexit => {
+                let _obj = frame.pop()?;
+            }
+
             other => {
                 return Err(VmError::Unimplemented {
                     mnemonic: other.mnemonic(),
@@ -4998,6 +5006,14 @@ pub fn execute_class(
 
                 let r = alloc_multi(heap, &dims, 0, &element_type);
                 frame.push(Slot::Reference(Some(r)))?;
+            }
+
+            // ---- monitor (no-op, single-threaded) ----
+            Instruction::Monitorenter => {
+                let _obj = frame.pop()?;
+            }
+            Instruction::Monitorexit => {
+                let _obj = frame.pop()?;
             }
 
             other => {
@@ -8769,5 +8785,83 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, Some(Slot::Int(33)));
+    }
+
+    // ---- MonitorAndAbstract fixture ----
+
+    fn load_monitor_class() -> ClassContext {
+        let bytes =
+            std::fs::read(fixture("MonitorAndAbstract.class")).expect("MonitorAndAbstract.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn monitor_sync_block() {
+        let ctx = load_monitor_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MonitorAndAbstract",
+            "syncBlock",
+            "(I)I",
+            &[Slot::Int(7)],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(14)));
+    }
+
+    #[test]
+    fn monitor_sync_method() {
+        let ctx = load_monitor_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MonitorAndAbstract",
+            "syncMethod",
+            "(I)I",
+            &[Slot::Int(5)],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(15)));
+    }
+
+    #[test]
+    fn monitor_nested_sync() {
+        let ctx = load_monitor_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MonitorAndAbstract",
+            "nestedSync",
+            "(I)I",
+            &[Slot::Int(10)],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(15)));
     }
 }

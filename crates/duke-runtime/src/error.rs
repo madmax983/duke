@@ -65,6 +65,15 @@ pub enum VmError {
 
     #[error("System.exit({code})")]
     SystemExit { code: i32 },
+
+    #[error("InstantiationError: cannot instantiate abstract class {class_name}")]
+    InstantiationError { class_name: String },
+
+    #[error("AbstractMethodError: {class_name}.{method_name}")]
+    AbstractMethodError {
+        class_name: String,
+        method_name: String,
+    },
 }
 
 /// Convenience alias for `Result<T, VmError>`.
