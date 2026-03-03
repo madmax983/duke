@@ -3173,6 +3173,162 @@ pub fn execute_class(
                 continue;
             }
 
+            // ----------------------------------------------------------------
+            // invokeinterface — like invokevirtual but resolves from
+            // InterfaceMethodref and dispatches on the actual object class.
+            // ----------------------------------------------------------------
+            Instruction::Invokeinterface { index: cp_idx, count: _ } => {
+                let (callee_class, callee_name, callee_desc) = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
+                if callee_name == "<clinit>" {
+                    idx += 1;
+                    continue;
+                }
+                let arg_count = parse_arg_count(&callee_desc);
+                // Pop args and `this` to determine actual class.
+                let mut callee_args: Vec<Slot> = (0..arg_count)
+                    .map(|_| frame.pop())
+                    .collect::<VmResult<Vec<_>>>()?;
+                callee_args.reverse();
+                let this_slot = frame.pop()?;
+                let actual_class = match &this_slot {
+                    Slot::Reference(Some(r)) => heap.get(*r)?.class_name.clone(),
+                    _ => callee_class.clone(),
+                };
+                callee_args.insert(0, this_slot);
+
+                // Try to find the method on the actual class first.
+                let _ = registry.ensure_loaded(&actual_class, loader);
+                let method_found = if let Ok(ctx) = registry.get(&actual_class) {
+                    ctx.methods
+                        .iter()
+                        .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                } else {
+                    None
+                };
+
+                let (dispatch_class, callee_idx) = if let Some(i) = method_found {
+                    (actual_class.clone(), i)
+                } else {
+                    // Fall back to interface class.
+                    let _ = registry.ensure_loaded(&callee_class, loader);
+                    let iface_found = if let Ok(ctx) = registry.get(&callee_class) {
+                        ctx.methods
+                            .iter()
+                            .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                    } else {
+                        None
+                    };
+                    match iface_found {
+                        Some(i) => (callee_class.clone(), i),
+                        None => {
+                            // Check native registry — try actual class then interface class.
+                            let native = registry
+                                .natives()
+                                .get(&actual_class, &callee_name, &callee_desc)
+                                .or_else(|| {
+                                    registry.natives().get(
+                                        &callee_class,
+                                        &callee_name,
+                                        &callee_desc,
+                                    )
+                                })
+                                .copied();
+                            if let Some(handler) = native {
+                                let result = handler(&callee_args, heap, stdout)?;
+                                if let Some(val) = result {
+                                    frame.push(val)?;
+                                }
+                                idx += 1;
+                                continue;
+                            }
+                            // No-op fallback.
+                            idx += 1;
+                            continue;
+                        }
+                    }
+                };
+
+                let (callee_pc_to_idx, callee_frame) = {
+                    let ctx = registry.get(&dispatch_class)?;
+                    let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
+                        .instructions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &(pc, _))| (pc, i))
+                        .collect();
+                    let f = Frame::new(
+                        usize::from(ctx.methods[callee_idx].max_stack),
+                        usize::from(ctx.methods[callee_idx].max_locals),
+                        callee_args,
+                    )?;
+                    (pci, f)
+                };
+                call_stack.push(CallFrame {
+                    frame,
+                    method_idx,
+                    pc_to_idx,
+                    resume_idx: idx + 1,
+                    class_name: current_class.clone(),
+                });
+                frame = callee_frame;
+                method_idx = callee_idx;
+                pc_to_idx = callee_pc_to_idx;
+                current_class = dispatch_class;
+                idx = 0;
+                continue;
+            }
+
+            // ----------------------------------------------------------------
+            // multianewarray — allocate multi-dimensional arrays.
+            // ----------------------------------------------------------------
+            Instruction::Multianewarray { index: cp_idx, dimensions } => {
+                let element_type = {
+                    let ctx = registry.get(&current_class)?;
+                    resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                };
+
+                // Pop dimension sizes from stack (first popped is rightmost dimension).
+                let mut dims: Vec<i32> = Vec::new();
+                for _ in 0..*dimensions {
+                    dims.push(frame.pop_int()?);
+                }
+                dims.reverse(); // Now dims[0] is outermost.
+
+                // Check for negative sizes.
+                for &d in &dims {
+                    if d < 0 {
+                        return Err(VmError::NegativeArraySize { size: d });
+                    }
+                }
+
+                // Recursive allocation helper.
+                fn alloc_multi(
+                    heap: &mut duke_gc::Heap,
+                    dims: &[i32],
+                    depth: usize,
+                    type_name: &str,
+                ) -> u64 {
+                    let size = dims[depth] as usize;
+                    let r = heap.allocate(type_name.to_string(), size);
+                    if depth < dims.len() - 1 {
+                        // Not the innermost — fill with references to sub-arrays.
+                        let inner_type = &type_name[1..]; // Strip one '[' for inner dimension.
+                        for i in 0..size {
+                            let inner = alloc_multi(heap, dims, depth + 1, inner_type);
+                            heap.get_mut(r).unwrap().fields[i] =
+                                Slot::Reference(Some(inner));
+                        }
+                    }
+                    r
+                }
+
+                let r = alloc_multi(heap, &dims, 0, &element_type);
+                frame.push(Slot::Reference(Some(r)))?;
+            }
+
             other => {
                 return Err(VmError::Unimplemented {
                     mnemonic: other.mnemonic(),
@@ -3422,6 +3578,10 @@ fn find_exception_handler(
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Methodref {
+            class_index,
+            name_and_type_index,
+        })
+        | Some(CpEntry::InterfaceMethodref {
             class_index,
             name_and_type_index,
         }) => {
