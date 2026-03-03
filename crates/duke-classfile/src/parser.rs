@@ -2,8 +2,8 @@ use crate::{
     access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags},
     error::{ParseError, ParseResult},
     types::{
-        AttributeData, AttributeInfo, ClassFile, CodeAttribute, CpEntry, CpIndex,
-        ExceptionTableEntry, FieldInfo, LineNumberEntry, LocalVariableEntry, MethodInfo,
+        AttributeData, AttributeInfo, BootstrapMethodEntry, ClassFile, CodeAttribute, CpEntry,
+        CpIndex, ExceptionTableEntry, FieldInfo, LineNumberEntry, LocalVariableEntry, MethodInfo,
     },
 };
 
@@ -441,6 +441,23 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
             AttributeData::Exceptions {
                 exception_index_table: table,
             }
+        }
+        "BootstrapMethods" => {
+            let num = c.read_u16()?;
+            let mut entries = Vec::with_capacity(num as usize);
+            for _ in 0..num {
+                let method_ref = c.read_cp_index()?;
+                let num_args = c.read_u16()?;
+                let mut arguments = Vec::with_capacity(num_args as usize);
+                for _ in 0..num_args {
+                    arguments.push(c.read_cp_index()?);
+                }
+                entries.push(BootstrapMethodEntry {
+                    method_ref,
+                    arguments,
+                });
+            }
+            AttributeData::BootstrapMethods(entries)
         }
         _ => AttributeData::Raw(raw.to_vec()),
     };

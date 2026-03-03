@@ -111,6 +111,15 @@ pub struct AttributeInfo {
     pub data: AttributeData,
 }
 
+/// Single entry in the BootstrapMethods attribute (§4.7.23).
+#[derive(Debug, Clone)]
+pub struct BootstrapMethodEntry {
+    /// CP index pointing to a CONSTANT_MethodHandle.
+    pub method_ref: CpIndex,
+    /// CP indices pointing to static arguments (String, MethodType, MethodHandle, etc.).
+    pub arguments: Vec<CpIndex>,
+}
+
 /// Typed attribute payload.
 #[derive(Debug, Clone)]
 pub enum AttributeData {
@@ -126,6 +135,8 @@ pub enum AttributeData {
     LocalVariableTable(Vec<LocalVariableEntry>),
     /// Exceptions attribute (§4.7.5).
     Exceptions { exception_index_table: Vec<CpIndex> },
+    /// BootstrapMethods attribute (§4.7.23) — required for invokedynamic.
+    BootstrapMethods(Vec<BootstrapMethodEntry>),
     /// Any attribute we don't parse in detail yet.
     Raw(Vec<u8>),
 }

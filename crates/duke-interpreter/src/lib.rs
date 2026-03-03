@@ -57,6 +57,8 @@ pub struct ClassContext {
     pub static_fields: Vec<Slot>,
     /// Number of instance (non-static) fields — used to size heap objects at `new`.
     pub instance_field_count: usize,
+    /// BootstrapMethods entries from the class attribute (needed for invokedynamic).
+    pub bootstrap_methods: Vec<duke_classfile::types::BootstrapMethodEntry>,
 }
 
 /// Registry of loaded classes — maps class name to its ClassContext.
@@ -246,6 +248,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: vec![Slot::Reference(Some(ps_ref))],
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(system_ctx);
 
@@ -258,6 +261,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(ps_ctx);
 
@@ -284,6 +288,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(string_ctx);
 
@@ -453,6 +458,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(object_ctx);
 
@@ -479,6 +485,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
 
@@ -491,6 +498,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(exception_ctx);
 
@@ -503,6 +511,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(rte_ctx);
 
@@ -519,6 +528,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(integer_ctx);
     registry.natives_mut().register(
@@ -555,6 +565,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
     };
     registry.register(math_ctx);
     registry
@@ -4659,6 +4670,19 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         None
     };
 
+    // Extract BootstrapMethods from class-level attributes.
+    let bootstrap_methods = cf
+        .attributes
+        .iter()
+        .find_map(|a| {
+            if let AttributeData::BootstrapMethods(entries) = &a.data {
+                Some(entries.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+
     ClassContext {
         class_name,
         super_class,
@@ -4667,6 +4691,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         fields,
         static_fields: vec![Slot::Int(0); static_count],
         instance_field_count: instance_count,
+        bootstrap_methods,
     }
 }
 
