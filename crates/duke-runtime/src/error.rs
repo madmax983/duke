@@ -62,6 +62,9 @@ pub enum VmError {
 
     #[error("class not found: {name}")]
     ClassNotFound { name: String },
+
+    #[error("System.exit({code})")]
+    SystemExit { code: i32 },
 }
 
 /// Convenience alias for `Result<T, VmError>`.

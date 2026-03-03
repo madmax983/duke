@@ -8,7 +8,7 @@ use duke_classfile::{
 use duke_gc::Heap;
 use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
 use duke_loader::{ClassLoader, DirectoryLoader};
-use duke_runtime::Slot;
+use duke_runtime::{Slot, VmError};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -160,6 +160,9 @@ fn exec_method(args: &[String]) {
     ) {
         Ok(Some(result)) => println!("{result:?}"),
         Ok(None) => println!("(void)"),
+        Err(VmError::SystemExit { code }) => {
+            process::exit(code);
+        }
         Err(e) => {
             eprintln!("duke: runtime error: {e}");
             process::exit(1);
@@ -228,6 +231,9 @@ fn run_main(args: &[String]) {
         &main_args,
     ) {
         Ok(_) => {}
+        Err(VmError::SystemExit { code }) => {
+            process::exit(code);
+        }
         Err(e) => {
             eprintln!("duke: runtime error: {e}");
             process::exit(1);

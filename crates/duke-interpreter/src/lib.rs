@@ -377,6 +377,75 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         .natives_mut()
         .register("java/io/PrintStream", "print", "(I)V", native_print_int);
 
+    // println overloads
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "println", "(J)V", native_println_long);
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "println",
+        "(F)V",
+        native_println_float,
+    );
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "println",
+        "(D)V",
+        native_println_double,
+    );
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "println",
+        "(Z)V",
+        native_println_boolean,
+    );
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "println",
+        "(C)V",
+        native_println_char,
+    );
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "println",
+        "(Ljava/lang/Object;)V",
+        native_println_object,
+    );
+
+    // print overloads
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "print", "(J)V", native_print_long);
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "print", "(F)V", native_print_float);
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "print",
+        "(D)V",
+        native_print_double,
+    );
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "print",
+        "(Z)V",
+        native_print_boolean,
+    );
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "print", "(C)V", native_print_char);
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "print",
+        "(Ljava/lang/Object;)V",
+        native_print_object,
+    );
+
+    // System.exit (static)
+    registry
+        .natives_mut()
+        .register("java/lang/System", "exit", "(I)V", native_system_exit);
+
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
     // java/lang/Object (root — no super)
     let object_ctx = ClassContext {
@@ -654,6 +723,262 @@ fn native_print_int(
     };
     write!(out, "{val}").ok();
     Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// println overloads (long, float, double, boolean, char, object)
+// ---------------------------------------------------------------------------
+
+fn native_println_long(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    writeln!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_println_float(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Float(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Float",
+                got: "other",
+            });
+        }
+    };
+    writeln!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_println_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    writeln!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_println_boolean(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => *v != 0,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int(boolean)",
+                got: "other",
+            });
+        }
+    };
+    writeln!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_println_char(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int(char)",
+                got: "other",
+            });
+        }
+    };
+    writeln!(out, "{val}").ok();
+    Ok(None)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn native_println_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    match args.get(1) {
+        Some(Slot::Reference(Some(r))) => {
+            let obj = heap.get(*r)?;
+            if let Some(s) = &obj.string_value {
+                writeln!(out, "{s}").ok();
+            } else {
+                let hash = *r as i32;
+                writeln!(out, "{}@{:x}", obj.class_name, hash).ok();
+            }
+        }
+        Some(Slot::Reference(None)) => {
+            writeln!(out, "null").ok();
+        }
+        _ => {
+            writeln!(out, "<unknown>").ok();
+        }
+    }
+    Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// print overloads (long, float, double, boolean, char, object)
+// ---------------------------------------------------------------------------
+
+fn native_print_long(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    write!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_print_float(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Float(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Float",
+                got: "other",
+            });
+        }
+    };
+    write!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_print_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    write!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_print_boolean(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => *v != 0,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int(boolean)",
+                got: "other",
+            });
+        }
+    };
+    write!(out, "{val}").ok();
+    Ok(None)
+}
+
+fn native_print_char(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int(char)",
+                got: "other",
+            });
+        }
+    };
+    write!(out, "{val}").ok();
+    Ok(None)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn native_print_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    match args.get(1) {
+        Some(Slot::Reference(Some(r))) => {
+            let obj = heap.get(*r)?;
+            if let Some(s) = &obj.string_value {
+                write!(out, "{s}").ok();
+            } else {
+                let hash = *r as i32;
+                write!(out, "{}@{:x}", obj.class_name, hash).ok();
+            }
+        }
+        Some(Slot::Reference(None)) => {
+            write!(out, "null").ok();
+        }
+        _ => {
+            write!(out, "<unknown>").ok();
+        }
+    }
+    Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// System.exit
+// ---------------------------------------------------------------------------
+
+fn native_system_exit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let code = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 1,
+    };
+    Err(VmError::SystemExit { code })
 }
 
 /// Native: `String.substring(int)` — substring from begin to end.
