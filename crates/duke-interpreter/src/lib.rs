@@ -2740,16 +2740,15 @@ pub fn execute_class(
                 }
                 // Attempt to load the target class; soft-fail for unloadable.
                 let loaded = registry.ensure_loaded(&callee_class, loader)?;
-                let callee_idx = if loaded {
-                    let ctx = registry.get(&callee_class)?;
-                    ctx.methods
-                        .iter()
-                        .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                let resolved = if loaded {
+                    resolve_method_in_hierarchy(
+                        registry, loader, &callee_class, &callee_name, &callee_desc,
+                    )
                 } else {
                     None
                 };
-                let callee_idx = match callee_idx {
-                    Some(i) => i,
+                let (dispatch_class, callee_idx) = match resolved {
+                    Some((cls, i)) => (cls, i),
                     None => {
                         // Check native registry before no-op fallback.
                         if let Some(handler) =
@@ -2791,7 +2790,7 @@ pub fn execute_class(
                 let this_slot = frame.pop()?;
                 callee_args.insert(0, this_slot);
                 let (callee_pc_to_idx, callee_frame) = {
-                    let ctx = registry.get(&callee_class)?;
+                    let ctx = registry.get(&dispatch_class)?;
                     let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
                         .instructions
                         .iter()
@@ -2815,7 +2814,7 @@ pub fn execute_class(
                 frame = callee_frame;
                 method_idx = callee_idx;
                 pc_to_idx = callee_pc_to_idx;
-                current_class = callee_class;
+                current_class = dispatch_class;
                 idx = 0;
                 continue;
             }
@@ -3330,30 +3329,20 @@ pub fn execute_class(
                 };
                 callee_args.insert(0, this_slot);
 
-                // Try to find the method on the actual class first.
-                let _ = registry.ensure_loaded(&actual_class, loader);
-                let method_found = if let Ok(ctx) = registry.get(&actual_class) {
-                    ctx.methods
-                        .iter()
-                        .position(|m| m.name == callee_name && m.descriptor == callee_desc)
-                } else {
-                    None
-                };
+                // Try to find the method on the actual class (walking hierarchy).
+                let resolved = resolve_method_in_hierarchy(
+                    registry, loader, &actual_class, &callee_name, &callee_desc,
+                );
 
-                let (dispatch_class, callee_idx) = if let Some(i) = method_found {
-                    (actual_class.clone(), i)
+                let (dispatch_class, callee_idx) = if let Some(pair) = resolved {
+                    pair
                 } else {
-                    // Fall back to interface class.
-                    let _ = registry.ensure_loaded(&callee_class, loader);
-                    let iface_found = if let Ok(ctx) = registry.get(&callee_class) {
-                        ctx.methods
-                            .iter()
-                            .position(|m| m.name == callee_name && m.descriptor == callee_desc)
-                    } else {
-                        None
-                    };
-                    match iface_found {
-                        Some(i) => (callee_class.clone(), i),
+                    // Fall back to interface class hierarchy.
+                    let iface_resolved = resolve_method_in_hierarchy(
+                        registry, loader, &callee_class, &callee_name, &callee_desc,
+                    );
+                    match iface_resolved {
+                        Some(pair) => pair,
                         None => {
                             // Check native registry — try actual class then interface class.
                             let native = registry
@@ -3705,6 +3694,39 @@ fn find_exception_handler(
             None
         }
     })
+}
+
+/// Walk the class hierarchy to find a method by name and descriptor.
+/// Returns (class_name_where_found, method_index) or None.
+fn resolve_method_in_hierarchy(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    start_class: &str,
+    method_name: &str,
+    method_desc: &str,
+) -> Option<(String, usize)> {
+    let mut current = start_class.to_string();
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current.clone()) {
+            return None; // circular — bail
+        }
+        let _ = registry.ensure_loaded(&current, loader);
+        match registry.get(&current) {
+            Ok(ctx) => {
+                if let Some(idx) = ctx.methods.iter().position(|m| {
+                    m.name == method_name && m.descriptor == method_desc
+                }) {
+                    return Some((current, idx));
+                }
+                match &ctx.super_class {
+                    Some(s) => current = s.clone(),
+                    None => return None,
+                }
+            }
+            Err(_) => return None,
+        }
+    }
 }
 
 /// Resolve a constant pool Methodref to (class_name, method_name, descriptor).
