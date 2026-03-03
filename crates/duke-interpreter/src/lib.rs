@@ -378,9 +378,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         .register("java/io/PrintStream", "print", "(I)V", native_print_int);
 
     // println overloads
-    registry
-        .natives_mut()
-        .register("java/io/PrintStream", "println", "(J)V", native_println_long);
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "println",
+        "(J)V",
+        native_println_long,
+    );
     registry.natives_mut().register(
         "java/io/PrintStream",
         "println",
@@ -419,18 +422,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/io/PrintStream", "print", "(F)V", native_print_float);
-    registry.natives_mut().register(
-        "java/io/PrintStream",
-        "print",
-        "(D)V",
-        native_print_double,
-    );
-    registry.natives_mut().register(
-        "java/io/PrintStream",
-        "print",
-        "(Z)V",
-        native_print_boolean,
-    );
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "print", "(D)V", native_print_double);
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "print", "(Z)V", native_print_boolean);
     registry
         .natives_mut()
         .register("java/io/PrintStream", "print", "(C)V", native_print_char);
@@ -508,6 +505,113 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
     };
     registry.register(rte_ctx);
+
+    // java/lang/Integer — boxed int with value field
+    let integer_ctx = ClassContext {
+        class_name: "java/lang/Integer".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+    };
+    registry.register(integer_ctx);
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "parseInt",
+        "(Ljava/lang/String;)I",
+        native_integer_parseint,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "valueOf",
+        "(I)Ljava/lang/Integer;",
+        native_integer_valueof,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "intValue",
+        "()I",
+        native_integer_intvalue,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "toString",
+        "(I)Ljava/lang/String;",
+        native_integer_tostring_static,
+    );
+
+    // java/lang/Math — static math utilities
+    let math_ctx = ClassContext {
+        class_name: "java/lang/Math".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+    };
+    registry.register(math_ctx);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "max", "(II)I", native_math_max_int);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "min", "(II)I", native_math_min_int);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "abs", "(I)I", native_math_abs_int);
+
+    // String.valueOf overloads (int already registered above)
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "(J)Ljava/lang/String;",
+        native_string_value_of_long,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "(D)Ljava/lang/String;",
+        native_string_value_of_double,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "(F)Ljava/lang/String;",
+        native_string_value_of_float,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "(Z)Ljava/lang/String;",
+        native_string_value_of_boolean,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "(C)Ljava/lang/String;",
+        native_string_value_of_char,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "(Ljava/lang/Object;)Ljava/lang/String;",
+        native_string_value_of_object,
+    );
+
+    // String.concat
+    registry.natives_mut().register(
+        "java/lang/String",
+        "concat",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        native_string_concat,
+    );
 }
 
 fn native_println_string(
@@ -1232,6 +1336,316 @@ fn native_string_tochararray(
         heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Int(c as i32);
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
+}
+
+// ---- Integer natives ----
+
+/// Native: `Integer.parseInt(String)` — parses string to int.
+fn native_integer_parseint(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let str_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
+    let val: i32 = s.trim().parse().map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })?;
+    Ok(Some(Slot::Int(val)))
+}
+
+/// Native: `Integer.valueOf(int)` — boxes int into Integer object.
+fn native_integer_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate("java/lang/Integer".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.intValue()` — unboxes Integer to int.
+fn native_integer_intvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = heap.get(this_ref)?.fields[0].clone();
+    Ok(Some(val))
+}
+
+/// Native: `Integer.toString(int)` — static, converts int to String.
+fn native_integer_tostring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---- String.valueOf overloads ----
+
+/// Native: `String.valueOf(long)` — converts long to String.
+fn native_string_value_of_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.valueOf(double)` — converts double to String.
+fn native_string_value_of_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.valueOf(float)` — converts float to String.
+fn native_string_value_of_float(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Float(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Float",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.valueOf(boolean)` — converts boolean to String.
+fn native_string_value_of_boolean(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Int(v)) => *v != 0,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int(boolean)",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(if val { "true" } else { "false" }.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.valueOf(char)` — converts char to String.
+fn native_string_value_of_char(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int(char)",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.valueOf(Object)` — converts Object to String.
+fn native_string_value_of_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(r))) => {
+            let obj = heap.get(*r)?;
+            let s = if let Some(sv) = &obj.string_value {
+                sv.clone()
+            } else {
+                let hash = *r as i32;
+                format!("{}@{:x}", obj.class_name, hash)
+            };
+            let r = heap.allocate_string(s);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        Some(Slot::Reference(None)) => {
+            let r = heap.allocate_string("null".to_string());
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        _ => Err(VmError::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
+// ---- String.concat ----
+
+/// Native: `String.concat(String)` — concatenates two strings.
+fn native_string_concat(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s1 = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let other_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let s2 = heap
+        .get(other_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let r = heap.allocate_string(format!("{s1}{s2}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---- Math natives ----
+
+/// Native: `Math.max(int, int)` — returns the larger value.
+fn native_math_max_int(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let b = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Int(a.max(b))))
+}
+
+/// Native: `Math.min(int, int)` — returns the smaller value.
+fn native_math_min_int(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let b = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Int(a.min(b))))
+}
+
+/// Native: `Math.abs(int)` — returns absolute value.
+fn native_math_abs_int(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Int(a.wrapping_abs())))
 }
 
 /// Execute a decoded JVM instruction stream.
@@ -7074,5 +7488,456 @@ mod tests {
         .unwrap();
         assert_eq!(result, None);
         assert_eq!(String::from_utf8_lossy(&out), "Alice\nBob\n");
+    }
+
+    // ---- Phase 16: PrintAll integration tests ----
+
+    fn load_print_all_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("PrintAll.class")).expect("PrintAll.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn print_all_long() {
+        let ctx = load_print_all_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "PrintAll",
+            "printLong",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        assert!(
+            String::from_utf8_lossy(&out).contains("9876543210"),
+            "stdout should contain 9876543210, got: {}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    #[test]
+    fn print_all_double() {
+        let ctx = load_print_all_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "PrintAll",
+            "printDouble",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        assert!(
+            String::from_utf8_lossy(&out).contains("3.14"),
+            "stdout should contain 3.14, got: {}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    #[test]
+    fn print_all_float() {
+        let ctx = load_print_all_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "PrintAll",
+            "printFloat",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        assert!(
+            String::from_utf8_lossy(&out).contains("2.5"),
+            "stdout should contain 2.5, got: {}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    #[test]
+    fn print_all_boolean() {
+        let ctx = load_print_all_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "PrintAll",
+            "printBoolean",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        let output = String::from_utf8_lossy(&out);
+        assert!(
+            output.contains("true") && output.contains("false"),
+            "stdout should contain true and false, got: {output}",
+        );
+    }
+
+    #[test]
+    fn print_all_char() {
+        let ctx = load_print_all_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "PrintAll",
+            "printChar",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        assert!(
+            String::from_utf8_lossy(&out).contains('Z'),
+            "stdout should contain Z, got: {}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    #[test]
+    fn print_all_mixed() {
+        let ctx = load_print_all_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "PrintAll",
+            "printMixed",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        assert_eq!(String::from_utf8_lossy(&out), "val=42\n");
+    }
+
+    // ---- Phase 16: ParseArgs integration tests ----
+
+    fn load_parse_args_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("ParseArgs.class")).expect("ParseArgs.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn parse_args_parse_int() {
+        let ctx = load_parse_args_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        // Build String[] with ["123"]
+        let s_ref = heap.allocate_string("123".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 1);
+        heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(s_ref));
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "parseInt",
+            "([Ljava/lang/String;)I",
+            &[Slot::Reference(Some(arr_ref))],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(123)));
+    }
+
+    #[test]
+    fn parse_args_add_parsed() {
+        let ctx = load_parse_args_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        // Build String[] with ["10", "20"]
+        let s1 = heap.allocate_string("10".to_string());
+        let s2 = heap.allocate_string("20".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 2);
+        heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(s1));
+        heap.get_mut(arr_ref).unwrap().fields[1] = Slot::Reference(Some(s2));
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "addParsed",
+            "([Ljava/lang/String;)I",
+            &[Slot::Reference(Some(arr_ref))],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(30)));
+    }
+
+    #[test]
+    fn parse_args_valueof() {
+        let ctx = load_parse_args_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "valueOf",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(42)));
+    }
+
+    #[test]
+    fn parse_args_math_max() {
+        let ctx = load_parse_args_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "mathMax",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(7)));
+    }
+
+    #[test]
+    fn parse_args_math_min() {
+        let ctx = load_parse_args_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "mathMin",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(3)));
+    }
+
+    #[test]
+    fn parse_args_math_abs() {
+        let ctx = load_parse_args_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "mathAbs",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(5)));
+    }
+
+    // ---- Phase 16: StringConcat integration tests ----
+
+    fn load_string_concat_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("StringConcat.class")).expect("StringConcat.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn string_concat_length() {
+        let ctx = load_string_concat_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcat",
+            "concatLength",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(10)));
+    }
+
+    #[test]
+    fn string_concat_bool_to_string() {
+        let ctx = load_string_concat_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcat",
+            "boolToString",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(4)));
+    }
+
+    #[test]
+    fn string_concat_long_to_string() {
+        let ctx = load_string_concat_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcat",
+            "longToString",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(3)));
+    }
+
+    #[test]
+    fn string_concat_char_to_string() {
+        let ctx = load_string_concat_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcat",
+            "charToString",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_concat_double_to_string() {
+        let ctx = load_string_concat_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcat",
+            "doubleToString",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
     }
 }
