@@ -1659,6 +1659,109 @@ fn native_math_abs_int(
     Ok(Some(Slot::Int(a.wrapping_abs())))
 }
 
+/// Execute a StringConcatFactory recipe: walk the recipe string, replacing
+/// `\u{1}` placeholders with stringified dynamic args from the operand stack.
+fn execute_string_concat_recipe(
+    recipe: &str,
+    dynamic_args: &[Slot],
+    arg_types: &[char],
+    constants: &[String],
+    heap: &mut duke_gc::Heap,
+) -> VmResult<Slot> {
+    let mut result = String::new();
+    let mut dyn_idx = 0;
+    let mut const_idx = 0;
+
+    for ch in recipe.chars() {
+        match ch {
+            '\u{1}' => {
+                if dyn_idx < dynamic_args.len() {
+                    let type_hint = arg_types.get(dyn_idx).copied().unwrap_or('I');
+                    stringify_slot(&dynamic_args[dyn_idx], type_hint, heap, &mut result)?;
+                    dyn_idx += 1;
+                }
+            }
+            '\u{2}' => {
+                if const_idx < constants.len() {
+                    result.push_str(&constants[const_idx]);
+                    const_idx += 1;
+                }
+            }
+            other => result.push(other),
+        }
+    }
+
+    let r = heap.allocate_string(result);
+    Ok(Slot::Reference(Some(r)))
+}
+
+/// Convert a Slot to its string representation (like Java's String.valueOf).
+/// `type_hint` is the JVM type descriptor char: 'Z' for boolean, 'I' for int, etc.
+fn stringify_slot(
+    slot: &Slot,
+    type_hint: char,
+    heap: &duke_gc::Heap,
+    out: &mut String,
+) -> VmResult<()> {
+    match slot {
+        Slot::Int(v) => {
+            if type_hint == 'Z' {
+                // JVM boolean: 0 = false, nonzero = true.
+                out.push_str(if *v != 0 { "true" } else { "false" });
+            } else if type_hint == 'C' {
+                // JVM char: render as the Unicode character.
+                if let Some(ch) = char::from_u32(*v as u32) {
+                    out.push(ch);
+                } else {
+                    out.push('?');
+                }
+            } else {
+                out.push_str(&v.to_string());
+            }
+        }
+        Slot::Long(v) => out.push_str(&v.to_string()),
+        Slot::Float(v) => out.push_str(&format_java_float(*v)),
+        Slot::Double(v) => out.push_str(&format_java_double(*v)),
+        Slot::Reference(None) => out.push_str("null"),
+        Slot::Reference(Some(r)) => {
+            let obj = heap.get(*r)?;
+            if let Some(s) = &obj.string_value {
+                out.push_str(s);
+            } else {
+                out.push_str(&obj.class_name);
+                out.push('@');
+                out.push_str(&format!("{r:x}"));
+            }
+        }
+        Slot::ReturnAddress(v) => out.push_str(&v.to_string()),
+    }
+    Ok(())
+}
+
+/// Format a float like Java's Float.toString.
+fn format_java_float(v: f32) -> String {
+    if v.is_nan() {
+        return "NaN".to_string();
+    }
+    if v.is_infinite() {
+        return if v > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
+    let s = format!("{v}");
+    if s.contains('.') { s } else { format!("{v}.0") }
+}
+
+/// Format a double like Java's Double.toString.
+fn format_java_double(v: f64) -> String {
+    if v.is_nan() {
+        return "NaN".to_string();
+    }
+    if v.is_infinite() {
+        return if v > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
+    let s = format!("{v}");
+    if s.contains('.') { s } else { format!("{v}.0") }
+}
+
 /// Execute a decoded JVM instruction stream.
 ///
 /// # Parameters
@@ -4365,6 +4468,100 @@ pub fn execute_class(
             }
 
             // ----------------------------------------------------------------
+            // invokedynamic — resolve bootstrap method, dispatch based on
+            // the bootstrap class (StringConcatFactory, LambdaMetafactory).
+            // ----------------------------------------------------------------
+            Instruction::Invokedynamic(cp_idx) => {
+                let cp_idx_val = usize::from(cp_idx.0);
+
+                // 1. Resolve InvokeDynamic CP entry.
+                let (bsm_idx, call_name, call_desc) = {
+                    let ctx = registry.get(&current_class)?;
+                    let cp = &ctx.constant_pool;
+                    match cp.get(cp_idx_val).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::InvokeDynamic {
+                            bootstrap_method_attr_index,
+                            name_and_type_index,
+                        }) => {
+                            let (name, desc) =
+                                resolve_name_and_type(cp, name_and_type_index.0 as usize)?;
+                            (*bootstrap_method_attr_index as usize, name, desc)
+                        }
+                        _ => return Err(VmError::InvalidCpIndex { index: cp_idx_val }),
+                    }
+                };
+
+                // 2. Look up the bootstrap method entry.
+                let (bsm_class, bsm_args) = {
+                    let ctx = registry.get(&current_class)?;
+                    let bsm_entry = ctx
+                        .bootstrap_methods
+                        .get(bsm_idx)
+                        .ok_or(VmError::InvalidCpIndex { index: bsm_idx })?;
+                    let (_kind, class, _name, _desc) =
+                        resolve_method_handle(&ctx.constant_pool, bsm_entry.method_ref.0 as usize)?;
+                    let args: Vec<duke_classfile::types::CpIndex> = bsm_entry.arguments.clone();
+                    (class, args)
+                };
+
+                let _ = &call_name; // suppress unused warning for now
+
+                // 3. Dispatch based on bootstrap method class.
+                if bsm_class == "java/lang/invoke/StringConcatFactory" {
+                    // --- StringConcatFactory.makeConcatWithConstants ---
+                    let arg_count = parse_arg_count(&call_desc);
+                    let arg_types = parse_arg_types(&call_desc);
+                    let mut dynamic_args: Vec<Slot> = (0..arg_count)
+                        .map(|_| frame.pop())
+                        .collect::<VmResult<Vec<_>>>()?;
+                    dynamic_args.reverse();
+
+                    // Resolve recipe (first bootstrap arg) and constants (remaining).
+                    let (recipe, constants) = {
+                        let ctx = registry.get(&current_class)?;
+                        let cp = &ctx.constant_pool;
+                        let recipe = if !bsm_args.is_empty() {
+                            resolve_cp_string(cp, bsm_args[0].0 as usize)?
+                        } else {
+                            String::new()
+                        };
+                        let mut consts = Vec::new();
+                        for arg_idx in bsm_args.iter().skip(1) {
+                            if let Ok(s) = resolve_cp_string(cp, arg_idx.0 as usize) {
+                                consts.push(s);
+                            }
+                        }
+                        (recipe, consts)
+                    };
+
+                    let result = execute_string_concat_recipe(
+                        &recipe,
+                        &dynamic_args,
+                        &arg_types,
+                        &constants,
+                        heap,
+                    )?;
+                    frame.push(result)?;
+                } else if bsm_class == "java/lang/invoke/LambdaMetafactory" {
+                    // --- LambdaMetafactory --- placeholder for Task 3.
+                    let arg_count = parse_arg_count(&call_desc);
+                    for _ in 0..arg_count {
+                        frame.pop()?;
+                    }
+                    frame.push(Slot::Reference(None))?;
+                } else {
+                    // Unknown bootstrap method — pop args and push null.
+                    let arg_count = parse_arg_count(&call_desc);
+                    for _ in 0..arg_count {
+                        frame.pop()?;
+                    }
+                    if !call_desc.ends_with(")V") {
+                        frame.push(Slot::Reference(None))?;
+                    }
+                }
+            }
+
+            // ----------------------------------------------------------------
             // invokeinterface — like invokevirtual but resolves from
             // InterfaceMethodref and dispatches on the actual object class.
             // ----------------------------------------------------------------
@@ -4938,6 +5135,110 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
         }
         _ => Err(VmError::InvalidFieldref { index: idx }),
     }
+}
+
+/// Resolve a MethodHandle CP entry to (reference_kind, class_name, method_name, descriptor).
+fn resolve_method_handle(
+    cp: &[Option<CpEntry>],
+    cp_idx: usize,
+) -> VmResult<(u8, String, String, String)> {
+    let (kind, ref_idx) = match cp.get(cp_idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::MethodHandle {
+            reference_kind,
+            reference_index,
+        }) => (*reference_kind, reference_index.0 as usize),
+        _ => return Err(VmError::InvalidCpIndex { index: cp_idx }),
+    };
+    let (class_name, method_name, descriptor) = resolve_methodref(cp, ref_idx)?;
+    Ok((kind, class_name, method_name, descriptor))
+}
+
+/// Resolve a NameAndType CP entry to (name, descriptor).
+fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(String, String)> {
+    match cp.get(cp_idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::NameAndType {
+            name_index,
+            descriptor_index,
+        }) => {
+            let name = match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
+                Some(CpEntry::Utf8(s)) => s.clone(),
+                _ => {
+                    return Err(VmError::InvalidCpIndex {
+                        index: name_index.0 as usize,
+                    });
+                }
+            };
+            let desc = match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
+                Some(CpEntry::Utf8(s)) => s.clone(),
+                _ => {
+                    return Err(VmError::InvalidCpIndex {
+                        index: descriptor_index.0 as usize,
+                    });
+                }
+            };
+            Ok((name, desc))
+        }
+        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+    }
+}
+
+/// Resolve a CP String entry to its UTF-8 content. Also handles bare Utf8 entries.
+fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> {
+    match cp.get(cp_idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::String { string_index }) => {
+            match cp.get(string_index.0 as usize).and_then(|e| e.as_ref()) {
+                Some(CpEntry::Utf8(s)) => Ok(s.clone()),
+                _ => Err(VmError::InvalidCpIndex {
+                    index: string_index.0 as usize,
+                }),
+            }
+        }
+        Some(CpEntry::Utf8(s)) => Ok(s.clone()),
+        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+    }
+}
+
+/// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
+/// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
+fn parse_arg_types(descriptor: &str) -> Vec<char> {
+    let params = descriptor
+        .find(')')
+        .map(|i| &descriptor[1..i])
+        .unwrap_or("");
+    let mut types = Vec::new();
+    let mut chars = params.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => types.push(c),
+            '[' => {
+                // Skip array dimensions and element type.
+                while chars.peek() == Some(&'[') {
+                    chars.next();
+                }
+                if chars.peek() == Some(&'L') {
+                    chars.next();
+                    for c2 in chars.by_ref() {
+                        if c2 == ';' {
+                            break;
+                        }
+                    }
+                } else {
+                    chars.next();
+                }
+                types.push('[');
+            }
+            'L' => {
+                for c2 in chars.by_ref() {
+                    if c2 == ';' {
+                        break;
+                    }
+                }
+                types.push('L');
+            }
+            _ => {}
+        }
+    }
+    types
 }
 
 /// Index of a named instance field within ctx.fields (non-static only).
@@ -7959,6 +8260,130 @@ mod tests {
             &mut out,
             "StringConcat",
             "doubleToString",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    // ---- Phase 17: StringConcatFactory (invokedynamic) ----
+
+    fn load_string_concat_test_class() -> ClassContext {
+        let bytes =
+            std::fs::read(fixture("StringConcatTest.class")).expect("StringConcatTest.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn string_concat_simple() {
+        let ctx = load_string_concat_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcatTest",
+            "testSimple",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_concat_int() {
+        let ctx = load_string_concat_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcatTest",
+            "testInt",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_concat_chain() {
+        let ctx = load_string_concat_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcatTest",
+            "testChain",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_concat_boolean() {
+        let ctx = load_string_concat_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcatTest",
+            "testBoolean",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_concat_empty() {
+        let ctx = load_string_concat_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringConcatTest",
+            "testEmpty",
             "()I",
             &[],
         )
