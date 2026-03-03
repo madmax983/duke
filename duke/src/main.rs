@@ -17,6 +17,7 @@ fn main() {
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
+        eprintln!("       duke run <classfile.class> [string-arg...]");
         process::exit(1);
     }
 
@@ -29,6 +30,12 @@ fn main() {
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
         exec_method(&args[2..]);
+        return;
+    }
+
+    // Dispatch `run`: execute main(String[]) entry point.
+    if args.len() >= 3 && args[1] == "run" {
+        run_main(&args[2..]);
         return;
     }
 
@@ -153,6 +160,74 @@ fn exec_method(args: &[String]) {
     ) {
         Ok(Some(result)) => println!("{result:?}"),
         Ok(None) => println!("(void)"),
+        Err(e) => {
+            eprintln!("duke: runtime error: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Run
+// ---------------------------------------------------------------------------
+
+/// `duke run <classfile.class> [string-arg...]`
+///
+/// Executes `public static void main(String[])`, passing string arguments.
+fn run_main(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: duke run <classfile.class> [string-arg...]");
+        process::exit(1);
+    }
+    let path = &args[0];
+    let string_args: Vec<&str> = args[1..].iter().map(String::as_str).collect();
+
+    let bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("duke: cannot read '{path}': {e}");
+        process::exit(1);
+    });
+    let cf = parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error: {e}");
+        process::exit(1);
+    });
+
+    let ctx = build_class_context(&cf);
+    let entry_class = ctx.class_name.clone();
+    let mut registry = ClassRegistry::new();
+    registry.register(ctx);
+
+    let parent = std::path::Path::new(path)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let loader = DirectoryLoader::new(parent);
+    let mut heap = Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    // Build String[] args array on the heap.
+    let mut arg_refs: Vec<Slot> = Vec::new();
+    for arg in &string_args {
+        let r = heap.allocate_string((*arg).to_string());
+        arg_refs.push(Slot::Reference(Some(r)));
+    }
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
+    for (i, slot) in arg_refs.into_iter().enumerate() {
+        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
+    }
+
+    let main_args = vec![Slot::Reference(Some(arr_ref))];
+
+    let mut stdout = std::io::stdout();
+    match execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut stdout,
+        &entry_class,
+        "main",
+        "([Ljava/lang/String;)V",
+        &main_args,
+    ) {
+        Ok(_) => {}
         Err(e) => {
             eprintln!("duke: runtime error: {e}");
             process::exit(1);

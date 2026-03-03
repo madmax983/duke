@@ -300,6 +300,63 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/String", "charAt", "(I)C", native_string_char_at);
+    registry.natives_mut().register(
+        "java/lang/String",
+        "substring",
+        "(I)Ljava/lang/String;",
+        native_string_substring,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "substring",
+        "(II)Ljava/lang/String;",
+        native_string_substring_range,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "indexOf",
+        "(Ljava/lang/String;)I",
+        native_string_indexof,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "contains",
+        "(Ljava/lang/CharSequence;)Z",
+        native_string_contains,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/String", "isEmpty", "()Z", native_string_isempty);
+    registry.natives_mut().register(
+        "java/lang/String",
+        "compareTo",
+        "(Ljava/lang/String;)I",
+        native_string_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "startsWith",
+        "(Ljava/lang/String;)Z",
+        native_string_startswith,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "endsWith",
+        "(Ljava/lang/String;)Z",
+        native_string_endswith,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "trim",
+        "()Ljava/lang/String;",
+        native_string_trim,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "toCharArray",
+        "()[C",
+        native_string_tochararray,
+    );
 
     // String static methods
     registry.natives_mut().register(
@@ -597,6 +654,259 @@ fn native_print_int(
     };
     write!(out, "{val}").ok();
     Ok(None)
+}
+
+/// Native: `String.substring(int)` — substring from begin to end.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn native_string_substring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let begin = match args.get(1) {
+        Some(Slot::Int(v)) => *v as usize,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    if begin > s.len() {
+        return Err(VmError::ArrayIndexOutOfBounds {
+            index: begin as i32,
+            length: s.len(),
+        });
+    }
+    let sub: String = s.chars().skip(begin).collect();
+    let r = heap.allocate_string(sub);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.substring(int, int)` — substring from begin to end (exclusive).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn native_string_substring_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let begin = match args.get(1) {
+        Some(Slot::Int(v)) => *v as usize,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let end = match args.get(2) {
+        Some(Slot::Int(v)) => *v as usize,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    if begin > end || end > s.len() {
+        return Err(VmError::ArrayIndexOutOfBounds {
+            index: end as i32,
+            length: s.len(),
+        });
+    }
+    let sub: String = s.chars().skip(begin).take(end - begin).collect();
+    let r = heap.allocate_string(sub);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.indexOf(String)` — find first occurrence of target.
+fn native_string_indexof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let target_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let target = heap
+        .get(target_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let result = s.find(&target).map_or(-1, |i| i as i32);
+    Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `String.contains(CharSequence)` — check if string contains target.
+fn native_string_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let target_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let target = heap
+        .get(target_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    Ok(Some(Slot::Int(if s.contains(&target) { 1 } else { 0 })))
+}
+
+/// Native: `String.isEmpty()` — check if string is empty.
+#[allow(clippy::unnecessary_wraps)]
+fn native_string_isempty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    Ok(Some(Slot::Int(if s.is_empty() { 1 } else { 0 })))
+}
+
+/// Native: `String.compareTo(String)` — lexicographic comparison.
+fn native_string_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let other_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let other = heap
+        .get(other_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    Ok(Some(Slot::Int(s.cmp(&other) as i32)))
+}
+
+/// Native: `String.startsWith(String)` — check if string starts with prefix.
+fn native_string_startswith(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let prefix_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let prefix = heap
+        .get(prefix_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    Ok(Some(Slot::Int(if s.starts_with(&prefix) { 1 } else { 0 })))
+}
+
+/// Native: `String.endsWith(String)` — check if string ends with suffix.
+fn native_string_endswith(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let suffix_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let suffix = heap
+        .get(suffix_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    Ok(Some(Slot::Int(if s.ends_with(&suffix) { 1 } else { 0 })))
+}
+
+/// Native: `String.trim()` — remove leading and trailing whitespace.
+fn native_string_trim(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let trimmed = s.trim().to_string();
+    let r = heap.allocate_string(trimmed);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.toCharArray()` — convert string to char array.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn native_string_tochararray(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let chars: Vec<char> = s.chars().collect();
+    let arr_ref = heap.allocate("[C".to_string(), chars.len());
+    for (i, &c) in chars.iter().enumerate() {
+        heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Int(c as i32);
+    }
+    Ok(Some(Slot::Reference(Some(arr_ref))))
 }
 
 /// Execute a decoded JVM instruction stream.
@@ -2742,7 +3052,11 @@ pub fn execute_class(
                 let loaded = registry.ensure_loaded(&callee_class, loader)?;
                 let resolved = if loaded {
                     resolve_method_in_hierarchy(
-                        registry, loader, &callee_class, &callee_name, &callee_desc,
+                        registry,
+                        loader,
+                        &callee_class,
+                        &callee_name,
+                        &callee_desc,
                     )
                 } else {
                     None
@@ -3331,7 +3645,11 @@ pub fn execute_class(
 
                 // Try to find the method on the actual class (walking hierarchy).
                 let resolved = resolve_method_in_hierarchy(
-                    registry, loader, &actual_class, &callee_name, &callee_desc,
+                    registry,
+                    loader,
+                    &actual_class,
+                    &callee_name,
+                    &callee_desc,
                 );
 
                 let (dispatch_class, callee_idx) = if let Some(pair) = resolved {
@@ -3339,7 +3657,11 @@ pub fn execute_class(
                 } else {
                     // Fall back to interface class hierarchy.
                     let iface_resolved = resolve_method_in_hierarchy(
-                        registry, loader, &callee_class, &callee_name, &callee_desc,
+                        registry,
+                        loader,
+                        &callee_class,
+                        &callee_name,
+                        &callee_desc,
                     );
                     match iface_resolved {
                         Some(pair) => pair,
@@ -3714,9 +4036,11 @@ fn resolve_method_in_hierarchy(
         let _ = registry.ensure_loaded(&current, loader);
         match registry.get(&current) {
             Ok(ctx) => {
-                if let Some(idx) = ctx.methods.iter().position(|m| {
-                    m.name == method_name && m.descriptor == method_desc
-                }) {
+                if let Some(idx) = ctx
+                    .methods
+                    .iter()
+                    .position(|m| m.name == method_name && m.descriptor == method_desc)
+                {
                     return Some((current, idx));
                 }
                 match &ctx.super_class {
@@ -6022,5 +6346,408 @@ mod tests {
         .unwrap();
         assert_eq!(result, Some(Slot::Int(1)));
         assert_eq!(String::from_utf8_lossy(&out), "ABCD\n");
+    }
+
+    // ---- Phase 15: inherited method tests ----
+
+    fn load_inherited_method_classes(registry: &mut ClassRegistry) {
+        registry.register(load_class("InheritedMethod.class"));
+        registry.register(load_class("InheritedMethod$Animal.class"));
+        registry.register(load_class("InheritedMethod$Dog.class"));
+        registry.register(load_class("InheritedMethod$Puppy.class"));
+    }
+
+    #[test]
+    fn inherited_call_inherited() {
+        let mut registry = ClassRegistry::new();
+        load_inherited_method_classes(&mut registry);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InheritedMethod",
+            "callInherited",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(10)));
+    }
+
+    #[test]
+    fn inherited_call_overridden() {
+        let mut registry = ClassRegistry::new();
+        load_inherited_method_classes(&mut registry);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InheritedMethod",
+            "callOverridden",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(2)));
+    }
+
+    #[test]
+    fn inherited_call_deep_inherited() {
+        let mut registry = ClassRegistry::new();
+        load_inherited_method_classes(&mut registry);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InheritedMethod",
+            "callDeepInherited",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(10)));
+    }
+
+    #[test]
+    fn inherited_call_deep_overridden() {
+        let mut registry = ClassRegistry::new();
+        load_inherited_method_classes(&mut registry);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InheritedMethod",
+            "callDeepOverridden",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(2)));
+    }
+
+    // ---- Phase 15: string methods tests ----
+
+    #[test]
+    fn string_methods_substring() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testSubstring",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(5)));
+    }
+
+    #[test]
+    fn string_methods_substring_range() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testSubstringRange",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(5)));
+    }
+
+    #[test]
+    fn string_methods_indexof() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testIndexOf",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(5)));
+    }
+
+    #[test]
+    fn string_methods_indexof_not_found() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testIndexOfNotFound",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(-1)));
+    }
+
+    #[test]
+    fn string_methods_contains() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testContains",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_methods_isempty() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testIsEmpty",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_methods_compareto() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testCompareTo",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_methods_startswith() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testStartsWith",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_methods_endswith() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testEndsWith",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_methods_trim() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testTrim",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(2)));
+    }
+
+    #[test]
+    fn string_methods_tochararray() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("StringMethods.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringMethods",
+            "testToCharArray",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(131)));
+    }
+
+    // ---- Phase 15: main entry point tests ----
+
+    #[test]
+    fn main_hello_no_args() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("MainHello.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+
+        // Build empty String[] array on the heap.
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+        let main_args = vec![Slot::Reference(Some(arr_ref))];
+
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MainHello",
+            "main",
+            "([Ljava/lang/String;)V",
+            &main_args,
+        )
+        .unwrap();
+        assert_eq!(result, None);
+        assert_eq!(String::from_utf8_lossy(&out), "no args\n");
+    }
+
+    #[test]
+    fn main_hello_with_args() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("MainHello.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+
+        // Build String[] with ["Alice", "Bob"] on the heap.
+        let alice_ref = heap.allocate_string("Alice".to_string());
+        let bob_ref = heap.allocate_string("Bob".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 2);
+        heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(alice_ref));
+        heap.get_mut(arr_ref).unwrap().fields[1] = Slot::Reference(Some(bob_ref));
+        let main_args = vec![Slot::Reference(Some(arr_ref))];
+
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MainHello",
+            "main",
+            "([Ljava/lang/String;)V",
+            &main_args,
+        )
+        .unwrap();
+        assert_eq!(result, None);
+        assert_eq!(String::from_utf8_lossy(&out), "Alice\nBob\n");
     }
 }
