@@ -228,6 +228,7 @@ impl Default for NativeRegistry {
 /// Creates synthetic `java/lang/System` and `java/io/PrintStream` classes and
 /// registers native `println` handlers for `(Ljava/lang/String;)V`, `(I)V`,
 /// and `()V`.
+#[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate a PrintStream object on the heap.
     let ps_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
@@ -273,6 +274,81 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/io/PrintStream", "println", "()V", native_println_void);
+
+    // Register java/lang/String ClassContext (empty — instance methods are native).
+    let string_ctx = ClassContext {
+        class_name: "java/lang/String".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+    };
+    registry.register(string_ctx);
+
+    // String instance methods
+    registry
+        .natives_mut()
+        .register("java/lang/String", "length", "()I", native_string_length);
+    registry.natives_mut().register(
+        "java/lang/String",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        native_string_equals,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/String", "charAt", "(I)C", native_string_char_at);
+
+    // Register synthetic exception hierarchy so is_assignable_from can walk it.
+    // java/lang/Object (root — no super)
+    let object_ctx = ClassContext {
+        class_name: "java/lang/Object".to_string(),
+        super_class: None,
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+    };
+    registry.register(object_ctx);
+
+    // java/lang/Throwable extends Object
+    let throwable_ctx = ClassContext {
+        class_name: "java/lang/Throwable".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+    };
+    registry.register(throwable_ctx);
+
+    // java/lang/Exception extends Throwable
+    let exception_ctx = ClassContext {
+        class_name: "java/lang/Exception".to_string(),
+        super_class: Some("java/lang/Throwable".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+    };
+    registry.register(exception_ctx);
+
+    // java/lang/RuntimeException extends Exception
+    let rte_ctx = ClassContext {
+        class_name: "java/lang/RuntimeException".to_string(),
+        super_class: Some("java/lang/Exception".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+    };
+    registry.register(rte_ctx);
 }
 
 fn native_println_string(
@@ -325,6 +401,74 @@ fn native_println_void(
 ) -> VmResult<Option<Slot>> {
     writeln!(out).ok();
     Ok(None)
+}
+
+/// Native: `String.length()` — returns string length as int.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn native_string_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get(this_ref)?;
+    let len = obj.string_value.as_ref().map_or(0, String::len);
+    Ok(Some(Slot::Int(len as i32)))
+}
+
+/// Native: `String.equals(Object)` — compares string content.
+fn native_string_equals(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let other_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Ok(Some(Slot::Int(0))),
+        _ => return Ok(Some(Slot::Int(0))),
+    };
+    let this_str = heap.get(this_ref)?.string_value.clone();
+    let other_str = heap.get(other_ref)?.string_value.clone();
+    Ok(Some(Slot::Int(if this_str == other_str { 1 } else { 0 })))
+}
+
+/// Native: `String.charAt(int)` — returns char at index as int.
+#[allow(clippy::cast_sign_loss)]
+fn native_string_char_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let index = match args.get(1) {
+        Some(Slot::Int(i)) => *i,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let obj = heap.get(this_ref)?;
+    let s = obj.string_value.as_deref().unwrap_or("");
+    let ch = s
+        .chars()
+        .nth(index as usize)
+        .ok_or(VmError::ArrayIndexOutOfBounds {
+            index,
+            length: s.len(),
+        })?;
+    Ok(Some(Slot::Int(ch as i32)))
 }
 
 /// Execute a decoded JVM instruction stream.
@@ -5061,5 +5205,284 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, Some(Slot::Int(10)));
+    }
+
+    // ---- Phase 13: class hierarchy tests ----
+
+    fn load_hierarchy_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("Hierarchy.class")).expect("Hierarchy.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    fn load_exception_hierarchy_class() -> ClassContext {
+        let bytes =
+            std::fs::read(fixture("ExceptionHierarchy.class")).expect("ExceptionHierarchy.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    fn load_string_ops_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("StringOps.class")).expect("StringOps.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn hierarchy_instanceof_object() {
+        let ctx = load_hierarchy_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "Hierarchy",
+            "instanceOfObject",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn hierarchy_cast_to_object() {
+        let ctx = load_hierarchy_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "Hierarchy",
+            "castToObject",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn hierarchy_null_instanceof() {
+        let ctx = load_hierarchy_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "Hierarchy",
+            "nullInstanceOf",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(0)));
+    }
+
+    // ---- Phase 13: exception hierarchy tests ----
+
+    #[test]
+    fn exception_hierarchy_catch_parent() {
+        let ctx = load_exception_hierarchy_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "ExceptionHierarchy",
+            "catchParent",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn exception_hierarchy_catch_exact() {
+        let ctx = load_exception_hierarchy_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "ExceptionHierarchy",
+            "catchExact",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(2)));
+    }
+
+    #[test]
+    fn exception_hierarchy_catch_wrong_then_right() {
+        let ctx = load_exception_hierarchy_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "ExceptionHierarchy",
+            "catchWrongThenRight",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(3)));
+    }
+
+    #[test]
+    fn exception_hierarchy_catch_grandparent() {
+        let ctx = load_exception_hierarchy_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "ExceptionHierarchy",
+            "catchGrandparent",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(4)));
+    }
+
+    // ---- Phase 13: string ops tests ----
+
+    #[test]
+    fn string_ops_length() {
+        let ctx = load_string_ops_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringOps",
+            "stringLength",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(5)));
+    }
+
+    #[test]
+    fn string_ops_equals() {
+        let ctx = load_string_ops_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringOps",
+            "stringEquals",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops_not_equals() {
+        let ctx = load_string_ops_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringOps",
+            "stringNotEquals",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(0)));
+    }
+
+    #[test]
+    fn string_ops_char_at() {
+        let ctx = load_string_ops_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "StringOps",
+            "charAtOne",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        // 'e' = 101
+        assert_eq!(result, Some(Slot::Int(101)));
     }
 }
