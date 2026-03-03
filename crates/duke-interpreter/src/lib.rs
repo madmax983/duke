@@ -301,6 +301,25 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         .natives_mut()
         .register("java/lang/String", "charAt", "(I)C", native_string_char_at);
 
+    // String static methods
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "(I)Ljava/lang/String;",
+        native_string_value_of_int,
+    );
+
+    // PrintStream.print (no newline)
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "print",
+        "(Ljava/lang/String;)V",
+        native_print_string,
+    );
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "print", "(I)V", native_print_int);
+
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
     // java/lang/Object (root — no super)
     let object_ctx = ClassContext {
@@ -313,6 +332,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
     };
     registry.register(object_ctx);
+
+    // Object instance methods
+    registry.natives_mut().register(
+        "java/lang/Object",
+        "hashCode",
+        "()I",
+        native_object_hashcode,
+    );
+    registry.natives_mut().register(
+        "java/lang/Object",
+        "toString",
+        "()Ljava/lang/String;",
+        native_object_tostring,
+    );
 
     // java/lang/Throwable extends Object
     let throwable_ctx = ClassContext {
@@ -469,6 +502,101 @@ fn native_string_char_at(
             length: s.len(),
         })?;
     Ok(Some(Slot::Int(ch as i32)))
+}
+
+/// Native: `Object.hashCode()` — returns heap address as hash.
+fn native_object_hashcode(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(r))) => Ok(Some(Slot::Int(*r as i32))),
+        _ => Err(VmError::NullPointerException),
+    }
+}
+
+/// Native: `Object.toString()` — returns `ClassName@hexHash`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn native_object_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let class_name = heap.get(this_ref)?.class_name.clone();
+    let hash = this_ref as i32;
+    let s = format!("{class_name}@{hash:x}");
+    let r = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.valueOf(int)` — static method, returns string of int.
+fn native_string_value_of_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let s = val.to_string();
+    let r = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `PrintStream.print(String)` — no newline.
+fn native_print_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let string_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => {
+            write!(out, "null").ok();
+            return Ok(None);
+        }
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let obj = heap.get(string_ref)?;
+    let text = obj.string_value.as_deref().unwrap_or("null");
+    write!(out, "{text}").ok();
+    Ok(None)
+}
+
+/// Native: `PrintStream.print(int)` — no newline.
+#[allow(clippy::unnecessary_wraps)]
+fn native_print_int(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    write!(out, "{val}").ok();
+    Ok(None)
 }
 
 /// Execute a decoded JVM instruction stream.
@@ -3177,7 +3305,10 @@ pub fn execute_class(
             // invokeinterface — like invokevirtual but resolves from
             // InterfaceMethodref and dispatches on the actual object class.
             // ----------------------------------------------------------------
-            Instruction::Invokeinterface { index: cp_idx, count: _ } => {
+            Instruction::Invokeinterface {
+                index: cp_idx,
+                count: _,
+            } => {
                 let (callee_class, callee_name, callee_desc) = {
                     let ctx = registry.get(&current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
@@ -3284,7 +3415,10 @@ pub fn execute_class(
             // ----------------------------------------------------------------
             // multianewarray — allocate multi-dimensional arrays.
             // ----------------------------------------------------------------
-            Instruction::Multianewarray { index: cp_idx, dimensions } => {
+            Instruction::Multianewarray {
+                index: cp_idx,
+                dimensions,
+            } => {
                 let element_type = {
                     let ctx = registry.get(&current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
@@ -3318,8 +3452,7 @@ pub fn execute_class(
                         let inner_type = &type_name[1..]; // Strip one '[' for inner dimension.
                         for i in 0..size {
                             let inner = alloc_multi(heap, dims, depth + 1, inner_type);
-                            heap.get_mut(r).unwrap().fields[i] =
-                                Slot::Reference(Some(inner));
+                            heap.get_mut(r).unwrap().fields[i] = Slot::Reference(Some(inner));
                         }
                     }
                     r
@@ -5644,5 +5777,228 @@ mod tests {
         .unwrap();
         // 'e' = 101
         assert_eq!(result, Some(Slot::Int(101)));
+    }
+
+    // ---- Phase 14: interface tests ----
+
+    fn load_class(name: &str) -> ClassContext {
+        let bytes = std::fs::read(fixture(name)).unwrap_or_else(|_| panic!("{name}"));
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn interface_call_simple() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("InterfaceTest.class"));
+        registry.register(load_class("InterfaceTest$Adder.class"));
+        registry.register(load_class("InterfaceTest$SimpleAdder.class"));
+        registry.register(load_class("InterfaceTest$DoubleAdder.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InterfaceTest",
+            "callSimple",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(7)));
+    }
+
+    #[test]
+    fn interface_call_double() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("InterfaceTest.class"));
+        registry.register(load_class("InterfaceTest$Adder.class"));
+        registry.register(load_class("InterfaceTest$SimpleAdder.class"));
+        registry.register(load_class("InterfaceTest$DoubleAdder.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InterfaceTest",
+            "callDouble",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(14)));
+    }
+
+    #[test]
+    fn interface_polymorphic_simple() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("InterfaceTest.class"));
+        registry.register(load_class("InterfaceTest$Adder.class"));
+        registry.register(load_class("InterfaceTest$SimpleAdder.class"));
+        registry.register(load_class("InterfaceTest$DoubleAdder.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InterfaceTest",
+            "polymorphic",
+            "(I)I",
+            &[Slot::Int(0)],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(8)));
+    }
+
+    #[test]
+    fn interface_polymorphic_double() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("InterfaceTest.class"));
+        registry.register(load_class("InterfaceTest$Adder.class"));
+        registry.register(load_class("InterfaceTest$SimpleAdder.class"));
+        registry.register(load_class("InterfaceTest$DoubleAdder.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InterfaceTest",
+            "polymorphic",
+            "(I)I",
+            &[Slot::Int(1)],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(16)));
+    }
+
+    // ---- Phase 14: multi-dimensional array tests ----
+
+    #[test]
+    fn multiarray_sum2d() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("MultiArray.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "MultiArray",
+            "sum2d",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(21)));
+    }
+
+    #[test]
+    fn multiarray_dimensions() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("MultiArray.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "MultiArray",
+            "dimensions",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(12)));
+    }
+
+    // ---- Phase 14: native method tests ----
+
+    #[test]
+    fn more_natives_object_hashcode() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("MoreNatives.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "MoreNatives",
+            "objectHashCode",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn more_natives_value_of_int() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("MoreNatives.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "MoreNatives",
+            "valueOfInt",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(2)));
+    }
+
+    #[test]
+    fn more_natives_print_no_newline() {
+        let mut registry = ClassRegistry::new();
+        registry.register(load_class("MoreNatives.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MoreNatives",
+            "printNoNewline",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        assert_eq!(String::from_utf8_lossy(&out), "ABCD\n");
     }
 }
