@@ -64,11 +64,28 @@ pub struct ClassContext {
 /// Registry of loaded classes — maps class name to its ClassContext.
 ///
 /// Used by `execute_class` for cross-class method dispatch.
+/// Metadata for a lambda proxy object created by `LambdaMetafactory`.
+#[derive(Debug, Clone)]
+struct LambdaInfo {
+    impl_class: String,
+    impl_method: String,
+    impl_desc: String,
+    impl_kind: u8,
+    sam_method: String,
+    #[allow(dead_code)]
+    sam_desc: String,
+    captured_count: usize,
+}
+
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
     natives: NativeRegistry,
     /// Tracks which classes have had their `<clinit>` run.
     initialized: HashSet<String>,
+    /// Lambda proxy class name → metadata.
+    lambdas: HashMap<String, LambdaInfo>,
+    /// Monotonic counter for generating unique lambda class names.
+    lambda_counter: u64,
 }
 
 impl ClassRegistry {
@@ -78,7 +95,20 @@ impl ClassRegistry {
             classes: HashMap::new(),
             natives: NativeRegistry::new(),
             initialized: HashSet::new(),
+            lambdas: HashMap::new(),
+            lambda_counter: 0,
         }
+    }
+
+    fn register_lambda(&mut self, info: LambdaInfo) -> String {
+        let name = format!("$$Lambda${}", self.lambda_counter);
+        self.lambda_counter += 1;
+        self.lambdas.insert(name.clone(), info);
+        name
+    }
+
+    fn get_lambda(&self, class_name: &str) -> Option<&LambdaInfo> {
+        self.lambdas.get(class_name)
     }
 
     /// Check if a class has been initialized (clinit has run).
@@ -3917,6 +3947,81 @@ pub fn execute_class(
                 let (dispatch_class, callee_idx) = match resolved {
                     Some((cls, i)) => (cls, i),
                     None => {
+                        // Check lambda dispatch before native fallback.
+                        let arg_count = parse_arg_count(&callee_desc);
+                        let stack_len = frame.stack_len();
+                        if stack_len > arg_count {
+                            let this_pos = stack_len - arg_count - 1;
+                            let actual_class_opt =
+                                if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
+                                    heap.get(r).ok().map(|o| o.class_name.clone())
+                                } else {
+                                    None
+                                };
+
+                            if let Some(ref actual_class) = actual_class_opt
+                                && let Some(lambda_info) =
+                                    registry.get_lambda(actual_class).cloned()
+                                && callee_name == lambda_info.sam_method
+                            {
+                                let mut callee_args: Vec<Slot> = (0..arg_count)
+                                    .map(|_| frame.pop())
+                                    .collect::<VmResult<Vec<_>>>()?;
+                                callee_args.reverse();
+                                let this_slot = frame.pop()?;
+                                let this_ref = match &this_slot {
+                                    Slot::Reference(Some(r)) => *r,
+                                    _ => return Err(VmError::NullPointerException),
+                                };
+
+                                let obj = heap.get(this_ref)?;
+                                let mut impl_args: Vec<Slot> = Vec::new();
+                                for i in 0..lambda_info.captured_count {
+                                    impl_args.push(obj.fields[i].clone());
+                                }
+                                impl_args.extend(callee_args.iter().cloned());
+
+                                let _ = registry.ensure_loaded(&lambda_info.impl_class, loader);
+
+                                let resolved = resolve_method_in_hierarchy(
+                                    registry,
+                                    loader,
+                                    &lambda_info.impl_class,
+                                    &lambda_info.impl_method,
+                                    &lambda_info.impl_desc,
+                                );
+                                if let Some((dispatch_class, impl_idx)) = resolved {
+                                    let (callee_pc_to_idx, callee_frame) = {
+                                        let ctx = registry.get(&dispatch_class)?;
+                                        let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
+                                            .instructions
+                                            .iter()
+                                            .enumerate()
+                                            .map(|(i, &(pc, _))| (pc, i))
+                                            .collect();
+                                        let f = Frame::new(
+                                            usize::from(ctx.methods[impl_idx].max_stack),
+                                            usize::from(ctx.methods[impl_idx].max_locals),
+                                            impl_args,
+                                        )?;
+                                        (pci, f)
+                                    };
+                                    call_stack.push(CallFrame {
+                                        frame,
+                                        method_idx,
+                                        pc_to_idx,
+                                        resume_idx: idx + 1,
+                                        class_name: current_class.clone(),
+                                    });
+                                    frame = callee_frame;
+                                    method_idx = impl_idx;
+                                    pc_to_idx = callee_pc_to_idx;
+                                    current_class = dispatch_class;
+                                    idx = 0;
+                                    continue;
+                                }
+                            }
+                        }
                         // Check native registry before no-op fallback.
                         if let Some(handler) =
                             registry
@@ -4543,12 +4648,71 @@ pub fn execute_class(
                     )?;
                     frame.push(result)?;
                 } else if bsm_class == "java/lang/invoke/LambdaMetafactory" {
-                    // --- LambdaMetafactory --- placeholder for Task 3.
-                    let arg_count = parse_arg_count(&call_desc);
-                    for _ in 0..arg_count {
-                        frame.pop()?;
+                    // --- LambdaMetafactory.metafactory ---
+                    // Bootstrap args: [MethodType erased, MethodHandle impl, MethodType specialized]
+
+                    let (impl_kind, impl_class, impl_method, impl_desc) = {
+                        let ctx = registry.get(&current_class)?;
+                        let cp = &ctx.constant_pool;
+                        if bsm_args.len() < 3 {
+                            return Err(VmError::Unimplemented {
+                                mnemonic: "LambdaMetafactory requires 3 bootstrap args",
+                            });
+                        }
+                        resolve_method_handle(cp, bsm_args[1].0 as usize)?
+                    };
+
+                    let sam_method = call_name.clone();
+
+                    // Resolve erased SAM descriptor from bootstrap arg 0.
+                    let sam_desc = {
+                        let ctx = registry.get(&current_class)?;
+                        let cp = &ctx.constant_pool;
+                        match cp.get(bsm_args[0].0 as usize).and_then(|e| e.as_ref()) {
+                            Some(CpEntry::MethodType { descriptor_index }) => {
+                                match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
+                                    Some(CpEntry::Utf8(s)) => s.clone(),
+                                    _ => {
+                                        return Err(VmError::InvalidCpIndex {
+                                            index: descriptor_index.0 as usize,
+                                        });
+                                    }
+                                }
+                            }
+                            _ => {
+                                return Err(VmError::InvalidCpIndex {
+                                    index: bsm_args[0].0 as usize,
+                                });
+                            }
+                        }
+                    };
+
+                    // Pop captured variables from the stack.
+                    let captured_count = parse_arg_count(&call_desc);
+                    let mut captured_args: Vec<Slot> = (0..captured_count)
+                        .map(|_| frame.pop())
+                        .collect::<VmResult<Vec<_>>>()?;
+                    captured_args.reverse();
+
+                    let lambda_info = LambdaInfo {
+                        impl_class: impl_class.clone(),
+                        impl_method: impl_method.clone(),
+                        impl_desc: impl_desc.clone(),
+                        impl_kind,
+                        sam_method,
+                        sam_desc,
+                        captured_count,
+                    };
+                    let lambda_class = registry.register_lambda(lambda_info);
+
+                    let r = heap.allocate(lambda_class, captured_count);
+                    for (i, slot) in captured_args.into_iter().enumerate() {
+                        heap.get_mut(r)?.fields[i] = slot;
                     }
-                    frame.push(Slot::Reference(None))?;
+
+                    let _ = registry.ensure_loaded(&impl_class, loader);
+
+                    frame.push(Slot::Reference(Some(r)))?;
                 } else {
                     // Unknown bootstrap method — pop args and push null.
                     let arg_count = parse_arg_count(&call_desc);
@@ -4629,6 +4793,122 @@ pub fn execute_class(
                                 let result = handler(&callee_args, heap, stdout)?;
                                 if let Some(val) = result {
                                     frame.push(val)?;
+                                }
+                                idx += 1;
+                                continue;
+                            }
+                            // Check lambda registry for SAM dispatch.
+                            if let Some(lambda_info) = registry.get_lambda(&actual_class).cloned()
+                                && callee_name == lambda_info.sam_method
+                            {
+                                let this_ref = match &callee_args[0] {
+                                    Slot::Reference(Some(r)) => *r,
+                                    _ => return Err(VmError::NullPointerException),
+                                };
+                                let obj = heap.get(this_ref)?;
+                                let mut impl_args: Vec<Slot> = Vec::new();
+                                for i in 0..lambda_info.captured_count {
+                                    impl_args.push(obj.fields[i].clone());
+                                }
+                                impl_args.extend(callee_args[1..].iter().cloned());
+
+                                let _ = registry.ensure_loaded(&lambda_info.impl_class, loader);
+
+                                if lambda_info.impl_kind == 6 {
+                                    // invokeStatic dispatch
+                                    let resolved = resolve_method_in_hierarchy(
+                                        registry,
+                                        loader,
+                                        &lambda_info.impl_class,
+                                        &lambda_info.impl_method,
+                                        &lambda_info.impl_desc,
+                                    );
+                                    if let Some((dispatch_class, impl_idx)) = resolved {
+                                        let (callee_pc_to_idx, callee_frame) = {
+                                            let ctx = registry.get(&dispatch_class)?;
+                                            let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
+                                                .instructions
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(i, &(pc, _))| (pc, i))
+                                                .collect();
+                                            let f = Frame::new(
+                                                usize::from(ctx.methods[impl_idx].max_stack),
+                                                usize::from(ctx.methods[impl_idx].max_locals),
+                                                impl_args,
+                                            )?;
+                                            (pci, f)
+                                        };
+                                        call_stack.push(CallFrame {
+                                            frame,
+                                            method_idx,
+                                            pc_to_idx,
+                                            resume_idx: idx + 1,
+                                            class_name: current_class.clone(),
+                                        });
+                                        frame = callee_frame;
+                                        method_idx = impl_idx;
+                                        pc_to_idx = callee_pc_to_idx;
+                                        current_class = dispatch_class;
+                                        idx = 0;
+                                        continue;
+                                    }
+                                } else if lambda_info.impl_kind == 5 || lambda_info.impl_kind == 9 {
+                                    // invokeVirtual / invokeInterface dispatch
+                                    let resolved = resolve_method_in_hierarchy(
+                                        registry,
+                                        loader,
+                                        &lambda_info.impl_class,
+                                        &lambda_info.impl_method,
+                                        &lambda_info.impl_desc,
+                                    );
+                                    if let Some((dispatch_class, impl_idx)) = resolved {
+                                        let (callee_pc_to_idx, callee_frame) = {
+                                            let ctx = registry.get(&dispatch_class)?;
+                                            let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
+                                                .instructions
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(i, &(pc, _))| (pc, i))
+                                                .collect();
+                                            let f = Frame::new(
+                                                usize::from(ctx.methods[impl_idx].max_stack),
+                                                usize::from(ctx.methods[impl_idx].max_locals),
+                                                impl_args,
+                                            )?;
+                                            (pci, f)
+                                        };
+                                        call_stack.push(CallFrame {
+                                            frame,
+                                            method_idx,
+                                            pc_to_idx,
+                                            resume_idx: idx + 1,
+                                            class_name: current_class.clone(),
+                                        });
+                                        frame = callee_frame;
+                                        method_idx = impl_idx;
+                                        pc_to_idx = callee_pc_to_idx;
+                                        current_class = dispatch_class;
+                                        idx = 0;
+                                        continue;
+                                    }
+                                    // Try native fallback for virtual/interface
+                                    if let Some(handler) = registry
+                                        .natives()
+                                        .get(
+                                            &lambda_info.impl_class,
+                                            &lambda_info.impl_method,
+                                            &lambda_info.impl_desc,
+                                        )
+                                        .copied()
+                                    {
+                                        let result = handler(&impl_args, heap, stdout)?;
+                                        if let Some(val) = result {
+                                            frame.push(val)?;
+                                        }
+                                        idx += 1;
+                                        continue;
+                                    }
                                 }
                                 idx += 1;
                                 continue;
@@ -8389,5 +8669,105 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    // ---- Phase 17: LambdaMetafactory ----
+
+    fn load_lambda_test_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("LambdaTest.class")).expect("LambdaTest.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn lambda_simple_no_capture() {
+        let ctx = load_lambda_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "LambdaTest",
+            "testDouble",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(10)));
+    }
+
+    #[test]
+    fn lambda_with_capture() {
+        let ctx = load_lambda_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "LambdaTest",
+            "testCapture",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(107)));
+    }
+
+    #[test]
+    fn lambda_method_reference() {
+        let ctx = load_lambda_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "LambdaTest",
+            "testMethodRef",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(-42)));
+    }
+
+    #[test]
+    fn lambda_multi_capture() {
+        let ctx = load_lambda_test_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "LambdaTest",
+            "testMultiCapture",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(33)));
     }
 }

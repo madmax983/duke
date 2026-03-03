@@ -161,4 +161,18 @@ impl Frame {
     pub const fn stack_depth(&self) -> usize {
         self.stack.len()
     }
+
+    /// Peek at the slot at a given absolute position in the operand stack (0-indexed from bottom).
+    pub fn peek_at(&self, index: usize) -> VmResult<Slot> {
+        self.stack
+            .get(index)
+            .cloned()
+            .ok_or(VmError::StackUnderflow)
+    }
+
+    /// Current depth of the operand stack.
+    #[must_use]
+    pub fn stack_len(&self) -> usize {
+        self.stack.len()
+    }
 }
