@@ -392,6 +392,48 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()[C",
         native_string_tochararray,
     );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "toUpperCase",
+        "()Ljava/lang/String;",
+        native_string_touppercase,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "toLowerCase",
+        "()Ljava/lang/String;",
+        native_string_tolowercase,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "replace",
+        "(CC)Ljava/lang/String;",
+        native_string_replace_char,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "replace",
+        "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;",
+        native_string_replace_charsequence,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "split",
+        "(Ljava/lang/String;)[Ljava/lang/String;",
+        native_string_split,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "hashCode",
+        "()I",
+        native_string_hashcode,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "toString",
+        "()Ljava/lang/String;",
+        native_string_tostring,
+    );
 
     // String static methods
     registry.natives_mut().register(
@@ -1775,6 +1817,182 @@ fn native_string_concat(
         .unwrap_or_default();
     let r = heap.allocate_string(format!("{s1}{s2}"));
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---- Extended String natives ----
+
+/// Native: `String.toUpperCase()` — returns a new uppercase String.
+fn native_string_touppercase(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(s.to_uppercase());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.toLowerCase()` — returns a new lowercase String.
+fn native_string_tolowercase(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(s.to_lowercase());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.replace(char, char)` — replaces all occurrences of old char with new char.
+#[allow(clippy::cast_sign_loss)]
+fn native_string_replace_char(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let old_char = match args.get(1) {
+        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let new_char = match args.get(2) {
+        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let result = s.replace(old_char, &new_char.to_string());
+    let r = heap.allocate_string(result);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.replace(CharSequence, CharSequence)` — replaces all occurrences of target with replacement.
+fn native_string_replace_charsequence(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let target_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let target = heap
+        .get(target_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let replacement_ref = match args.get(2) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let replacement = heap
+        .get(replacement_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let result = s.replace(&*target, &replacement);
+    let r = heap.allocate_string(result);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.split(String)` — splits string by delimiter, returns String array.
+fn native_string_split(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let delim_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let delim = heap
+        .get(delim_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let parts: Vec<&str> = s.split(&*delim).collect();
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
+    for (i, part) in parts.iter().enumerate() {
+        let str_ref = heap.allocate_string((*part).to_string());
+        heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Reference(Some(str_ref));
+    }
+    Ok(Some(Slot::Reference(Some(arr_ref))))
+}
+
+/// Native: `String.hashCode()` — Java's hash algorithm: `s[0]*31^(n-1) + s[1]*31^(n-2) + ... + s[n-1]`.
+#[allow(clippy::cast_possible_wrap)]
+fn native_string_hashcode(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let mut h: i32 = 0;
+    for ch in s.chars() {
+        h = h.wrapping_mul(31).wrapping_add(ch as i32);
+    }
+    Ok(Some(Slot::Int(h)))
+}
+
+/// Native: `String.toString()` — identity, returns `this`.
+fn native_string_tostring(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(args.first().cloned().unwrap_or(Slot::Reference(None))))
 }
 
 // ---- Math natives ----
@@ -9803,6 +10021,198 @@ mod tests {
             &mut out,
             "ExtendedMath",
             "testMathConstants",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    // ---- StringOps2 integration tests ----
+
+    fn load_string_ops2_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("StringOps2.class")).expect("StringOps2.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn string_ops2_to_upper_case() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testToUpperCase",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops2_to_lower_case() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testToLowerCase",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops2_replace_char() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testReplace",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops2_replace_string() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testReplaceString",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops2_split() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testSplit",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops2_hashcode() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testHashCode",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops2_tostring() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testToStringIdentity",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn string_ops2_replace_charsequence() {
+        let ctx = load_string_ops2_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "StringOps2",
+            "testReplaceCharSequence",
             "()I",
             &[],
         )
