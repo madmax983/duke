@@ -586,14 +586,143 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_integer_tostring_static,
     );
 
-    // java/lang/Math — static math utilities
-    let math_ctx = ClassContext {
-        class_name: "java/lang/Math".to_string(),
+    // java/lang/Long — boxed long with value field
+    let long_ctx = ClassContext {
+        class_name: "java/lang/Long".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: "J".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(long_ctx);
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "parseLong",
+        "(Ljava/lang/String;)J",
+        native_long_parselong,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "valueOf",
+        "(J)Ljava/lang/Long;",
+        native_long_valueof,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "longValue", "()J", native_long_longvalue);
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "toString",
+        "(J)Ljava/lang/String;",
+        native_long_tostring_static,
+    );
+
+    // java/lang/Double — boxed double with value field
+    let double_ctx = ClassContext {
+        class_name: "java/lang/Double".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: "D".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(double_ctx);
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "parseDouble",
+        "(Ljava/lang/String;)D",
+        native_double_parsedouble,
+    );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "valueOf",
+        "(D)Ljava/lang/Double;",
+        native_double_valueof,
+    );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "doubleValue",
+        "()D",
+        native_double_doublevalue,
+    );
+
+    // java/lang/Float — boxed float with value field
+    let float_ctx = ClassContext {
+        class_name: "java/lang/Float".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: "F".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(float_ctx);
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "parseFloat",
+        "(Ljava/lang/String;)F",
+        native_float_parsefloat,
+    );
+
+    // java/lang/Boolean — static utility
+    let boolean_ctx = ClassContext {
+        class_name: "java/lang/Boolean".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: Vec::new(),
         static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(boolean_ctx);
+    registry.natives_mut().register(
+        "java/lang/Boolean",
+        "parseBoolean",
+        "(Ljava/lang/String;)Z",
+        native_boolean_parseboolean,
+    );
+
+    // java/lang/Math — static math utilities with PI and E constants
+    let math_ctx = ClassContext {
+        class_name: "java/lang/Math".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "PI".to_string(),
+                descriptor: "D".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "E".to_string(),
+                descriptor: "D".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![
+            Slot::Double(std::f64::consts::PI),
+            Slot::Double(std::f64::consts::E),
+        ],
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
     };
@@ -607,6 +736,39 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Math", "abs", "(I)I", native_math_abs_int);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "sqrt", "(D)D", native_math_sqrt);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "pow", "(DD)D", native_math_pow);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "floor", "(D)D", native_math_floor);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "ceil", "(D)D", native_math_ceil);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "round", "(D)J", native_math_round_double);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "abs", "(J)J", native_math_abs_long);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "abs", "(D)D", native_math_abs_double);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "max", "(JJ)J", native_math_max_long);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "min", "(JJ)J", native_math_min_long);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "max", "(DD)D", native_math_max_double);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "min", "(DD)D", native_math_min_double);
 
     // String.valueOf overloads (int already registered above)
     registry.natives_mut().register(
@@ -1687,6 +1849,436 @@ fn native_math_abs_int(
         }
     };
     Ok(Some(Slot::Int(a.wrapping_abs())))
+}
+
+// ---- Extended Math natives ----
+
+/// Native: `Math.sqrt(double)` — returns square root.
+fn native_math_sqrt(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Double(a.sqrt())))
+}
+
+/// Native: `Math.pow(double, double)` — returns a raised to the power b.
+fn native_math_pow(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    let b = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Double(a.powf(b))))
+}
+
+/// Native: `Math.floor(double)` — returns floor value.
+fn native_math_floor(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Double(a.floor())))
+}
+
+/// Native: `Math.ceil(double)` — returns ceiling value.
+fn native_math_ceil(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Double(a.ceil())))
+}
+
+/// Native: `Math.round(double)` — returns closest long.
+#[allow(clippy::cast_possible_truncation)]
+fn native_math_round_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Long(a.round() as i64)))
+}
+
+/// Native: `Math.abs(long)` — returns absolute value.
+fn native_math_abs_long(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Long(a.wrapping_abs())))
+}
+
+/// Native: `Math.abs(double)` — returns absolute value.
+fn native_math_abs_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Double(a.abs())))
+}
+
+/// Native: `Math.max(long, long)` — returns the larger value.
+fn native_math_max_long(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let b = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Long(a.max(b))))
+}
+
+/// Native: `Math.min(long, long)` — returns the smaller value.
+fn native_math_min_long(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let b = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Long(a.min(b))))
+}
+
+/// Native: `Math.max(double, double)` — returns the larger value.
+fn native_math_max_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    let b = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Double(a.max(b))))
+}
+
+/// Native: `Math.min(double, double)` — returns the smaller value.
+fn native_math_min_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    let b = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Double(a.min(b))))
+}
+
+// ---- Long class natives ----
+
+/// Native: `Long.parseLong(String)` — parses string to long.
+fn native_long_parselong(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let str_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
+    let val: i64 = s.trim().parse().map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })?;
+    Ok(Some(Slot::Long(val)))
+}
+
+/// Native: `Long.valueOf(long)` — boxes long into Long object.
+fn native_long_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate("java/lang/Long".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.longValue()` — unboxes Long to long.
+fn native_long_longvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = heap.get(this_ref)?.fields[0].clone();
+    Ok(Some(val))
+}
+
+/// Native: `Long.toString(long)` — static, converts long to String.
+fn native_long_tostring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---- Double class natives ----
+
+/// Native: `Double.parseDouble(String)` — parses string to double.
+fn native_double_parsedouble(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let str_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
+    let val: f64 = s.trim().parse().map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })?;
+    Ok(Some(Slot::Double(val)))
+}
+
+/// Native: `Double.valueOf(double)` — boxes double into Double object.
+fn native_double_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate("java/lang/Double".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Double(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Double.doubleValue()` — unboxes Double to double.
+fn native_double_doublevalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = heap.get(this_ref)?.fields[0].clone();
+    Ok(Some(val))
+}
+
+// ---- Float class native ----
+
+/// Native: `Float.parseFloat(String)` — parses string to float.
+fn native_float_parsefloat(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let str_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
+    let val: f32 = s.trim().parse().map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })?;
+    Ok(Some(Slot::Float(val)))
+}
+
+// ---- Boolean class native ----
+
+/// Native: `Boolean.parseBoolean(String)` — case-insensitive "true" → 1, else 0.
+fn native_boolean_parseboolean(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(r))) => {
+            let s = heap.get(*r)?.string_value.clone().unwrap_or_default();
+            let val = s.eq_ignore_ascii_case("true");
+            Ok(Some(Slot::Int(i32::from(val))))
+        }
+        Some(Slot::Reference(None)) => Ok(Some(Slot::Int(0))),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
 }
 
 /// Execute a StringConcatFactory recipe: walk the recipe string, replacing
@@ -8863,5 +9455,358 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, Some(Slot::Int(15)));
+    }
+
+    // ---- ExtendedMath integration tests ----
+
+    fn load_extended_math_class() -> ClassContext {
+        let bytes = std::fs::read(fixture("ExtendedMath.class")).expect("ExtendedMath.class");
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        build_class_context(&cf)
+    }
+
+    #[test]
+    fn extended_math_sqrt() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testSqrt",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_pow() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testPow",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_floor_ceil() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testFloorCeil",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_round() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testRound",
+            "()J",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Long(4)));
+    }
+
+    #[test]
+    fn extended_math_abs_long() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testAbsLong",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_abs_double() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testAbsDouble",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_max_long() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testMaxLong",
+            "()J",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Long(200)));
+    }
+
+    #[test]
+    fn extended_math_min_long() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testMinLong",
+            "()J",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Long(100)));
+    }
+
+    #[test]
+    fn extended_math_max_double() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testMaxDouble",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_parse_long() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testParseLong",
+            "()J",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Long(9_876_543_210)));
+    }
+
+    #[test]
+    fn extended_math_parse_double() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testParseDouble",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_parse_float() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testParseFloat",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_parse_boolean() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testParseBoolean",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_long_valueof() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testLongValueOf",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn extended_math_constants() {
+        let ctx = load_extended_math_class();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ExtendedMath",
+            "testMathConstants",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
     }
 }
