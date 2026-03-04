@@ -548,6 +548,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_object_tostring,
     );
 
+    // java/lang/Class — lightweight stub for class literals
+    let class_ctx = ClassContext {
+        class_name: "java/lang/Class".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(class_ctx);
+
     // java/lang/Throwable extends Object
     let throwable_ctx = ClassContext {
         class_name: "java/lang/Throwable".to_string(),
@@ -4074,8 +4087,40 @@ pub fn execute_class(
                     };
                     frame.push(Slot::Reference(Some(r)))?;
                 } else {
-                    let ctx = registry.get(&current_class)?;
-                    ldc_push(&mut frame, &ctx.constant_pool, cp_idx)?;
+                    // Check for Class constant
+                    let class_info = {
+                        let ctx = registry.get(&current_class)?;
+                        if let Some(CpEntry::Class { name_index }) =
+                            ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
+                        {
+                            match ctx
+                                .constant_pool
+                                .get(name_index.0 as usize)
+                                .and_then(|e| e.as_ref())
+                            {
+                                Some(CpEntry::Utf8(s)) => Some(s.clone()),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(class_name) = class_info {
+                        // Intern class literals using offset key to avoid collision with String interning
+                        let intern_key = cp_idx + 100_000;
+                        let r = if let Some(&cached) = string_intern.get(&intern_key) {
+                            cached
+                        } else {
+                            let r = heap.allocate("java/lang/Class".to_string(), 0);
+                            heap.get_mut(r).unwrap().string_value = Some(class_name);
+                            string_intern.insert(intern_key, r);
+                            r
+                        };
+                        frame.push(Slot::Reference(Some(r)))?;
+                    } else {
+                        let ctx = registry.get(&current_class)?;
+                        ldc_push(&mut frame, &ctx.constant_pool, cp_idx)?;
+                    }
                 }
             }
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
@@ -4105,8 +4150,40 @@ pub fn execute_class(
                     };
                     frame.push(Slot::Reference(Some(r)))?;
                 } else {
-                    let ctx = registry.get(&current_class)?;
-                    ldc_push(&mut frame, &ctx.constant_pool, idx_val)?;
+                    // Check for Class constant
+                    let class_info = {
+                        let ctx = registry.get(&current_class)?;
+                        if let Some(CpEntry::Class { name_index }) =
+                            ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
+                        {
+                            match ctx
+                                .constant_pool
+                                .get(name_index.0 as usize)
+                                .and_then(|e| e.as_ref())
+                            {
+                                Some(CpEntry::Utf8(s)) => Some(s.clone()),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(class_name) = class_info {
+                        // Intern class literals using offset key to avoid collision with String interning
+                        let intern_key = idx_val + 100_000;
+                        let r = if let Some(&cached) = string_intern.get(&intern_key) {
+                            cached
+                        } else {
+                            let r = heap.allocate("java/lang/Class".to_string(), 0);
+                            heap.get_mut(r).unwrap().string_value = Some(class_name);
+                            string_intern.insert(intern_key, r);
+                            r
+                        };
+                        frame.push(Slot::Reference(Some(r)))?;
+                    } else {
+                        let ctx = registry.get(&current_class)?;
+                        ldc_push(&mut frame, &ctx.constant_pool, idx_val)?;
+                    }
                 }
             }
             Instruction::Iload(i)
@@ -10218,5 +10295,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn class_literal_non_null() {
+        assert_eq!(
+            run_class_int("ClassLiteral.class", "testStringClass", "()I", vec![]),
+            1
+        );
+    }
+
+    #[test]
+    fn class_literal_self_ref() {
+        assert_eq!(
+            run_class_int("ClassLiteral.class", "testPrimitiveClass", "()I", vec![]),
+            1
+        );
+    }
+
+    #[test]
+    fn class_literal_interning() {
+        assert_eq!(
+            run_class_int("ClassLiteral.class", "testClassInterning", "()I", vec![]),
+            1
+        );
     }
 }
