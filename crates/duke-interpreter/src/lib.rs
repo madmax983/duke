@@ -547,6 +547,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_object_tostring,
     );
+    registry.natives_mut().register(
+        "java/lang/Object",
+        "clone",
+        "()Ljava/lang/Object;",
+        native_object_clone,
+    );
 
     // java/lang/Class — lightweight stub for class literals
     let class_ctx = ClassContext {
@@ -599,6 +605,52 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(rte_ctx);
+
+    // java/lang/Enum — abstract superclass for all enums.
+    // Fields: name (String) at index 0, ordinal (int) at index 1.
+    let enum_ctx = ClassContext {
+        class_name: "java/lang/Enum".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "ordinal".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(enum_ctx);
+    registry.natives_mut().register(
+        "java/lang/Enum",
+        "<init>",
+        "(Ljava/lang/String;I)V",
+        native_enum_init,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Enum", "ordinal", "()I", native_enum_ordinal);
+    registry.natives_mut().register(
+        "java/lang/Enum",
+        "name",
+        "()Ljava/lang/String;",
+        native_enum_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/Enum",
+        "valueOf",
+        "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;",
+        native_enum_valueof,
+    );
 
     // java/lang/Integer — boxed int with value field
     let integer_ctx = ClassContext {
@@ -1020,6 +1072,126 @@ fn native_object_tostring(
     let s = format!("{class_name}@{hash:x}");
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Object.clone()` — shallow-copies a heap object.
+fn native_object_clone(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get(this_ref)?;
+    let cloned_class = obj.class_name.clone();
+    let cloned_fields = obj.fields.clone();
+    let cloned_string = obj.string_value.clone();
+    let new_ref = heap.allocate(cloned_class, 0);
+    let dest = heap.get_mut(new_ref)?;
+    dest.fields = cloned_fields;
+    dest.string_value = cloned_string;
+    Ok(Some(Slot::Reference(Some(new_ref))))
+}
+
+/// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
+/// args: [this_ref, name_ref, ordinal_int]
+fn native_enum_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let name_slot = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let ordinal = match args.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.len() >= 2 {
+        obj.fields[0] = name_slot;
+        obj.fields[1] = Slot::Int(ordinal);
+    }
+    Ok(None)
+}
+
+/// Native: `Enum.ordinal()I`
+fn native_enum_ordinal(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get(this_ref)?;
+    match obj.fields.get(1) {
+        Some(Slot::Int(v)) => Ok(Some(Slot::Int(*v))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Native: `Enum.name()Ljava/lang/String;`
+fn native_enum_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get(this_ref)?;
+    match obj.fields.first() {
+        Some(slot @ Slot::Reference(_)) => Ok(Some(slot.clone())),
+        _ => Ok(Some(Slot::Reference(None))),
+    }
+}
+
+/// Native: `Enum.valueOf(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;`
+/// Searches heap for enum constants of the given class matching the name.
+#[allow(clippy::cast_possible_truncation)]
+fn native_enum_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let class_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let name_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let target_name = heap.get(name_ref)?.string_value.clone().unwrap_or_default();
+    let enum_class_name = heap
+        .get(class_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+
+    let obj_count = heap.len();
+    for i in 0..obj_count {
+        let obj = heap.get(i as u64)?;
+        if obj.class_name == enum_class_name
+            && obj.fields.len() >= 2
+            && let Some(Slot::Reference(Some(name_r))) = obj.fields.first()
+            && let Ok(name_obj) = heap.get(*name_r)
+            && name_obj.string_value.as_deref() == Some(target_name.as_str())
+        {
+            return Ok(Some(Slot::Reference(Some(i as u64))));
+        }
+    }
+
+    Err(VmError::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    })
 }
 
 /// Native: `String.valueOf(int)` — static method, returns string of int.
@@ -4757,10 +4929,28 @@ pub fn execute_class(
                 };
                 registry.ensure_loaded(&target_class, loader)?;
                 ensure_initialized(registry, loader, heap, stdout, &target_class)?;
-                let field_count = registry
-                    .get(&target_class)
-                    .map(|c| c.instance_field_count)
-                    .unwrap_or(0);
+                // Walk the super chain to sum all instance field counts
+                // (e.g. Enum has 2 fields inherited by every enum subclass).
+                let field_count = {
+                    let mut count = registry
+                        .get(&target_class)
+                        .map(|c| c.instance_field_count)
+                        .unwrap_or(0);
+                    let mut sc = registry
+                        .get(&target_class)
+                        .ok()
+                        .and_then(|c| c.super_class.clone());
+                    while let Some(ref s) = sc {
+                        match registry.get(s) {
+                            Ok(sctx) => {
+                                count += sctx.instance_field_count;
+                                sc = sctx.super_class.clone();
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    count
+                };
                 let r = heap.allocate(target_class, field_count);
                 frame.push(Slot::Reference(Some(r)))?;
             }
@@ -4917,13 +5107,38 @@ pub fn execute_class(
                                 }
                             }
                         }
-                        // Check native registry before no-op fallback.
-                        if let Some(handler) =
-                            registry
+                        // Check native registry, walking the super chain.
+                        let native_handler = {
+                            let mut found = registry
                                 .natives()
                                 .get(&callee_class, &callee_name, &callee_desc)
-                        {
-                            let handler = *handler;
+                                .copied();
+                            if found.is_none() {
+                                // Walk super chain for native lookup (e.g. Enum.ordinal
+                                // called via SimpleEnum$Color.ordinal).
+                                let start = if callee_class.starts_with('[') {
+                                    // Arrays inherit from Object.
+                                    Some("java/lang/Object".to_string())
+                                } else {
+                                    registry
+                                        .get(&callee_class)
+                                        .ok()
+                                        .and_then(|c| c.super_class.clone())
+                                };
+                                let mut sc = start;
+                                while let Some(ref s) = sc {
+                                    if let Some(h) =
+                                        registry.natives().get(s, &callee_name, &callee_desc)
+                                    {
+                                        found = Some(*h);
+                                        break;
+                                    }
+                                    sc = registry.get(s).ok().and_then(|c| c.super_class.clone());
+                                }
+                            }
+                            found
+                        };
+                        if let Some(handler) = native_handler {
                             let arg_count = parse_arg_count(&callee_desc);
                             let mut native_args: Vec<Slot> = (0..arg_count)
                                 .map(|_| frame.pop())
@@ -10317,6 +10532,80 @@ mod tests {
     fn class_literal_interning() {
         assert_eq!(
             run_class_int("ClassLiteral.class", "testClassInterning", "()I", vec![]),
+            1
+        );
+    }
+
+    // ---- Phase 19: Enum integration tests ----
+
+    /// Helper that loads a class, calls bootstrap_stdlib, and runs a static method.
+    fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        match execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )
+        .expect("execute_class failed")
+        {
+            Some(Slot::Int(v)) => v,
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enum_ordinal() {
+        assert_eq!(
+            run_bootstrap_int("SimpleEnum.class", "testOrdinal", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn enum_name_length() {
+        assert_eq!(run_bootstrap_int("SimpleEnum.class", "testName", "()I"), 3);
+    }
+
+    #[test]
+    fn enum_values_length() {
+        assert_eq!(
+            run_bootstrap_int("SimpleEnum.class", "testValues", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn enum_valueof() {
+        assert_eq!(
+            run_bootstrap_int("SimpleEnum.class", "testValueOf", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn enum_switch() {
+        assert_eq!(
+            run_bootstrap_int("SimpleEnum.class", "testSwitch", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn enum_equality() {
+        assert_eq!(
+            run_bootstrap_int("SimpleEnum.class", "testEquality", "()I"),
             1
         );
     }
