@@ -193,6 +193,76 @@ mod tests {
         assert!(matches!(instrs[0], (0, Instruction::IloadW(300))));
     }
 
+    #[test]
+    fn decode_lookupswitch_rejects_npairs_beyond_remaining_bytes() {
+        // lookupswitch with npairs=1 but no (match, offset) payload.
+        let code = [
+            0xAB, 0x00, 0x00, 0x00, // lookupswitch + padding
+            0x00, 0x00, 0x00, 0x00, // default
+            0x00, 0x00, 0x00, 0x01, // npairs = 1
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(err, DecodeError::InvalidLookupswitch { npairs: 1, .. }),
+            "invalid lookupswitch should be rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_tableswitch_rejects_truncated_offsets() {
+        // tableswitch with low=0, high=1 (needs 2 offsets) but only one offset entry.
+        let code = [
+            0xAA, 0x00, 0x00, 0x00, // tableswitch + padding
+            0x00, 0x00, 0x00, 0x00, // default
+            0x00, 0x00, 0x00, 0x00, // low
+            0x00, 0x00, 0x00, 0x01, // high
+            0x00, 0x00, 0x00, 0x05, // one offset (should have two)
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DecodeError::InvalidTableswitch {
+                    low: 0,
+                    high: 1,
+                    ..
+                }
+            ),
+            "invalid tableswitch should be rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_invokeinterface_rejects_non_zero_reserved_byte() {
+        // invokeinterface index=1 count=1 reserved=1 (invalid).
+        let code = [0xB9, 0x00, 0x01, 0x01, 0x01];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DecodeError::InvalidInvokeinterfaceReserved { reserved: 1, .. }
+            ),
+            "non-zero invokeinterface reserved byte should be rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_invokedynamic_rejects_non_zero_reserved_bytes() {
+        // invokedynamic index=1 reserved bytes must be 0,0.
+        let code = [0xBA, 0x00, 0x01, 0x00, 0x01];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DecodeError::InvalidInvokedynamicReserved {
+                    reserved1: 0,
+                    reserved2: 1,
+                    ..
+                }
+            ),
+            "non-zero invokedynamic reserved bytes should be rejected: {err}"
+        );
+    }
     // -----------------------------------------------------------------------
     // Verifier tests
     // -----------------------------------------------------------------------

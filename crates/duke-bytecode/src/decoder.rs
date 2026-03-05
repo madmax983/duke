@@ -306,7 +306,7 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             // Use i64 to avoid i32 overflow when low is very negative.
             let count_i64 = (high as i64) - (low as i64) + 1;
             // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
-            let max_possible = (c.data.len().saturating_sub(c.pos) / 4) + 1;
+            let max_possible = c.data.len().saturating_sub(c.pos) / 4;
             if count_i64 < 0 || count_i64 as usize > max_possible {
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
@@ -329,6 +329,10 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             let default = c.read_i32()?;
             let npairs = c.read_i32()?;
             if npairs < 0 {
+                return Err(DecodeError::InvalidLookupswitch { pc, npairs });
+            }
+            let remaining_pairs = c.data.len().saturating_sub(c.pos) / 8;
+            if npairs as usize > remaining_pairs {
                 return Err(DecodeError::InvalidLookupswitch { pc, npairs });
             }
             let mut pairs = Vec::with_capacity(npairs as usize);
@@ -359,13 +363,23 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::INVOKEINTERFACE => {
             let index = c.read_cp()?;
             let count = c.read_u8()?;
-            let _zero = c.read_u8()?; // must be 0 per spec; ignore
+            let zero = c.read_u8()?;
+            if zero != 0 {
+                return Err(DecodeError::InvalidInvokeinterfaceReserved { pc, reserved: zero });
+            }
             Instruction::Invokeinterface { index, count }
         }
         op::INVOKEDYNAMIC => {
             let index = c.read_cp()?;
-            let _zero1 = c.read_u8()?;
-            let _zero2 = c.read_u8()?;
+            let zero1 = c.read_u8()?;
+            let zero2 = c.read_u8()?;
+            if zero1 != 0 || zero2 != 0 {
+                return Err(DecodeError::InvalidInvokedynamicReserved {
+                    pc,
+                    reserved1: zero1,
+                    reserved2: zero2,
+                });
+            }
             Instruction::Invokedynamic(index)
         }
 

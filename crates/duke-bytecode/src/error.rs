@@ -15,11 +15,21 @@ pub enum DecodeError {
     #[error("tableswitch at pc={pc} has high ({high}) < low ({low})")]
     InvalidTableswitch { pc: usize, low: i32, high: i32 },
 
-    #[error("lookupswitch at pc={pc} has negative npairs ({npairs})")]
+    #[error("lookupswitch at pc={pc} has invalid npairs ({npairs})")]
     InvalidLookupswitch { pc: usize, npairs: i32 },
 
     #[error("newarray at pc={pc} has invalid array type code {type_code}")]
     InvalidNewarrayType { pc: usize, type_code: u8 },
+
+    #[error("invokeinterface at pc={pc} has non-zero reserved byte ({reserved})")]
+    InvalidInvokeinterfaceReserved { pc: usize, reserved: u8 },
+
+    #[error("invokedynamic at pc={pc} has non-zero reserved bytes ({reserved1}, {reserved2})")]
+    InvalidInvokedynamicReserved {
+        pc: usize,
+        reserved1: u8,
+        reserved2: u8,
+    },
 }
 
 pub type DecodeResult<T> = Result<T, DecodeError>;
