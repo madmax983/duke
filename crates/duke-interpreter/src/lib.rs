@@ -652,18 +652,30 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_enum_valueof,
     );
 
-    // java/lang/Integer — boxed int with value field
+    // java/lang/Integer — boxed int with value field + numeric constants
     let integer_ctx = ClassContext {
         class_name: "java/lang/Integer".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "value".to_string(),
-            descriptor: "I".to_string(),
-            is_static: false,
-        }],
-        static_fields: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "MAX_VALUE".to_string(),
+                descriptor: "I".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "MIN_VALUE".to_string(),
+                descriptor: "I".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![Slot::Int(i32::MAX), Slot::Int(i32::MIN)],
         instance_field_count: 1,
         bootstrap_methods: Vec::new(),
     };
@@ -693,18 +705,30 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_integer_tostring_static,
     );
 
-    // java/lang/Long — boxed long with value field
+    // java/lang/Long — boxed long with value field + numeric constants
     let long_ctx = ClassContext {
         class_name: "java/lang/Long".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "value".to_string(),
-            descriptor: "J".to_string(),
-            is_static: false,
-        }],
-        static_fields: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "MAX_VALUE".to_string(),
+                descriptor: "J".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "MIN_VALUE".to_string(),
+                descriptor: "J".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![Slot::Long(i64::MAX), Slot::Long(i64::MIN)],
         instance_field_count: 1,
         bootstrap_methods: Vec::new(),
     };
@@ -731,18 +755,51 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_long_tostring_static,
     );
 
-    // java/lang/Double — boxed double with value field
+    // java/lang/Double — boxed double with value field + numeric constants
     let double_ctx = ClassContext {
         class_name: "java/lang/Double".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "value".to_string(),
-            descriptor: "D".to_string(),
-            is_static: false,
-        }],
-        static_fields: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "D".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "MAX_VALUE".to_string(),
+                descriptor: "D".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "MIN_VALUE".to_string(),
+                descriptor: "D".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "NaN".to_string(),
+                descriptor: "D".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "POSITIVE_INFINITY".to_string(),
+                descriptor: "D".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "NEGATIVE_INFINITY".to_string(),
+                descriptor: "D".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![
+            Slot::Double(f64::MAX),
+            Slot::Double(f64::MIN_POSITIVE),
+            Slot::Double(f64::NAN),
+            Slot::Double(f64::INFINITY),
+            Slot::Double(f64::NEG_INFINITY),
+        ],
         instance_field_count: 1,
         bootstrap_methods: Vec::new(),
     };
@@ -764,6 +821,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "doubleValue",
         "()D",
         native_double_doublevalue,
+    );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "isNaN",
+        "(D)Z",
+        native_double_isnan,
     );
 
     // java/lang/Float — boxed float with value field
@@ -1194,6 +1257,43 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/Object;",
         native_arraylist_iter_next,
     );
+
+    // java/util/Arrays — static array utilities
+    let arrays_ctx = ClassContext {
+        class_name: "java/util/Arrays".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(arrays_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/Arrays", "fill", "([II)V", native_arrays_fill_int);
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "fill",
+        "([Ljava/lang/Object;Ljava/lang/Object;)V",
+        native_arrays_fill_object,
+    );
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "copyOf",
+        "([II)[I",
+        native_arrays_copyof_int,
+    );
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "copyOf",
+        "([Ljava/lang/Object;I)[Ljava/lang/Object;",
+        native_arrays_copyof_object,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/Arrays", "sort", "([I)V", native_arrays_sort_int);
 }
 
 fn native_println_string(
@@ -7624,6 +7724,130 @@ fn native_arraylist_iter_next(
     Ok(Some(element))
 }
 
+// ---- Double.isNaN ----
+
+/// Native: `Double.isNaN(D)Z` — returns 1 if value is NaN.
+fn native_double_isnan(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Double(v)) => Ok(Some(Slot::Int(i32::from(v.is_nan())))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+// ---- Arrays natives ----
+
+/// Native: `Arrays.fill(int[], int)` — fills all elements with val.
+fn native_arrays_fill_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => Slot::Int(*v),
+        _ => Slot::Int(0),
+    };
+    let obj = heap.get_mut(arr_ref)?;
+    for slot in &mut obj.fields {
+        *slot = val.clone();
+    }
+    Ok(None)
+}
+
+/// Native: `Arrays.fill(Object[], Object)` — fills all elements with val.
+fn native_arrays_fill_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let obj = heap.get_mut(arr_ref)?;
+    for slot in &mut obj.fields {
+        *slot = val.clone();
+    }
+    Ok(None)
+}
+
+/// Native: `Arrays.copyOf(int[], int)` — copies to new int[] of given length.
+#[allow(clippy::cast_sign_loss)]
+fn native_arrays_copyof_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let src_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let new_len = match args.get(1) {
+        Some(Slot::Int(n)) => *n as usize,
+        _ => 0,
+    };
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let dst_ref = heap.allocate("[I".to_string(), new_len);
+    let dst = heap.get_mut(dst_ref)?;
+    for i in 0..new_len {
+        dst.fields[i] = src_fields.get(i).cloned().unwrap_or(Slot::Int(0));
+    }
+    Ok(Some(Slot::Reference(Some(dst_ref))))
+}
+
+/// Native: `Arrays.copyOf(Object[], int)` — copies to new Object[] of given length.
+#[allow(clippy::cast_sign_loss)]
+fn native_arrays_copyof_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let src_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let new_len = match args.get(1) {
+        Some(Slot::Int(n)) => *n as usize,
+        _ => 0,
+    };
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let dst_ref = heap.allocate("[Ljava/lang/Object;".to_string(), new_len);
+    let dst = heap.get_mut(dst_ref)?;
+    for i in 0..new_len {
+        dst.fields[i] = src_fields
+            .get(i)
+            .cloned()
+            .unwrap_or(Slot::Reference(None));
+    }
+    Ok(Some(Slot::Reference(Some(dst_ref))))
+}
+
+/// Native: `Arrays.sort(int[])` — sorts fields in place.
+fn native_arrays_sort_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get_mut(arr_ref)?;
+    obj.fields.sort_by(|a, b| match (a, b) {
+        (Slot::Int(x), Slot::Int(y)) => x.cmp(y),
+        _ => std::cmp::Ordering::Equal,
+    });
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -11884,6 +12108,80 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("StringFormatTest.class", "testFormatSum", "()I"),
             8
+        );
+    }
+
+    // ---- Phase 22 Task 2: Arrays utilities + numeric constants ----
+
+    #[test]
+    fn arrays_fill_int() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testFillInt", "()I"),
+            14
+        );
+    }
+
+    #[test]
+    fn arrays_copyof_truncate() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testCopyOfTruncate", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn arrays_copyof_extend() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testCopyOfExtend", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn arrays_sort_int() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testSortInt", "()I"),
+            19
+        );
+    }
+
+    #[test]
+    fn integer_max_value() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testIntegerMaxValue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn integer_min_value() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testIntegerMinValue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn long_max_value() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testLongMaxValue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn double_max_value() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testDoubleMaxValue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn double_nan() {
+        assert_eq!(
+            run_bootstrap_int("ArraysTest.class", "testDoubleNaN", "()I"),
+            1
         );
     }
 }
