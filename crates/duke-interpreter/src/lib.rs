@@ -1170,6 +1170,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry.register(iter_ctx);
     registry.natives_mut().register(
         "duke/util/ArrayListIterator",
+        "<init>",
+        "()V",
+        native_arraylist_iter_init,
+    );
+    registry.natives_mut().register(
+        "duke/util/ArrayListIterator",
         "hasNext",
         "()Z",
         native_arraylist_iter_hasnext,
@@ -7315,8 +7321,9 @@ fn native_arraylist_add(
     };
     let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
     let obj = heap.get_mut(this_ref)?;
-    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
-        *sz += 1;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(VmError::NullPointerException), // shouldn't happen; init sets fields[0]=Int(0)
     }
     obj.fields.push(element);
     Ok(Some(Slot::Int(1))) // boolean true
@@ -7390,6 +7397,15 @@ fn native_arraylist_iterator(
 // ---------------------------------------------------------------------------
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
+
+/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by native_arraylist_iterator.
+fn native_arraylist_iter_init(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
+}
 
 /// Native: `ArrayListIterator.hasNext()Z`
 fn native_arraylist_iter_hasnext(
