@@ -1007,6 +1007,94 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/StringBuilder", "length", "()I", native_sb_length);
+
+    // java/lang/Character — static character utilities + boxed char
+    let character_ctx = ClassContext {
+        class_name: "java/lang/Character".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: "C".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(character_ctx);
+
+    // Character.isDigit(C)Z
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "isDigit",
+        "(C)Z",
+        native_char_is_digit,
+    );
+    // Character.isLetter(C)Z
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "isLetter",
+        "(C)Z",
+        native_char_is_letter,
+    );
+    // Character.isWhitespace(C)Z
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "isWhitespace",
+        "(C)Z",
+        native_char_is_whitespace,
+    );
+    // Character.isUpperCase(C)Z
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "isUpperCase",
+        "(C)Z",
+        native_char_is_uppercase,
+    );
+    // Character.isLowerCase(C)Z
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "isLowerCase",
+        "(C)Z",
+        native_char_is_lowercase,
+    );
+    // Character.toUpperCase(C)C
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toUpperCase",
+        "(C)C",
+        native_char_to_uppercase,
+    );
+    // Character.toLowerCase(C)C
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toLowerCase",
+        "(C)C",
+        native_char_to_lowercase,
+    );
+    // Character.isLetterOrDigit(C)Z
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "isLetterOrDigit",
+        "(C)Z",
+        native_char_is_letter_or_digit,
+    );
+    // Character.valueOf(C)Ljava/lang/Character;
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "valueOf",
+        "(C)Ljava/lang/Character;",
+        native_char_valueof,
+    );
+    // Character.charValue()C
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "charValue",
+        "()C",
+        native_char_charvalue,
+    );
 }
 
 fn native_println_string(
@@ -6982,6 +7070,136 @@ fn native_sb_length(
     Ok(Some(Slot::Int(len as i32)))
 }
 
+// Character natives
+// ---------------------------------------------------------------------------
+
+/// Helper: extract a `char` from a `Slot::Int` argument.
+fn slot_to_char(slot: &Slot) -> VmResult<char> {
+    match slot {
+        Slot::Int(v) => Ok(char::from_u32(*v as u32).unwrap_or('\0')),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Int (char)",
+            got: "other",
+        }),
+    }
+}
+
+/// Native: `Character.isDigit(C)Z`
+fn native_char_is_digit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    Ok(Some(Slot::Int(i32::from(ch.is_ascii_digit()))))
+}
+
+/// Native: `Character.isLetter(C)Z`
+fn native_char_is_letter(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    Ok(Some(Slot::Int(i32::from(ch.is_alphabetic()))))
+}
+
+/// Native: `Character.isWhitespace(C)Z`
+fn native_char_is_whitespace(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    Ok(Some(Slot::Int(i32::from(ch.is_whitespace()))))
+}
+
+/// Native: `Character.isUpperCase(C)Z`
+fn native_char_is_uppercase(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    Ok(Some(Slot::Int(i32::from(ch.is_uppercase()))))
+}
+
+/// Native: `Character.isLowerCase(C)Z`
+fn native_char_is_lowercase(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    Ok(Some(Slot::Int(i32::from(ch.is_lowercase()))))
+}
+
+/// Native: `Character.toUpperCase(C)C`
+fn native_char_to_uppercase(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    let upper = ch.to_uppercase().next().unwrap_or(ch);
+    Ok(Some(Slot::Int(upper as i32)))
+}
+
+/// Native: `Character.toLowerCase(C)C`
+fn native_char_to_lowercase(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    let lower = ch.to_lowercase().next().unwrap_or(ch);
+    Ok(Some(Slot::Int(lower as i32)))
+}
+
+/// Native: `Character.isLetterOrDigit(C)Z`
+fn native_char_is_letter_or_digit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+    Ok(Some(Slot::Int(i32::from(ch.is_alphanumeric()))))
+}
+
+/// Native: `Character.valueOf(C)Ljava/lang/Character;` — box a char.
+fn native_char_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int (char)",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate("java/lang/Character".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Character.charValue()C` — unbox Character to char.
+fn native_char_charvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = heap.get(this_ref)?.fields[0].clone();
+    Ok(Some(val))
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -11030,6 +11248,96 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("StringBuilderTest.class", "testAppendString", "()I"),
             5
+        );
+    }
+
+    // ---- Character tests ----
+
+    #[test]
+    fn char_is_digit() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsDigit", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_is_digit_false() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsDigitFalse", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_is_letter() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsLetter", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_is_letter_false() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsLetterFalse", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_is_whitespace() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsWhitespace", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_is_uppercase() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsUpperCase", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_is_lowercase() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsLowerCase", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_to_uppercase() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testToUpperCase", "()I"),
+            65
+        );
+    }
+
+    #[test]
+    fn char_to_lowercase() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testToLowerCase", "()I"),
+            97
+        );
+    }
+
+    #[test]
+    fn char_is_letter_or_digit() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testIsLetterOrDigit", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn char_valueof_and_charvalue() {
+        assert_eq!(
+            run_bootstrap_int("CharacterTest.class", "testValueOf", "()I"),
+            88
         );
     }
 }
