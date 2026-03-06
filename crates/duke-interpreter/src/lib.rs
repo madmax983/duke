@@ -1095,6 +1095,91 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()C",
         native_char_charvalue,
     );
+
+    // java/util/ArrayList — dynamic list backed by growable fields
+    // fields[0] = size (Int), fields[1..] = elements (pushed dynamically)
+    let arraylist_ctx = ClassContext {
+        class_name: "java/util/ArrayList".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(arraylist_ctx);
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "<init>",
+        "()V",
+        native_arraylist_init,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_arraylist_add,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        native_arraylist_get,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "size",
+        "()I",
+        native_arraylist_size,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_arraylist_iterator,
+    );
+
+    // duke/util/ArrayListIterator — internal iterator for ArrayList
+    // fields[0] = ArrayList reference, fields[1] = current index (Int)
+    let iter_ctx = ClassContext {
+        class_name: "duke/util/ArrayListIterator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "list".to_string(),
+                descriptor: "Ljava/util/ArrayList;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "index".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(iter_ctx);
+    registry.natives_mut().register(
+        "duke/util/ArrayListIterator",
+        "hasNext",
+        "()Z",
+        native_arraylist_iter_hasnext,
+    );
+    registry.natives_mut().register(
+        "duke/util/ArrayListIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        native_arraylist_iter_next,
+    );
 }
 
 fn native_println_string(
@@ -7201,6 +7286,176 @@ fn native_char_charvalue(
 }
 
 // ---------------------------------------------------------------------------
+// ArrayList natives
+// ---------------------------------------------------------------------------
+
+/// Native: `ArrayList.<init>()V` — initializes with size=0.
+fn native_arraylist_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `ArrayList.add(Object)Z` — appends element, returns true.
+fn native_arraylist_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+        *sz += 1;
+    }
+    obj.fields.push(element);
+    Ok(Some(Slot::Int(1))) // boolean true
+}
+
+/// Native: `ArrayList.get(I)Object` — returns element at index.
+#[allow(clippy::cast_sign_loss)]
+fn native_arraylist_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let idx = match args.get(1) {
+        Some(Slot::Int(i)) => *i as usize,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            })
+        }
+    };
+    let obj = heap.get(this_ref)?;
+    match obj.fields.get(idx + 1) {
+        Some(slot) => Ok(Some(slot.clone())),
+        None => Err(VmError::JavaException {
+            class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
+        }),
+    }
+}
+
+/// Native: `ArrayList.size()I`
+fn native_arraylist_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get(this_ref)?;
+    match obj.fields.first() {
+        Some(Slot::Int(sz)) => Ok(Some(Slot::Int(*sz))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Native: `ArrayList.iterator()Iterator` — creates an ArrayListIterator.
+fn native_arraylist_iterator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let iter_ref = heap.allocate("duke/util/ArrayListIterator".to_string(), 2);
+    {
+        let iter_obj = heap.get_mut(iter_ref)?;
+        iter_obj.fields[0] = Slot::Reference(Some(this_ref));
+        iter_obj.fields[1] = Slot::Int(0);
+    }
+    Ok(Some(Slot::Reference(Some(iter_ref))))
+}
+
+// ---------------------------------------------------------------------------
+// ArrayListIterator natives
+// ---------------------------------------------------------------------------
+
+/// Native: `ArrayListIterator.hasNext()Z`
+fn native_arraylist_iter_hasnext(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let iter_obj = heap.get(this_ref)?;
+    let list_ref = match iter_obj.fields.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Ok(Some(Slot::Int(0))),
+    };
+    let cursor = match iter_obj.fields.get(1) {
+        Some(Slot::Int(i)) => *i,
+        _ => 0,
+    };
+    let list_size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(cursor < list_size))))
+}
+
+/// Native: `ArrayListIterator.next()Object` — returns element at cursor, advances cursor.
+#[allow(clippy::cast_sign_loss)]
+fn native_arraylist_iter_next(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let (list_ref, cursor) = {
+        let iter_obj = heap.get(this_ref)?;
+        let lr = match iter_obj.fields.first() {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let c = match iter_obj.fields.get(1) {
+            Some(Slot::Int(i)) => *i,
+            _ => 0,
+        };
+        (lr, c)
+    };
+    let element = {
+        let list_obj = heap.get(list_ref)?;
+        match list_obj.fields.get(cursor as usize + 1) {
+            Some(slot) => slot.clone(),
+            None => {
+                return Err(VmError::JavaException {
+                    class_name: "java/util/NoSuchElementException".to_string(),
+                })
+            }
+        }
+    };
+    heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
+    Ok(Some(element))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -11338,6 +11593,62 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("CharacterTest.class", "testValueOf", "()I"),
             88
+        );
+    }
+
+    #[test]
+    fn arraylist_size() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListTest.class", "testSize", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn arraylist_get() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListTest.class", "testGet", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn arraylist_foreach_count() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListTest.class", "testForEachCount", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn arraylist_foreach_sum() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListTest.class", "testForEachSum", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn arraylist_empty_foreach() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListTest.class", "testEmptyForEach", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn arraylist_single_element() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListTest.class", "testSingleElement", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn arraylist_add_returns_true() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListTest.class", "testAddReturnsTrue", "()I"),
+            1
         );
     }
 }
