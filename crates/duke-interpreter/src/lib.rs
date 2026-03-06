@@ -922,6 +922,91 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)Ljava/lang/String;",
         native_string_concat,
     );
+
+    // java/lang/StringBuilder — mutable string buffer
+    let sb_ctx = ClassContext {
+        class_name: "java/lang/StringBuilder".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(sb_ctx);
+
+    // StringBuilder.<init>()V
+    registry
+        .natives_mut()
+        .register("java/lang/StringBuilder", "<init>", "()V", native_sb_init);
+    // StringBuilder.<init>(String)V
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_sb_init_string,
+    );
+    // StringBuilder.append(String)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
+        native_sb_append_string,
+    );
+    // StringBuilder.append(int)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(I)Ljava/lang/StringBuilder;",
+        native_sb_append_int,
+    );
+    // StringBuilder.append(long)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(J)Ljava/lang/StringBuilder;",
+        native_sb_append_long,
+    );
+    // StringBuilder.append(double)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(D)Ljava/lang/StringBuilder;",
+        native_sb_append_double,
+    );
+    // StringBuilder.append(float)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(F)Ljava/lang/StringBuilder;",
+        native_sb_append_float,
+    );
+    // StringBuilder.append(boolean)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(Z)Ljava/lang/StringBuilder;",
+        native_sb_append_boolean,
+    );
+    // StringBuilder.append(char)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(C)Ljava/lang/StringBuilder;",
+        native_sb_append_char,
+    );
+    // StringBuilder.toString()
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "toString",
+        "()Ljava/lang/String;",
+        native_sb_tostring,
+    );
+    // StringBuilder.length()
+    registry
+        .natives_mut()
+        .register("java/lang/StringBuilder", "length", "()I", native_sb_length);
 }
 
 fn native_println_string(
@@ -6658,6 +6743,246 @@ fn static_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
 }
 
 // ---------------------------------------------------------------------------
+// StringBuilder natives
+// ---------------------------------------------------------------------------
+
+/// Native: `StringBuilder.<init>()V` — initialise empty buffer.
+fn native_sb_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get_mut(this_ref)?;
+    obj.string_value = Some(String::new());
+    Ok(None)
+}
+
+/// Native: `StringBuilder.<init>(Ljava/lang/String;)V` — init with string.
+fn native_sb_init_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let init_str = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(None)) => String::new(),
+        _ => String::new(),
+    };
+    let obj = heap.get_mut(this_ref)?;
+    obj.string_value = Some(init_str);
+    Ok(None)
+}
+
+/// Native: `StringBuilder.append(Ljava/lang/String;)Ljava/lang/StringBuilder;`
+fn native_sb_append_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let append_str = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(None)) => "null".to_string(),
+        _ => "null".to_string(),
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(&append_str);
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.append(I)Ljava/lang/StringBuilder;`
+fn native_sb_append_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(&val.to_string());
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.append(J)Ljava/lang/StringBuilder;`
+fn native_sb_append_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(&val.to_string());
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.append(D)Ljava/lang/StringBuilder;`
+fn native_sb_append_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Double",
+                got: "other",
+            });
+        }
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(&format!("{val}"));
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.append(F)Ljava/lang/StringBuilder;`
+fn native_sb_append_float(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = match args.get(1) {
+        Some(Slot::Float(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Float",
+                got: "other",
+            });
+        }
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(&format!("{val}"));
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.append(Z)Ljava/lang/StringBuilder;`
+fn native_sb_append_boolean(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => *v != 0,
+        _ => false,
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(if val { "true" } else { "false" });
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.append(C)Ljava/lang/StringBuilder;`
+fn native_sb_append_char(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let val = match args.get(1) {
+        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('\0'),
+        _ => '\0',
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push(val);
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.toString()Ljava/lang/String;`
+fn native_sb_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let content = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(content);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `StringBuilder.length()I`
+fn native_sb_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let len = heap
+        .get(this_ref)?
+        .string_value
+        .as_ref()
+        .map_or(0, String::len);
+    Ok(Some(Slot::Int(len as i32)))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -10607,6 +10932,104 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("SimpleEnum.class", "testEquality", "()I"),
             1
+        );
+    }
+
+    // ---- StringBuilder tests ----
+
+    #[test]
+    fn sb_basic_append() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testBasicAppend", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn sb_chaining() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testChaining", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn sb_append_int() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testAppendInt", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn sb_append_long() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testAppendLong", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn sb_append_boolean() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testAppendBoolean", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn sb_append_char() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testAppendChar", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn sb_append_double() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testAppendDouble", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn sb_append_float() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testAppendFloat", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn sb_init_with_string() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testInitWithString", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn sb_length() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testLength", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn sb_loop_build() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testLoopBuild", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn sb_append_string_object() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderTest.class", "testAppendString", "()I"),
+            5
         );
     }
 }
