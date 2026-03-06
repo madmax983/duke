@@ -923,6 +923,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_string_concat,
     );
 
+    // String.format(String, Object[]) -> String
+    registry.natives_mut().register(
+        "java/lang/String",
+        "format",
+        "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;",
+        native_string_format,
+    );
+
     // java/lang/StringBuilder — mutable string buffer
     let sb_ctx = ClassContext {
         class_name: "java/lang/StringBuilder".to_string(),
@@ -2265,6 +2273,151 @@ fn native_string_concat(
         .clone()
         .unwrap_or_default();
     let r = heap.allocate_string(format!("{s1}{s2}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Formats a single boxed slot value using the given format specifier.
+fn format_arg(
+    spec: char,
+    precision: Option<usize>,
+    slot: &Slot,
+    heap: &duke_gc::Heap,
+) -> VmResult<String> {
+    match slot {
+        Slot::Reference(None) => Ok("null".to_string()),
+        Slot::Reference(Some(r)) => {
+            let obj = heap.get(*r)?;
+            match spec {
+                's' => {
+                    if let Some(ref s) = obj.string_value {
+                        return Ok(s.clone());
+                    }
+                    match obj.fields.first() {
+                        Some(Slot::Int(v)) => Ok(v.to_string()),
+                        Some(Slot::Long(v)) => Ok(v.to_string()),
+                        Some(Slot::Double(v)) => Ok(v.to_string()),
+                        Some(Slot::Float(v)) => Ok(v.to_string()),
+                        _ => Ok(format!("{}@{:x}", obj.class_name, r)),
+                    }
+                }
+                'd' => match obj.fields.first() {
+                    Some(Slot::Int(v)) => Ok(v.to_string()),
+                    Some(Slot::Long(v)) => Ok(v.to_string()),
+                    _ => Ok("0".to_string()),
+                },
+                'f' => {
+                    let v = match obj.fields.first() {
+                        Some(Slot::Double(v)) => *v,
+                        Some(Slot::Float(v)) => f64::from(*v),
+                        _ => 0.0,
+                    };
+                    match precision {
+                        Some(p) => Ok(format!("{:.prec$}", v, prec = p)),
+                        None => Ok(format!("{:.6}", v)),
+                    }
+                }
+                'x' => match obj.fields.first() {
+                    Some(Slot::Int(v)) => Ok(format!("{:x}", v)),
+                    Some(Slot::Long(v)) => Ok(format!("{:x}", v)),
+                    _ => Ok("0".to_string()),
+                },
+                'X' => match obj.fields.first() {
+                    Some(Slot::Int(v)) => Ok(format!("{:X}", v)),
+                    Some(Slot::Long(v)) => Ok(format!("{:X}", v)),
+                    _ => Ok("0".to_string()),
+                },
+                _ => Ok(String::new()),
+            }
+        }
+        _ => Ok(String::new()),
+    }
+}
+
+/// Native: `String.format(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;`
+fn native_string_format(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let fmt_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fmt = heap.get(fmt_ref)?.string_value.clone().unwrap_or_default();
+
+    let arr_len = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.fields.len(),
+        _ => 0,
+    };
+
+    let mut result = String::new();
+    let mut arg_idx = 0usize;
+    let chars: Vec<char> = fmt.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] != '%' {
+            result.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if i >= chars.len() {
+            break;
+        }
+
+        // Parse optional precision: %.2f
+        let mut precision: Option<usize> = None;
+        if chars[i] == '.' {
+            i += 1;
+            let mut prec_str = String::new();
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                prec_str.push(chars[i]);
+                i += 1;
+            }
+            precision = prec_str.parse().ok();
+        }
+
+        // Skip optional width digits
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            i += 1;
+        }
+
+        if i >= chars.len() {
+            break;
+        }
+        let spec = chars[i];
+        i += 1;
+
+        match spec {
+            '%' => result.push('%'),
+            'n' => result.push('\n'),
+            's' | 'd' | 'f' | 'x' | 'X' => {
+                let slot = if arg_idx < arr_len {
+                    match args.get(1) {
+                        Some(Slot::Reference(Some(r))) => heap
+                            .get(*r)?
+                            .fields
+                            .get(arg_idx)
+                            .cloned()
+                            .unwrap_or(Slot::Reference(None)),
+                        _ => Slot::Reference(None),
+                    }
+                } else {
+                    Slot::Reference(None)
+                };
+                arg_idx += 1;
+                let formatted = format_arg(spec, precision, &slot, heap)?;
+                result.push_str(&formatted);
+            }
+            _ => {
+                result.push('%');
+                result.push(spec);
+            }
+        }
+    }
+
+    let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -11665,6 +11818,72 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("ArrayListTest.class", "testAddReturnsTrue", "()I"),
             1
+        );
+    }
+
+    // ---- Phase 22: String.format() integration tests ----
+
+    #[test]
+    fn format_string() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatString", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn format_int() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatInt", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn format_multiple() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatMultiple", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn format_double() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatDouble", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn format_hex() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatHex", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn format_percent() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatPercent", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn format_null() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatNull", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn format_sum() {
+        assert_eq!(
+            run_bootstrap_int("StringFormatTest.class", "testFormatSum", "()I"),
+            8
         );
     }
 }
