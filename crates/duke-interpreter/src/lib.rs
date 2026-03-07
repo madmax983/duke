@@ -795,7 +795,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ],
         static_fields: vec![
             Slot::Double(f64::MAX),
-            Slot::Double(f64::MIN_POSITIVE),
+            Slot::Double(5e-324_f64),
             Slot::Double(f64::NAN),
             Slot::Double(f64::INFINITY),
             Slot::Double(f64::NEG_INFINITY),
@@ -7780,7 +7780,6 @@ fn native_arrays_fill_object(
 }
 
 /// Native: `Arrays.copyOf(int[], int)` — copies to new int[] of given length.
-#[allow(clippy::cast_sign_loss)]
 fn native_arrays_copyof_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -7791,7 +7790,8 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
     let src_fields = heap.get(src_ref)?.fields.clone();
@@ -7804,7 +7804,6 @@ fn native_arrays_copyof_int(
 }
 
 /// Native: `Arrays.copyOf(Object[], int)` — copies to new Object[] of given length.
-#[allow(clippy::cast_sign_loss)]
 fn native_arrays_copyof_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -7815,7 +7814,8 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
     let src_fields = heap.get(src_ref)?.fields.clone();
