@@ -1294,6 +1294,63 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/util/Arrays", "sort", "([I)V", native_arrays_sort_int);
+
+    // java/util/HashMap — hash map backed by flat key/value pair list in fields
+    // fields[0] = Int(size), fields[1]=key0, fields[2]=val0, fields[3]=key1, ...
+    let hashmap_ctx = ClassContext {
+        class_name: "java/util/HashMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(hashmap_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/HashMap", "<init>", "()V", native_hashmap_init);
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_put,
+    );
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get,
+    );
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        native_hashmap_contains_key,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/HashMap", "size", "()I", native_hashmap_size);
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "remove",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_remove,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/HashMap", "isEmpty", "()Z", native_hashmap_is_empty);
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "getOrDefault",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get_or_default,
+    );
 }
 
 fn native_println_string(
@@ -7849,6 +7906,219 @@ fn native_arrays_sort_int(
 }
 
 // ---------------------------------------------------------------------------
+// HashMap natives
+// ---------------------------------------------------------------------------
+
+/// Semantic equality for HashMap keys: compares by string_value for heap strings,
+/// or by the first field (e.g. intValue) for boxed numerics, or by reference identity.
+fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
+    match (a, b) {
+        (Slot::Reference(None), Slot::Reference(None)) => true,
+        (Slot::Reference(Some(ra)), Slot::Reference(Some(rb))) => {
+            if ra == rb {
+                return true;
+            }
+            let oa = match heap.get(*ra) {
+                Ok(o) => o,
+                Err(_) => return false,
+            };
+            let ob = match heap.get(*rb) {
+                Ok(o) => o,
+                Err(_) => return false,
+            };
+            if oa.string_value.is_some() || ob.string_value.is_some() {
+                return oa.string_value == ob.string_value;
+            }
+            if oa.class_name == ob.class_name {
+                oa.fields.first() == ob.fields.first()
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+fn native_hashmap_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.is_empty() {
+        obj.fields.push(Slot::Int(0));
+    } else {
+        obj.fields[0] = Slot::Int(0);
+    }
+    Ok(None)
+}
+
+fn native_hashmap_put(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let key = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let val = args.get(2).cloned().unwrap_or(Slot::Reference(None));
+    // Clone fields to release the immutable borrow before mutating.
+    let fields = heap.get(this_ref)?.fields.clone();
+    let mut i = 1usize;
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            let old = fields[i + 1].clone();
+            heap.get_mut(this_ref)?.fields[i + 1] = val;
+            return Ok(Some(old));
+        }
+        i += 2;
+    }
+    // New key — append pair and bump size.
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(VmError::NullPointerException),
+    }
+    obj.fields.push(key);
+    obj.fields.push(val);
+    Ok(Some(Slot::Reference(None)))
+}
+
+fn native_hashmap_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let key = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    let mut i = 1usize;
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            return Ok(Some(fields[i + 1].clone()));
+        }
+        i += 2;
+    }
+    Ok(Some(Slot::Reference(None)))
+}
+
+fn native_hashmap_contains_key(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let key = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    let mut i = 1usize;
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            return Ok(Some(Slot::Int(1)));
+        }
+        i += 2;
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+fn native_hashmap_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => Ok(Some(Slot::Int(*n))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Swap-remove the matching key/value pair with the last pair, then truncate.
+fn native_hashmap_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let key = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    let mut i = 1usize;
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            let old_val = fields[i + 1].clone();
+            let obj = heap.get_mut(this_ref)?;
+            let last_val_idx = obj.fields.len() - 1;
+            let last_key_idx = obj.fields.len() - 2;
+            obj.fields.swap(i + 1, last_val_idx);
+            obj.fields.swap(i, last_key_idx);
+            obj.fields.truncate(obj.fields.len() - 2);
+            match obj.fields.first_mut() {
+                Some(Slot::Int(sz)) => *sz -= 1,
+                _ => return Err(VmError::NullPointerException),
+            }
+            return Ok(Some(old_val));
+        }
+        i += 2;
+    }
+    Ok(Some(Slot::Reference(None)))
+}
+
+fn native_hashmap_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(0)) => Ok(Some(Slot::Int(1))),
+        Some(Slot::Int(_)) => Ok(Some(Slot::Int(0))),
+        _ => Ok(Some(Slot::Int(1))),
+    }
+}
+
+fn native_hashmap_get_or_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let key = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let default = args.get(2).cloned().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    let mut i = 1usize;
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            return Ok(Some(fields[i + 1].clone()));
+        }
+        i += 2;
+    }
+    Ok(Some(default))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -12182,6 +12452,72 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("ArraysTest.class", "testDoubleNaN", "()I"),
             1
+        );
+    }
+
+    // ---- Phase 23 Task 1: HashMap ----
+
+    #[test]
+    fn hashmap_put_and_get() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testPutAndGet", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn hashmap_size() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testSize", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn hashmap_contains_key() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testContainsKey", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashmap_get_missing() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testGetMissing", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashmap_remove() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testRemove", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashmap_is_empty() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testIsEmpty", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashmap_overwrite() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testOverwrite", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashmap_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testGetOrDefault", "()I"),
+            106
         );
     }
 }
