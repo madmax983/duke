@@ -43,14 +43,15 @@ impl Frame {
         })
     }
 
-    /// Construct a frame from pre-allocated buffers obtained from a [`FramePool`].
+    /// Construct a frame from pre-allocated buffers obtained from a frame pool.
     ///
     /// The caller is responsible for:
     /// - Sizing `locals` to `max_locals` elements and filling with default values.
-    /// - Ensuring `stack` is empty (the pool's `release` method guarantees this).
+    /// - Ensuring `stack` is empty before passing it here.
     ///
     /// This is the zero-allocation fast path for method calls after pool warmup.
     pub fn from_pool_bufs(locals: Vec<Slot>, stack: Vec<Slot>, max_stack: usize) -> Self {
+        debug_assert!(stack.is_empty(), "pool stack must be empty on reuse");
         Self {
             locals,
             stack,
@@ -58,10 +59,11 @@ impl Frame {
         }
     }
 
-    /// Decompose this frame into its backing Vecs for return to a [`FramePool`].
+    /// Decompose this frame into its backing Vecs for return to a frame pool.
     ///
-    /// Clears the operand stack (retaining capacity). Locals are not cleared —
-    /// they will be resized and reinitialised by [`Frame::from_pool_bufs`] on reuse.
+    /// Clears the operand stack (retaining capacity). Locals are *not* cleared —
+    /// the caller must resize and reinitialise the locals buffer before passing it
+    /// to [`Frame::from_pool_bufs`] for reuse.
     pub fn into_pool_bufs(mut self) -> (Vec<Slot>, Vec<Slot>) {
         self.stack.clear();
         (self.locals, self.stack)
@@ -231,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn pool_round_trip_reuses_allocation() {
+    fn pool_round_trip_correctness() {
         let mut f = Frame::new(8, 3, vec![Slot::Int(42)]).unwrap();
         f.push(Slot::Int(1)).unwrap();
         let (mut locals_buf, stack_buf) = f.into_pool_bufs();
