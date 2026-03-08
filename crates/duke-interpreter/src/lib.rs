@@ -4788,23 +4788,22 @@ pub fn execute_class(
                 match callee_idx {
                     Some(callee_idx) => {
                         let arg_count = parse_arg_count(&callee_desc);
-                        let mut callee_args: Vec<Slot> = (0..arg_count)
-                            .map(|_| frame.pop())
-                            .collect::<VmResult<Vec<_>>>()?;
-                        callee_args.reverse();
                         let (callee_pc_to_idx, callee_frame) = {
                             let ctx = registry.get(&callee_class)?;
+                            let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
+                            let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                             let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
                                 .instructions
                                 .iter()
                                 .enumerate()
                                 .map(|(i, &(pc, _))| (pc, i))
                                 .collect();
-                            let f = Frame::new(
-                                usize::from(ctx.methods[callee_idx].max_stack),
-                                usize::from(ctx.methods[callee_idx].max_locals),
-                                callee_args,
-                            )?;
+                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                            locals_buf.resize(max_locals, Slot::Int(0));
+                            for i in (0..arg_count).rev() {
+                                locals_buf[i] = frame.pop()?;
+                            }
+                            let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                             (pci, f)
                         };
                         call_stack.push(CallFrame {
@@ -5704,10 +5703,10 @@ pub fn execute_class(
                                     registry.get_lambda(actual_class).cloned()
                                 && callee_name == lambda_info.sam_method
                             {
-                                let mut callee_args: Vec<Slot> = (0..arg_count)
+                                let mut sam_args: Vec<Slot> = (0..arg_count)
                                     .map(|_| frame.pop())
                                     .collect::<VmResult<Vec<_>>>()?;
-                                callee_args.reverse();
+                                sam_args.reverse();
                                 let this_slot = frame.pop()?;
                                 let this_ref = match &this_slot {
                                     Slot::Reference(Some(r)) => *r,
@@ -5719,7 +5718,7 @@ pub fn execute_class(
                                 for i in 0..lambda_info.captured_count {
                                     impl_args.push(obj.fields[i].clone());
                                 }
-                                impl_args.extend(callee_args.iter().cloned());
+                                impl_args.extend(sam_args.iter().cloned());
 
                                 let _ = registry.ensure_loaded(&lambda_info.impl_class, loader);
 
@@ -5733,17 +5732,24 @@ pub fn execute_class(
                                 if let Some((dispatch_class, impl_idx)) = resolved {
                                     let (callee_pc_to_idx, callee_frame) = {
                                         let ctx = registry.get(&dispatch_class)?;
+                                        let max_locals =
+                                            usize::from(ctx.methods[impl_idx].max_locals);
+                                        let max_stack =
+                                            usize::from(ctx.methods[impl_idx].max_stack);
                                         let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
                                             .instructions
                                             .iter()
                                             .enumerate()
                                             .map(|(i, &(pc, _))| (pc, i))
                                             .collect();
-                                        let f = Frame::new(
-                                            usize::from(ctx.methods[impl_idx].max_stack),
-                                            usize::from(ctx.methods[impl_idx].max_locals),
-                                            impl_args,
-                                        )?;
+                                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                                        locals_buf.resize(max_locals, Slot::Int(0));
+                                        for (i, slot) in impl_args.into_iter().enumerate() {
+                                            locals_buf[i] = slot;
+                                        }
+                                        let f = Frame::from_pool_bufs(
+                                            locals_buf, stack_buf, max_stack,
+                                        );
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -5819,26 +5825,24 @@ pub fn execute_class(
                     }
                 };
                 let arg_count = parse_arg_count(&callee_desc);
-                let mut callee_args: Vec<Slot> = (0..arg_count)
-                    .map(|_| frame.pop())
-                    .collect::<VmResult<Vec<_>>>()?;
-                callee_args.reverse();
-                // Pop `this` ref and prepend as locals[0].
-                let this_slot = frame.pop()?;
-                callee_args.insert(0, this_slot);
                 let (callee_pc_to_idx, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
+                    let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
+                    let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                     let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
                         .instructions
                         .iter()
                         .enumerate()
                         .map(|(i, &(pc, _))| (pc, i))
                         .collect();
-                    let f = Frame::new(
-                        usize::from(ctx.methods[callee_idx].max_stack),
-                        usize::from(ctx.methods[callee_idx].max_locals),
-                        callee_args,
-                    )?;
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(max_locals, Slot::Int(0));
+                    // Pop args into locals[1..=arg_count] in reverse (stack top = last arg).
+                    for i in (1..=arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
+                    }
+                    locals_buf[0] = frame.pop()?; // `this`
+                    let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, f)
                 };
                 call_stack.push(CallFrame {
@@ -6508,6 +6512,9 @@ pub fn execute_class(
                 }
                 let arg_count = parse_arg_count(&callee_desc);
                 // Pop args and `this` to determine actual class.
+                // We keep a Vec here because the native/lambda fallback paths need
+                // to pass a contiguous slice; the hot resolved-method path uses
+                // frame_pool directly.
                 let mut callee_args: Vec<Slot> = (0..arg_count)
                     .map(|_| frame.pop())
                     .collect::<VmResult<Vec<_>>>()?;
@@ -6591,17 +6598,25 @@ pub fn execute_class(
                                     if let Some((dispatch_class, impl_idx)) = resolved {
                                         let (callee_pc_to_idx, callee_frame) = {
                                             let ctx = registry.get(&dispatch_class)?;
+                                            let max_locals =
+                                                usize::from(ctx.methods[impl_idx].max_locals);
+                                            let max_stack =
+                                                usize::from(ctx.methods[impl_idx].max_stack);
                                             let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
                                                 .instructions
                                                 .iter()
                                                 .enumerate()
                                                 .map(|(i, &(pc, _))| (pc, i))
                                                 .collect();
-                                            let f = Frame::new(
-                                                usize::from(ctx.methods[impl_idx].max_stack),
-                                                usize::from(ctx.methods[impl_idx].max_locals),
-                                                impl_args,
-                                            )?;
+                                            let (mut locals_buf, stack_buf) =
+                                                frame_pool.acquire();
+                                            locals_buf.resize(max_locals, Slot::Int(0));
+                                            for (i, slot) in impl_args.into_iter().enumerate() {
+                                                locals_buf[i] = slot;
+                                            }
+                                            let f = Frame::from_pool_bufs(
+                                                locals_buf, stack_buf, max_stack,
+                                            );
                                             (pci, f)
                                         };
                                         call_stack.push(CallFrame {
@@ -6630,17 +6645,25 @@ pub fn execute_class(
                                     if let Some((dispatch_class, impl_idx)) = resolved {
                                         let (callee_pc_to_idx, callee_frame) = {
                                             let ctx = registry.get(&dispatch_class)?;
+                                            let max_locals =
+                                                usize::from(ctx.methods[impl_idx].max_locals);
+                                            let max_stack =
+                                                usize::from(ctx.methods[impl_idx].max_stack);
                                             let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
                                                 .instructions
                                                 .iter()
                                                 .enumerate()
                                                 .map(|(i, &(pc, _))| (pc, i))
                                                 .collect();
-                                            let f = Frame::new(
-                                                usize::from(ctx.methods[impl_idx].max_stack),
-                                                usize::from(ctx.methods[impl_idx].max_locals),
-                                                impl_args,
-                                            )?;
+                                            let (mut locals_buf, stack_buf) =
+                                                frame_pool.acquire();
+                                            locals_buf.resize(max_locals, Slot::Int(0));
+                                            for (i, slot) in impl_args.into_iter().enumerate() {
+                                                locals_buf[i] = slot;
+                                            }
+                                            let f = Frame::from_pool_bufs(
+                                                locals_buf, stack_buf, max_stack,
+                                            );
                                             (pci, f)
                                         };
                                         call_stack.push(CallFrame {
@@ -6687,17 +6710,20 @@ pub fn execute_class(
 
                 let (callee_pc_to_idx, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
+                    let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
+                    let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                     let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
                         .instructions
                         .iter()
                         .enumerate()
                         .map(|(i, &(pc, _))| (pc, i))
                         .collect();
-                    let f = Frame::new(
-                        usize::from(ctx.methods[callee_idx].max_stack),
-                        usize::from(ctx.methods[callee_idx].max_locals),
-                        callee_args,
-                    )?;
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(max_locals, Slot::Int(0));
+                    for (i, slot) in callee_args.into_iter().enumerate() {
+                        locals_buf[i] = slot;
+                    }
+                    let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, f)
                 };
                 call_stack.push(CallFrame {
