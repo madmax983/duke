@@ -43,6 +43,30 @@ impl Frame {
         })
     }
 
+    /// Construct a frame from pre-allocated buffers obtained from a [`FramePool`].
+    ///
+    /// The caller is responsible for:
+    /// - Sizing `locals` to `max_locals` elements and filling with default values.
+    /// - Ensuring `stack` is empty (the pool's `release` method guarantees this).
+    ///
+    /// This is the zero-allocation fast path for method calls after pool warmup.
+    pub fn from_pool_bufs(locals: Vec<Slot>, stack: Vec<Slot>, max_stack: usize) -> Self {
+        Self {
+            locals,
+            stack,
+            max_stack,
+        }
+    }
+
+    /// Decompose this frame into its backing Vecs for return to a [`FramePool`].
+    ///
+    /// Clears the operand stack (retaining capacity). Locals are not cleared —
+    /// they will be resized and reinitialised by [`Frame::from_pool_bufs`] on reuse.
+    pub fn into_pool_bufs(mut self) -> (Vec<Slot>, Vec<Slot>) {
+        self.stack.clear();
+        (self.locals, self.stack)
+    }
+
     /// Push a slot onto the operand stack.
     ///
     /// # Errors
@@ -174,5 +198,48 @@ impl Frame {
     #[must_use]
     pub fn stack_len(&self) -> usize {
         self.stack.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_pool_bufs_initialises_correctly() {
+        let locals = vec![Slot::Int(0); 3];
+        let stack = Vec::new();
+        let mut f = Frame::from_pool_bufs(locals, stack, 4);
+        assert_eq!(f.load_local(0).unwrap(), Slot::Int(0));
+        assert_eq!(f.load_local(1).unwrap(), Slot::Int(0));
+        f.store_local(2, Slot::Int(99)).unwrap();
+        assert_eq!(f.load_local(2).unwrap(), Slot::Int(99));
+        f.push(Slot::Int(7)).unwrap();
+        assert_eq!(f.pop_int().unwrap(), 7);
+    }
+
+    #[test]
+    fn into_pool_bufs_clears_stack_preserves_capacity() {
+        let mut f = Frame::new(4, 2, vec![Slot::Int(1), Slot::Int(2)]).unwrap();
+        f.push(Slot::Int(10)).unwrap();
+        f.push(Slot::Int(20)).unwrap();
+        let (locals, stack) = f.into_pool_bufs();
+        assert_eq!(locals[0], Slot::Int(1));
+        assert_eq!(locals[1], Slot::Int(2));
+        assert!(stack.is_empty());
+        assert!(stack.capacity() >= 2);
+    }
+
+    #[test]
+    fn pool_round_trip_reuses_allocation() {
+        let mut f = Frame::new(8, 3, vec![Slot::Int(42)]).unwrap();
+        f.push(Slot::Int(1)).unwrap();
+        let (mut locals_buf, stack_buf) = f.into_pool_bufs();
+        locals_buf.resize(2, Slot::Int(0));
+        locals_buf[0] = Slot::Int(99);
+        let mut f2 = Frame::from_pool_bufs(locals_buf, stack_buf, 4);
+        assert_eq!(f2.load_local(0).unwrap(), Slot::Int(99));
+        assert_eq!(f2.load_local(1).unwrap(), Slot::Int(0));
+        assert_eq!(f2.pop().unwrap_err(), VmError::StackUnderflow);
     }
 }
