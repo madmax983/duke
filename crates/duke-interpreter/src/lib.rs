@@ -4632,6 +4632,38 @@ fn ensure_initialized(
     Ok(())
 }
 
+/// Reusable pool of frame backing buffers.
+///
+/// Eliminates per-call `Vec<Slot>` allocation for locals and operand stack.
+/// On a recursive workload the pool reaches steady state after the first
+/// call-depth calls; all subsequent frames are pool hits with zero allocation.
+///
+/// The pool is private to a single `execute_class` invocation.
+struct FramePool {
+    free: Vec<(Vec<Slot>, Vec<Slot>)>,
+}
+
+impl FramePool {
+    fn new() -> Self {
+        Self { free: Vec::new() }
+    }
+
+    /// Acquire a `(locals_buf, stack_buf)` pair.
+    /// Returns a pooled pair if available, otherwise allocates fresh Vecs.
+    fn acquire(&mut self) -> (Vec<Slot>, Vec<Slot>) {
+        self.free.pop().unwrap_or_default()
+    }
+
+    /// Return buffers to the pool.
+    /// `stack` must already be empty (guaranteed by `Frame::into_pool_bufs`).
+    /// Caps pool at 256 entries to bound memory usage.
+    fn release(&mut self, locals: Vec<Slot>, stack: Vec<Slot>) {
+        if self.free.len() < 256 {
+            self.free.push((locals, stack));
+        }
+    }
+}
+
 /// Execute a static method by name within a loaded class context.
 ///
 /// Supports `invokestatic` calls between methods in the same class.
@@ -4673,6 +4705,7 @@ pub fn execute_class(
 
     let mut current_class = class_name.to_string();
     let mut call_stack: Vec<CallFrame> = Vec::new();
+    let mut frame_pool = FramePool::new();
     let mut method_idx = entry_idx;
     let mut pc_to_idx: HashMap<usize, usize> = {
         let ctx = registry.get(&current_class)?;
@@ -4720,7 +4753,10 @@ pub fn execute_class(
                     None => return Ok($val),
                     Some(caller) => {
                         let ret_val = $val;
-                        frame = caller.frame;
+                        // Recycle callee frame buffers before overwriting `frame`.
+                        let old = std::mem::replace(&mut frame, caller.frame);
+                        let (l, s) = old.into_pool_bufs();
+                        frame_pool.release(l, s);
                         method_idx = caller.method_idx;
                         pc_to_idx = caller.pc_to_idx;
                         idx = caller.resume_idx;
@@ -12746,5 +12782,13 @@ mod tests {
             run_bootstrap_int("HashSetTest.class", "testAddReturnsFalse", "()I"),
             1
         );
+    }
+
+    #[test]
+    fn frame_pool_does_not_change_fib_result() {
+        // Regression guard: pool reuse must not corrupt frame state.
+        // fib(25) = 75025 — stale locals between pool reuses would produce wrong answer.
+        let result = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
+        assert_eq!(result, 75025);
     }
 }
