@@ -822,12 +822,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()D",
         native_double_doublevalue,
     );
-    registry.natives_mut().register(
-        "java/lang/Double",
-        "isNaN",
-        "(D)Z",
-        native_double_isnan,
-    );
+    registry
+        .natives_mut()
+        .register("java/lang/Double", "isNaN", "(D)Z", native_double_isnan);
 
     // java/lang/Float — boxed float with value field
     let float_ctx = ClassContext {
@@ -1202,12 +1199,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(I)Ljava/lang/Object;",
         native_arraylist_get,
     );
-    registry.natives_mut().register(
-        "java/util/ArrayList",
-        "size",
-        "()I",
-        native_arraylist_size,
-    );
+    registry
+        .natives_mut()
+        .register("java/util/ArrayList", "size", "()I", native_arraylist_size);
     registry.natives_mut().register(
         "java/util/ArrayList",
         "iterator",
@@ -1342,14 +1336,65 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Object;)Ljava/lang/Object;",
         native_hashmap_remove,
     );
-    registry
-        .natives_mut()
-        .register("java/util/HashMap", "isEmpty", "()Z", native_hashmap_is_empty);
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "isEmpty",
+        "()Z",
+        native_hashmap_is_empty,
+    );
     registry.natives_mut().register(
         "java/util/HashMap",
         "getOrDefault",
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         native_hashmap_get_or_default,
+    );
+
+    // java/util/HashSet — set backed by unique elements in fields
+    // fields[0] = Int(size), fields[1..] = elements (unique, no duplicates)
+    let hashset_ctx = ClassContext {
+        class_name: "java/util/HashSet".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(hashset_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/HashSet", "<init>", "()V", native_hashset_init);
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_hashset_add,
+    );
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_hashset_contains,
+    );
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "remove",
+        "(Ljava/lang/Object;)Z",
+        native_hashset_remove,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/HashSet", "size", "()I", native_hashset_size);
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "isEmpty",
+        "()Z",
+        native_hashset_is_empty,
     );
 }
 
@@ -7656,7 +7701,7 @@ fn native_arraylist_get(
             return Err(VmError::TypeMismatch {
                 expected: "Int",
                 got: "other",
-            })
+            });
         }
     };
     let obj = heap.get(this_ref)?;
@@ -7773,7 +7818,7 @@ fn native_arraylist_iter_next(
             None => {
                 return Err(VmError::JavaException {
                     class_name: "java/util/NoSuchElementException".to_string(),
-                })
+                });
             }
         }
     };
@@ -7879,10 +7924,7 @@ fn native_arrays_copyof_object(
     let dst_ref = heap.allocate("[Ljava/lang/Object;".to_string(), new_len);
     let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields
-            .get(i)
-            .cloned()
-            .unwrap_or(Slot::Reference(None));
+        dst.fields[i] = src_fields.get(i).cloned().unwrap_or(Slot::Reference(None));
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -8125,6 +8167,139 @@ fn native_hashmap_get_or_default(
         i += 2;
     }
     Ok(Some(default))
+}
+
+// ---------------------------------------------------------------------------
+// HashSet natives
+// ---------------------------------------------------------------------------
+
+/// Native: `HashSet.<init>()V` — initialises size counter at fields[0] to 0.
+fn native_hashset_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.is_empty() {
+        obj.fields.push(Slot::Int(0));
+    } else {
+        obj.fields[0] = Slot::Int(0);
+    }
+    Ok(None)
+}
+
+/// Native: `HashSet.add(Object)Z` — adds element if not already present.
+/// Returns 1 if added, 0 if element was already in the set.
+fn native_hashset_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    // fields[0] = size, fields[1..] = elements
+    for i in 1..fields.len() {
+        if slots_equal(&fields[i], &element, heap) {
+            return Ok(Some(Slot::Int(0))); // duplicate
+        }
+    }
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(VmError::NullPointerException),
+    }
+    obj.fields.push(element);
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `HashSet.contains(Object)Z` — returns 1 if element is present, 0 otherwise.
+fn native_hashset_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    for i in 1..fields.len() {
+        if slots_equal(&fields[i], &element, heap) {
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+/// Native: `HashSet.remove(Object)Z` — removes element if present, returns 1 if removed, 0 if absent.
+/// Uses swap-remove (swaps target with last element) for O(1) deletion.
+fn native_hashset_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    for i in 1..fields.len() {
+        if slots_equal(&fields[i], &element, heap) {
+            let obj = heap.get_mut(this_ref)?;
+            let last_idx = obj.fields.len() - 1;
+            obj.fields.swap(i, last_idx);
+            obj.fields.truncate(obj.fields.len() - 1);
+            match obj.fields.first_mut() {
+                Some(Slot::Int(sz)) => *sz -= 1,
+                _ => return Err(VmError::NullPointerException),
+            }
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+/// Native: `HashSet.size()I` — returns element count from fields[0].
+fn native_hashset_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => Ok(Some(Slot::Int(*n))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Native: `HashSet.isEmpty()Z` — returns 1 if size == 0, else 0.
+fn native_hashset_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(0)) => Ok(Some(Slot::Int(1))),
+        Some(Slot::Int(_)) => Ok(Some(Slot::Int(0))),
+        _ => Ok(Some(Slot::Int(1))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -12476,10 +12651,7 @@ mod tests {
 
     #[test]
     fn hashmap_size() {
-        assert_eq!(
-            run_bootstrap_int("HashMapTest.class", "testSize", "()I"),
-            3
-        );
+        assert_eq!(run_bootstrap_int("HashMapTest.class", "testSize", "()I"), 3);
     }
 
     #[test]
@@ -12527,6 +12699,51 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("HashMapTest.class", "testGetOrDefault", "()I"),
             106
+        );
+    }
+
+    #[test]
+    fn hashset_add_and_contains() {
+        assert_eq!(
+            run_bootstrap_int("HashSetTest.class", "testAddAndContains", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashset_size() {
+        assert_eq!(run_bootstrap_int("HashSetTest.class", "testSize", "()I"), 3);
+    }
+
+    #[test]
+    fn hashset_no_duplicates() {
+        assert_eq!(
+            run_bootstrap_int("HashSetTest.class", "testNoDuplicates", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn hashset_remove() {
+        assert_eq!(
+            run_bootstrap_int("HashSetTest.class", "testRemove", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashset_is_empty() {
+        assert_eq!(
+            run_bootstrap_int("HashSetTest.class", "testIsEmpty", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashset_add_returns_false() {
+        assert_eq!(
+            run_bootstrap_int("HashSetTest.class", "testAddReturnsFalse", "()I"),
+            1
         );
     }
 }
