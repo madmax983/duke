@@ -20,16 +20,16 @@ for ENTRY in "sum:benchSum" "fib:benchFib" "arraylist:benchArrayList" "hashmap:b
     METHOD="${ENTRY##*:}"
 
     # Time Duke
-    DUKE_SECS=$( { TIMEFORMAT='%R'; time "$DUKE" exec "$CLASS" "$METHOD" > /dev/null; } 2>&1 )
-    DUKE_MS=$(echo "$DUKE_SECS" | awk '{printf "%.0f", $1 * 1000}')
+    DUKE_SECS=$( { TIMEFORMAT='%R'; time "$DUKE" exec "$CLASS" "$METHOD" > /dev/null 2>/dev/null; } 2>&1 )
+    DUKE_MS=$(echo "$DUKE_SECS" | LC_NUMERIC=C awk '{printf "%.0f", $1 * 1000}')
 
     # Time HotSpot JIT
-    HS_SECS=$( { TIMEFORMAT='%R'; time java -cp "$BENCHMARKS_DIR" BenchmarkSuite "$ARG" > /dev/null; } 2>&1 )
-    HS_MS=$(echo "$HS_SECS" | awk '{printf "%.0f", $1 * 1000}')
+    HS_SECS=$( { TIMEFORMAT='%R'; time java -cp "$BENCHMARKS_DIR" BenchmarkSuite "$ARG" > /dev/null 2>/dev/null; } 2>&1 )
+    HS_MS=$(echo "$HS_SECS" | LC_NUMERIC=C awk '{printf "%.0f", $1 * 1000}')
 
     # Time HotSpot -Xint (interpreter only, no JIT)
-    XI_SECS=$( { TIMEFORMAT='%R'; time java -Xint -cp "$BENCHMARKS_DIR" BenchmarkSuite "$ARG" > /dev/null; } 2>&1 )
-    XI_MS=$(echo "$XI_SECS" | awk '{printf "%.0f", $1 * 1000}')
+    XI_SECS=$( { TIMEFORMAT='%R'; time java -Xint -cp "$BENCHMARKS_DIR" BenchmarkSuite "$ARG" > /dev/null 2>/dev/null; } 2>&1 )
+    XI_MS=$(echo "$XI_SECS" | LC_NUMERIC=C awk '{printf "%.0f", $1 * 1000}')
 
     # Ratio
     RATIO=$(echo "$DUKE_MS $HS_MS" | awk '{if ($2 > 0) printf "%.0fx", $1/$2; else print "N/A"}')

@@ -39,8 +39,8 @@ The wall-clock comparison includes a full process launch per run.
 ## Analysis
 
 - **Arithmetic (benchSum)**: Duke takes 207ms vs HotSpot JIT's 171ms — only 1.2x slower.
-  Notably, Duke beats HotSpot -Xint (128ms vs 207ms), meaning the JVM's pure interpreter
-  has less per-instruction overhead than Duke, but Duke is competitive with JIT at this scale.
+  Notably, HotSpot -Xint beats Duke (128ms vs 207ms), meaning the JVM's pure interpreter
+  has less per-instruction overhead than Duke, though Duke is competitive with JIT at this scale.
   The startup + bootstrap_stdlib cost (~60-80ms estimated) dominates short workloads.
 
 - **Recursive dispatch (benchFib)**: Duke is 2.1x slower than HotSpot JIT (274ms vs 133ms)
