@@ -7926,7 +7926,7 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
                 Ok(o) => o,
                 Err(_) => return false,
             };
-            if oa.string_value.is_some() || ob.string_value.is_some() {
+            if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
             }
             if oa.class_name == ob.class_name {
@@ -7939,6 +7939,7 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     }
 }
 
+/// Native: `HashMap.<init>()V` — initialises size counter at fields[0] to 0.
 fn native_hashmap_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -7990,6 +7991,7 @@ fn native_hashmap_put(
     Ok(Some(Slot::Reference(None)))
 }
 
+/// Native: `HashMap.get(Object)Object` — returns value for key, or null if absent.
 fn native_hashmap_get(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8011,6 +8013,7 @@ fn native_hashmap_get(
     Ok(Some(Slot::Reference(None)))
 }
 
+/// Native: `HashMap.containsKey(Object)Z` — returns 1 if key present, 0 otherwise.
 fn native_hashmap_contains_key(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8032,6 +8035,7 @@ fn native_hashmap_contains_key(
     Ok(Some(Slot::Int(0)))
 }
 
+/// Native: `HashMap.size()I` — returns entry count from fields[0].
 fn native_hashmap_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8080,6 +8084,7 @@ fn native_hashmap_remove(
     Ok(Some(Slot::Reference(None)))
 }
 
+/// Native: `HashMap.isEmpty()Z` — returns 1 if size == 0, else 0.
 fn native_hashmap_is_empty(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8096,6 +8101,7 @@ fn native_hashmap_is_empty(
     }
 }
 
+/// Native: `HashMap.getOrDefault(Object, Object)Object` — returns value for key, or default if absent.
 fn native_hashmap_get_or_default(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
