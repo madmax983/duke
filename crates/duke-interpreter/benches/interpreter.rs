@@ -113,5 +113,15 @@ fn bench_hashmap(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_sum, bench_fib, bench_arraylist, bench_hashmap);
+fn bench_bootstrap_only(c: &mut Criterion) {
+    c.bench_function("bootstrap_stdlib only", |b| {
+        b.iter(|| {
+            let mut registry = ClassRegistry::new();
+            let mut heap = duke_gc::Heap::new();
+            black_box(bootstrap_stdlib(&mut registry, &mut heap));
+        });
+    });
+}
+
+criterion_group!(benches, bench_sum, bench_fib, bench_arraylist, bench_hashmap, bench_bootstrap_only);
 criterion_main!(benches);
