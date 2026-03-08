@@ -8206,8 +8206,8 @@ fn native_hashset_add(
     let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
     // fields[0] = size, fields[1..] = elements
-    for i in 1..fields.len() {
-        if slots_equal(&fields[i], &element, heap) {
+    for field in fields.iter().skip(1) {
+        if slots_equal(field, &element, heap) {
             return Ok(Some(Slot::Int(0))); // duplicate
         }
     }
@@ -8232,8 +8232,8 @@ fn native_hashset_contains(
     };
     let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
-    for i in 1..fields.len() {
-        if slots_equal(&fields[i], &element, heap) {
+    for field in fields.iter().skip(1) {
+        if slots_equal(field, &element, heap) {
             return Ok(Some(Slot::Int(1)));
         }
     }
@@ -8253,6 +8253,7 @@ fn native_hashset_remove(
     };
     let element = args.get(1).cloned().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
+    #[allow(clippy::needless_range_loop)] // i is used in obj.fields.swap(i, last_idx)
     for i in 1..fields.len() {
         if slots_equal(&fields[i], &element, heap) {
             let obj = heap.get_mut(this_ref)?;
