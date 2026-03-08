@@ -6511,20 +6511,21 @@ pub fn execute_class(
                     continue;
                 }
                 let arg_count = parse_arg_count(&callee_desc);
-                // Pop args and `this` to determine actual class.
-                // We keep a Vec here because the native/lambda fallback paths need
-                // to pass a contiguous slice; the hot resolved-method path uses
-                // frame_pool directly.
-                let mut callee_args: Vec<Slot> = (0..arg_count)
-                    .map(|_| frame.pop())
-                    .collect::<VmResult<Vec<_>>>()?;
-                callee_args.reverse();
-                let this_slot = frame.pop()?;
-                let actual_class = match &this_slot {
-                    Slot::Reference(Some(r)) => heap.get(*r)?.class_name.clone(),
-                    _ => callee_class.clone(),
-                };
-                callee_args.insert(0, this_slot);
+                // Peek at `this` (sits below the args) to determine the actual
+                // runtime class without consuming the stack yet.  Each dispatch
+                // path (native / lambda / bytecode) pops what it needs itself.
+                let stack_len = frame.stack_len();
+                let actual_class = if stack_len > arg_count {
+                    let this_pos = stack_len - arg_count - 1;
+                    if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
+                        heap.get(r).ok().map(|o| o.class_name.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+                .unwrap_or_else(|| callee_class.clone());
 
                 // Try to find the method on the actual class (walking hierarchy).
                 let resolved = resolve_method_in_hierarchy(
@@ -6562,6 +6563,14 @@ pub fn execute_class(
                                 })
                                 .copied();
                             if let Some(handler) = native {
+                                // Native path: collect args + this into a Vec<Slot>
+                                // for the handler(&[Slot], ...) signature.
+                                let mut callee_args: Vec<Slot> = (0..arg_count)
+                                    .map(|_| frame.pop())
+                                    .collect::<VmResult<Vec<_>>>()?;
+                                callee_args.reverse();
+                                let this_slot = frame.pop()?;
+                                callee_args.insert(0, this_slot);
                                 let result = handler(&callee_args, heap, stdout)?;
                                 if let Some(val) = result {
                                     frame.push(val)?;
@@ -6573,6 +6582,13 @@ pub fn execute_class(
                             if let Some(lambda_info) = registry.get_lambda(&actual_class).cloned()
                                 && callee_name == lambda_info.sam_method
                             {
+                                // Lambda path: collect args + this into a Vec<Slot>.
+                                let mut callee_args: Vec<Slot> = (0..arg_count)
+                                    .map(|_| frame.pop())
+                                    .collect::<VmResult<Vec<_>>>()?;
+                                callee_args.reverse();
+                                let this_slot = frame.pop()?;
+                                callee_args.insert(0, this_slot);
                                 let this_ref = match &callee_args[0] {
                                     Slot::Reference(Some(r)) => *r,
                                     _ => return Err(VmError::NullPointerException),
@@ -6708,6 +6724,7 @@ pub fn execute_class(
                     }
                 };
 
+                // Bytecode execution path — Pattern B: pop directly into locals_buf.
                 let (callee_pc_to_idx, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
@@ -6720,9 +6737,11 @@ pub fn execute_class(
                         .collect();
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
-                    for (i, slot) in callee_args.into_iter().enumerate() {
-                        locals_buf[i] = slot;
+                    // Pop method args in reverse (stack top = last arg) into locals[1..=arg_count].
+                    for i in (1..=arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
                     }
+                    locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, f)
                 };
