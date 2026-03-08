@@ -7958,6 +7958,8 @@ fn native_hashmap_init(
     Ok(None)
 }
 
+/// Native: `HashMap.put(Object, Object)Object` — inserts or updates a key-value pair.
+/// Returns the old value if the key was already present, or null if it is new.
 fn native_hashmap_put(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8051,7 +8053,8 @@ fn native_hashmap_size(
     }
 }
 
-/// Swap-remove the matching key/value pair with the last pair, then truncate.
+/// Native: `HashMap.remove(Object)Object` — removes a key-value pair, returns old value or null.
+/// Uses swap-remove (swaps target pair with last pair) for O(1) deletion.
 fn native_hashmap_remove(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
