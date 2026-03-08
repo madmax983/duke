@@ -1,0 +1,375 @@
+   Compiling crossbeam-utils v0.8.21
+   Compiling serde_core v1.0.228
+   Compiling zerocopy v0.8.40
+   Compiling windows-link v0.2.1
+   Compiling zmij v1.0.21
+   Compiling serde v1.0.228
+   Compiling autocfg v1.5.0
+   Compiling rayon-core v1.13.0
+   Compiling serde_json v1.0.149
+   Compiling either v1.15.0
+   Compiling memchr v2.8.0
+   Compiling anstyle v1.0.13
+   Compiling clap_lex v1.0.0
+   Compiling itoa v1.0.17
+   Compiling ciborium-io v0.2.2
+   Compiling regex-syntax v0.8.10
+   Compiling plotters-backend v0.3.7
+   Compiling cast v0.3.0
+   Compiling once_cell v1.21.3
+   Compiling oorandom v11.1.5
+   Compiling anes v0.1.6
+   Compiling syn v2.0.117
+   Compiling windows-sys v0.61.2
+   Compiling itertools v0.10.5
+   Compiling clap_builder v4.5.60
+   Compiling plotters-svg v0.3.7
+   Compiling num-traits v0.2.19
+   Compiling winapi-util v0.1.11
+   Compiling is-terminal v0.4.17
+   Compiling crossbeam-epoch v0.9.18
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling regex-automata v0.4.14
+   Compiling crossbeam-deque v0.8.6
+   Compiling criterion-plot v0.5.0
+   Compiling plotters v0.3.7
+   Compiling rayon v1.11.0
+   Compiling clap v4.5.60
+   Compiling thiserror-impl v2.0.18
+   Compiling zerocopy-derive v0.8.40
+   Compiling serde_derive v1.0.228
+   Compiling regex v1.12.3
+   Compiling thiserror v2.0.18
+   Compiling duke-runtime v0.1.0 (C:\Users\markm\duke\crates\duke-runtime)
+   Compiling duke-classfile v0.1.0 (C:\Users\markm\duke\crates\duke-classfile)
+   Compiling duke-loader v0.1.0 (C:\Users\markm\duke\crates\duke-loader)
+   Compiling duke-gc v0.1.0 (C:\Users\markm\duke\crates\duke-gc)
+   Compiling duke-bytecode v0.1.0 (C:\Users\markm\duke\crates\duke-bytecode)
+   Compiling duke-interpreter v0.1.0 (C:\Users\markm\duke\crates\duke-interpreter)
+   Compiling tinytemplate v1.2.1
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling criterion v0.5.1
+    Finished `bench` profile [optimized] target(s) in 38.44s
+     Running unittests src\lib.rs (target\release\deps\duke_interpreter-e7d712b9e89f81f8.exe)
+
+running 271 tests
+test tests::arg_count_array ... ignored
+test tests::arg_count_empty ... ignored
+test tests::arg_count_long_double ... ignored
+test tests::arg_count_mixed ... ignored
+test tests::arg_count_object_ref ... ignored
+test tests::arg_count_single_int ... ignored
+test tests::arg_count_two_ints ... ignored
+test tests::array_empty_sum ... ignored
+test tests::array_first_double ... ignored
+test tests::array_length ... ignored
+test tests::array_sum_5 ... ignored
+test tests::array_sum_long ... ignored
+test tests::arraylist_add_returns_true ... ignored
+test tests::arraylist_empty_foreach ... ignored
+test tests::arraylist_foreach_count ... ignored
+test tests::arraylist_foreach_sum ... ignored
+test tests::arraylist_get ... ignored
+test tests::arraylist_single_element ... ignored
+test tests::arraylist_size ... ignored
+test tests::arrays_copyof_extend ... ignored
+test tests::arrays_copyof_truncate ... ignored
+test tests::arrays_fill_int ... ignored
+test tests::arrays_sort_int ... ignored
+test tests::athrow_propagates_as_java_exception ... ignored
+test tests::char_is_digit ... ignored
+test tests::char_is_digit_false ... ignored
+test tests::char_is_letter ... ignored
+test tests::char_is_letter_false ... ignored
+test tests::char_is_letter_or_digit ... ignored
+test tests::char_is_lowercase ... ignored
+test tests::char_is_uppercase ... ignored
+test tests::char_is_whitespace ... ignored
+test tests::char_to_lowercase ... ignored
+test tests::char_to_uppercase ... ignored
+test tests::char_valueof_and_charvalue ... ignored
+test tests::checkcast_ok ... ignored
+test tests::class_gcd_48_18 ... ignored
+test tests::class_literal_interning ... ignored
+test tests::class_literal_non_null ... ignored
+test tests::class_literal_self_ref ... ignored
+test tests::class_method_not_found ... ignored
+test tests::class_power_2_10 ... ignored
+test tests::class_square ... ignored
+test tests::class_sum_of_squares_3_4 ... ignored
+test tests::class_sum_of_squares_5_12 ... ignored
+test tests::clinit_initializes_dependent_field_y ... ignored
+test tests::clinit_initializes_static_field_x ... ignored
+test tests::clinit_runs_static_block ... ignored
+test tests::clinit_sum_all_statics ... ignored
+test tests::cross_class_add ... ignored
+test tests::cross_class_add_negated ... ignored
+test tests::cross_class_chain ... ignored
+test tests::cross_class_double ... ignored
+test tests::cross_class_pair_diff ... ignored
+test tests::cross_class_pair_sum ... ignored
+test tests::cross_class_two_pairs ... ignored
+test tests::double_max_value ... ignored
+test tests::double_nan ... ignored
+test tests::enum_equality ... ignored
+test tests::enum_name_length ... ignored
+test tests::enum_ordinal ... ignored
+test tests::enum_switch ... ignored
+test tests::enum_valueof ... ignored
+test tests::enum_values_length ... ignored
+test tests::exception_catch_from_callee ... ignored
+test tests::exception_catch_simple ... ignored
+test tests::exception_finally_block ... ignored
+test tests::exception_hierarchy_catch_exact ... ignored
+test tests::exception_hierarchy_catch_grandparent ... ignored
+test tests::exception_hierarchy_catch_parent ... ignored
+test tests::exception_hierarchy_catch_wrong_then_right ... ignored
+test tests::exception_uncaught_propagates ... ignored
+test tests::execute_bipush_istore_iload ... ignored
+test tests::execute_iconst_ireturn ... ignored
+test tests::execute_loads_args ... ignored
+test tests::execute_sipush ... ignored
+test tests::extended_math_abs_double ... ignored
+test tests::extended_math_abs_long ... ignored
+test tests::extended_math_constants ... ignored
+test tests::extended_math_floor_ceil ... ignored
+test tests::extended_math_long_valueof ... ignored
+test tests::extended_math_max_double ... ignored
+test tests::extended_math_max_long ... ignored
+test tests::extended_math_min_long ... ignored
+test tests::extended_math_parse_boolean ... ignored
+test tests::extended_math_parse_double ... ignored
+test tests::extended_math_parse_float ... ignored
+test tests::extended_math_parse_long ... ignored
+test tests::extended_math_pow ... ignored
+test tests::extended_math_round ... ignored
+test tests::extended_math_sqrt ... ignored
+test tests::format_double ... ignored
+test tests::format_hex ... ignored
+test tests::format_int ... ignored
+test tests::format_multiple ... ignored
+test tests::format_null ... ignored
+test tests::format_percent ... ignored
+test tests::format_string ... ignored
+test tests::format_sum ... ignored
+test tests::hand_coded_add ... ignored
+test tests::hand_coded_div_by_zero ... ignored
+test tests::hand_coded_goto ... ignored
+test tests::hand_coded_ifeq_not_taken ... ignored
+test tests::hand_coded_ifeq_taken ... ignored
+test tests::hand_coded_long_add ... ignored
+test tests::hashmap_contains_key ... ignored
+test tests::hashmap_get_missing ... ignored
+test tests::hashmap_get_or_default ... ignored
+test tests::hashmap_is_empty ... ignored
+test tests::hashmap_overwrite ... ignored
+test tests::hashmap_put_and_get ... ignored
+test tests::hashmap_remove ... ignored
+test tests::hashmap_size ... ignored
+test tests::hashset_add_and_contains ... ignored
+test tests::hashset_add_returns_false ... ignored
+test tests::hashset_is_empty ... ignored
+test tests::hashset_no_duplicates ... ignored
+test tests::hashset_remove ... ignored
+test tests::hashset_size ... ignored
+test tests::hello_blank_line ... ignored
+test tests::hello_greet_and_return ... ignored
+test tests::hello_greet_prints_to_output ... ignored
+test tests::hello_print_num ... ignored
+test tests::hierarchy_cast_to_object ... ignored
+test tests::hierarchy_instanceof_object ... ignored
+test tests::hierarchy_null_instanceof ... ignored
+test tests::if_acmpeq_same_ref ... ignored
+test tests::if_acmpne_different_refs ... ignored
+test tests::inherited_call_deep_inherited ... ignored
+test tests::inherited_call_deep_overridden ... ignored
+test tests::inherited_call_inherited ... ignored
+test tests::inherited_call_overridden ... ignored
+test tests::instanceof_match ... ignored
+test tests::instanceof_mismatch ... ignored
+test tests::instanceof_null ... ignored
+test tests::int_abs_neg ... ignored
+test tests::int_abs_pos ... ignored
+test tests::int_add ... ignored
+test tests::int_bitwise_and ... ignored
+test tests::int_bitwise_or ... ignored
+test tests::int_clamp_hi ... ignored
+test tests::int_clamp_lo ... ignored
+test tests::int_clamp_mid ... ignored
+test tests::int_divide ... ignored
+test tests::int_factorial_0 ... ignored
+test tests::int_factorial_10 ... ignored
+test tests::int_factorial_5 ... ignored
+test tests::int_fibonacci_0 ... ignored
+test tests::int_fibonacci_1 ... ignored
+test tests::int_fibonacci_10 ... ignored
+test tests::int_max_a_wins ... ignored
+test tests::int_max_b_wins ... ignored
+test tests::int_multiply ... ignored
+test tests::int_negate ... ignored
+test tests::int_remainder ... ignored
+test tests::int_shift_left ... ignored
+test tests::int_subtract ... ignored
+test tests::int_sum_to_100 ... ignored
+test tests::integer_max_value ... ignored
+test tests::integer_min_value ... ignored
+test tests::interface_call_double ... ignored
+test tests::interface_call_simple ... ignored
+test tests::interface_polymorphic_double ... ignored
+test tests::interface_polymorphic_simple ... ignored
+test tests::lambda_method_reference ... ignored
+test tests::lambda_multi_capture ... ignored
+test tests::lambda_simple_no_capture ... ignored
+test tests::lambda_with_capture ... ignored
+test tests::long_max_value ... ignored
+test tests::lookupswitch_default ... ignored
+test tests::lookupswitch_match ... ignored
+test tests::main_hello_no_args ... ignored
+test tests::main_hello_with_args ... ignored
+test tests::monitor_nested_sync ... ignored
+test tests::monitor_sync_block ... ignored
+test tests::monitor_sync_method ... ignored
+test tests::more_natives_object_hashcode ... ignored
+test tests::more_natives_print_no_newline ... ignored
+test tests::more_natives_value_of_int ... ignored
+test tests::multiarray_dimensions ... ignored
+test tests::multiarray_sum2d ... ignored
+test tests::native_registry_returns_none_for_missing ... ignored
+test tests::native_registry_stores_and_retrieves ... ignored
+test tests::newarray_iastore_iaload ... ignored
+test tests::newarray_int_arraylength ... ignored
+test tests::newarray_int_bounds_error ... ignored
+test tests::newarray_negative_size ... ignored
+test tests::parse_args_add_parsed ... ignored
+test tests::parse_args_math_abs ... ignored
+test tests::parse_args_math_max ... ignored
+test tests::parse_args_math_min ... ignored
+test tests::parse_args_parse_int ... ignored
+test tests::parse_args_valueof ... ignored
+test tests::point_sum_1_2_3_4 ... ignored
+test tests::point_sum_3_4_0_0 ... ignored
+test tests::point_sum_symmetry ... ignored
+test tests::point_sum_zeros ... ignored
+test tests::print_all_boolean ... ignored
+test tests::print_all_char ... ignored
+test tests::print_all_double ... ignored
+test tests::print_all_float ... ignored
+test tests::print_all_long ... ignored
+test tests::print_all_mixed ... ignored
+test tests::ref_equal ... ignored
+test tests::ref_not_equal ... ignored
+test tests::resolve_fieldref_invalid ... ignored
+test tests::resolve_fieldref_valid ... ignored
+test tests::resolve_methodref_invalid_index ... ignored
+test tests::resolve_methodref_not_a_methodref ... ignored
+test tests::resolve_methodref_valid ... ignored
+test tests::sb_append_boolean ... ignored
+test tests::sb_append_char ... ignored
+test tests::sb_append_double ... ignored
+test tests::sb_append_float ... ignored
+test tests::sb_append_int ... ignored
+test tests::sb_append_long ... ignored
+test tests::sb_append_string_object ... ignored
+test tests::sb_basic_append ... ignored
+test tests::sb_chaining ... ignored
+test tests::sb_init_with_string ... ignored
+test tests::sb_length ... ignored
+test tests::sb_loop_build ... ignored
+test tests::stack_ops_array_store_dup ... ignored
+test tests::stack_ops_dup2 ... ignored
+test tests::stack_ops_dup2_x1 ... ignored
+test tests::stack_ops_dup2_x2 ... ignored
+test tests::stack_ops_dup_x1 ... ignored
+test tests::stack_ops_dup_x2 ... ignored
+test tests::stack_ops_multi_assign ... ignored
+test tests::string_concat_bool_to_string ... ignored
+test tests::string_concat_boolean ... ignored
+test tests::string_concat_chain ... ignored
+test tests::string_concat_char_to_string ... ignored
+test tests::string_concat_double_to_string ... ignored
+test tests::string_concat_empty ... ignored
+test tests::string_concat_int ... ignored
+test tests::string_concat_length ... ignored
+test tests::string_concat_long_to_string ... ignored
+test tests::string_concat_simple ... ignored
+test tests::string_intern ... ignored
+test tests::string_methods_compareto ... ignored
+test tests::string_methods_contains ... ignored
+test tests::string_methods_endswith ... ignored
+test tests::string_methods_indexof ... ignored
+test tests::string_methods_indexof_not_found ... ignored
+test tests::string_methods_isempty ... ignored
+test tests::string_methods_startswith ... ignored
+test tests::string_methods_substring ... ignored
+test tests::string_methods_substring_range ... ignored
+test tests::string_methods_tochararray ... ignored
+test tests::string_methods_trim ... ignored
+test tests::string_non_null ... ignored
+test tests::string_ops2_hashcode ... ignored
+test tests::string_ops2_replace_char ... ignored
+test tests::string_ops2_replace_charsequence ... ignored
+test tests::string_ops2_replace_string ... ignored
+test tests::string_ops2_split ... ignored
+test tests::string_ops2_to_lower_case ... ignored
+test tests::string_ops2_to_upper_case ... ignored
+test tests::string_ops2_tostring ... ignored
+test tests::string_ops_char_at ... ignored
+test tests::string_ops_equals ... ignored
+test tests::string_ops_length ... ignored
+test tests::string_ops_not_equals ... ignored
+test tests::switch_dense_case0 ... ignored
+test tests::switch_dense_case2 ... ignored
+test tests::switch_dense_default ... ignored
+test tests::switch_sparse_case200 ... ignored
+test tests::switch_sparse_default ... ignored
+test tests::tableswitch_default ... ignored
+test tests::tableswitch_match ... ignored
+
+test result: ok. 0 passed; 0 failed; 271 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches\interpreter.rs (target\release\deps\interpreter-9d2998e2672bdeee.exe)
+Gnuplot not found, using plotters backend
+Benchmarking benchSum (500k int adds)
+Benchmarking benchSum (500k int adds): Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 14.5s, or reduce sample count to 30.
+Benchmarking benchSum (500k int adds): Collecting 100 samples in estimated 14.486 s (100 iterations)
+Benchmarking benchSum (500k int adds): Analyzing
+benchSum (500k int adds)
+                        time:   [138.53 ms 141.36 ms 144.32 ms]
+Found 1 outliers among 100 measurements (1.00%)
+  1 (1.00%) high mild
+
+Benchmarking benchFib (fib(25), ~500k calls)
+Benchmarking benchFib (fib(25), ~500k calls): Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 24.5s, or reduce sample count to 20.
+Benchmarking benchFib (fib(25), ~500k calls): Collecting 100 samples in estimated 24.465 s (100 iterations)
+Benchmarking benchFib (fib(25), ~500k calls): Analyzing
+benchFib (fib(25), ~500k calls)
+                        time:   [268.70 ms 277.70 ms 286.95 ms]
+
+Benchmarking benchArrayList (5k ArrayList.add)
+Benchmarking benchArrayList (5k ArrayList.add): Warming up for 3.0000 s
+Benchmarking benchArrayList (5k ArrayList.add): Collecting 100 samples in estimated 5.4418 s (600 iterations)
+Benchmarking benchArrayList (5k ArrayList.add): Analyzing
+benchArrayList (5k ArrayList.add)
+                        time:   [7.2914 ms 7.5324 ms 7.7871 ms]
+Found 7 outliers among 100 measurements (7.00%)
+  7 (7.00%) high mild
+
+Benchmarking benchHashMap (200 put + 200 get)
+Benchmarking benchHashMap (200 put + 200 get): Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 8.2s, enable flat sampling, or reduce sample count to 50.
+Benchmarking benchHashMap (200 put + 200 get): Collecting 100 samples in estimated 8.2393 s (5050 iterations)
+Benchmarking benchHashMap (200 put + 200 get): Analyzing
+benchHashMap (200 put + 200 get)
+                        time:   [1.4520 ms 1.4800 ms 1.5101 ms]
+Found 9 outliers among 100 measurements (9.00%)
+  6 (6.00%) high mild
+  3 (3.00%) high severe
+

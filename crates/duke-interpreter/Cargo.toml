@@ -10,3 +10,10 @@ duke-bytecode = { path = "../duke-bytecode" }
 duke-classfile = { path = "../duke-classfile" }
 duke-gc = { path = "../duke-gc" }
 duke-loader = { path = "../duke-loader" }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "interpreter"
+harness = false
