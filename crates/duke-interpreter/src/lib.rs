@@ -4658,6 +4658,8 @@ impl FramePool {
     /// `stack` must already be empty (guaranteed by `Frame::into_pool_bufs`).
     /// Caps pool at 256 entries to bound memory usage.
     fn release(&mut self, locals: Vec<Slot>, stack: Vec<Slot>) {
+        // Cap at 256 entries — typical max call depth is well under 100; anything
+        // beyond this is dead weight. Entries dropped here are freed to the allocator.
         if self.free.len() < 256 {
             self.free.push((locals, stack));
         }
@@ -4800,6 +4802,12 @@ pub fn execute_class(
                                 .collect();
                             let (mut locals_buf, stack_buf) = frame_pool.acquire();
                             locals_buf.resize(max_locals, Slot::Int(0));
+                            if arg_count > max_locals {
+                                return Err(VmError::LocalOutOfBounds {
+                                    index: arg_count,
+                                    max_locals,
+                                });
+                            }
                             for i in (0..arg_count).rev() {
                                 locals_buf[i] = frame.pop()?;
                             }
@@ -5837,6 +5845,12 @@ pub fn execute_class(
                         .collect();
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
+                    if arg_count + 1 > max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: arg_count + 1,
+                            max_locals,
+                        });
+                    }
                     // Pop args into locals[1..=arg_count] in reverse (stack top = last arg).
                     for i in (1..=arg_count).rev() {
                         locals_buf[i] = frame.pop()?;
@@ -6291,7 +6305,11 @@ pub fn execute_class(
                             });
                         }
                         Some(caller) => {
-                            frame = caller.frame;
+                            // Recycle callee frame buffers before overwriting `frame` —
+                            // mirrors the do_return! pattern to avoid a pool leak.
+                            let old = std::mem::replace(&mut frame, caller.frame);
+                            let (l, s) = old.into_pool_bufs();
+                            frame_pool.release(l, s);
                             method_idx = caller.method_idx;
                             pc_to_idx = caller.pc_to_idx;
                             current_class = caller.class_name;
@@ -6737,6 +6755,12 @@ pub fn execute_class(
                         .collect();
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
+                    if arg_count + 1 > max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: arg_count + 1,
+                            max_locals,
+                        });
+                    }
                     // Pop method args in reverse (stack top = last arg) into locals[1..=arg_count].
                     for i in (1..=arg_count).rev() {
                         locals_buf[i] = frame.pop()?;
