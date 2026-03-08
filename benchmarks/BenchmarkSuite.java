@@ -7,7 +7,7 @@ public class BenchmarkSuite {
     static int benchSum() {
         int sum = 0;
         for (int i = 0; i < 500_000; i++) sum += i;
-        return sum;
+        return sum;  // 445698416 (124,999,750,000 wraps in i32)
     }
 
     // Recursive fibonacci — exercises method dispatch
@@ -39,7 +39,7 @@ public class BenchmarkSuite {
             Integer v = (Integer) map.get("key" + i);
             if (v != null) sum += v.intValue();
         }
-        return sum;  // 200*199/2 = 19900
+        return sum;  // 0+1+..+199 = 199*200/2 = 19900
     }
 
     // main: HotSpot comparison — takes benchmark name as arg, runs it once
@@ -55,7 +55,7 @@ public class BenchmarkSuite {
         } else if ("hashmap".equals(name)) {
             result = benchHashMap();
         } else {
-            // default: run all so HotSpot can warm up
+            // default: run all, print hashmap checksum as final result
             benchSum(); benchFib(); benchArrayList();
             result = benchHashMap();
         }
