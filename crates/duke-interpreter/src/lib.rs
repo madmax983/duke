@@ -4672,6 +4672,164 @@ impl FramePool {
     }
 }
 
+#[cfg(feature = "telemetry")]
+fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
+    use duke_bytecode::Instruction as I;
+    match instr {
+        I::Nop => "nop",
+        I::AconstNull => "aconst_null",
+        I::Iconst0 | I::Iconst1 | I::Iconst2 | I::Iconst3 | I::Iconst4 | I::Iconst5 => "iconst_n",
+        I::IconstM1 => "iconst_m1",
+        I::Lconst0 | I::Lconst1 => "lconst_n",
+        I::Fconst0 | I::Fconst1 | I::Fconst2 => "fconst_n",
+        I::Dconst0 | I::Dconst1 => "dconst_n",
+        I::Bipush(_) => "bipush",
+        I::Sipush(_) => "sipush",
+        I::Ldc(_) | I::LdcW(_) | I::Ldc2W(_) => "ldc",
+        I::Iload(_) | I::Iload0 | I::Iload1 | I::Iload2 | I::Iload3 | I::IloadW(_) => "iload",
+        I::Lload(_) | I::Lload0 | I::Lload1 | I::Lload2 | I::Lload3 | I::LloadW(_) => "lload",
+        I::Fload(_) | I::Fload0 | I::Fload1 | I::Fload2 | I::Fload3 | I::FloadW(_) => "fload",
+        I::Dload(_) | I::Dload0 | I::Dload1 | I::Dload2 | I::Dload3 | I::DloadW(_) => "dload",
+        I::Aload(_) | I::Aload0 | I::Aload1 | I::Aload2 | I::Aload3 | I::AloadW(_) => "aload",
+        I::Istore(_) | I::Istore0 | I::Istore1 | I::Istore2 | I::Istore3 | I::IstoreW(_) => {
+            "istore"
+        }
+        I::Lstore(_) | I::Lstore0 | I::Lstore1 | I::Lstore2 | I::Lstore3 | I::LstoreW(_) => {
+            "lstore"
+        }
+        I::Fstore(_) | I::Fstore0 | I::Fstore1 | I::Fstore2 | I::Fstore3 | I::FstoreW(_) => {
+            "fstore"
+        }
+        I::Dstore(_) | I::Dstore0 | I::Dstore1 | I::Dstore2 | I::Dstore3 | I::DstoreW(_) => {
+            "dstore"
+        }
+        I::Astore(_) | I::Astore0 | I::Astore1 | I::Astore2 | I::Astore3 | I::AstoreW(_) => {
+            "astore"
+        }
+        I::Iaload => "iaload",
+        I::Laload => "laload",
+        I::Faload => "faload",
+        I::Daload => "daload",
+        I::Aaload => "aaload",
+        I::Baload => "baload",
+        I::Caload => "caload",
+        I::Saload => "saload",
+        I::Iastore => "iastore",
+        I::Lastore => "lastore",
+        I::Fastore => "fastore",
+        I::Dastore => "dastore",
+        I::Aastore => "aastore",
+        I::Bastore => "bastore",
+        I::Castore => "castore",
+        I::Sastore => "sastore",
+        I::Pop => "pop",
+        I::Pop2 => "pop2",
+        I::Dup => "dup",
+        I::DupX1 => "dup_x1",
+        I::DupX2 => "dup_x2",
+        I::Dup2 => "dup2",
+        I::Dup2X1 => "dup2_x1",
+        I::Dup2X2 => "dup2_x2",
+        I::Swap => "swap",
+        I::Iadd => "iadd",
+        I::Ladd => "ladd",
+        I::Fadd => "fadd",
+        I::Dadd => "dadd",
+        I::Isub => "isub",
+        I::Lsub => "lsub",
+        I::Fsub => "fsub",
+        I::Dsub => "dsub",
+        I::Imul => "imul",
+        I::Lmul => "lmul",
+        I::Fmul => "fmul",
+        I::Dmul => "dmul",
+        I::Idiv => "idiv",
+        I::Ldiv => "ldiv",
+        I::Fdiv => "fdiv",
+        I::Ddiv => "ddiv",
+        I::Irem => "irem",
+        I::Lrem => "lrem",
+        I::Frem => "frem",
+        I::Drem => "drem",
+        I::Ineg => "ineg",
+        I::Lneg => "lneg",
+        I::Fneg => "fneg",
+        I::Dneg => "dneg",
+        I::Ishl => "ishl",
+        I::Lshl => "lshl",
+        I::Ishr => "ishr",
+        I::Lshr => "lshr",
+        I::Iushr => "iushr",
+        I::Lushr => "lushr",
+        I::Iand => "iand",
+        I::Land => "land",
+        I::Ior => "ior",
+        I::Lor => "lor",
+        I::Ixor => "ixor",
+        I::Lxor => "lxor",
+        I::Iinc { .. } | I::IincW { .. } => "iinc",
+        I::I2l => "i2l",
+        I::I2f => "i2f",
+        I::I2d => "i2d",
+        I::L2i => "l2i",
+        I::L2f => "l2f",
+        I::L2d => "l2d",
+        I::F2i => "f2i",
+        I::F2l => "f2l",
+        I::F2d => "f2d",
+        I::D2i => "d2i",
+        I::D2l => "d2l",
+        I::D2f => "d2f",
+        I::I2b => "i2b",
+        I::I2c => "i2c",
+        I::I2s => "i2s",
+        I::Lcmp => "lcmp",
+        I::Fcmpl => "fcmpl",
+        I::Fcmpg => "fcmpg",
+        I::Dcmpl => "dcmpl",
+        I::Dcmpg => "dcmpg",
+        I::Ifeq(_) | I::Ifne(_) | I::Iflt(_) | I::Ifge(_) | I::Ifgt(_) | I::Ifle(_) => "if_<cond>",
+        I::IfIcmpeq(_)
+        | I::IfIcmpne(_)
+        | I::IfIcmplt(_)
+        | I::IfIcmpge(_)
+        | I::IfIcmpgt(_)
+        | I::IfIcmple(_) => "if_icmp<cond>",
+        I::IfAcmpeq(_) | I::IfAcmpne(_) => "if_acmp<cond>",
+        I::Goto(_) | I::GotoW(_) => "goto",
+        I::Jsr(_) | I::JsrW(_) => "jsr",
+        I::Ret(_) | I::RetW(_) => "ret",
+        I::Tableswitch { .. } => "tableswitch",
+        I::Lookupswitch { .. } => "lookupswitch",
+        I::Ireturn => "ireturn",
+        I::Lreturn => "lreturn",
+        I::Freturn => "freturn",
+        I::Dreturn => "dreturn",
+        I::Areturn => "areturn",
+        I::Return => "return",
+        I::Getstatic(_) => "getstatic",
+        I::Putstatic(_) => "putstatic",
+        I::Getfield(_) => "getfield",
+        I::Putfield(_) => "putfield",
+        I::Invokevirtual(_) => "invokevirtual",
+        I::Invokespecial(_) => "invokespecial",
+        I::Invokestatic(_) => "invokestatic",
+        I::Invokeinterface { .. } => "invokeinterface",
+        I::Invokedynamic(_) => "invokedynamic",
+        I::New(_) => "new",
+        I::Newarray(_) => "newarray",
+        I::Anewarray(_) => "anewarray",
+        I::Arraylength => "arraylength",
+        I::Athrow => "athrow",
+        I::Checkcast(_) => "checkcast",
+        I::Instanceof(_) => "instanceof",
+        I::Monitorenter => "monitorenter",
+        I::Monitorexit => "monitorexit",
+        I::Multianewarray { .. } => "multianewarray",
+        I::Ifnull(_) | I::Ifnonnull(_) => "ifnull/nonnull",
+    }
+}
+
 /// Execute a static method by name within a loaded class context.
 ///
 /// Supports `invokestatic` calls between methods in the same class.
@@ -4712,6 +4870,8 @@ pub fn execute_class(
     ensure_initialized(registry, loader, heap, stdout, class_name)?;
 
     let mut current_class = class_name.to_string();
+    #[cfg(feature = "telemetry")]
+    let mut current_method = method_name.to_string();
     let mut call_stack: Vec<CallFrame> = Vec::new();
     let mut frame_pool = FramePool::new();
     // Dispatch cache: caller_class_name -> cp_idx -> (callee_class_name, method_idx, arg_count).
@@ -4768,6 +4928,18 @@ pub fn execute_class(
                         pc_to_idx = caller.pc_to_idx;
                         idx = caller.resume_idx;
                         current_class = caller.class_name;
+                        #[cfg(feature = "telemetry")]
+                        {
+                            current_method = registry
+                                .get(&current_class)
+                                .map(|c| {
+                                    c.methods
+                                        .get(method_idx)
+                                        .map(|m| m.name.clone())
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or_default();
+                        }
                         if let Some(v) = ret_val {
                             frame.push(v)?;
                         }
@@ -4776,6 +4948,16 @@ pub fn execute_class(
                 }
             }};
         }
+
+        // Telemetry: capture opcode name and start time before dispatch.
+        // Arms that use `continue` (branches, invokes) will skip the post-match
+        // recording for that iteration — timing is approximate for those opcodes.
+        #[cfg(feature = "telemetry")]
+        let (_telem_name, _telem_pc, _telem_start) = {
+            let name = instr_name(&instr);
+            let pc_val = pc;
+            (name, pc_val, std::time::Instant::now())
+        };
 
         match &instr {
             // ---- invokestatic ----
@@ -4817,6 +4999,18 @@ pub fn execute_class(
                     method_idx = callee_idx;
                     pc_to_idx = callee_pc_to_idx;
                     current_class = callee_class;
+                    #[cfg(feature = "telemetry")]
+                    {
+                        current_method = registry
+                            .get(&current_class)
+                            .map(|c| {
+                                c.methods
+                                    .get(method_idx)
+                                    .map(|m| m.name.clone())
+                                    .unwrap_or_default()
+                            })
+                            .unwrap_or_default();
+                    }
                     idx = 0;
                     continue;
                 }
@@ -4870,6 +5064,18 @@ pub fn execute_class(
                         method_idx = callee_idx;
                         pc_to_idx = callee_pc_to_idx;
                         current_class = callee_class;
+                        #[cfg(feature = "telemetry")]
+                        {
+                            current_method = registry
+                                .get(&current_class)
+                                .map(|c| {
+                                    c.methods
+                                        .get(method_idx)
+                                        .map(|m| m.name.clone())
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or_default();
+                        }
                         idx = 0;
                         continue;
                     }
@@ -5753,6 +5959,18 @@ pub fn execute_class(
                         method_idx = callee_idx;
                         pc_to_idx = callee_pc_to_idx;
                         current_class = dispatch_class;
+                        #[cfg(feature = "telemetry")]
+                        {
+                            current_method = registry
+                                .get(&current_class)
+                                .map(|c| {
+                                    c.methods
+                                        .get(method_idx)
+                                        .map(|m| m.name.clone())
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or_default();
+                        }
                         idx = 0;
                         continue;
                     }
@@ -5854,6 +6072,18 @@ pub fn execute_class(
                                     method_idx = impl_idx;
                                     pc_to_idx = callee_pc_to_idx;
                                     current_class = dispatch_class;
+                                    #[cfg(feature = "telemetry")]
+                                    {
+                                        current_method = registry
+                                            .get(&current_class)
+                                            .map(|c| {
+                                                c.methods
+                                                    .get(method_idx)
+                                                    .map(|m| m.name.clone())
+                                                    .unwrap_or_default()
+                                            })
+                                            .unwrap_or_default();
+                                    }
                                     idx = 0;
                                     continue;
                                 }
@@ -5955,6 +6185,18 @@ pub fn execute_class(
                 method_idx = callee_idx;
                 pc_to_idx = callee_pc_to_idx;
                 current_class = dispatch_class;
+                #[cfg(feature = "telemetry")]
+                {
+                    current_method = registry
+                        .get(&current_class)
+                        .map(|c| {
+                            c.methods
+                                .get(method_idx)
+                                .map(|m| m.name.clone())
+                                .unwrap_or_default()
+                        })
+                        .unwrap_or_default();
+                }
                 idx = 0;
                 continue;
             }
@@ -6398,6 +6640,18 @@ pub fn execute_class(
                             method_idx = caller.method_idx;
                             pc_to_idx = caller.pc_to_idx;
                             current_class = caller.class_name;
+                            #[cfg(feature = "telemetry")]
+                            {
+                                current_method = registry
+                                    .get(&current_class)
+                                    .map(|c| {
+                                        c.methods
+                                            .get(method_idx)
+                                            .map(|m| m.name.clone())
+                                            .unwrap_or_default()
+                                    })
+                                    .unwrap_or_default();
+                            }
 
                             // Clone exception table and compute caller_pc before hierarchy check.
                             let (caller_exc_table, caller_pc) = {
@@ -6745,6 +6999,18 @@ pub fn execute_class(
                                         method_idx = impl_idx;
                                         pc_to_idx = callee_pc_to_idx;
                                         current_class = dispatch_class;
+                                        #[cfg(feature = "telemetry")]
+                                        {
+                                            current_method = registry
+                                                .get(&current_class)
+                                                .map(|c| {
+                                                    c.methods
+                                                        .get(method_idx)
+                                                        .map(|m| m.name.clone())
+                                                        .unwrap_or_default()
+                                                })
+                                                .unwrap_or_default();
+                                        }
                                         idx = 0;
                                         continue;
                                     }
@@ -6788,6 +7054,18 @@ pub fn execute_class(
                                         method_idx = impl_idx;
                                         pc_to_idx = callee_pc_to_idx;
                                         current_class = dispatch_class;
+                                        #[cfg(feature = "telemetry")]
+                                        {
+                                            current_method = registry
+                                                .get(&current_class)
+                                                .map(|c| {
+                                                    c.methods
+                                                        .get(method_idx)
+                                                        .map(|m| m.name.clone())
+                                                        .unwrap_or_default()
+                                                })
+                                                .unwrap_or_default();
+                                        }
                                         idx = 0;
                                         continue;
                                     }
@@ -6852,6 +7130,18 @@ pub fn execute_class(
                 method_idx = callee_idx;
                 pc_to_idx = callee_pc_to_idx;
                 current_class = dispatch_class;
+                #[cfg(feature = "telemetry")]
+                {
+                    current_method = registry
+                        .get(&current_class)
+                        .map(|c| {
+                            c.methods
+                                .get(method_idx)
+                                .map(|m| m.name.clone())
+                                .unwrap_or_default()
+                        })
+                        .unwrap_or_default();
+                }
                 idx = 0;
                 continue;
             }
@@ -6919,6 +7209,18 @@ pub fn execute_class(
                     mnemonic: other.mnemonic(),
                 });
             }
+        }
+
+        #[cfg(feature = "telemetry")]
+        {
+            let elapsed = _telem_start.elapsed().as_nanos() as u64;
+            registry.telemetry.bytecode_cost.record(
+                _telem_name,
+                &current_class,
+                &current_method,
+                _telem_pc,
+                elapsed,
+            );
         }
 
         idx += 1;
@@ -12980,5 +13282,15 @@ mod tests {
         assert_eq!(fib, 75025);
         // benchSum overflows i32: sum(0..499999) = 124999750000 → wraps to 445698416
         assert_eq!(sum, 445698416_i32);
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn telemetry_bytecode_cost_counts_iadd() {
+        // benchSum adds integers in a loop 0..500_000 (500_000 iadd ops).
+        let (result, registry) = run_fixture("BenchmarkSuite.class", "benchSum", "()I");
+        assert_eq!(result, Some(Slot::Int(445_698_416)));
+        let stat = &registry.telemetry.bytecode_cost.by_opcode["iadd"];
+        assert_eq!(stat.count, 500_000);
     }
 }
