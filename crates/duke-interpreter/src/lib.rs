@@ -4710,9 +4710,10 @@ pub fn execute_class(
     let mut current_class = class_name.to_string();
     let mut call_stack: Vec<CallFrame> = Vec::new();
     let mut frame_pool = FramePool::new();
-    // Dispatch cache: (caller_class_name, cp_idx) -> (callee_class_name, method_idx, arg_count).
+    // Dispatch cache: caller_class_name -> cp_idx -> (callee_class_name, method_idx, arg_count).
+    // Nested map lets the outer lookup borrow current_class as &str (no clone on cache hits).
     // Eliminates repeated CP 3-level walk + linear method search for repeat static/special call sites.
-    let mut dispatch_cache: HashMap<(String, u16), (String, usize, usize)> = HashMap::new();
+    let mut dispatch_cache: HashMap<String, HashMap<u16, (String, usize, usize)>> = HashMap::new();
     let mut method_idx = entry_idx;
     let mut pc_to_idx = {
         let ctx = registry.get(&current_class)?;
@@ -4775,9 +4776,9 @@ pub fn execute_class(
         match &instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
-                let cache_key = (current_class.clone(), cp_idx.0);
-                if let Some(&(ref cached_cls, cached_idx, cached_ac)) =
-                    dispatch_cache.get(&cache_key)
+                if let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
+                    .get(current_class.as_str())
+                    .and_then(|m| m.get(&cp_idx.0))
                 {
                     // Fast path: cache hit — skip CP walk and method search.
                     let (callee_pc_to_idx, callee_frame) = {
@@ -4832,7 +4833,9 @@ pub fn execute_class(
                     Some(callee_idx) => {
                         let arg_count = parse_arg_count(&callee_desc);
                         dispatch_cache
-                            .insert(cache_key, (callee_class.clone(), callee_idx, arg_count));
+                            .entry(current_class.clone())
+                            .or_default()
+                            .insert(cp_idx.0, (callee_class.clone(), callee_idx, arg_count));
                         let (callee_pc_to_idx, callee_frame) = {
                             let ctx = registry.get(&callee_class)?;
                             let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
@@ -5709,9 +5712,9 @@ pub fn execute_class(
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
                 // Fast path: cache hit for invokespecial (static dispatch — safe to cache).
                 if matches!(instr, Instruction::Invokespecial(_)) {
-                    let cache_key = (current_class.clone(), cp_idx.0);
-                    if let Some(&(ref cached_cls, cached_idx, cached_ac)) =
-                        dispatch_cache.get(&cache_key)
+                    if let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
+                        .get(current_class.as_str())
+                        .and_then(|m| m.get(&cp_idx.0))
                     {
                         let (callee_pc_to_idx, callee_frame) = {
                             let ctx = registry.get(cached_cls)?;
@@ -5911,9 +5914,10 @@ pub fn execute_class(
                 let arg_count = parse_arg_count(&callee_desc);
                 // Populate dispatch cache for invokespecial (static dispatch — result is stable).
                 if matches!(instr, Instruction::Invokespecial(_)) {
-                    let cache_key = (current_class.clone(), cp_idx.0);
                     dispatch_cache
-                        .insert(cache_key, (dispatch_class.clone(), callee_idx, arg_count));
+                        .entry(current_class.clone())
+                        .or_default()
+                        .insert(cp_idx.0, (dispatch_class.clone(), callee_idx, arg_count));
                 }
                 let (callee_pc_to_idx, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
