@@ -4710,6 +4710,9 @@ pub fn execute_class(
     let mut current_class = class_name.to_string();
     let mut call_stack: Vec<CallFrame> = Vec::new();
     let mut frame_pool = FramePool::new();
+    // Dispatch cache: (caller_class_name, cp_idx) -> (callee_class_name, method_idx, arg_count).
+    // Eliminates repeated CP 3-level walk + linear method search for repeat static/special call sites.
+    let mut dispatch_cache: HashMap<(String, u16), (String, usize, usize)> = HashMap::new();
     let mut method_idx = entry_idx;
     let mut pc_to_idx = {
         let ctx = registry.get(&current_class)?;
@@ -4772,6 +4775,47 @@ pub fn execute_class(
         match &instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
+                let cache_key = (current_class.clone(), cp_idx.0);
+                if let Some(&(ref cached_cls, cached_idx, cached_ac)) =
+                    dispatch_cache.get(&cache_key)
+                {
+                    // Fast path: cache hit — skip CP walk and method search.
+                    let (callee_pc_to_idx, callee_frame) = {
+                        let ctx = registry.get(cached_cls)?;
+                        let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
+                        let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
+                        let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
+                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                        locals_buf.resize(max_locals, Slot::Int(0));
+                        if cached_ac > max_locals {
+                            return Err(VmError::LocalOutOfBounds {
+                                index: cached_ac,
+                                max_locals,
+                            });
+                        }
+                        for i in (0..cached_ac).rev() {
+                            locals_buf[i] = frame.pop()?;
+                        }
+                        let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                        (pci, f)
+                    };
+                    let callee_class = cached_cls.clone();
+                    let callee_idx = cached_idx;
+                    call_stack.push(CallFrame {
+                        frame,
+                        method_idx,
+                        pc_to_idx,
+                        resume_idx: idx + 1,
+                        class_name: current_class.clone(),
+                    });
+                    frame = callee_frame;
+                    method_idx = callee_idx;
+                    pc_to_idx = callee_pc_to_idx;
+                    current_class = callee_class;
+                    idx = 0;
+                    continue;
+                }
+                // Slow path: full CP resolution + method search.
                 let (callee_class, callee_name, callee_desc) = {
                     let ctx = registry.get(&current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
@@ -4787,6 +4831,8 @@ pub fn execute_class(
                 match callee_idx {
                     Some(callee_idx) => {
                         let arg_count = parse_arg_count(&callee_desc);
+                        dispatch_cache
+                            .insert(cache_key, (callee_class.clone(), callee_idx, arg_count));
                         let (callee_pc_to_idx, callee_frame) = {
                             let ctx = registry.get(&callee_class)?;
                             let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
@@ -5661,6 +5707,49 @@ pub fn execute_class(
             // the Methodref.  Dispatch cross-class via registry; unloadable
             // classes (e.g. java/lang/Object) fall back to no-op.
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
+                // Fast path: cache hit for invokespecial (static dispatch — safe to cache).
+                if matches!(instr, Instruction::Invokespecial(_)) {
+                    let cache_key = (current_class.clone(), cp_idx.0);
+                    if let Some(&(ref cached_cls, cached_idx, cached_ac)) =
+                        dispatch_cache.get(&cache_key)
+                    {
+                        let (callee_pc_to_idx, callee_frame) = {
+                            let ctx = registry.get(cached_cls)?;
+                            let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
+                            let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
+                            let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
+                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                            locals_buf.resize(max_locals, Slot::Int(0));
+                            if cached_ac + 1 > max_locals {
+                                return Err(VmError::LocalOutOfBounds {
+                                    index: cached_ac + 1,
+                                    max_locals,
+                                });
+                            }
+                            for i in (1..=cached_ac).rev() {
+                                locals_buf[i] = frame.pop()?;
+                            }
+                            locals_buf[0] = frame.pop()?; // `this`
+                            let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                            (pci, f)
+                        };
+                        let dispatch_class = cached_cls.clone();
+                        let callee_idx = cached_idx;
+                        call_stack.push(CallFrame {
+                            frame,
+                            method_idx,
+                            pc_to_idx,
+                            resume_idx: idx + 1,
+                            class_name: current_class.clone(),
+                        });
+                        frame = callee_frame;
+                        method_idx = callee_idx;
+                        pc_to_idx = callee_pc_to_idx;
+                        current_class = dispatch_class;
+                        idx = 0;
+                        continue;
+                    }
+                }
                 let (callee_class, callee_name, callee_desc) = {
                     let ctx = registry.get(&current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
@@ -5820,6 +5909,12 @@ pub fn execute_class(
                     }
                 };
                 let arg_count = parse_arg_count(&callee_desc);
+                // Populate dispatch cache for invokespecial (static dispatch — result is stable).
+                if matches!(instr, Instruction::Invokespecial(_)) {
+                    let cache_key = (current_class.clone(), cp_idx.0);
+                    dispatch_cache
+                        .insert(cache_key, (dispatch_class.clone(), callee_idx, arg_count));
+                }
                 let (callee_pc_to_idx, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
@@ -12840,5 +12935,14 @@ mod tests {
     fn dispatch_cache_fib_correctness() {
         let result = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
         assert_eq!(result, 75025);
+    }
+
+    #[test]
+    fn dispatch_cache_invokestatic_multiple_methods() {
+        let sum = run_bootstrap_int("BenchmarkSuite.class", "benchSum", "()I");
+        let fib = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
+        assert_eq!(fib, 75025);
+        // benchSum overflows i32: sum(0..499999) = 124999750000 → wraps to 445698416
+        assert_eq!(sum, 445698416_i32);
     }
 }
