@@ -21,6 +21,8 @@ pub struct MethodEntry {
     pub max_stack: u16,
     pub max_locals: u16,
     pub exception_table: Vec<ExceptionEntry>,
+    /// Precomputed PC → instruction-index map, shared cheaply via Arc.
+    pub pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
 }
 
 /// A field declaration extracted from a parsed class.
@@ -4709,14 +4711,9 @@ pub fn execute_class(
     let mut call_stack: Vec<CallFrame> = Vec::new();
     let mut frame_pool = FramePool::new();
     let mut method_idx = entry_idx;
-    let mut pc_to_idx: HashMap<usize, usize> = {
+    let mut pc_to_idx = {
         let ctx = registry.get(&current_class)?;
-        ctx.methods[method_idx]
-            .instructions
-            .iter()
-            .enumerate()
-            .map(|(i, &(pc, _))| (pc, i))
-            .collect()
+        std::sync::Arc::clone(&ctx.methods[method_idx].pc_to_idx)
     };
     let mut frame = {
         let ctx = registry.get(&current_class)?;
@@ -4794,12 +4791,7 @@ pub fn execute_class(
                             let ctx = registry.get(&callee_class)?;
                             let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                             let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
-                            let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
-                                .instructions
-                                .iter()
-                                .enumerate()
-                                .map(|(i, &(pc, _))| (pc, i))
-                                .collect();
+                            let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
                             let (mut locals_buf, stack_buf) = frame_pool.acquire();
                             locals_buf.resize(max_locals, Slot::Int(0));
                             if arg_count > max_locals {
@@ -5744,20 +5736,15 @@ pub fn execute_class(
                                             usize::from(ctx.methods[impl_idx].max_locals);
                                         let max_stack =
                                             usize::from(ctx.methods[impl_idx].max_stack);
-                                        let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
-                                            .instructions
-                                            .iter()
-                                            .enumerate()
-                                            .map(|(i, &(pc, _))| (pc, i))
-                                            .collect();
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
                                         }
-                                        let f = Frame::from_pool_bufs(
-                                            locals_buf, stack_buf, max_stack,
-                                        );
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -5837,12 +5824,7 @@ pub fn execute_class(
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                     let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
-                    let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
-                        .instructions
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &(pc, _))| (pc, i))
-                        .collect();
+                    let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
@@ -6636,14 +6618,10 @@ pub fn execute_class(
                                                 usize::from(ctx.methods[impl_idx].max_locals);
                                             let max_stack =
                                                 usize::from(ctx.methods[impl_idx].max_stack);
-                                            let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
-                                                .instructions
-                                                .iter()
-                                                .enumerate()
-                                                .map(|(i, &(pc, _))| (pc, i))
-                                                .collect();
-                                            let (mut locals_buf, stack_buf) =
-                                                frame_pool.acquire();
+                                            let pci = std::sync::Arc::clone(
+                                                &ctx.methods[impl_idx].pc_to_idx,
+                                            );
+                                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                             locals_buf.resize(max_locals, Slot::Int(0));
                                             for (i, slot) in impl_args.into_iter().enumerate() {
                                                 locals_buf[i] = slot;
@@ -6683,14 +6661,10 @@ pub fn execute_class(
                                                 usize::from(ctx.methods[impl_idx].max_locals);
                                             let max_stack =
                                                 usize::from(ctx.methods[impl_idx].max_stack);
-                                            let pci: HashMap<usize, usize> = ctx.methods[impl_idx]
-                                                .instructions
-                                                .iter()
-                                                .enumerate()
-                                                .map(|(i, &(pc, _))| (pc, i))
-                                                .collect();
-                                            let (mut locals_buf, stack_buf) =
-                                                frame_pool.acquire();
+                                            let pci = std::sync::Arc::clone(
+                                                &ctx.methods[impl_idx].pc_to_idx,
+                                            );
+                                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                             locals_buf.resize(max_locals, Slot::Int(0));
                                             for (i, slot) in impl_args.into_iter().enumerate() {
                                                 locals_buf[i] = slot;
@@ -6747,12 +6721,7 @@ pub fn execute_class(
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                     let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
-                    let pci: HashMap<usize, usize> = ctx.methods[callee_idx]
-                        .instructions
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &(pc, _))| (pc, i))
-                        .collect();
+                    let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
@@ -6857,7 +6826,7 @@ pub fn execute_class(
 struct CallFrame {
     frame: Frame,
     method_idx: usize,
-    pc_to_idx: HashMap<usize, usize>,
+    pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
     resume_idx: usize,
     /// Class that was executing when this frame was pushed.
     class_name: String,
@@ -6945,6 +6914,11 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                     }
                 })
                 .collect();
+            let pc_to_idx_map: std::collections::HashMap<usize, usize> = instructions
+                .iter()
+                .enumerate()
+                .map(|(i, &(pc, _))| (pc, i))
+                .collect();
             Some(MethodEntry {
                 name,
                 descriptor,
@@ -6952,6 +6926,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                 max_stack: code.max_stack,
                 max_locals: code.max_locals,
                 exception_table,
+                pc_to_idx: std::sync::Arc::new(pc_to_idx_map),
             })
         })
         .collect();
@@ -12857,6 +12832,12 @@ mod tests {
     fn frame_pool_does_not_change_fib_result() {
         // Regression guard: pool reuse must not corrupt frame state.
         // fib(25) = 75025 — stale locals between pool reuses would produce wrong answer.
+        let result = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
+        assert_eq!(result, 75025);
+    }
+
+    #[test]
+    fn dispatch_cache_fib_correctness() {
         let result = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
         assert_eq!(result, 75025);
     }
