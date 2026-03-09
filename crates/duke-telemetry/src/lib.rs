@@ -1,5 +1,62 @@
 use std::collections::{HashMap, HashSet};
 
+// -- Serialization helpers for tuple-keyed HashMaps ------------------------------
+// serde_json requires map keys to be strings. These helpers format tuple keys
+// as strings before serializing.
+
+#[cfg(feature = "telemetry")]
+mod ser_helpers {
+    use std::collections::HashMap;
+
+    use serde::Serialize;
+
+    /// Serialize `HashMap<(String, String, usize), V>` with key `"class::method@pc"`.
+    pub fn site3<V: Serialize, S: serde::Serializer>(
+        map: &HashMap<(String, String, usize), V>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let string_map: HashMap<String, &V> = map
+            .iter()
+            .map(|((c, m, pc), v)| (format!("{c}::{m}@{pc}"), v))
+            .collect();
+        string_map.serialize(ser)
+    }
+
+    /// Serialize `HashMap<(String, u16), V>` with key `"class@cp"`.
+    pub fn site2_u16<V: Serialize, S: serde::Serializer>(
+        map: &HashMap<(String, u16), V>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let string_map: HashMap<String, &V> = map
+            .iter()
+            .map(|((c, cp), v)| (format!("{c}@{cp}"), v))
+            .collect();
+        string_map.serialize(ser)
+    }
+
+    /// Serialize `HashMap<(String, String), V>` with key `"class::method"`.
+    pub fn pair_str<V: Serialize, S: serde::Serializer>(
+        map: &HashMap<(String, String), V>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let string_map: HashMap<String, &V> = map
+            .iter()
+            .map(|((c, m), v)| (format!("{c}::{m}"), v))
+            .collect();
+        string_map.serialize(ser)
+    }
+
+    /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
+    pub fn sorted_set<S: serde::Serializer>(
+        set: &std::collections::HashSet<String>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut v: Vec<&String> = set.iter().collect();
+        v.sort();
+        v.serialize(ser)
+    }
+}
+
 // -- bytecode_cost ---------------------------------------------------------------
 
 #[derive(Debug, Default, Clone)]
@@ -15,6 +72,7 @@ pub struct BytecodeCostStore {
     /// Count/time per opcode name (e.g. "invokestatic", "iadd").
     pub by_opcode: HashMap<&'static str, OpcodeStat>,
     /// Count/time per bytecode site: (class_name, method_name, pc).
+    #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
     pub by_site: HashMap<(String, String, usize), OpcodeStat>,
 }
 
@@ -52,6 +110,7 @@ pub struct AllocationSite {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ObjectLineageStore {
     /// Key: (allocating_class, allocating_method, pc).
+    #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
     pub sites: HashMap<(String, String, usize), AllocationSite>,
 }
 
@@ -163,6 +222,10 @@ impl ExceptionFlowStore {
 pub struct DispatchStat {
     pub calls: u64,
     /// Distinct runtime receiver classes seen at this call site.
+    #[cfg_attr(
+        feature = "telemetry",
+        serde(serialize_with = "ser_helpers::sorted_set")
+    )]
     pub unique_targets: HashSet<String>,
     /// How many calls required a superclass hierarchy walk to find the method.
     pub hierarchy_walks: u64,
@@ -172,6 +235,10 @@ pub struct DispatchStat {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct DispatchResolutionStore {
     /// Key: (caller_class, cp_idx).
+    #[cfg_attr(
+        feature = "telemetry",
+        serde(serialize_with = "ser_helpers::site2_u16")
+    )]
     pub by_site: HashMap<(String, u16), DispatchStat>,
 }
 
@@ -211,6 +278,10 @@ pub struct NativeStat {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct NativeBoundaryStore {
     /// Key: (class_name, method_name).
+    #[cfg_attr(
+        feature = "telemetry",
+        serde(serialize_with = "ser_helpers::pair_str")
+    )]
     pub by_method: HashMap<(String, String), NativeStat>,
 }
 

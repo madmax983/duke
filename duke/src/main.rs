@@ -10,14 +10,36 @@ use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, exe
 use duke_loader::{ClassLoader, DirectoryLoader};
 use duke_runtime::{Slot, VmError};
 
+/// Parse `--telemetry` or `--telemetry=<path>` from args, removing it in place.
+/// Returns `None` (no telemetry), `Some(None)` (dump to stdout), or
+/// `Some(Some(path))` (dump to file).
+fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<Option<String>> {
+    let mut result = None;
+    args.retain(|arg| {
+        if arg == "--telemetry" {
+            result = Some(None);
+            false
+        } else if let Some(path) = arg.strip_prefix("--telemetry=") {
+            result = Some(Some(path.to_string()));
+            false
+        } else {
+            true
+        }
+    });
+    result
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let telemetry = extract_telemetry_flag(&mut args);
+
     if args.len() < 2 {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
+        eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         process::exit(1);
     }
 
@@ -29,13 +51,13 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..]);
+        exec_method(&args[2..], telemetry);
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..]);
+        run_main(&args[2..], telemetry);
         return;
     }
 
@@ -65,6 +87,28 @@ fn main() {
     }
 }
 
+/// Emit telemetry JSON to the configured destination (stdout or file).
+#[cfg(feature = "telemetry")]
+fn emit_telemetry(registry: &ClassRegistry, dest: Option<Option<String>>) {
+    let Some(dest) = dest else { return };
+    let json = registry.telemetry.to_json();
+    match dest {
+        None => println!("{json}"),
+        Some(path) => {
+            if let Err(e) = std::fs::write(&path, &json) {
+                eprintln!("duke: failed to write telemetry to '{path}': {e}");
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "telemetry"))]
+fn emit_telemetry(_registry: &ClassRegistry, dest: Option<Option<String>>) {
+    if dest.is_some() {
+        eprintln!("duke: --telemetry flag requires the 'telemetry' feature (rebuild with --features telemetry)");
+    }
+}
+
 /// `duke load <ClassName>` — load a class by internal name from the current
 /// directory and dump its structure.
 ///
@@ -89,7 +133,7 @@ fn load_and_dump(class_name: &str) {
 /// `duke exec <classfile.class> <method> [int-arg...]`
 ///
 /// Parses and executes a static method, printing the return value.
-fn exec_method(args: &[String]) {
+fn exec_method(args: &[String], telemetry: Option<Option<String>>) {
     if args.len() < 2 {
         eprintln!("Usage: duke exec <classfile.class> <method> [int-arg...]");
         process::exit(1);
@@ -161,6 +205,7 @@ fn exec_method(args: &[String]) {
         Ok(Some(result)) => println!("{result:?}"),
         Ok(None) => println!("(void)"),
         Err(VmError::SystemExit { code }) => {
+            emit_telemetry(&registry, telemetry);
             process::exit(code);
         }
         Err(e) => {
@@ -168,6 +213,7 @@ fn exec_method(args: &[String]) {
             process::exit(1);
         }
     }
+    emit_telemetry(&registry, telemetry);
 }
 
 // ---------------------------------------------------------------------------
@@ -177,7 +223,7 @@ fn exec_method(args: &[String]) {
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
-fn run_main(args: &[String]) {
+fn run_main(args: &[String], telemetry: Option<Option<String>>) {
     if args.is_empty() {
         eprintln!("Usage: duke run <classfile.class> [string-arg...]");
         process::exit(1);
@@ -232,6 +278,7 @@ fn run_main(args: &[String]) {
     ) {
         Ok(_) => {}
         Err(VmError::SystemExit { code }) => {
+            emit_telemetry(&registry, telemetry);
             process::exit(code);
         }
         Err(e) => {
@@ -239,6 +286,7 @@ fn run_main(args: &[String]) {
             process::exit(1);
         }
     }
+    emit_telemetry(&registry, telemetry);
 }
 
 // ---------------------------------------------------------------------------

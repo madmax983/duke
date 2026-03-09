@@ -4598,12 +4598,14 @@ pub fn execute(
 /// Ensure a class is initialized. Runs `<clinit>` if present and not yet run.
 ///
 /// Must be called before first active use of a class (new, getstatic, putstatic, invokestatic).
+/// `triggered_by` names the class that caused this init (empty string for the entry-point class).
 fn ensure_initialized(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
+    triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -4624,6 +4626,8 @@ fn ensure_initialized(
 
     if has_clinit {
         // Run <clinit> by calling it through execute_class.
+        #[cfg(feature = "telemetry")]
+        let _clinit_start = std::time::Instant::now();
         execute_class(
             registry,
             loader,
@@ -4634,6 +4638,12 @@ fn ensure_initialized(
             "()V",
             &[],
         )?;
+        #[cfg(feature = "telemetry")]
+        registry.telemetry.class_init_dag.record(
+            class_name,
+            triggered_by,
+            _clinit_start.elapsed().as_nanos() as u64,
+        );
     }
     Ok(())
 }
@@ -4867,7 +4877,7 @@ pub fn execute_class(
     };
 
     // Ensure the entry class has been initialized (<clinit> run).
-    ensure_initialized(registry, loader, heap, stdout, class_name)?;
+    ensure_initialized(registry, loader, heap, stdout, class_name, "")?;
 
     let mut current_class = class_name.to_string();
     #[cfg(feature = "telemetry")]
@@ -5020,7 +5030,7 @@ pub fn execute_class(
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&callee_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &callee_class)?;
+                ensure_initialized(registry, loader, heap, stdout, &callee_class, &current_class)?;
                 let callee_idx = {
                     let ctx = registry.get(&callee_class)?;
                     ctx.methods
@@ -5851,7 +5861,7 @@ pub fn execute_class(
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class)?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, &current_class)?;
                 // Walk the super chain to sum all instance field counts
                 // (e.g. Enum has 2 fields inherited by every enum subclass).
                 let field_count = {
@@ -5914,7 +5924,7 @@ pub fn execute_class(
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class)?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, &current_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 let val = registry.get(&target_class)?.static_fields[sidx].clone();
                 frame.push(val)?;
@@ -5926,7 +5936,7 @@ pub fn execute_class(
                 };
                 let val = frame.pop()?;
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class)?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, &current_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 registry.get_mut(&target_class)?.static_fields[sidx] = val;
             }
@@ -6149,12 +6159,22 @@ pub fn execute_class(
                             let _native_start = std::time::Instant::now();
                             let result = handler(&native_args, heap, stdout);
                             #[cfg(feature = "telemetry")]
-                            registry.telemetry.native_boundary.record_call(
-                                &callee_class,
-                                &callee_name,
-                                _native_start.elapsed().as_nanos() as u64,
-                                result.is_err(),
-                            );
+                            {
+                                registry.telemetry.native_boundary.record_call(
+                                    &callee_class,
+                                    &callee_name,
+                                    _native_start.elapsed().as_nanos() as u64,
+                                    result.is_err(),
+                                );
+                                if matches!(instr, Instruction::Invokevirtual(_)) {
+                                    registry.telemetry.dispatch_resolution.record(
+                                        &current_class,
+                                        cp_idx.0,
+                                        &callee_class,
+                                        false,
+                                    );
+                                }
+                            }
                             let result = result?;
                             if let Some(val) = result {
                                 frame.push(val)?;
@@ -6179,6 +6199,15 @@ pub fn execute_class(
                         .entry(current_class.clone())
                         .or_default()
                         .insert(cp_idx.0, (dispatch_class.clone(), callee_idx, arg_count));
+                }
+                #[cfg(feature = "telemetry")]
+                if matches!(instr, Instruction::Invokevirtual(_)) {
+                    registry.telemetry.dispatch_resolution.record(
+                        &current_class,
+                        cp_idx.0,
+                        &dispatch_class,
+                        dispatch_class != callee_class,
+                    );
                 }
                 let (callee_pc_to_idx, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
@@ -6981,12 +7010,20 @@ pub fn execute_class(
                                 let _native_start = std::time::Instant::now();
                                 let result = handler(&callee_args, heap, stdout);
                                 #[cfg(feature = "telemetry")]
-                                registry.telemetry.native_boundary.record_call(
-                                    &callee_class,
-                                    &callee_name,
-                                    _native_start.elapsed().as_nanos() as u64,
-                                    result.is_err(),
-                                );
+                                {
+                                    registry.telemetry.native_boundary.record_call(
+                                        &callee_class,
+                                        &callee_name,
+                                        _native_start.elapsed().as_nanos() as u64,
+                                        result.is_err(),
+                                    );
+                                    registry.telemetry.dispatch_resolution.record(
+                                        &current_class,
+                                        cp_idx.0,
+                                        &actual_class,
+                                        false,
+                                    );
+                                }
                                 let result = result?;
                                 if let Some(val) = result {
                                     frame.push(val)?;
@@ -7167,6 +7204,13 @@ pub fn execute_class(
                 };
 
                 // Bytecode execution path — Pattern B: pop directly into locals_buf.
+                #[cfg(feature = "telemetry")]
+                registry.telemetry.dispatch_resolution.record(
+                    &current_class,
+                    cp_idx.0,
+                    &dispatch_class,
+                    dispatch_class != actual_class,
+                );
                 let (callee_pc_to_idx, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
@@ -13423,5 +13467,48 @@ mod tests {
         // Two throw events: inner throw + rethrow
         assert!(events.len() >= 1);
         assert!(events.iter().all(|e| e.catch_site.is_some()));
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn telemetry_class_init_dag_records_clinit() {
+        // ClinitTest has a static initializer that sets VALUE = 42.
+        // Calling getValue() via invokestatic triggers ensure_initialized → <clinit>.
+        let (result, registry) = run_fixture("ClinitTest.class", "getValue", "()I");
+        assert_eq!(result, Some(Slot::Int(42)));
+        let events = &registry.telemetry.class_init_dag.events;
+        assert!(
+            !events.is_empty(),
+            "expected at least one class_init_dag event"
+        );
+        let ev = events
+            .iter()
+            .find(|e| e.class == "ClinitTest")
+            .expect("expected ClinitTest clinit event");
+        assert!(
+            ev.duration_ns > 0,
+            "clinit duration should be positive"
+        );
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn telemetry_dispatch_resolution_records_virtual_calls() {
+        // ForEachTest calls invokevirtual on ArrayList (add) and invokeinterface
+        // for the for-each iterator protocol (iterator, hasNext, next).
+        let (_, registry) = run_fixture("ForEachTest.class", "main", "([Ljava/lang/String;)V");
+        let dr = &registry.telemetry.dispatch_resolution;
+        // At least some virtual/interface dispatch sites must have been recorded.
+        assert!(
+            !dr.by_site.is_empty(),
+            "dispatch_resolution should have entries after ForEachTest"
+        );
+        // Every recorded site must have at least one call.
+        for ((cls, cp), stat) in &dr.by_site {
+            assert!(
+                stat.calls > 0,
+                "site {cls}[cp{cp}] should have calls > 0"
+            );
+        }
     }
 }

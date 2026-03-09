@@ -14,4 +14,7 @@ duke-bytecode = { path = "../crates/duke-bytecode" }
 duke-loader = { path = "../crates/duke-loader" }
 duke-runtime = { path = "../crates/duke-runtime" }
 duke-gc = { path = "../crates/duke-gc" }
-duke-interpreter = { path = "../crates/duke-interpreter" }
+duke-interpreter = { path = "../crates/duke-interpreter", features = [] }
+
+[features]
+telemetry = ["duke-interpreter/telemetry"]

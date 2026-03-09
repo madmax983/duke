@@ -255,6 +255,7 @@ dependencies = [
  "duke-gc",
  "duke-loader",
  "duke-runtime",
+ "duke-telemetry",
 ]
 
 [[package]]
@@ -271,6 +272,14 @@ name = "duke-runtime"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+]
+
+[[package]]
+name = "duke-telemetry"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
