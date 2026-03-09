@@ -1,5 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-use duke_interpreter::{bootstrap_stdlib, build_class_context, execute_class, ClassRegistry};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
 use duke_loader::DirectoryLoader;
 use std::path::PathBuf;
 
@@ -123,5 +123,12 @@ fn bench_bootstrap_only(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_sum, bench_fib, bench_arraylist, bench_hashmap, bench_bootstrap_only);
+criterion_group!(
+    benches,
+    bench_sum,
+    bench_fib,
+    bench_arraylist,
+    bench_hashmap,
+    bench_bootstrap_only
+);
 criterion_main!(benches);
