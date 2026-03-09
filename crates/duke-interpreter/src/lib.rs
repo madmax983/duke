@@ -6625,6 +6625,14 @@ pub fn execute_class(
                 let exception_ref = frame.pop_ref()?;
                 let exc_class_name = heap.get(exception_ref)?.class_name.clone();
 
+                #[cfg(feature = "telemetry")]
+                let _telem_exc_event_idx = registry.telemetry.exception_flow.record_throw(
+                    &exc_class_name,
+                    &current_class,
+                    &current_method,
+                    pc,
+                );
+
                 // Clone the exception table to release the borrow on registry,
                 // so find_exception_handler can use &mut registry for hierarchy checks.
                 let exc_table = registry.get(&current_class)?.methods[method_idx]
@@ -6640,6 +6648,13 @@ pub fn execute_class(
                 let handler =
                     find_exception_handler(&exc_table, pc, &exc_class_name, registry, loader);
                 if let Some(handler_pc) = handler {
+                    #[cfg(feature = "telemetry")]
+                    registry.telemetry.exception_flow.record_catch(
+                        _telem_exc_event_idx,
+                        &current_class,
+                        &current_method,
+                        handler_pc as usize,
+                    );
                     frame.clear_stack();
                     frame.push(Slot::Reference(Some(exception_ref)))?;
                     idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
@@ -6709,6 +6724,13 @@ pub fn execute_class(
                             );
 
                             if let Some(handler_pc) = handler {
+                                #[cfg(feature = "telemetry")]
+                                registry.telemetry.exception_flow.record_catch(
+                                    _telem_exc_event_idx,
+                                    &current_class,
+                                    &current_method,
+                                    handler_pc as usize,
+                                );
                                 frame.clear_stack();
                                 frame.push(Slot::Reference(Some(exception_ref)))?;
                                 idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
@@ -13379,5 +13401,27 @@ mod tests {
         let (_, s) = stat.unwrap();
         assert!(s.calls > 0);
         assert_eq!(s.errors, 0);
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn telemetry_exception_flow_records_throw_and_catch() {
+        let (result, registry) = run_fixture("ExceptionTest.class", "throwAndCatch", "()I");
+        assert_eq!(result, Some(Slot::Int(42)));
+        let events = &registry.telemetry.exception_flow.events;
+        assert_eq!(events.len(), 1);
+        assert!(events[0].exception_class.contains("RuntimeException"));
+        assert!(events[0].catch_site.is_some(), "exception should be caught");
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn telemetry_exception_flow_rethrow_caught() {
+        let (result, registry) = run_fixture("ExceptionTest.class", "rethrow", "()I");
+        assert_eq!(result, Some(Slot::Int(99)));
+        let events = &registry.telemetry.exception_flow.events;
+        // Two throw events: inner throw + rethrow
+        assert!(events.len() >= 1);
+        assert!(events.iter().all(|e| e.catch_site.is_some()));
     }
 }

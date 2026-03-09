@@ -67,4 +67,30 @@ public class ExceptionTest {
             return 99;
         }
     }
+
+    /**
+     * Throw and catch in same frame — alias for telemetry tests.
+     */
+    public static int throwAndCatch() {
+        try {
+            throw new RuntimeException("test");
+        } catch (RuntimeException e) {
+            return 42;
+        }
+    }
+
+    /**
+     * Rethrow: inner catch rethrows, outer catch handles it.
+     */
+    public static int rethrow() {
+        try {
+            try {
+                throw new RuntimeException("inner");
+            } catch (RuntimeException e) {
+                throw e;
+            }
+        } catch (RuntimeException e) {
+            return 99;
+        }
+    }
 }
