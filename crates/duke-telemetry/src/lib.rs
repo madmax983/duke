@@ -188,7 +188,9 @@ impl DispatchResolutionStore {
             .entry((caller_class.to_string(), cp_idx))
             .or_default();
         stat.calls += 1;
-        stat.unique_targets.insert(resolved_class.to_string());
+        if !stat.unique_targets.contains(resolved_class) {
+            stat.unique_targets.insert(resolved_class.to_string());
+        }
         if hierarchy_walk {
             stat.hierarchy_walks += 1;
         }
