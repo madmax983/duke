@@ -5092,7 +5092,17 @@ pub fn execute_class(
                                 .map(|_| frame.pop())
                                 .collect::<VmResult<Vec<_>>>()?;
                             native_args.reverse();
-                            let result = handler(&native_args, heap, stdout)?;
+                            #[cfg(feature = "telemetry")]
+                            let _native_start = std::time::Instant::now();
+                            let result = handler(&native_args, heap, stdout);
+                            #[cfg(feature = "telemetry")]
+                            registry.telemetry.native_boundary.record_call(
+                                &callee_class,
+                                &callee_name,
+                                _native_start.elapsed().as_nanos() as u64,
+                                result.is_err(),
+                            );
+                            let result = result?;
                             if let Some(val) = result {
                                 frame.push(val)?;
                             }
@@ -5864,6 +5874,13 @@ pub fn execute_class(
                     }
                     count
                 };
+                #[cfg(feature = "telemetry")]
+                registry.telemetry.object_lineage.record(
+                    &current_class,
+                    &current_method,
+                    pc,
+                    &target_class,
+                );
                 let r = heap.allocate(target_class, field_count);
                 frame.push(Slot::Reference(Some(r)))?;
             }
@@ -6128,7 +6145,17 @@ pub fn execute_class(
                             native_args.reverse();
                             let this_slot = frame.pop()?; // pop `this`
                             native_args.insert(0, this_slot);
-                            let result = handler(&native_args, heap, stdout)?;
+                            #[cfg(feature = "telemetry")]
+                            let _native_start = std::time::Instant::now();
+                            let result = handler(&native_args, heap, stdout);
+                            #[cfg(feature = "telemetry")]
+                            registry.telemetry.native_boundary.record_call(
+                                &callee_class,
+                                &callee_name,
+                                _native_start.elapsed().as_nanos() as u64,
+                                result.is_err(),
+                            );
+                            let result = result?;
                             if let Some(val) = result {
                                 frame.push(val)?;
                             }
@@ -6928,7 +6955,17 @@ pub fn execute_class(
                                 callee_args.reverse();
                                 let this_slot = frame.pop()?;
                                 callee_args.insert(0, this_slot);
-                                let result = handler(&callee_args, heap, stdout)?;
+                                #[cfg(feature = "telemetry")]
+                                let _native_start = std::time::Instant::now();
+                                let result = handler(&callee_args, heap, stdout);
+                                #[cfg(feature = "telemetry")]
+                                registry.telemetry.native_boundary.record_call(
+                                    &callee_class,
+                                    &callee_name,
+                                    _native_start.elapsed().as_nanos() as u64,
+                                    result.is_err(),
+                                );
+                                let result = result?;
                                 if let Some(val) = result {
                                     frame.push(val)?;
                                 }
@@ -7079,7 +7116,17 @@ pub fn execute_class(
                                         )
                                         .copied()
                                     {
-                                        let result = handler(&impl_args, heap, stdout)?;
+                                        #[cfg(feature = "telemetry")]
+                                        let _native_start = std::time::Instant::now();
+                                        let result = handler(&impl_args, heap, stdout);
+                                        #[cfg(feature = "telemetry")]
+                                        registry.telemetry.native_boundary.record_call(
+                                            &lambda_info.impl_class,
+                                            &lambda_info.impl_method,
+                                            _native_start.elapsed().as_nanos() as u64,
+                                            result.is_err(),
+                                        );
+                                        let result = result?;
                                         if let Some(val) = result {
                                             frame.push(val)?;
                                         }
@@ -13292,5 +13339,45 @@ mod tests {
         assert_eq!(result, Some(Slot::Int(445_698_416)));
         let stat = &registry.telemetry.bytecode_cost.by_opcode["iadd"];
         assert_eq!(stat.count, 500_000);
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn telemetry_object_lineage_records_allocations() {
+        // ForEachTest creates an ArrayList and adds elements.
+        let (_, registry) = run_fixture("ForEachTest.class", "main", "([Ljava/lang/String;)V");
+        // At least one allocation site must exist (the ArrayList constructor).
+        assert!(!registry.telemetry.object_lineage.sites.is_empty());
+        // Verify some allocation is attributed to ForEachTest class.
+        let has_foreach_alloc = registry
+            .telemetry
+            .object_lineage
+            .sites
+            .keys()
+            .any(|(cls, _, _)| cls == "ForEachTest");
+        assert!(
+            has_foreach_alloc,
+            "expected at least one allocation from ForEachTest"
+        );
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
+    fn telemetry_native_boundary_records_println() {
+        let (_, registry) = run_fixture("ForEachTest.class", "main", "([Ljava/lang/String;)V");
+        // ForEachTest calls System.out.println which dispatches through println native.
+        let stat = registry
+            .telemetry
+            .native_boundary
+            .by_method
+            .iter()
+            .find(|((_, name), _)| name.contains("println"));
+        assert!(
+            stat.is_some(),
+            "expected println to be recorded in native_boundary"
+        );
+        let (_, s) = stat.unwrap();
+        assert!(s.calls > 0);
+        assert_eq!(s.errors, 0);
     }
 }
