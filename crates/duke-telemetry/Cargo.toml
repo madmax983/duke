@@ -1,0 +1,13 @@
+[package]
+name = "duke-telemetry"
+version.workspace = true
+edition.workspace = true
+description = "Duke JVM - VM telemetry channels"
+
+[features]
+default = []
+telemetry = ["dep:serde", "dep:serde_json"]
+
+[dependencies]
+serde     = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
