@@ -1,10 +1,7 @@
-   Compiling duke-runtime v0.1.0 (C:\Users\markm\duke\crates\duke-runtime)
-   Compiling duke-gc v0.1.0 (C:\Users\markm\duke\crates\duke-gc)
-   Compiling duke-interpreter v0.1.0 (C:\Users\markm\duke\crates\duke-interpreter)
-    Finished `bench` profile [optimized] target(s) in 20.42s
+    Finished `bench` profile [optimized] target(s) in 0.26s
      Running unittests src\lib.rs (target\release\deps\duke_interpreter-e7d712b9e89f81f8.exe)
 
-running 272 tests
+running 274 tests
 test tests::arg_count_array ... ignored
 test tests::arg_count_empty ... ignored
 test tests::arg_count_long_double ... ignored
@@ -61,6 +58,8 @@ test tests::cross_class_double ... ignored
 test tests::cross_class_pair_diff ... ignored
 test tests::cross_class_pair_sum ... ignored
 test tests::cross_class_two_pairs ... ignored
+test tests::dispatch_cache_fib_correctness ... ignored
+test tests::dispatch_cache_invokestatic_multiple_methods ... ignored
 test tests::double_max_value ... ignored
 test tests::double_nan ... ignored
 test tests::enum_equality ... ignored
@@ -278,64 +277,68 @@ test tests::switch_sparse_default ... ignored
 test tests::tableswitch_default ... ignored
 test tests::tableswitch_match ... ignored
 
-test result: ok. 0 passed; 0 failed; 272 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 274 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
      Running benches\interpreter.rs (target\release\deps\interpreter-9d2998e2672bdeee.exe)
 Gnuplot not found, using plotters backend
 Benchmarking benchSum (500k int adds)
 Benchmarking benchSum (500k int adds): Warming up for 3.0000 s
 
-Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 16.9s, or reduce sample count to 20.
-Benchmarking benchSum (500k int adds): Collecting 100 samples in estimated 16.947 s (100 iterations)
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 15.5s, or reduce sample count to 30.
+Benchmarking benchSum (500k int adds): Collecting 100 samples in estimated 15.485 s (100 iterations)
 Benchmarking benchSum (500k int adds): Analyzing
 benchSum (500k int adds)
-                        time:   [143.08 ms 147.34 ms 151.86 ms]
-                        change: [+0.5165% +4.2243% +8.0268%] (p = 0.03 < 0.05)
-                        Change within noise threshold.
-Found 6 outliers among 100 measurements (6.00%)
-  6 (6.00%) high mild
+                        time:   [141.84 ms 145.61 ms 149.69 ms]
+                        change: [+17.847% +21.060% +24.590%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 5 outliers among 100 measurements (5.00%)
+  5 (5.00%) high mild
 
 Benchmarking benchFib (fib(25), ~500k calls)
 Benchmarking benchFib (fib(25), ~500k calls): Warming up for 3.0000 s
 
-Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 20.0s, or reduce sample count to 20.
-Benchmarking benchFib (fib(25), ~500k calls): Collecting 100 samples in estimated 19.970 s (100 iterations)
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 9.3s, or reduce sample count to 50.
+Benchmarking benchFib (fib(25), ~500k calls): Collecting 100 samples in estimated 9.3030 s (100 iterations)
 Benchmarking benchFib (fib(25), ~500k calls): Analyzing
 benchFib (fib(25), ~500k calls)
-                        time:   [209.71 ms 213.98 ms 218.26 ms]
-                        change: [-25.829% -22.943% -19.851%] (p = 0.00 < 0.05)
-                        Performance has improved.
-
-Benchmarking benchArrayList (5k ArrayList.add)
-Benchmarking benchArrayList (5k ArrayList.add): Warming up for 3.0000 s
-Benchmarking benchArrayList (5k ArrayList.add): Collecting 100 samples in estimated 5.5697 s (600 iterations)
-Benchmarking benchArrayList (5k ArrayList.add): Analyzing
-benchArrayList (5k ArrayList.add)
-                        time:   [8.4700 ms 8.6802 ms 8.8984 ms]
-                        change: [+10.743% +15.238% +20.208%] (p = 0.00 < 0.05)
-                        Performance has regressed.
-
-Benchmarking benchHashMap (200 put + 200 get)
-Benchmarking benchHashMap (200 put + 200 get): Warming up for 3.0000 s
-
-Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 9.8s, enable flat sampling, or reduce sample count to 50.
-Benchmarking benchHashMap (200 put + 200 get): Collecting 100 samples in estimated 9.7856 s (5050 iterations)
-Benchmarking benchHashMap (200 put + 200 get): Analyzing
-benchHashMap (200 put + 200 get)
-                        time:   [1.9499 ms 2.0129 ms 2.0749 ms]
-                        change: [+26.168% +30.294% +34.274%] (p = 0.00 < 0.05)
+                        time:   [112.58 ms 120.17 ms 128.10 ms]
+                        change: [+46.038% +56.896% +67.541%] (p = 0.00 < 0.05)
                         Performance has regressed.
 Found 1 outliers among 100 measurements (1.00%)
   1 (1.00%) high mild
 
-Benchmarking bootstrap_stdlib only
-Benchmarking bootstrap_stdlib only: Warming up for 3.0000 s
-Benchmarking bootstrap_stdlib only: Collecting 100 samples in estimated 5.0535 s (81k iterations)
-Benchmarking bootstrap_stdlib only: Analyzing
-bootstrap_stdlib only   time:   [61.801 µs 64.700 µs 68.297 µs]
-                        change: [+75.558% +89.477% +106.47%] (p = 0.00 < 0.05)
+Benchmarking benchArrayList (5k ArrayList.add)
+Benchmarking benchArrayList (5k ArrayList.add): Warming up for 3.0000 s
+Benchmarking benchArrayList (5k ArrayList.add): Collecting 100 samples in estimated 6.3503 s (400 iterations)
+Benchmarking benchArrayList (5k ArrayList.add): Analyzing
+benchArrayList (5k ArrayList.add)
+                        time:   [14.018 ms 14.704 ms 15.515 ms]
+                        change: [+96.610% +107.76% +119.15%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 6 outliers among 100 measurements (6.00%)
+  2 (2.00%) high mild
+  4 (4.00%) high severe
+
+Benchmarking benchHashMap (200 put + 200 get)
+Benchmarking benchHashMap (200 put + 200 get): Warming up for 3.0000 s
+Benchmarking benchHashMap (200 put + 200 get): Collecting 100 samples in estimated 5.1265 s (1300 iterations)
+Benchmarking benchHashMap (200 put + 200 get): Analyzing
+benchHashMap (200 put + 200 get)
+                        time:   [3.0537 ms 3.2101 ms 3.3933 ms]
+                        change: [+84.330% +95.779% +107.50%] (p = 0.00 < 0.05)
                         Performance has regressed.
 Found 12 outliers among 100 measurements (12.00%)
-  6 (6.00%) high mild
-  6 (6.00%) high severe
+  10 (10.00%) high mild
+  2 (2.00%) high severe
+
+Benchmarking bootstrap_stdlib only
+Benchmarking bootstrap_stdlib only: Warming up for 3.0000 s
+Benchmarking bootstrap_stdlib only: Collecting 100 samples in estimated 5.0500 s (71k iterations)
+Benchmarking bootstrap_stdlib only: Analyzing
+bootstrap_stdlib only   time:   [61.907 µs 64.939 µs 68.203 µs]
+                        change: [+72.435% +81.122% +90.875%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 13 outliers among 100 measurements (13.00%)
+  10 (10.00%) high mild
+  3 (3.00%) high severe
 

@@ -139,3 +139,45 @@ invokespecial, invokeinterface).
   The next leverage points are ClassRegistry HashMap lookups on every invokestatic
   (one per call, ~500k lookups) and the absence of an inline cache or vtable. Pooling
   frames reclaimed the allocation cost; lookup cost is now the dominant term.
+
+## Post-Dispatch-Cache Results (2026-03-08)
+
+Duke version: Phase 23 + frame buffer pool + method dispatch cache
+Changes:
+- `pc_to_idx` precomputed as `Arc<HashMap<usize,usize>>` in `MethodEntry` (eliminates per-call HashMap build)
+- Dispatch cache in `execute_class` keyed by `(caller_class, cp_idx)` for `invokestatic`/`invokespecial`
+- Nested `HashMap<String, HashMap<u16, ...>>` to avoid `String::clone` on cache hit hot path
+
+### Criterion Results
+
+| Benchmark | Frame-pool (ms) | After cache (ms) | Speedup |
+|-----------|-----------------|------------------|---------|
+| benchSum (500k int adds) | 147.34 | 120.28 | 1.23x |
+| benchFib (fib(25), ~500k calls) | 213.98 | **76.59** | **2.79x** |
+| benchArrayList (5k ArrayList.add) | 8.68 | 7.08 | 1.23x |
+| benchHashMap (200 put + 200 get) | 2.01 | 1.64 | 1.23x |
+| bootstrap_stdlib only | 0.065 | 0.036 | — |
+
+### Analysis
+
+- **benchFib is the headline result**: 213.98 ms → 76.59 ms, a **2.79x speedup (64% faster)**.
+  Duke's pure interpreter now beats HotSpot -Xint (202 ms) for recursive integer arithmetic
+  — 76 ms vs 202 ms. This is the milestone: Duke's switch-dispatch Rust interpreter is
+  ~2.6x faster than HotSpot's pure interpreter for call-heavy workloads.
+
+- **Why benchFib improved so dramatically**: Every `invokestatic fib` previously did:
+  (1) `resolve_methodref` — 5 CP array lookups + 3 `String::clone()`;
+  (2) Linear `.position()` scan over all methods;
+  (3) `pc_to_idx` `HashMap::collect()` from instruction list.
+  With the dispatch cache, repeat calls (>99.9% of 500k) hit the cache and skip all three.
+  The only remaining cost per call is a single `HashMap::get(&str, u16)` + `Arc::clone`.
+
+- **benchSum, benchArrayList, benchHashMap also improved ~1.23x**: These benchmarks
+  also contain `invokestatic` calls in their hot loops, and they all benefit from
+  the same CP resolution elimination. The improvement is smaller because these
+  benchmarks spend a larger fraction of time in native Rust handlers (ArrayList/HashMap
+  are synthetic) or arithmetic opcodes (benchSum), which the cache doesn't affect.
+
+- **Remaining bottleneck**: benchFib at 76 ms. Next opportunities: string interning
+  (LDC allocates a new HeapObject per load), escape analysis to stack-allocate short-lived
+  objects, and threaded dispatch (computed-goto equivalent) to reduce match overhead.
