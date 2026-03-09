@@ -88,6 +88,8 @@ pub struct ClassRegistry {
     lambdas: HashMap<String, LambdaInfo>,
     /// Monotonic counter for generating unique lambda class names.
     lambda_counter: u64,
+    #[cfg(feature = "telemetry")]
+    pub telemetry: duke_telemetry::TelemetryStore,
 }
 
 impl ClassRegistry {
@@ -99,6 +101,8 @@ impl ClassRegistry {
             initialized: HashSet::new(),
             lambdas: HashMap::new(),
             lambda_counter: 0,
+            #[cfg(feature = "telemetry")]
+            telemetry: duke_telemetry::TelemetryStore::default(),
         }
     }
 
@@ -12388,6 +12392,34 @@ mod tests {
             Some(Slot::Int(v)) => v,
             other => panic!("unexpected result: {other:?}"),
         }
+    }
+
+    #[cfg(feature = "telemetry")]
+    fn run_fixture(
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+    ) -> (Option<Slot>, ClassRegistry) {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )
+        .expect("execute_class failed");
+        (result, registry)
     }
 
     #[test]
