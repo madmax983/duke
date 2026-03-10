@@ -1,7 +1,7 @@
-//! Simple bump-pointer heap for Duke Phase 6.
+//! Non-moving mark-sweep GC for the Duke JVM (Phase 24).
 //!
-//! No garbage collection yet — objects are allocated and never freed.
-//! Phase 7 will add a generational collector here.
+//! Objects are allocated via bump-pointer with free-list reuse of swept slots.
+//! [`Heap::collect`] implements mark (iterative DFS from roots) + sweep (single pass).
 
 use duke_runtime::{Slot, VmError, VmResult};
 
@@ -13,6 +13,7 @@ pub struct HeapObject {
     /// String content for `java/lang/String` objects. `None` for non-string objects.
     pub string_value: Option<String>,
     /// Mark bit for the mark phase of mark-sweep GC. `false` until marked reachable.
+    #[allow(dead_code)]
     pub(crate) marked: bool,
 }
 
@@ -24,6 +25,7 @@ pub struct HeapObject {
 pub struct Heap {
     objects: Vec<Option<HeapObject>>,
     free_list: Vec<u64>,
+    #[allow(dead_code)]
     live_after_last_gc: usize,
     alloc_since_gc: usize,
 }
@@ -41,6 +43,7 @@ impl Heap {
 
     /// Allocate a new object. Returns its heap index as `u64`.
     pub fn allocate(&mut self, class_name: String, field_count: usize) -> u64 {
+        self.alloc_since_gc += 1;
         let obj = HeapObject {
             class_name,
             fields: vec![Slot::Int(0); field_count],
@@ -49,18 +52,16 @@ impl Heap {
         };
         if let Some(idx) = self.free_list.pop() {
             self.objects[idx as usize] = Some(obj);
-            self.alloc_since_gc += 1;
-            idx
-        } else {
-            let idx = self.objects.len() as u64;
-            self.objects.push(Some(obj));
-            self.alloc_since_gc += 1;
-            idx
+            return idx;
         }
+        let idx = self.objects.len() as u64;
+        self.objects.push(Some(obj));
+        idx
     }
 
     /// Allocate a new String object with the given content.
     pub fn allocate_string(&mut self, value: String) -> u64 {
+        self.alloc_since_gc += 1;
         let obj = HeapObject {
             class_name: "java/lang/String".to_string(),
             fields: Vec::new(),
@@ -69,14 +70,11 @@ impl Heap {
         };
         if let Some(idx) = self.free_list.pop() {
             self.objects[idx as usize] = Some(obj);
-            self.alloc_since_gc += 1;
-            idx
-        } else {
-            let idx = self.objects.len() as u64;
-            self.objects.push(Some(obj));
-            self.alloc_since_gc += 1;
-            idx
+            return idx;
         }
+        let idx = self.objects.len() as u64;
+        self.objects.push(Some(obj));
+        idx
     }
 
     /// # Errors
@@ -149,6 +147,14 @@ mod tests {
         let heap = Heap::new();
         let err = heap.get(999).unwrap_err();
         assert!(matches!(err, VmError::InvalidRef { address: 999 }));
+    }
+
+    #[test]
+    fn get_on_invalid_ref_returns_error() {
+        let heap = Heap::new();
+        // No objects allocated — any ref is invalid
+        assert!(heap.get(0).is_err());
+        assert!(heap.get(999).is_err());
     }
 
     #[test]
