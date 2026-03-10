@@ -13,7 +13,8 @@ pub struct HeapObject {
     /// String content for `java/lang/String` objects. `None` for non-string objects.
     pub string_value: Option<String>,
     /// Mark bit for the mark phase of mark-sweep GC. `false` until marked reachable.
-    #[allow(dead_code)]
+    // INVARIANT: Heap::mark() traces only `fields` for child references.
+    // Any new Vec<Slot> member added to HeapObject MUST also be covered in mark().
     pub(crate) marked: bool,
 }
 
@@ -25,7 +26,6 @@ pub struct HeapObject {
 pub struct Heap {
     objects: Vec<Option<HeapObject>>,
     free_list: Vec<u64>,
-    #[allow(dead_code)]
     live_after_last_gc: usize,
     alloc_since_gc: usize,
 }
@@ -296,5 +296,16 @@ mod tests {
         // Next alloc should reuse the freed slot
         let r2 = heap.allocate("New".to_string(), 0);
         assert_eq!(r2, r1); // reused index
+    }
+
+    #[test]
+    fn get_on_swept_slot_returns_error() {
+        let mut heap = Heap::new();
+        let _keep = heap.allocate("Keep".to_string(), 0);
+        let drop = heap.allocate("Drop".to_string(), 0);
+        // Collect with only _keep as root — drop gets swept
+        heap.collect(&[Slot::Reference(Some(_keep))]);
+        // The swept slot is now None — get() must return InvalidRef
+        assert!(heap.get(drop).is_err());
     }
 }
