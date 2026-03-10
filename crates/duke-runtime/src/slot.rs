@@ -78,6 +78,16 @@ impl Slot {
         }
     }
 
+    /// If this slot is a non-null reference, return the heap index. Otherwise `None`.
+    #[must_use]
+    pub const fn as_reference(&self) -> Option<u64> {
+        if let Self::Reference(Some(r)) = self {
+            Some(*r)
+        } else {
+            None
+        }
+    }
+
     #[must_use]
     pub const fn type_name(&self) -> &'static str {
         match self {

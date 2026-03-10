@@ -28,6 +28,8 @@ pub struct Heap {
     free_list: Vec<u64>,
     live_after_last_gc: usize,
     alloc_since_gc: usize,
+    /// Number of live (Some) objects; maintained for O(1) `len()`.
+    live_count: usize,
 }
 
 impl Heap {
@@ -38,43 +40,42 @@ impl Heap {
             free_list: Vec::new(),
             live_after_last_gc: 0,
             alloc_since_gc: 0,
+            live_count: 0,
         }
+    }
+
+    /// Insert `obj` into the heap, reusing a free-list slot if available.
+    /// Increments `alloc_since_gc`. Returns the heap index.
+    fn allocate_with(&mut self, obj: HeapObject) -> u64 {
+        self.alloc_since_gc += 1;
+        self.live_count += 1;
+        if let Some(idx) = self.free_list.pop() {
+            self.objects[idx as usize] = Some(obj);
+            return idx;
+        }
+        let idx = self.objects.len() as u64;
+        self.objects.push(Some(obj));
+        idx
     }
 
     /// Allocate a new object. Returns its heap index as `u64`.
     pub fn allocate(&mut self, class_name: String, field_count: usize) -> u64 {
-        self.alloc_since_gc += 1;
-        let obj = HeapObject {
+        self.allocate_with(HeapObject {
             class_name,
             fields: vec![Slot::Int(0); field_count],
             string_value: None,
             marked: false,
-        };
-        if let Some(idx) = self.free_list.pop() {
-            self.objects[idx as usize] = Some(obj);
-            return idx;
-        }
-        let idx = self.objects.len() as u64;
-        self.objects.push(Some(obj));
-        idx
+        })
     }
 
     /// Allocate a new String object with the given content.
     pub fn allocate_string(&mut self, value: String) -> u64 {
-        self.alloc_since_gc += 1;
-        let obj = HeapObject {
+        self.allocate_with(HeapObject {
             class_name: "java/lang/String".to_string(),
             fields: Vec::new(),
             string_value: Some(value),
             marked: false,
-        };
-        if let Some(idx) = self.free_list.pop() {
-            self.objects[idx as usize] = Some(obj);
-            return idx;
-        }
-        let idx = self.objects.len() as u64;
-        self.objects.push(Some(obj));
-        idx
+        })
     }
 
     /// # Errors
@@ -100,12 +101,12 @@ impl Heap {
     /// Returns the number of live (non-swept) objects on the heap.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.objects.iter().filter(|s| s.is_some()).count()
+        self.live_count
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.live_count == 0
     }
 
     /// Returns `true` when the heap has grown to 2× its size after the last GC.
@@ -123,16 +124,7 @@ impl Heap {
     }
 
     fn mark(&mut self, roots: &[Slot]) {
-        let mut worklist: Vec<u64> = roots
-            .iter()
-            .filter_map(|s| {
-                if let Slot::Reference(Some(r)) = s {
-                    Some(*r)
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let mut worklist: Vec<u64> = roots.iter().filter_map(Slot::as_reference).collect();
 
         while let Some(r) = worklist.pop() {
             let Some(Some(obj)) = self.objects.get_mut(r as usize) else {
@@ -142,17 +134,7 @@ impl Heap {
                 continue;
             }
             obj.marked = true;
-            let children: Vec<u64> = obj
-                .fields
-                .iter()
-                .filter_map(|s| {
-                    if let Slot::Reference(Some(r)) = s {
-                        Some(*r)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let children: Vec<u64> = obj.fields.iter().filter_map(Slot::as_reference).collect();
             worklist.extend(children);
         }
     }
@@ -174,6 +156,7 @@ impl Heap {
         }
         self.live_after_last_gc = live;
         self.alloc_since_gc = 0;
+        self.live_count = live;
     }
 
     /// Number of slots currently on the free list (test-only helper).

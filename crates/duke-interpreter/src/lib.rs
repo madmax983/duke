@@ -13609,10 +13609,7 @@ mod tests {
         // interned strings, static fields). After GC fires, the 2000 short-lived arrays
         // are collected, so total live count is dominated by bootstrap objects.
         // Without GC the heap would grow to 2000+ objects; with GC it stays bounded.
-        assert!(
-            heap.len() < 500,
-            "heap has {} live objects — GC may not have fired",
-            heap.len()
-        );
+        let live = heap.len();
+        assert!(live < 500, "heap has {live} live objects — GC may not have fired");
     }
 }
