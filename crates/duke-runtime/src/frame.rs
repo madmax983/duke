@@ -206,6 +206,12 @@ impl Frame {
     pub fn slots(&self) -> impl Iterator<Item = Slot> + '_ {
         self.locals.iter().chain(self.stack.iter()).cloned()
     }
+
+    /// Mutable iterator over all slots (locals + stack) — used to apply GC
+    /// forwarding pointers after a minor collection.
+    pub fn slots_mut(&mut self) -> impl Iterator<Item = &mut Slot> {
+        self.locals.iter_mut().chain(self.stack.iter_mut())
+    }
 }
 
 #[cfg(test)]

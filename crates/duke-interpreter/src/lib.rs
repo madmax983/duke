@@ -200,6 +200,12 @@ impl ClassRegistry {
     pub fn all_classes(&self) -> impl Iterator<Item = &ClassContext> {
         self.classes.values()
     }
+
+    /// Mutably iterate all registered class contexts — used to patch static
+    /// field slots after a minor GC collection.
+    pub fn all_classes_mut(&mut self) -> impl Iterator<Item = &mut ClassContext> {
+        self.classes.values_mut()
+    }
 }
 
 impl Default for ClassRegistry {
@@ -5901,6 +5907,7 @@ pub fn execute_class(
                 if heap.should_gc() {
                     let roots = gather_roots(&frame, &call_stack, registry);
                     heap.collect(&roots);
+                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
                 }
             }
 
@@ -6319,6 +6326,7 @@ pub fn execute_class(
                 if heap.should_gc() {
                     let roots = gather_roots(&frame, &call_stack, registry);
                     heap.collect(&roots);
+                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
                 }
             }
             Instruction::Anewarray(cp_idx) => {
@@ -6341,6 +6349,7 @@ pub fn execute_class(
                 if heap.should_gc() {
                     let roots = gather_roots(&frame, &call_stack, registry);
                     heap.collect(&roots);
+                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
                 }
             }
             Instruction::Arraylength => {
@@ -6939,6 +6948,7 @@ pub fn execute_class(
                     if heap.should_gc() {
                         let roots = gather_roots(&frame, &call_stack, registry);
                         heap.collect(&roots);
+                        patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
                     }
                 } else {
                     // Unknown bootstrap method — pop args and push null.
@@ -7335,6 +7345,7 @@ pub fn execute_class(
                 if heap.should_gc() {
                     let roots = gather_roots(&frame, &call_stack, registry);
                     heap.collect(&roots);
+                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
                 }
             }
 
@@ -8950,6 +8961,30 @@ fn gather_roots(
         roots.extend(ctx.static_fields.iter().cloned());
     }
     roots
+}
+
+/// Apply GC forwarding pointers to all live interpreter slots after a minor
+/// collection. Must be called immediately after `heap.collect()` returns so
+/// that stale young-gen references are updated to their new locations.
+fn patch_forwarded_slots(
+    frame: &mut duke_runtime::Frame,
+    call_stack: &mut [CallFrame],
+    registry: &mut ClassRegistry,
+    heap: &duke_gc::Heap,
+) {
+    for slot in frame.slots_mut() {
+        heap.apply_forward(slot);
+    }
+    for cf in call_stack.iter_mut() {
+        for slot in cf.frame.slots_mut() {
+            heap.apply_forward(slot);
+        }
+    }
+    for ctx in registry.all_classes_mut() {
+        for slot in ctx.static_fields.iter_mut() {
+            heap.apply_forward(slot);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
