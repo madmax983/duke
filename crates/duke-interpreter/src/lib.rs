@@ -5897,6 +5897,10 @@ pub fn execute_class(
                     &target_class,
                 );
                 let r = heap.allocate(target_class, field_count);
+                if heap.should_gc() {
+                    let roots = gather_roots(&frame, &call_stack, registry);
+                    heap.collect(&roots);
+                }
                 frame.push(Slot::Reference(Some(r)))?;
             }
 
@@ -6312,6 +6316,10 @@ pub fn execute_class(
                     _ => {} // Int/Boolean/Byte/Char/Short default to Slot::Int(0)
                 }
                 frame.push(Slot::Reference(Some(r)))?;
+                if heap.should_gc() {
+                    let roots = gather_roots(&frame, &call_stack, registry);
+                    heap.collect(&roots);
+                }
             }
             Instruction::Anewarray(cp_idx) => {
                 let element_type = {
@@ -6330,6 +6338,10 @@ pub fn execute_class(
                     *slot = Slot::Reference(None);
                 }
                 frame.push(Slot::Reference(Some(r)))?;
+                if heap.should_gc() {
+                    let roots = gather_roots(&frame, &call_stack, registry);
+                    heap.collect(&roots);
+                }
             }
             Instruction::Arraylength => {
                 let r = frame.pop_ref()?;
@@ -6924,6 +6936,10 @@ pub fn execute_class(
                     let _ = registry.ensure_loaded(&impl_class, loader);
 
                     frame.push(Slot::Reference(Some(r)))?;
+                    if heap.should_gc() {
+                        let roots = gather_roots(&frame, &call_stack, registry);
+                        heap.collect(&roots);
+                    }
                 } else {
                     // Unknown bootstrap method — pop args and push null.
                     let arg_count = parse_arg_count(&call_desc);
@@ -7316,6 +7332,10 @@ pub fn execute_class(
 
                 let r = alloc_multi(heap, &dims, 0, &element_type);
                 frame.push(Slot::Reference(Some(r)))?;
+                if heap.should_gc() {
+                    let roots = gather_roots(&frame, &call_stack, registry);
+                    heap.collect(&roots);
+                }
             }
 
             // ---- monitor (no-op, single-threaded) ----
@@ -8908,6 +8928,28 @@ fn native_hashset_is_empty(
         Some(Slot::Int(_)) => Ok(Some(Slot::Int(0))),
         _ => Ok(Some(Slot::Int(1))),
     }
+}
+
+// ---------------------------------------------------------------------------
+// GC root gathering
+// ---------------------------------------------------------------------------
+
+/// Collect all live Slot values from the interpreter's current execution state.
+/// The GC uses these as the root set for reachability analysis.
+fn gather_roots(
+    frame: &duke_runtime::Frame,
+    call_stack: &[CallFrame],
+    registry: &ClassRegistry,
+) -> Vec<duke_runtime::Slot> {
+    let mut roots = Vec::new();
+    roots.extend(frame.slots());
+    for cf in call_stack {
+        roots.extend(cf.frame.slots());
+    }
+    for ctx in registry.all_classes() {
+        roots.extend(ctx.static_fields.iter().cloned());
+    }
+    roots
 }
 
 // ---------------------------------------------------------------------------
