@@ -11,6 +11,7 @@ use duke_loader::{ClassLoader, DirectoryLoader};
 use duke_runtime::{Slot, VmError};
 
 /// Where to write telemetry JSON after execution.
+#[allow(dead_code)]
 enum TelemetryDest {
     Stdout,
     File(String),

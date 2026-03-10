@@ -4616,7 +4616,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    triggered_by: &str,
+    _triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -4863,7 +4863,8 @@ fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::too_many_arguments
 )]
 pub fn execute_class(
     registry: &mut ClassRegistry,
@@ -5932,7 +5933,7 @@ pub fn execute_class(
                 let r = frame.pop_ref()?;
                 registry.ensure_loaded(&target_class, loader)?;
                 let fidx = instance_field_idx(registry.get(&target_class)?, &field_name)?;
-                heap.get_mut(r)?.fields[fidx] = val;
+                heap.write_field(r, fidx, val)?;
             }
             Instruction::Getstatic(cp_idx) => {
                 let (target_class, field_name, _) = {
@@ -5964,59 +5965,58 @@ pub fn execute_class(
             // classes (e.g. java/lang/Object) fall back to no-op.
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
                 // Fast path: cache hit for invokespecial (static dispatch — safe to cache).
-                if matches!(instr, Instruction::Invokespecial(_)) {
-                    if let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
+                if matches!(instr, Instruction::Invokespecial(_))
+                    && let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
                         .get(current_class.as_str())
                         .and_then(|m| m.get(&cp_idx.0))
-                    {
-                        let (callee_pc_to_idx, callee_frame) = {
-                            let ctx = registry.get(cached_cls)?;
-                            let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
-                            let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
-                            let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
-                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                            locals_buf.resize(max_locals, Slot::Int(0));
-                            if cached_ac + 1 > max_locals {
-                                return Err(VmError::LocalOutOfBounds {
-                                    index: cached_ac + 1,
-                                    max_locals,
-                                });
-                            }
-                            for i in (1..=cached_ac).rev() {
-                                locals_buf[i] = frame.pop()?;
-                            }
-                            locals_buf[0] = frame.pop()?; // `this`
-                            let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                            (pci, f)
-                        };
-                        let dispatch_class = cached_cls.clone();
-                        let callee_idx = cached_idx;
-                        call_stack.push(CallFrame {
-                            frame,
-                            method_idx,
-                            pc_to_idx,
-                            resume_idx: idx + 1,
-                            class_name: current_class.clone(),
-                        });
-                        frame = callee_frame;
-                        method_idx = callee_idx;
-                        pc_to_idx = callee_pc_to_idx;
-                        current_class = dispatch_class;
-                        #[cfg(feature = "telemetry")]
-                        {
-                            current_method = registry
-                                .get(&current_class)
-                                .map(|c| {
-                                    c.methods
-                                        .get(method_idx)
-                                        .map(|m| m.name.clone())
-                                        .unwrap_or_default()
-                                })
-                                .unwrap_or_default();
+                {
+                    let (callee_pc_to_idx, callee_frame) = {
+                        let ctx = registry.get(cached_cls)?;
+                        let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
+                        let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
+                        let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
+                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                        locals_buf.resize(max_locals, Slot::Int(0));
+                        if cached_ac + 1 > max_locals {
+                            return Err(VmError::LocalOutOfBounds {
+                                index: cached_ac + 1,
+                                max_locals,
+                            });
                         }
-                        idx = 0;
-                        continue;
+                        for i in (1..=cached_ac).rev() {
+                            locals_buf[i] = frame.pop()?;
+                        }
+                        locals_buf[0] = frame.pop()?; // `this`
+                        let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                        (pci, f)
+                    };
+                    let dispatch_class = cached_cls.clone();
+                    let callee_idx = cached_idx;
+                    call_stack.push(CallFrame {
+                        frame,
+                        method_idx,
+                        pc_to_idx,
+                        resume_idx: idx + 1,
+                        class_name: current_class.clone(),
+                    });
+                    frame = callee_frame;
+                    method_idx = callee_idx;
+                    pc_to_idx = callee_pc_to_idx;
+                    current_class = dispatch_class;
+                    #[cfg(feature = "telemetry")]
+                    {
+                        current_method = registry
+                            .get(&current_class)
+                            .map(|c| {
+                                c.methods
+                                    .get(method_idx)
+                                    .map(|m| m.name.clone())
+                                    .unwrap_or_default()
+                            })
+                            .unwrap_or_default();
                     }
+                    idx = 0;
+                    continue;
                 }
                 let (callee_class, callee_name, callee_desc) = {
                     let ctx = registry.get(&current_class)?;
@@ -6378,14 +6378,16 @@ pub fn execute_class(
                 let val = frame.pop_int()?;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = Slot::Int(val);
+                heap.write_field(r, idx_val as usize, Slot::Int(val))?;
             }
 
             // ---- Long array ----
@@ -6408,14 +6410,16 @@ pub fn execute_class(
                 let val = frame.pop_long()?;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = Slot::Long(val);
+                heap.write_field(r, idx_val as usize, Slot::Long(val))?;
             }
 
             // ---- Float array ----
@@ -6438,14 +6442,16 @@ pub fn execute_class(
                 let val = frame.pop_float()?;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = Slot::Float(val);
+                heap.write_field(r, idx_val as usize, Slot::Float(val))?;
             }
 
             // ---- Double array ----
@@ -6468,14 +6474,16 @@ pub fn execute_class(
                 let val = frame.pop_double()?;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = Slot::Double(val);
+                heap.write_field(r, idx_val as usize, Slot::Double(val))?;
             }
 
             // ---- Reference array ----
@@ -6498,14 +6506,16 @@ pub fn execute_class(
                 let val = frame.pop()?;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = val;
+                heap.write_field(r, idx_val as usize, val)?;
             }
 
             // ---- Byte/boolean array (stored as Int, truncated to i8) ----
@@ -6528,14 +6538,16 @@ pub fn execute_class(
                 let val = frame.pop_int()? as i8 as i32;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = Slot::Int(val);
+                heap.write_field(r, idx_val as usize, Slot::Int(val))?;
             }
 
             // ---- Char array (stored as Int, masked to u16) ----
@@ -6558,14 +6570,16 @@ pub fn execute_class(
                 let val = frame.pop_int()? as u16 as i32;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = Slot::Int(val);
+                heap.write_field(r, idx_val as usize, Slot::Int(val))?;
             }
 
             // ---- Short array (stored as Int, truncated to i16) ----
@@ -6588,14 +6602,16 @@ pub fn execute_class(
                 let val = frame.pop_int()? as i16 as i32;
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
-                let obj = heap.get_mut(r)?;
-                if idx_val < 0 || idx_val as usize >= obj.fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
-                        index: idx_val,
-                        length: obj.fields.len(),
-                    });
+                {
+                    let len = heap.get(r)?.fields.len();
+                    if idx_val < 0 || idx_val as usize >= len {
+                        return Err(VmError::ArrayIndexOutOfBounds {
+                            index: idx_val,
+                            length: len,
+                        });
+                    }
                 }
-                obj.fields[idx_val as usize] = Slot::Int(val);
+                heap.write_field(r, idx_val as usize, Slot::Int(val))?;
             }
 
             // ---- Switch ----
