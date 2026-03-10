@@ -13663,4 +13663,47 @@ mod tests {
         let live = heap.len();
         assert!(live < 500, "heap has {live} live objects — GC may not have fired");
     }
+
+    #[test]
+    fn gc_generational_stress_test() {
+        let ctx = load_class_context("GcGenerationalStressTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // Small young_capacity to force frequent minor GCs.
+        heap.young_capacity = 32;
+
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 1);
+        heap.get_mut(arr_ref).unwrap().fields[0] = duke_runtime::Slot::Reference(None);
+
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            "main",
+            "([Ljava/lang/String;)V",
+            &[duke_runtime::Slot::Reference(Some(arr_ref))],
+        );
+        assert!(result.is_ok(), "generational GC stress test failed: {result:?}");
+        let output = String::from_utf8(out).unwrap();
+        // Verify long-lived objects survived all minor GCs.
+        for i in 0..10 {
+            assert!(
+                output.contains(&format!("Survivor-{i}")),
+                "long-lived object Survivor-{i} missing from output:\n{output}"
+            );
+        }
+        // sum of "tmp-N".length() for N in 0..5000 = 38890
+        assert!(
+            output.contains("38890"),
+            "expected sum 38890 in output:\n{output}"
+        );
+    }
 }

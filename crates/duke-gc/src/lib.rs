@@ -79,7 +79,7 @@ pub struct Heap {
 
     // ── Tuning ───────────────────────────────────────────────────────────────
     /// Minor GC fires when `young_top >= young_capacity`.
-    pub(crate) young_capacity: usize,
+    pub young_capacity: usize,
     /// Object is promoted to old gen after surviving this many minor GCs.
     pub(crate) promotion_age: u8,
 
