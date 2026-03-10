@@ -195,6 +195,11 @@ impl ClassRegistry {
     pub fn contains(&self, name: &str) -> bool {
         self.classes.contains_key(name)
     }
+
+    /// Iterate all registered class contexts — used by GC root gathering.
+    pub fn all_classes(&self) -> impl Iterator<Item = &ClassContext> {
+        self.classes.values()
+    }
 }
 
 impl Default for ClassRegistry {
@@ -8914,6 +8919,14 @@ mod tests {
     use super::*;
 
     // ---- Unit tests: hand-crafted instruction streams ----
+
+    #[test]
+    fn class_registry_all_classes_iterates_registered() {
+        let reg = ClassRegistry::new();
+        // registry starts empty; verify iteration works
+        let count = reg.all_classes().count();
+        assert_eq!(count, 0); // before bootstrap
+    }
 
     #[test]
     fn execute_iconst_ireturn() {
