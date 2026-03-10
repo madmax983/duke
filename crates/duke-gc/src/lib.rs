@@ -662,4 +662,391 @@ mod tests {
         // Either way, get() on it must error.
         assert!(heap.get(drop_r).is_err() || heap.get(drop_r | OLD_BIT).is_err());
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    fn test_heap_with_capacity(cap: usize) -> Heap {
+        let mut h = Heap::new();
+        h.young_capacity = cap;
+        h
+    }
+
+    fn make_old_obj(heap: &mut Heap) -> u64 {
+        let obj = HeapObject {
+            class_name: "OldObj".to_string(),
+            fields: vec![Slot::Int(0)],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        };
+        heap.old.push(Some(obj));
+        (heap.old.len() as u64 - 1) | OLD_BIT
+    }
+
+    // ── GC trigger tests (Task 3) ──────────────────────────────────────────────
+
+    #[test]
+    fn should_minor_gc_fires_at_young_capacity() {
+        let mut heap = Heap::new();
+        heap.young_capacity = 4;
+        // First 3 allocs should not trigger.
+        for i in 0..3 {
+            heap.allocate(format!("C{i}"), 0);
+            assert!(!heap.should_minor_gc(), "should not fire before reaching capacity");
+        }
+        // 4th alloc hits young_top == young_capacity → fires.
+        heap.allocate("C3".to_string(), 0);
+        assert!(heap.should_minor_gc());
+    }
+
+    #[test]
+    fn should_major_gc_fires_at_2x_old_live() {
+        let mut heap = Heap::new();
+        // Simulate post-GC state: 10 live old objects, alloc_since_gc reset to 0.
+        // Use collect() on a fresh heap to set live_after_last_gc.
+        // First, make 10 objects live through a collect.
+        let roots: Vec<Slot> = (0..10)
+            .map(|_| {
+                let r = heap.allocate("O".to_string(), 0);
+                Slot::Reference(Some(r))
+            })
+            .collect();
+        heap.collect(&roots);
+        // Now live_after_last_gc == 10 (all 10 in old gen after promotion).
+        // threshold = max(10*2, 256) = 256. Must allocate 256 more.
+        for i in 0..255 {
+            heap.allocate(format!("X{i}"), 0);
+            assert!(!heap.should_major_gc(), "should not fire at alloc {i}");
+        }
+        heap.allocate("X255".to_string(), 0);
+        assert!(heap.should_major_gc());
+    }
+
+    // ── write_field tests (Task 4) ─────────────────────────────────────────────
+
+    #[test]
+    fn write_field_old_to_young_adds_to_remembered_set() {
+        let mut heap = Heap::new();
+        let old_ref = make_old_obj(&mut heap);
+        let young_ref = heap.allocate("Young".to_string(), 0);
+        heap.write_field(old_ref, 0, Slot::Reference(Some(young_ref))).unwrap();
+        let old_idx = (old_ref & !OLD_BIT) as usize;
+        assert!(
+            heap.remembered_set.contains(&old_idx),
+            "old→young store must populate remembered_set"
+        );
+    }
+
+    #[test]
+    fn write_field_young_to_young_does_not_add_to_remembered_set() {
+        let mut heap = Heap::new();
+        let r0 = heap.allocate("A".to_string(), 1);
+        let r1 = heap.allocate("B".to_string(), 0);
+        // r0 is young; store another young ref into it.
+        heap.write_field(r0, 0, Slot::Reference(Some(r1))).unwrap();
+        assert!(
+            heap.remembered_set.is_empty(),
+            "young→young store must NOT populate remembered_set"
+        );
+    }
+
+    #[test]
+    fn write_field_old_to_old_does_not_add_to_remembered_set() {
+        let mut heap = Heap::new();
+        heap.old.push(Some(HeapObject {
+            class_name: "A".to_string(),
+            fields: vec![Slot::Int(0)],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        heap.old.push(Some(HeapObject {
+            class_name: "B".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        let a_ref = 0u64 | OLD_BIT;
+        let b_ref = 1u64 | OLD_BIT;
+        heap.write_field(a_ref, 0, Slot::Reference(Some(b_ref))).unwrap();
+        assert!(
+            heap.remembered_set.is_empty(),
+            "old→old store must NOT populate remembered_set"
+        );
+    }
+
+    // ── Minor GC unit tests (Task 6) ───────────────────────────────────────────
+
+    #[test]
+    fn minor_gc_copies_reachable_young_object() {
+        let mut heap = test_heap_with_capacity(8);
+        let r0 = heap.allocate("Keep".to_string(), 0);
+        let _r1 = heap.allocate("Drop".to_string(), 0);
+        let roots = vec![Slot::Reference(Some(r0))];
+        heap.minor_collect_prepare(&roots);
+        // r0 must have a forwarding pointer; _r1 must not.
+        assert!(heap.young[r0 as usize].as_ref().unwrap().forward.is_some());
+        assert!(heap.young[_r1 as usize].as_ref().unwrap().forward.is_none());
+    }
+
+    #[test]
+    fn minor_gc_forward_patches_root_slot() {
+        let mut heap = test_heap_with_capacity(8);
+        let r0 = heap.allocate("A".to_string(), 0);
+        let roots = vec![Slot::Reference(Some(r0))];
+        heap.minor_collect_prepare(&roots);
+        let mut slot = Slot::Reference(Some(r0));
+        heap.apply_forward(&mut slot);
+        // After forwarding, slot must point to the new location.
+        let new_r = heap.young[r0 as usize].as_ref().unwrap().forward.unwrap();
+        assert_eq!(slot, Slot::Reference(Some(new_r)));
+    }
+
+    #[test]
+    fn minor_gc_finish_swaps_to_space_into_young() {
+        let mut heap = test_heap_with_capacity(8);
+        let r0 = heap.allocate("A".to_string(), 0);
+        let _r1 = heap.allocate("B".to_string(), 0);
+        // Only r0 is a root → _r1 is dead.
+        let roots = vec![Slot::Reference(Some(r0))];
+        heap.minor_collect_prepare(&roots);
+        heap.minor_collect_finish();
+        // After finish: young has 1 live survivor.
+        assert_eq!(heap.young.iter().filter(|s| s.is_some()).count(), 1);
+        assert!(heap.to_space.is_empty());
+        assert!(heap.remembered_set.is_empty());
+    }
+
+    #[test]
+    fn minor_gc_increments_age_on_survival() {
+        let mut heap = test_heap_with_capacity(8);
+        let r = heap.allocate("Survivor".to_string(), 0);
+        let roots = vec![Slot::Reference(Some(r))];
+        heap.minor_collect_prepare(&roots);
+        // Locate the copy in to_space (new_ref from forward pointer).
+        let new_r = heap.young[r as usize].as_ref().unwrap().forward.unwrap();
+        heap.minor_collect_finish();
+        // After finish, young is former to_space. new_r has no OLD_BIT → young index.
+        let survivor = heap.young[new_r as usize].as_ref().unwrap();
+        assert_eq!(survivor.age, 1);
+    }
+
+    #[test]
+    fn minor_gc_promotes_at_promotion_age() {
+        let mut heap = test_heap_with_capacity(64);
+        // promotion_age = 1: an object with age >= 1 is promoted.
+        // Round 0: age=0, check 0>=1 → false → to_space (age becomes 1), new_r is young.
+        // Round 1: age=1, check 1>=1 → true  → old gen (OLD_BIT set).
+        heap.promotion_age = 1;
+
+        let mut current_r = heap.allocate("P".to_string(), 0);
+
+        for round in 0..2u8 {
+            let roots = vec![Slot::Reference(Some(current_r))];
+            heap.minor_collect_prepare(&roots);
+            let new_r = heap.young[current_r as usize]
+                .as_ref()
+                .unwrap()
+                .forward
+                .unwrap();
+            heap.minor_collect_finish();
+
+            if round == 0 {
+                // Still young after first survival (age becomes 1, not yet promoted).
+                assert_eq!(new_r & OLD_BIT, 0, "should still be young after 1 survival");
+                current_r = new_r;
+            } else {
+                // Promoted to old gen (OLD_BIT set) on second survival.
+                assert_ne!(new_r & OLD_BIT, 0, "should be in old gen after 2 survivals");
+                let obj = heap.get(new_r).unwrap();
+                assert_eq!(obj.class_name, "P");
+            }
+        }
+    }
+
+    #[test]
+    fn remembered_set_root_survives_minor_gc() {
+        let mut heap = test_heap_with_capacity(8);
+        // Build: old-gen object with a field pointing to a young object.
+        heap.old.push(Some(HeapObject {
+            class_name: "Old".to_string(),
+            fields: vec![Slot::Int(0)], // will be overwritten below
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        let old_ref = 0u64 | OLD_BIT;
+        let young_ref = heap.allocate("Young".to_string(), 0);
+        // Wire old→young via write_field (populates remembered_set).
+        heap.write_field(old_ref, 0, Slot::Reference(Some(young_ref))).unwrap();
+
+        // No stack roots — young object reachable only through remembered set.
+        heap.minor_collect_prepare(&[]);
+        assert!(
+            heap.young[young_ref as usize].as_ref().unwrap().forward.is_some(),
+            "young object reachable via rem-set must be forwarded"
+        );
+        heap.minor_collect_finish();
+        // Verify old-gen field was patched to the new young location.
+        let new_field = heap.old[0].as_ref().unwrap().fields[0].clone();
+        match new_field {
+            Slot::Reference(Some(r)) => {
+                heap.get(r).expect("patched old→young field must be valid");
+            }
+            other => panic!("expected Reference, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn apply_forward_is_no_op_on_non_references() {
+        let heap = Heap::new();
+        let mut slot = Slot::Int(42);
+        heap.apply_forward(&mut slot);
+        assert_eq!(slot, Slot::Int(42));
+    }
+
+    #[test]
+    fn apply_forward_is_no_op_on_null_ref() {
+        let heap = Heap::new();
+        let mut slot = Slot::Reference(None);
+        heap.apply_forward(&mut slot);
+        assert_eq!(slot, Slot::Reference(None));
+    }
+
+    #[test]
+    fn apply_forward_is_no_op_on_old_gen_ref() {
+        let heap = Heap::new();
+        let old_ref = 0u64 | OLD_BIT;
+        let mut slot = Slot::Reference(Some(old_ref));
+        heap.apply_forward(&mut slot);
+        // No forwarding pointer in old gen → slot unchanged.
+        assert_eq!(slot, Slot::Reference(Some(old_ref)));
+    }
+
+    // ── Major GC unit tests (Task 7) ───────────────────────────────────────────
+
+    #[test]
+    fn old_ref_has_old_bit() {
+        let mut heap = Heap::new();
+        heap.old.push(Some(HeapObject {
+            class_name: "OldObj".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        let old_ref = 0u64 | OLD_BIT;
+        assert_ne!(old_ref & OLD_BIT, 0, "old ref must have OLD_BIT set");
+        assert_eq!(heap.get(old_ref).unwrap().class_name, "OldObj");
+    }
+
+    #[test]
+    fn major_collect_reclaims_unreachable_old_objects() {
+        let mut heap = Heap::new();
+        heap.old.push(Some(HeapObject {
+            class_name: "Keep".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        heap.old.push(Some(HeapObject {
+            class_name: "Drop".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        let keep_ref = 0u64 | OLD_BIT;
+        let drop_ref = 1u64 | OLD_BIT;
+        let roots = vec![Slot::Reference(Some(keep_ref))];
+        heap.major_collect(&roots);
+        assert!(heap.get(keep_ref).is_ok(), "reachable old-gen object must survive");
+        assert!(heap.get(drop_ref).is_err(), "unreachable old-gen object must be swept");
+        assert_eq!(heap.old_free_list.len(), 1);
+    }
+
+    #[test]
+    fn major_collect_preserves_reachable_chain_in_old_gen() {
+        let mut heap = Heap::new();
+        heap.old.push(Some(HeapObject {
+            class_name: "C".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        heap.old.push(Some(HeapObject {
+            class_name: "B".to_string(),
+            fields: vec![Slot::Reference(Some(0u64 | OLD_BIT))],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        heap.old.push(Some(HeapObject {
+            class_name: "A".to_string(),
+            fields: vec![Slot::Reference(Some(1u64 | OLD_BIT))],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        let a_ref = 2u64 | OLD_BIT;
+        let roots = vec![Slot::Reference(Some(a_ref))];
+        heap.major_collect(&roots);
+        assert_eq!(heap.old_live_count(), 3);
+        assert_eq!(heap.old_free_list.len(), 0);
+    }
+
+    #[test]
+    fn major_collect_reuses_freed_slot() {
+        let mut heap = Heap::new();
+        heap.old.push(Some(HeapObject {
+            class_name: "Keep".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        heap.old.push(Some(HeapObject {
+            class_name: "Drop".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+        let keep_ref = 0u64 | OLD_BIT;
+        heap.major_collect(&[Slot::Reference(Some(keep_ref))]);
+        // old_free_list has raw index 1 (no OLD_BIT).
+        assert!(heap.old_free_list.contains(&1u64));
+    }
+
+    #[test]
+    fn collect_compat_shim_collects_full_heap() {
+        let mut heap = test_heap_with_capacity(512);
+        // promotion_age = 0: age >= 0 is always true, so any survivor promotes
+        // on the first minor GC.  This lets the compat collect() shim produce a
+        // single old-gen object in one pass.
+        heap.promotion_age = 0;
+        let keep = heap.allocate("Keep".to_string(), 0);
+        let _drop1 = heap.allocate("Drop1".to_string(), 0);
+        let _drop2 = heap.allocate("Drop2".to_string(), 0);
+        let roots = vec![Slot::Reference(Some(keep))];
+        heap.collect(&roots);
+        // After full collect: 1 live object promoted to old gen; 2 dropped.
+        assert_eq!(heap.old_live_count(), 1);
+        assert_eq!(heap.len(), 1);
+    }
 }
