@@ -13570,4 +13570,49 @@ mod tests {
             );
         }
     }
+
+    // ---- Phase 24: GC stress tests ----
+
+    #[test]
+    fn gc_reclaims_short_lived_objects() {
+        // GcStressTest allocates 2000 int[4] arrays in a loop.
+        // Verify correct output sum = 0+1+...+1999 = 1999000.
+        let result = run_bootstrap_int("GcStressTest.class", "run", "()I");
+        assert_eq!(result, 1_999_000);
+    }
+
+    #[test]
+    fn gc_keeps_heap_bounded() {
+        let loader = fixtures_loader();
+        let bytes = loader.find_class("GcStressTest").unwrap();
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        let ctx = build_class_context(&cf);
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut stdout = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut stdout,
+            "GcStressTest",
+            "run",
+            "()I",
+            &[],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1_999_000)));
+        // 2000 arrays allocated; GC should have reclaimed most.
+        // bootstrap_stdlib pre-populates ~200 permanent live objects (synthetic classes,
+        // interned strings, static fields). After GC fires, the 2000 short-lived arrays
+        // are collected, so total live count is dominated by bootstrap objects.
+        // Without GC the heap would grow to 2000+ objects; with GC it stays bounded.
+        assert!(
+            heap.len() < 500,
+            "heap has {} live objects — GC may not have fired",
+            heap.len()
+        );
+    }
 }
