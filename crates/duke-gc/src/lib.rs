@@ -107,6 +107,80 @@ impl Heap {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns `true` when the heap has grown to 2× its size after the last GC.
+    /// The minimum threshold is 256 allocations (prevents thrashing on tiny heaps).
+    #[must_use]
+    pub fn should_gc(&self) -> bool {
+        let threshold = (self.live_after_last_gc * 2).max(256);
+        self.alloc_since_gc >= threshold
+    }
+
+    /// Collect garbage: mark all objects reachable from `roots`, then sweep the rest.
+    pub fn collect(&mut self, roots: &[Slot]) {
+        self.mark(roots);
+        self.sweep();
+    }
+
+    fn mark(&mut self, roots: &[Slot]) {
+        let mut worklist: Vec<u64> = roots
+            .iter()
+            .filter_map(|s| {
+                if let Slot::Reference(Some(r)) = s {
+                    Some(*r)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        while let Some(r) = worklist.pop() {
+            let Some(Some(obj)) = self.objects.get_mut(r as usize) else {
+                continue;
+            };
+            if obj.marked {
+                continue;
+            }
+            obj.marked = true;
+            let children: Vec<u64> = obj
+                .fields
+                .iter()
+                .filter_map(|s| {
+                    if let Slot::Reference(Some(r)) = s {
+                        Some(*r)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            worklist.extend(children);
+        }
+    }
+
+    fn sweep(&mut self) {
+        let mut live = 0usize;
+        for (idx, slot) in self.objects.iter_mut().enumerate() {
+            match slot {
+                Some(obj) if obj.marked => {
+                    obj.marked = false;
+                    live += 1;
+                }
+                Some(_) => {
+                    *slot = None;
+                    self.free_list.push(idx as u64);
+                }
+                None => {}
+            }
+        }
+        self.live_after_last_gc = live;
+        self.alloc_since_gc = 0;
+    }
+
+    /// Number of slots currently on the free list (test-only helper).
+    #[cfg(test)]
+    pub fn free_list_len(&self) -> usize {
+        self.free_list.len()
+    }
 }
 
 #[cfg(test)]
@@ -172,5 +246,55 @@ mod tests {
         let mut heap = Heap::new();
         let r = heap.allocate("Foo".to_string(), 0);
         assert!(!heap.get(r).unwrap().marked);
+    }
+
+    #[test]
+    fn should_gc_triggers_at_2x_growth() {
+        let mut heap = Heap::new();
+        // First 255 allocs don't trigger (floor threshold is 256)
+        for i in 0..255 {
+            heap.allocate(format!("C{i}"), 0);
+            assert!(!heap.should_gc());
+        }
+        // 256th alloc pushes alloc_since_gc to 256, hitting threshold
+        heap.allocate("C255".to_string(), 0);
+        assert!(heap.should_gc());
+    }
+
+    #[test]
+    fn collect_reclaims_unreachable() {
+        let mut heap = Heap::new();
+        let r0 = heap.allocate("Keep".to_string(), 0);
+        let _r1 = heap.allocate("Drop".to_string(), 0);
+        let _r2 = heap.allocate("Drop".to_string(), 0);
+        // Only r0 is a root
+        heap.collect(&[Slot::Reference(Some(r0))]);
+        assert_eq!(heap.free_list_len(), 2);
+        assert_eq!(heap.len(), 1);
+    }
+
+    #[test]
+    fn collect_preserves_reachable_chain() {
+        let mut heap = Heap::new();
+        let rc = heap.allocate("C".to_string(), 0);
+        let rb = heap.allocate("B".to_string(), 1);
+        heap.get_mut(rb).unwrap().fields[0] = Slot::Reference(Some(rc));
+        let ra = heap.allocate("A".to_string(), 1);
+        heap.get_mut(ra).unwrap().fields[0] = Slot::Reference(Some(rb));
+        // Only ra in roots — B and C reachable via fields
+        heap.collect(&[Slot::Reference(Some(ra))]);
+        assert_eq!(heap.free_list_len(), 0);
+        assert_eq!(heap.len(), 3);
+    }
+
+    #[test]
+    fn free_list_slot_reused_after_collect() {
+        let mut heap = Heap::new();
+        let r0 = heap.allocate("Keep".to_string(), 0);
+        let r1 = heap.allocate("Drop".to_string(), 0);
+        heap.collect(&[Slot::Reference(Some(r0))]);
+        // Next alloc should reuse the freed slot
+        let r2 = heap.allocate("New".to_string(), 0);
+        assert_eq!(r2, r1); // reused index
     }
 }
