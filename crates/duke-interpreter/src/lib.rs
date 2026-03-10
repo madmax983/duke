@@ -5897,11 +5897,11 @@ pub fn execute_class(
                     &target_class,
                 );
                 let r = heap.allocate(target_class, field_count);
+                frame.push(Slot::Reference(Some(r)))?;
                 if heap.should_gc() {
                     let roots = gather_roots(&frame, &call_stack, registry);
                     heap.collect(&roots);
                 }
-                frame.push(Slot::Reference(Some(r)))?;
             }
 
             // ---- Field access ----
