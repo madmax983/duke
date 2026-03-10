@@ -12,70 +12,102 @@ pub struct HeapObject {
     pub fields: Vec<Slot>,
     /// String content for `java/lang/String` objects. `None` for non-string objects.
     pub string_value: Option<String>,
+    /// Mark bit for the mark phase of mark-sweep GC. `false` until marked reachable.
+    pub(crate) marked: bool,
 }
 
-/// The object heap — a Vec-backed bump allocator.
+/// The object heap — a Vec-backed bump allocator with free-list support for GC.
 ///
 /// `Slot::Reference(Some(u64))` values are indices into this Vec.
+/// Swept slots become `None` and are tracked in `free_list` for reuse.
 #[derive(Debug, Default)]
 pub struct Heap {
-    objects: Vec<HeapObject>,
+    objects: Vec<Option<HeapObject>>,
+    free_list: Vec<u64>,
+    live_after_last_gc: usize,
+    alloc_since_gc: usize,
 }
 
 impl Heap {
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            objects: Vec::new(),
+            free_list: Vec::new(),
+            live_after_last_gc: 0,
+            alloc_since_gc: 0,
+        }
     }
 
     /// Allocate a new object. Returns its heap index as `u64`.
     pub fn allocate(&mut self, class_name: String, field_count: usize) -> u64 {
-        let idx = self.objects.len() as u64;
-        self.objects.push(HeapObject {
+        let obj = HeapObject {
             class_name,
             fields: vec![Slot::Int(0); field_count],
             string_value: None,
-        });
-        idx
+            marked: false,
+        };
+        if let Some(idx) = self.free_list.pop() {
+            self.objects[idx as usize] = Some(obj);
+            self.alloc_since_gc += 1;
+            idx
+        } else {
+            let idx = self.objects.len() as u64;
+            self.objects.push(Some(obj));
+            self.alloc_since_gc += 1;
+            idx
+        }
     }
 
     /// Allocate a new String object with the given content.
     pub fn allocate_string(&mut self, value: String) -> u64 {
-        let idx = self.objects.len() as u64;
-        self.objects.push(HeapObject {
+        let obj = HeapObject {
             class_name: "java/lang/String".to_string(),
             fields: Vec::new(),
             string_value: Some(value),
-        });
-        idx
+            marked: false,
+        };
+        if let Some(idx) = self.free_list.pop() {
+            self.objects[idx as usize] = Some(obj);
+            self.alloc_since_gc += 1;
+            idx
+        } else {
+            let idx = self.objects.len() as u64;
+            self.objects.push(Some(obj));
+            self.alloc_since_gc += 1;
+            idx
+        }
     }
 
     /// # Errors
-    /// Returns [`VmError::InvalidRef`] if out of bounds.
+    /// Returns [`VmError::InvalidRef`] if out of bounds or slot is `None` (swept).
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         let idx = usize::try_from(r).map_err(|_| VmError::InvalidRef { address: r })?;
         self.objects
             .get(idx)
+            .and_then(|slot| slot.as_ref())
             .ok_or(VmError::InvalidRef { address: r })
     }
 
     /// # Errors
-    /// Returns [`VmError::InvalidRef`] if out of bounds.
+    /// Returns [`VmError::InvalidRef`] if out of bounds or slot is `None` (swept).
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         let idx = usize::try_from(r).map_err(|_| VmError::InvalidRef { address: r })?;
         self.objects
             .get_mut(idx)
+            .and_then(|slot| slot.as_mut())
             .ok_or(VmError::InvalidRef { address: r })
     }
 
+    /// Returns the number of live (non-swept) objects on the heap.
     #[must_use]
-    pub const fn len(&self) -> usize {
-        self.objects.len()
+    pub fn len(&self) -> usize {
+        self.objects.iter().filter(|s| s.is_some()).count()
     }
 
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.objects.is_empty()
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -127,5 +159,12 @@ mod tests {
         assert_eq!(obj.class_name, "java/lang/String");
         assert_eq!(obj.string_value, Some("hello".to_string()));
         assert!(obj.fields.is_empty());
+    }
+
+    #[test]
+    fn heap_object_marked_defaults_false() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("Foo".to_string(), 0);
+        assert!(!heap.get(r).unwrap().marked);
     }
 }
