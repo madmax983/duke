@@ -16,6 +16,15 @@ pub struct HeapObject {
     // INVARIANT: Heap::mark() traces only `fields` for child references.
     // Any new Vec<Slot> member added to HeapObject MUST also be covered in mark().
     pub(crate) marked: bool,
+    /// Number of minor GC cycles this object has survived. Promoted to old gen at threshold.
+    /// Used by the minor collector added in Phase 25 Task 2.
+    #[allow(dead_code)]
+    pub(crate) age: u8,
+    /// Forwarding pointer set during the copy phase of a copying/generational GC. `None` when
+    /// the object has not been moved in the current collection cycle.
+    /// Used by the minor collector added in Phase 25 Task 2.
+    #[allow(dead_code)]
+    pub(crate) forward: Option<u64>,
 }
 
 /// The object heap — a Vec-backed bump allocator with free-list support for GC.
@@ -65,6 +74,8 @@ impl Heap {
             fields: vec![Slot::Int(0); field_count],
             string_value: None,
             marked: false,
+            age: 0,
+            forward: None,
         })
     }
 
@@ -75,6 +86,8 @@ impl Heap {
             fields: Vec::new(),
             string_value: Some(value),
             marked: false,
+            age: 0,
+            forward: None,
         })
     }
 
@@ -290,5 +303,19 @@ mod tests {
         heap.collect(&[Slot::Reference(Some(_keep))]);
         // The swept slot is now None — get() must return InvalidRef
         assert!(heap.get(drop).is_err());
+    }
+
+    #[test]
+    fn heap_object_age_defaults_zero() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("Foo".to_string(), 0);
+        assert_eq!(heap.get(r).unwrap().age, 0);
+    }
+
+    #[test]
+    fn heap_object_forward_defaults_none() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("Foo".to_string(), 0);
+        assert!(heap.get(r).unwrap().forward.is_none());
     }
 }
