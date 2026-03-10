@@ -201,6 +201,11 @@ impl Frame {
     pub fn stack_len(&self) -> usize {
         self.stack.len()
     }
+
+    /// Yields all slots in locals and operand stack — used by GC root gathering.
+    pub fn slots(&self) -> impl Iterator<Item = Slot> + '_ {
+        self.locals.iter().chain(self.stack.iter()).cloned()
+    }
 }
 
 #[cfg(test)]
@@ -230,6 +235,20 @@ mod tests {
         assert_eq!(locals[1], Slot::Int(2));
         assert!(stack.is_empty());
         assert!(stack.capacity() >= 2);
+    }
+
+    #[test]
+    fn slots_yields_locals_and_stack() {
+        use crate::Slot;
+        let locals = vec![Slot::Int(1), Slot::Int(2)];
+        let stack = Vec::new();
+        let mut f = Frame::from_pool_bufs(locals, stack, 4);
+        f.push(Slot::Int(99)).unwrap();
+        let all: Vec<Slot> = f.slots().collect();
+        assert_eq!(all.len(), 3);
+        assert!(all.contains(&Slot::Int(1)));
+        assert!(all.contains(&Slot::Int(2)));
+        assert!(all.contains(&Slot::Int(99)));
     }
 
     #[test]
