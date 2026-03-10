@@ -210,8 +210,14 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>) {
         &descriptor,
         &int_args,
     ) {
-        Ok(Some(result)) => { println!("{result:?}"); None }
-        Ok(None) => { println!("(void)"); None }
+        Ok(Some(result)) => {
+            println!("{result:?}");
+            None
+        }
+        Ok(None) => {
+            println!("(void)");
+            None
+        }
         Err(VmError::SystemExit { code }) => Some(code),
         Err(e) => {
             eprintln!("duke: runtime error: {e}");

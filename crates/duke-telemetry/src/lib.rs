@@ -278,10 +278,7 @@ pub struct NativeStat {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct NativeBoundaryStore {
     /// Key: (class_name, method_name).
-    #[cfg_attr(
-        feature = "telemetry",
-        serde(serialize_with = "ser_helpers::pair_str")
-    )]
+    #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::pair_str"))]
     pub by_method: HashMap<(String, String), NativeStat>,
 }
 
