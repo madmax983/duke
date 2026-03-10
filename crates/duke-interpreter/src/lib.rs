@@ -6167,6 +6167,8 @@ pub fn execute_class(
                                     result.is_err(),
                                 );
                                 if matches!(instr, Instruction::Invokevirtual(_)) {
+                                    // Native methods do not perform a bytecode hierarchy
+                                    // walk — hierarchy_walk is always false here.
                                     registry.telemetry.dispatch_resolution.record(
                                         &current_class,
                                         cp_idx.0,
@@ -7017,6 +7019,8 @@ pub fn execute_class(
                                         _native_start.elapsed().as_nanos() as u64,
                                         result.is_err(),
                                     );
+                                    // Native interface methods skip the bytecode
+                                    // hierarchy walk — hierarchy_walk is always false here.
                                     registry.telemetry.dispatch_resolution.record(
                                         &current_class,
                                         cp_idx.0,
