@@ -272,9 +272,7 @@ impl Heap {
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `obj_ref` is invalid.
     pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> VmResult<()> {
-        if obj_ref & OLD_BIT != 0
-            && value.as_reference().is_some_and(|r| r & OLD_BIT == 0)
-        {
+        if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
             self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
         }
         self.get_mut(obj_ref)?.fields[field_idx] = value;
@@ -417,7 +415,9 @@ impl Heap {
         let young_alive_before = self.young.iter().filter(|s| s.is_some()).count();
         // Forwarded = promoted_to_old + copied_to_to_space; dropped = was live but not forwarded.
         // We compute it as: (objects that were Some in young) - (those that got a forward pointer).
-        let forwarded = self.young.iter()
+        let forwarded = self
+            .young
+            .iter()
             .filter_map(|s| s.as_ref())
             .filter(|o| o.forward.is_some())
             .count();
@@ -693,7 +693,10 @@ mod tests {
         // First 3 allocs should not trigger.
         for i in 0..3 {
             heap.allocate(format!("C{i}"), 0);
-            assert!(!heap.should_minor_gc(), "should not fire before reaching capacity");
+            assert!(
+                !heap.should_minor_gc(),
+                "should not fire before reaching capacity"
+            );
         }
         // 4th alloc hits young_top == young_capacity → fires.
         heap.allocate("C3".to_string(), 0);
@@ -730,7 +733,8 @@ mod tests {
         let mut heap = Heap::new();
         let old_ref = make_old_obj(&mut heap);
         let young_ref = heap.allocate("Young".to_string(), 0);
-        heap.write_field(old_ref, 0, Slot::Reference(Some(young_ref))).unwrap();
+        heap.write_field(old_ref, 0, Slot::Reference(Some(young_ref)))
+            .unwrap();
         let old_idx = (old_ref & !OLD_BIT) as usize;
         assert!(
             heap.remembered_set.contains(&old_idx),
@@ -772,7 +776,8 @@ mod tests {
         }));
         let a_ref = 0u64 | OLD_BIT;
         let b_ref = 1u64 | OLD_BIT;
-        heap.write_field(a_ref, 0, Slot::Reference(Some(b_ref))).unwrap();
+        heap.write_field(a_ref, 0, Slot::Reference(Some(b_ref)))
+            .unwrap();
         assert!(
             heap.remembered_set.is_empty(),
             "old→old store must NOT populate remembered_set"
@@ -883,12 +888,17 @@ mod tests {
         let old_ref = 0u64 | OLD_BIT;
         let young_ref = heap.allocate("Young".to_string(), 0);
         // Wire old→young via write_field (populates remembered_set).
-        heap.write_field(old_ref, 0, Slot::Reference(Some(young_ref))).unwrap();
+        heap.write_field(old_ref, 0, Slot::Reference(Some(young_ref)))
+            .unwrap();
 
         // No stack roots — young object reachable only through remembered set.
         heap.minor_collect_prepare(&[]);
         assert!(
-            heap.young[young_ref as usize].as_ref().unwrap().forward.is_some(),
+            heap.young[young_ref as usize]
+                .as_ref()
+                .unwrap()
+                .forward
+                .is_some(),
             "young object reachable via rem-set must be forwarded"
         );
         heap.minor_collect_finish();
@@ -969,8 +979,14 @@ mod tests {
         let drop_ref = 1u64 | OLD_BIT;
         let roots = vec![Slot::Reference(Some(keep_ref))];
         heap.major_collect(&roots);
-        assert!(heap.get(keep_ref).is_ok(), "reachable old-gen object must survive");
-        assert!(heap.get(drop_ref).is_err(), "unreachable old-gen object must be swept");
+        assert!(
+            heap.get(keep_ref).is_ok(),
+            "reachable old-gen object must survive"
+        );
+        assert!(
+            heap.get(drop_ref).is_err(),
+            "unreachable old-gen object must be swept"
+        );
         assert_eq!(heap.old_free_list.len(), 1);
     }
 

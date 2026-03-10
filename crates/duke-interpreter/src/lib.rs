@@ -5042,7 +5042,14 @@ pub fn execute_class(
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&callee_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &callee_class, &current_class)?;
+                ensure_initialized(
+                    registry,
+                    loader,
+                    heap,
+                    stdout,
+                    &callee_class,
+                    &current_class,
+                )?;
                 let callee_idx = {
                     let ctx = registry.get(&callee_class)?;
                     ctx.methods
@@ -5873,7 +5880,14 @@ pub fn execute_class(
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class, &current_class)?;
+                ensure_initialized(
+                    registry,
+                    loader,
+                    heap,
+                    stdout,
+                    &target_class,
+                    &current_class,
+                )?;
                 // Walk the super chain to sum all instance field counts
                 // (e.g. Enum has 2 fields inherited by every enum subclass).
                 let field_count = {
@@ -5941,7 +5955,14 @@ pub fn execute_class(
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class, &current_class)?;
+                ensure_initialized(
+                    registry,
+                    loader,
+                    heap,
+                    stdout,
+                    &target_class,
+                    &current_class,
+                )?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 let val = registry.get(&target_class)?.static_fields[sidx].clone();
                 frame.push(val)?;
@@ -5953,7 +5974,14 @@ pub fn execute_class(
                 };
                 let val = frame.pop()?;
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class, &current_class)?;
+                ensure_initialized(
+                    registry,
+                    loader,
+                    heap,
+                    stdout,
+                    &target_class,
+                    &current_class,
+                )?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 registry.get_mut(&target_class)?.static_fields[sidx] = val;
             }
@@ -13595,10 +13623,7 @@ mod tests {
             .iter()
             .find(|e| e.class == "ClinitTest")
             .expect("expected ClinitTest clinit event");
-        assert!(
-            ev.duration_ns > 0,
-            "clinit duration should be positive"
-        );
+        assert!(ev.duration_ns > 0, "clinit duration should be positive");
     }
 
     #[cfg(feature = "telemetry")]
@@ -13615,10 +13640,7 @@ mod tests {
         );
         // Every recorded site must have at least one call.
         for ((cls, cp), stat) in &dr.by_site {
-            assert!(
-                stat.calls > 0,
-                "site {cls}[cp{cp}] should have calls > 0"
-            );
+            assert!(stat.calls > 0, "site {cls}[cp{cp}] should have calls > 0");
         }
     }
 
@@ -13661,7 +13683,10 @@ mod tests {
         // are collected, so total live count is dominated by bootstrap objects.
         // Without GC the heap would grow to 2000+ objects; with GC it stays bounded.
         let live = heap.len();
-        assert!(live < 500, "heap has {live} live objects — GC may not have fired");
+        assert!(
+            live < 500,
+            "heap has {live} live objects — GC may not have fired"
+        );
     }
 
     #[test]
@@ -13691,7 +13716,10 @@ mod tests {
             "([Ljava/lang/String;)V",
             &[duke_runtime::Slot::Reference(Some(arr_ref))],
         );
-        assert!(result.is_ok(), "generational GC stress test failed: {result:?}");
+        assert!(
+            result.is_ok(),
+            "generational GC stress test failed: {result:?}"
+        );
         let output = String::from_utf8(out).unwrap();
         // Verify long-lived objects survived all minor GCs.
         for i in 0..10 {
