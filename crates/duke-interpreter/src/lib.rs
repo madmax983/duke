@@ -241,6 +241,13 @@ pub type CallbackNativeHandler = fn(
     ) -> VmResult<Option<Slot>>,
 ) -> VmResult<Option<Slot>>;
 
+/// The `invoke` closure type passed into [`CallbackNativeHandler`] implementations.
+///
+/// Defined separately so function signatures that accept this parameter avoid the
+/// `clippy::type_complexity` lint.
+pub type InvokeFn<'a> = dyn FnMut(&mut duke_gc::Heap, &mut dyn Write, &str, &str, &str, Vec<Slot>) -> VmResult<Option<Slot>>
+    + 'a;
+
 /// Stored in `NativeRegistry` — all existing handlers stay `Simple`.
 #[derive(Copy, Clone, Debug)]
 pub enum HandlerKind {
@@ -8835,14 +8842,7 @@ fn array_list_sort(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
-    invoke: &mut dyn FnMut(
-        &mut duke_gc::Heap,
-        &mut dyn Write,
-        &str,
-        &str,
-        &str,
-        Vec<Slot>,
-    ) -> VmResult<Option<Slot>>,
+    invoke: &mut InvokeFn<'_>,
 ) -> VmResult<Option<Slot>> {
     // args[0] = ArrayList ref, args[1] = Comparator (null = natural ordering)
     let list_ref = match args.first() {
@@ -8954,14 +8954,7 @@ fn native_collections_sort(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
-    invoke: &mut dyn FnMut(
-        &mut duke_gc::Heap,
-        &mut dyn Write,
-        &str,
-        &str,
-        &str,
-        Vec<Slot>,
-    ) -> VmResult<Option<Slot>>,
+    invoke: &mut InvokeFn<'_>,
 ) -> VmResult<Option<Slot>> {
     // args[0] = List ref
     let list_ref = match args.first() {
