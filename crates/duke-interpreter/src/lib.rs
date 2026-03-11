@@ -242,7 +242,7 @@ pub type CallbackNativeHandler = fn(
 ) -> VmResult<Option<Slot>>;
 
 /// Stored in `NativeRegistry` — all existing handlers stay `Simple`.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum HandlerKind {
     Simple(NativeHandler),
     Callback(CallbackNativeHandler),
@@ -263,6 +263,17 @@ impl NativeRegistry {
         }
     }
 
+    fn insert_handler(&mut self, class: &str, method: &str, descriptor: &str, kind: HandlerKind) {
+        self.handlers.insert(
+            (
+                class.to_string(),
+                method.to_string(),
+                descriptor.to_string(),
+            ),
+            kind,
+        );
+    }
+
     /// Register a native method handler.
     pub fn register(
         &mut self,
@@ -271,14 +282,7 @@ impl NativeRegistry {
         descriptor: &str,
         handler: NativeHandler,
     ) {
-        self.handlers.insert(
-            (
-                class.to_string(),
-                method.to_string(),
-                descriptor.to_string(),
-            ),
-            HandlerKind::Simple(handler),
-        );
+        self.insert_handler(class, method, descriptor, HandlerKind::Simple(handler));
     }
 
     /// Register a native method handler that can call back into the interpreter.
@@ -289,14 +293,7 @@ impl NativeRegistry {
         descriptor: &str,
         handler: CallbackNativeHandler,
     ) {
-        self.handlers.insert(
-            (
-                class.to_string(),
-                method.to_string(),
-                descriptor.to_string(),
-            ),
-            HandlerKind::Callback(handler),
-        );
+        self.insert_handler(class, method, descriptor, HandlerKind::Callback(handler));
     }
 
     /// Look up a native handler for the given class/method/descriptor.
