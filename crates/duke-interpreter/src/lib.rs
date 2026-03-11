@@ -8948,8 +8948,8 @@ fn array_list_sort(
 ///
 /// `Collections.sort(list)` is compiled by javac as
 /// `invokestatic java/util/Collections.sort:(Ljava/util/List;)V`.
-/// We forward to `ArrayList.sort(Comparator=null)` which performs the
-/// insertion-sort-with-compareTo callback.
+/// We forward to the runtime class's `sort(Comparator=null)`, which for an
+/// `ArrayList` performs the insertion-sort-with-compareTo callback.
 fn native_collections_sort(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8963,16 +8963,17 @@ fn native_collections_sort(
         Vec<Slot>,
     ) -> VmResult<Option<Slot>>,
 ) -> VmResult<Option<Slot>> {
-    // args[0] = List (ArrayList ref)
+    // args[0] = List ref
     let list_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    // Delegate to ArrayList.sort(null) — null Comparator means natural ordering.
+    // Dispatch on the actual runtime class so any List implementation works.
+    let class_name = heap.get(list_ref)?.class_name.clone();
     invoke(
         heap,
         output,
-        "java/util/ArrayList",
+        &class_name,
         "sort",
         "(Ljava/util/Comparator;)V",
         vec![Slot::Reference(Some(list_ref)), Slot::Reference(None)],
@@ -15205,5 +15206,51 @@ mod tests {
             output.contains("apple\nbanana\ncherry"),
             "string sort wrong:\n{output}"
         );
+    }
+
+    #[test]
+    fn collections_sort_null_list_raises_npe() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/Collections",
+            "sort",
+            "(Ljava/util/List;)V",
+            &[Slot::Reference(None)],
+        );
+        assert!(
+            matches!(result, Err(VmError::NullPointerException)),
+            "expected NullPointerException, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn collections_sort_empty_list_is_noop() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        // Empty ArrayList: size=0
+        let list = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(list).unwrap().fields[0] = Slot::Int(0);
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/Collections",
+            "sort",
+            "(Ljava/util/List;)V",
+            &[Slot::Reference(Some(list))],
+        );
+        assert!(result.is_ok(), "empty list sort failed: {result:?}");
     }
 }
