@@ -14086,4 +14086,200 @@ mod tests {
             "callback handler was never invoked"
         );
     }
+
+    // ---- Bytecode-level Callback dispatch tests (Sites 2-4) ----
+    //
+    // These tests verify that `HandlerKind::Callback` handlers fire when the
+    // call site is reached via *bytecode* (invokestatic / invokevirtual /
+    // invokeinterface), not just via the top-level fast-path.
+    //
+    // Pattern: bootstrap stdlib (so the fixture class can run), then
+    // *override* one specific native with a Callback handler, run the fixture
+    // bytecode, and assert both the result and the CALLED flag.
+
+    /// Site 2 — invokestatic Callback arm.
+    ///
+    /// `ParseArgs.parseInt()` bytecode contains:
+    ///   `invokestatic java/lang/Integer.parseInt:(Ljava/lang/String;)I`
+    /// We override that registration with a Callback handler that delegates to
+    /// `invoke`, proving the arm wires the closure correctly end-to-end.
+    #[test]
+    fn callback_fires_via_invokestatic_bytecode() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static CALLED: AtomicBool = AtomicBool::new(false);
+
+        let ctx = load_class_context("ParseArgs.class");
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // Override the Simple Integer.parseInt with a Callback that records
+        // invocation and delegates via `invoke` back to the (already-registered)
+        // helper that bootstrap_stdlib set up as a Simple handler on
+        // "java/lang/Integer"/"parseInt".
+        // Because we overwrite the key the Simple handler is gone — we compute
+        // the parse directly inside the callback instead.
+        registry.natives.register_callback(
+            "java/lang/Integer",
+            "parseInt",
+            "(Ljava/lang/String;)I",
+            |args, heap, _output, _invoke| {
+                CALLED.store(true, Ordering::SeqCst);
+                // args[0] is the String reference; extract its string_value.
+                let s = match &args[0] {
+                    Slot::Reference(Some(r)) => heap
+                        .get(*r)
+                        .ok()
+                        .and_then(|o| o.string_value.clone())
+                        .unwrap_or_default(),
+                    _ => return Err(VmError::NullPointerException),
+                };
+                let n: i32 = s.parse().map_err(|_| VmError::NullPointerException)?;
+                Ok(Some(Slot::Int(n)))
+            },
+        );
+
+        let loader = fixtures_loader();
+        // Build String[] = ["123"] for ParseArgs.parseInt
+        let s_ref = heap.allocate_string("123".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 1);
+        heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(s_ref));
+        let mut out: Vec<u8> = Vec::new();
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "parseInt",
+            "([Ljava/lang/String;)I",
+            &[Slot::Reference(Some(arr_ref))],
+        );
+        assert!(
+            result.is_ok(),
+            "invokestatic Callback dispatch failed: {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(123)));
+        assert!(
+            CALLED.load(Ordering::SeqCst),
+            "Callback handler was never invoked via invokestatic bytecode"
+        );
+    }
+
+    /// Site 3 — invokevirtual Callback arm.
+    ///
+    /// `ParseArgs.valueOf()` bytecode contains:
+    ///   `invokevirtual java/lang/Integer.intValue:()I`
+    /// We override that registration with a Callback handler.
+    #[test]
+    fn callback_fires_via_invokevirtual_bytecode() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static CALLED: AtomicBool = AtomicBool::new(false);
+
+        let ctx = load_class_context("ParseArgs.class");
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // Override Integer.intValue with a Callback.
+        // The Integer heap object stores the boxed int in fields[0].
+        registry.natives.register_callback(
+            "java/lang/Integer",
+            "intValue",
+            "()I",
+            |args, heap, _output, _invoke| {
+                CALLED.store(true, Ordering::SeqCst);
+                // args[0] is `this` (the Integer object); fields[0] holds the int.
+                let r = match &args[0] {
+                    Slot::Reference(Some(r)) => *r,
+                    _ => return Err(VmError::NullPointerException),
+                };
+                let val = heap.get(r)?.fields[0].clone();
+                Ok(Some(val))
+            },
+        );
+
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ParseArgs",
+            "valueOf",
+            "()I",
+            &[],
+        );
+        assert!(
+            result.is_ok(),
+            "invokevirtual Callback dispatch failed: {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(42)));
+        assert!(
+            CALLED.load(Ordering::SeqCst),
+            "Callback handler was never invoked via invokevirtual bytecode"
+        );
+    }
+
+    /// Site 4 — invokeinterface Callback arm.
+    ///
+    /// `ArrayListTest.testForEachCount()` bytecode uses:
+    ///   `invokeinterface java/util/Iterator.hasNext:()Z`
+    /// dispatched on the actual runtime class `duke/util/ArrayListIterator`.
+    /// We override `duke/util/ArrayListIterator.hasNext` with a Callback that
+    /// immediately returns false (0), making the for-each body not execute and
+    /// the count stay at 0.  This verifies the invokeinterface Callback arm
+    /// fires.
+    #[test]
+    fn callback_fires_via_invokeinterface_bytecode() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static CALLED: AtomicBool = AtomicBool::new(false);
+
+        let ctx = load_class_context("ArrayListTest.class");
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // Override ArrayListIterator.hasNext with a Callback that records
+        // invocation and immediately signals "no more elements" (returns false).
+        registry.natives.register_callback(
+            "duke/util/ArrayListIterator",
+            "hasNext",
+            "()Z",
+            |_args, _heap, _output, _invoke| {
+                CALLED.store(true, Ordering::SeqCst);
+                Ok(Some(Slot::Int(0))) // false — loop body never runs
+            },
+        );
+
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "ArrayListTest",
+            "testForEachCount",
+            "()I",
+            &[],
+        );
+        assert!(
+            result.is_ok(),
+            "invokeinterface Callback dispatch failed: {result:?}"
+        );
+        // hasNext always returns false → loop body never runs → count = 0.
+        assert_eq!(result.unwrap(), Some(Slot::Int(0)));
+        assert!(
+            CALLED.load(Ordering::SeqCst),
+            "Callback handler was never invoked via invokeinterface bytecode"
+        );
+    }
 }
