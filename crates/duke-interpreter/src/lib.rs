@@ -8830,15 +8830,17 @@ fn array_list_sort(
         _ => return Err(VmError::NullPointerException),
     };
 
-    // Only null Comparator (natural ordering) supported.
+    // Fix 1: use the correct error variant for unsupported non-null Comparator.
     if !matches!(args.get(1), Some(Slot::Reference(None)) | None) {
-        return Err(VmError::ClassNotFound {
-            name: "ArrayList.sort with non-null Comparator is not yet supported".into(),
+        return Err(VmError::Unimplemented {
+            mnemonic: "ArrayList.sort(non-null Comparator)",
         });
     }
 
+    // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => return Ok(None),
     };
 
@@ -8854,13 +8856,14 @@ fn array_list_sort(
         })
         .collect();
 
+    // Fix 3: malformed list → InvalidRef, not silent Ok(None).
     if elems.len() != size {
-        return Ok(None); // malformed ArrayList — bail safely
+        return Err(VmError::InvalidRef { address: list_ref });
     }
 
     // Insertion sort — O(n²), correct, easy to verify.
     for i in 1..elems.len() {
-        let key = elems[i];
+        let mut key = elems[i];
         let mut j = i;
         while j > 0 {
             let receiver = elems[j - 1];
@@ -8873,9 +8876,35 @@ fn array_list_sort(
                 "(Ljava/lang/Object;)I",
                 vec![Slot::Reference(Some(receiver)), Slot::Reference(Some(key))],
             )?;
+
+            // Fix 5: patch all elems for GC forwarding after each invoke callback.
+            for elem in elems.iter_mut() {
+                let mut slot = Slot::Reference(Some(*elem));
+                heap.apply_forward(&mut slot);
+                if let Slot::Reference(Some(r)) = slot {
+                    *elem = r;
+                }
+            }
+            // Re-read key after forwarding patch (it lives outside elems during
+            // the innermost loop iteration).
+            {
+                let mut key_slot = Slot::Reference(Some(key));
+                heap.apply_forward(&mut key_slot);
+                if let Slot::Reference(Some(r)) = key_slot {
+                    key = r;
+                }
+            }
+
+            // Fix 4: explicit error on non-Int compareTo return.
             match cmp {
                 Some(Slot::Int(n)) if n <= 0 => break,
-                _ => {}
+                Some(Slot::Int(_)) => {} // n > 0, keep shifting
+                _ => {
+                    return Err(VmError::TypeMismatch {
+                        expected: "Int",
+                        got: "other",
+                    });
+                }
             }
             elems[j] = elems[j - 1];
             j -= 1;
@@ -14896,5 +14925,187 @@ mod tests {
         assert_eq!(str_val(&heap, &f(1)), "apple");
         assert_eq!(str_val(&heap, &f(2)), "banana");
         assert_eq!(str_val(&heap, &f(3)), "cherry");
+    }
+
+    // Fix 6: boundary tests for array_list_sort
+
+    #[test]
+    fn array_list_sort_empty_list_is_noop() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // ArrayList with size=0 — allocate just the size field slot.
+        let list = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(list).unwrap().fields[0] = Slot::Int(0);
+
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/ArrayList",
+            "sort",
+            "(Ljava/util/Comparator;)V",
+            &[Slot::Reference(Some(list)), Slot::Reference(None)],
+        );
+        assert!(result.is_ok(), "empty sort should not error: {result:?}");
+        assert_eq!(result.unwrap(), None);
+        // Size field still 0.
+        assert_eq!(heap.get(list).unwrap().fields[0], Slot::Int(0));
+    }
+
+    #[test]
+    fn array_list_sort_single_element_is_noop() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let list = heap.allocate("java/util/ArrayList".to_string(), 2);
+        heap.get_mut(list).unwrap().fields[0] = Slot::Int(1);
+        let elem = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(elem).unwrap().fields[0] = Slot::Int(42);
+        heap.get_mut(list).unwrap().fields[1] = Slot::Reference(Some(elem));
+
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/ArrayList",
+            "sort",
+            "(Ljava/util/Comparator;)V",
+            &[Slot::Reference(Some(list)), Slot::Reference(None)],
+        )
+        .unwrap();
+
+        // Single element unchanged.
+        match &heap.get(list).unwrap().fields[1] {
+            Slot::Reference(Some(r)) => {
+                let r = *r;
+                assert_eq!(heap.get(r).unwrap().fields[0], Slot::Int(42));
+            }
+            other => panic!("unexpected slot: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn array_list_sort_already_sorted_unchanged() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let list = heap.allocate("java/util/ArrayList".to_string(), 4);
+        heap.get_mut(list).unwrap().fields[0] = Slot::Int(3);
+        let make_int = |heap: &mut duke_gc::Heap, n: i32| -> u64 {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(r).unwrap().fields[0] = Slot::Int(n);
+            r
+        };
+        let i1 = make_int(&mut heap, 1);
+        let i2 = make_int(&mut heap, 2);
+        let i3 = make_int(&mut heap, 3);
+        heap.get_mut(list).unwrap().fields[1] = Slot::Reference(Some(i1));
+        heap.get_mut(list).unwrap().fields[2] = Slot::Reference(Some(i2));
+        heap.get_mut(list).unwrap().fields[3] = Slot::Reference(Some(i3));
+
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/ArrayList",
+            "sort",
+            "(Ljava/util/Comparator;)V",
+            &[Slot::Reference(Some(list)), Slot::Reference(None)],
+        )
+        .unwrap();
+
+        let int_val = |heap: &duke_gc::Heap, i: usize| -> i32 {
+            match heap.get(list).unwrap().fields[i] {
+                Slot::Reference(Some(r)) => match heap.get(r).unwrap().fields[0] {
+                    Slot::Int(n) => n,
+                    _ => -1,
+                },
+                _ => -1,
+            }
+        };
+        assert_eq!(int_val(&heap, 1), 1);
+        assert_eq!(int_val(&heap, 2), 2);
+        assert_eq!(int_val(&heap, 3), 3);
+    }
+
+    #[test]
+    fn array_list_sort_duplicates() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // [3, 1, 1, 2] → [1, 1, 2, 3]
+        let list = heap.allocate("java/util/ArrayList".to_string(), 5);
+        heap.get_mut(list).unwrap().fields[0] = Slot::Int(4);
+        let make_int = |heap: &mut duke_gc::Heap, n: i32| -> u64 {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(r).unwrap().fields[0] = Slot::Int(n);
+            r
+        };
+        let r3 = make_int(&mut heap, 3);
+        let r1a = make_int(&mut heap, 1);
+        let r1b = make_int(&mut heap, 1);
+        let r2 = make_int(&mut heap, 2);
+        heap.get_mut(list).unwrap().fields[1] = Slot::Reference(Some(r3));
+        heap.get_mut(list).unwrap().fields[2] = Slot::Reference(Some(r1a));
+        heap.get_mut(list).unwrap().fields[3] = Slot::Reference(Some(r1b));
+        heap.get_mut(list).unwrap().fields[4] = Slot::Reference(Some(r2));
+
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/ArrayList",
+            "sort",
+            "(Ljava/util/Comparator;)V",
+            &[Slot::Reference(Some(list)), Slot::Reference(None)],
+        )
+        .unwrap();
+
+        let int_val = |heap: &duke_gc::Heap, i: usize| -> i32 {
+            match heap.get(list).unwrap().fields[i] {
+                Slot::Reference(Some(r)) => match heap.get(r).unwrap().fields[0] {
+                    Slot::Int(n) => n,
+                    _ => -1,
+                },
+                _ => -1,
+            }
+        };
+        assert_eq!(int_val(&heap, 1), 1);
+        assert_eq!(int_val(&heap, 2), 1);
+        assert_eq!(int_val(&heap, 3), 2);
+        assert_eq!(int_val(&heap, 4), 3);
     }
 }
