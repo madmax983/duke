@@ -222,18 +222,44 @@ impl Default for ClassRegistry {
 /// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
 pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
 
+/// A native handler that can call back into the interpreter to invoke Java methods.
+///
+/// The `invoke` closure takes `heap` and `output` as *parameters* (not captured),
+/// using the "loan" pattern: the handler passes its borrows through each call and
+/// gets them back when the call returns. Sequential reborrows — no unsafe required.
+pub type CallbackNativeHandler = fn(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    invoke: &mut dyn FnMut(
+        &mut duke_gc::Heap,
+        &mut dyn Write,
+        &str, // class name
+        &str, // method name
+        &str, // descriptor
+        Vec<Slot>,
+    ) -> VmResult<Option<Slot>>,
+) -> VmResult<Option<Slot>>;
+
+/// Stored in `NativeRegistry` — all existing handlers stay `Simple`.
+#[derive(Copy, Clone)]
+pub enum HandlerKind {
+    Simple(NativeHandler),
+    Callback(CallbackNativeHandler),
+}
+
 /// Registry of native method implementations.
 ///
 /// Maps `(class_name, method_name, descriptor)` to a Rust function pointer.
 pub struct NativeRegistry {
-    methods: HashMap<(String, String, String), NativeHandler>,
+    handlers: HashMap<(String, String, String), HandlerKind>,
 }
 
 impl NativeRegistry {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            methods: HashMap::new(),
+            handlers: HashMap::new(),
         }
     }
 
@@ -245,24 +271,62 @@ impl NativeRegistry {
         descriptor: &str,
         handler: NativeHandler,
     ) {
-        self.methods.insert(
+        self.handlers.insert(
             (
                 class.to_string(),
                 method.to_string(),
                 descriptor.to_string(),
             ),
-            handler,
+            HandlerKind::Simple(handler),
+        );
+    }
+
+    /// Register a native method handler that can call back into the interpreter.
+    pub fn register_callback(
+        &mut self,
+        class: &str,
+        method: &str,
+        descriptor: &str,
+        handler: CallbackNativeHandler,
+    ) {
+        self.handlers.insert(
+            (
+                class.to_string(),
+                method.to_string(),
+                descriptor.to_string(),
+            ),
+            HandlerKind::Callback(handler),
         );
     }
 
     /// Look up a native handler for the given class/method/descriptor.
+    ///
+    /// Returns `Some` only for `Simple` handlers. Use [`get_kind`] to handle
+    /// `Callback` variants.
+    ///
+    /// [`get_kind`]: NativeRegistry::get_kind
     #[must_use]
-    pub fn get(&self, class: &str, method: &str, descriptor: &str) -> Option<&NativeHandler> {
-        self.methods.get(&(
+    pub fn get(&self, class: &str, method: &str, descriptor: &str) -> Option<NativeHandler> {
+        match self.handlers.get(&(
             class.to_string(),
             method.to_string(),
             descriptor.to_string(),
-        ))
+        ))? {
+            HandlerKind::Simple(h) => Some(*h),
+            HandlerKind::Callback(_) => None,
+        }
+    }
+
+    /// Look up any handler kind for the given class/method/descriptor.
+    #[must_use]
+    pub fn get_kind(&self, class: &str, method: &str, descriptor: &str) -> Option<HandlerKind> {
+        self.handlers
+            .get(&(
+                class.to_string(),
+                method.to_string(),
+                descriptor.to_string(),
+            ))
+            .copied()
     }
 }
 
@@ -5115,7 +5179,6 @@ pub fn execute_class(
                                 .natives()
                                 .get(&callee_class, &callee_name, &callee_desc)
                         {
-                            let handler = *handler;
                             let arg_count = parse_arg_count(&callee_desc);
                             let mut native_args: Vec<Slot> = (0..arg_count)
                                 .map(|_| frame.pop())
@@ -6162,10 +6225,10 @@ pub fn execute_class(
                         }
                         // Check native registry, walking the super chain.
                         let native_handler = {
-                            let mut found = registry
-                                .natives()
-                                .get(&callee_class, &callee_name, &callee_desc)
-                                .copied();
+                            let mut found =
+                                registry
+                                    .natives()
+                                    .get(&callee_class, &callee_name, &callee_desc);
                             if found.is_none() {
                                 // Walk super chain for native lookup (e.g. Enum.ordinal
                                 // called via SimpleEnum$Color.ordinal).
@@ -6183,7 +6246,7 @@ pub fn execute_class(
                                     if let Some(h) =
                                         registry.natives().get(s, &callee_name, &callee_desc)
                                     {
-                                        found = Some(*h);
+                                        found = Some(h);
                                         break;
                                     }
                                     sc = registry.get(s).ok().and_then(|c| c.super_class.clone());
@@ -7072,8 +7135,7 @@ pub fn execute_class(
                                         &callee_name,
                                         &callee_desc,
                                     )
-                                })
-                                .copied();
+                                });
                             if let Some(handler) = native {
                                 // Native path: collect args + this into a Vec<Slot>
                                 // for the handler(&[Slot], ...) signature.
@@ -7245,15 +7307,11 @@ pub fn execute_class(
                                         continue;
                                     }
                                     // Try native fallback for virtual/interface
-                                    if let Some(handler) = registry
-                                        .natives()
-                                        .get(
-                                            &lambda_info.impl_class,
-                                            &lambda_info.impl_method,
-                                            &lambda_info.impl_desc,
-                                        )
-                                        .copied()
-                                    {
+                                    if let Some(handler) = registry.natives().get(
+                                        &lambda_info.impl_class,
+                                        &lambda_info.impl_method,
+                                        &lambda_info.impl_desc,
+                                    ) {
                                         #[cfg(feature = "telemetry")]
                                         let _native_start = std::time::Instant::now();
                                         let result = handler(&impl_args, heap, stdout);
@@ -9047,6 +9105,48 @@ mod tests {
         // registry starts empty; verify iteration works
         let count = reg.all_classes().count();
         assert_eq!(count, 0); // before bootstrap
+    }
+
+    #[test]
+    fn native_registry_register_callback_can_be_looked_up() {
+        fn dummy_cb(
+            _args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            _out: &mut dyn std::io::Write,
+            _invoke: &mut dyn FnMut(
+                &mut duke_gc::Heap,
+                &mut dyn std::io::Write,
+                &str,
+                &str,
+                &str,
+                Vec<Slot>,
+            ) -> VmResult<Option<Slot>>,
+        ) -> VmResult<Option<Slot>> {
+            Ok(None)
+        }
+        let mut reg = NativeRegistry::new();
+        reg.register_callback("Test", "method", "()V", dummy_cb);
+        assert!(matches!(
+            reg.get_kind("Test", "method", "()V"),
+            Some(HandlerKind::Callback(_))
+        ));
+    }
+
+    #[test]
+    fn native_registry_register_simple_stays_simple() {
+        fn dummy(
+            _args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            _out: &mut dyn std::io::Write,
+        ) -> VmResult<Option<Slot>> {
+            Ok(None)
+        }
+        let mut reg = NativeRegistry::new();
+        reg.register("Test", "method", "()V", dummy);
+        assert!(matches!(
+            reg.get_kind("Test", "method", "()V"),
+            Some(HandlerKind::Simple(_))
+        ));
     }
 
     #[test]
