@@ -1310,6 +1310,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/Iterator;",
         native_arraylist_iterator,
     );
+    registry.natives_mut().register_callback(
+        "java/util/ArrayList",
+        "sort",
+        "(Ljava/util/Comparator;)V",
+        array_list_sort,
+    );
 
     // duke/util/ArrayListIterator — internal iterator for ArrayList
     // fields[0] = ArrayList reference, fields[1] = current index (Int)
@@ -8801,6 +8807,90 @@ fn native_arraylist_iterator(
     Ok(Some(Slot::Reference(Some(iter_ref))))
 }
 
+/// Native: `ArrayList.sort(Comparator)V` — sorts in-place using insertion sort,
+/// calling `compareTo` on each element pair via the interpreter callback.
+///
+/// Only null Comparator (natural ordering via `compareTo`) is supported.
+fn array_list_sort(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    invoke: &mut dyn FnMut(
+        &mut duke_gc::Heap,
+        &mut dyn Write,
+        &str,
+        &str,
+        &str,
+        Vec<Slot>,
+    ) -> VmResult<Option<Slot>>,
+) -> VmResult<Option<Slot>> {
+    // args[0] = ArrayList ref, args[1] = Comparator (null = natural ordering)
+    let list_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+
+    // Only null Comparator (natural ordering) supported.
+    if !matches!(args.get(1), Some(Slot::Reference(None)) | None) {
+        return Err(VmError::ClassNotFound {
+            name: "ArrayList.sort with non-null Comparator is not yet supported".into(),
+        });
+    }
+
+    let size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(n)) => *n as usize,
+        _ => return Ok(None),
+    };
+
+    if size <= 1 {
+        return Ok(None);
+    }
+
+    // Collect element refs (fields[1..=size]).
+    let mut elems: Vec<u64> = (1..=size)
+        .filter_map(|i| match heap.get(list_ref).ok()?.fields.get(i) {
+            Some(Slot::Reference(Some(r))) => Some(*r),
+            _ => None,
+        })
+        .collect();
+
+    if elems.len() != size {
+        return Ok(None); // malformed ArrayList — bail safely
+    }
+
+    // Insertion sort — O(n²), correct, easy to verify.
+    for i in 1..elems.len() {
+        let key = elems[i];
+        let mut j = i;
+        while j > 0 {
+            let receiver = elems[j - 1];
+            let class_name = heap.get(receiver)?.class_name.clone();
+            let cmp = invoke(
+                heap,
+                output,
+                &class_name,
+                "compareTo",
+                "(Ljava/lang/Object;)I",
+                vec![Slot::Reference(Some(receiver)), Slot::Reference(Some(key))],
+            )?;
+            match cmp {
+                Some(Slot::Int(n)) if n <= 0 => break,
+                _ => {}
+            }
+            elems[j] = elems[j - 1];
+            j -= 1;
+        }
+        elems[j] = key;
+    }
+
+    // Write sorted elements back using the write barrier.
+    for (i, &r) in elems.iter().enumerate() {
+        heap.write_field(list_ref, i + 1, Slot::Reference(Some(r)))?;
+    }
+
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
@@ -14699,5 +14789,112 @@ mod tests {
             Some(Slot::Int(-1)),
             "1.0.compareTo(NaN) should be -1 (NaN is greatest)"
         );
+    }
+
+    // ---- Phase 26 Task 4: ArrayList.sort(Comparator) via CallbackNativeHandler ----
+
+    #[test]
+    fn array_list_sort_integers_via_callback() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // Build ArrayList [Integer(3), Integer(1), Integer(4)]
+        let list = heap.allocate("java/util/ArrayList".to_string(), 4);
+        heap.get_mut(list).unwrap().fields[0] = Slot::Int(3); // size
+        let make_int = |heap: &mut duke_gc::Heap, n: i32| -> u64 {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(r).unwrap().fields[0] = Slot::Int(n);
+            r
+        };
+        let i3 = make_int(&mut heap, 3);
+        let i1 = make_int(&mut heap, 1);
+        let i4 = make_int(&mut heap, 4);
+        heap.get_mut(list).unwrap().fields[1] = Slot::Reference(Some(i3));
+        heap.get_mut(list).unwrap().fields[2] = Slot::Reference(Some(i1));
+        heap.get_mut(list).unwrap().fields[3] = Slot::Reference(Some(i4));
+
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/ArrayList",
+            "sort",
+            "(Ljava/util/Comparator;)V",
+            &[Slot::Reference(Some(list)), Slot::Reference(None)], // null Comparator
+        )
+        .unwrap();
+
+        // After sort: fields[1..=3] = Integer(1), Integer(3), Integer(4)
+        let val = |heap: &duke_gc::Heap, s: &Slot| -> i32 {
+            match s {
+                Slot::Reference(Some(r)) => match heap.get(*r).unwrap().fields.first() {
+                    Some(Slot::Int(n)) => *n,
+                    _ => -1,
+                },
+                _ => -1,
+            }
+        };
+        let f = |i: usize| heap.get(list).unwrap().fields[i].clone();
+        assert_eq!(val(&heap, &f(1)), 1);
+        assert_eq!(val(&heap, &f(2)), 3);
+        assert_eq!(val(&heap, &f(3)), 4);
+    }
+
+    #[test]
+    fn array_list_sort_strings_via_callback() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let list = heap.allocate("java/util/ArrayList".to_string(), 4);
+        heap.get_mut(list).unwrap().fields[0] = Slot::Int(3);
+        let sb = heap.allocate_string("banana".to_string());
+        let sa = heap.allocate_string("apple".to_string());
+        let sc = heap.allocate_string("cherry".to_string());
+        heap.get_mut(list).unwrap().fields[1] = Slot::Reference(Some(sb));
+        heap.get_mut(list).unwrap().fields[2] = Slot::Reference(Some(sa));
+        heap.get_mut(list).unwrap().fields[3] = Slot::Reference(Some(sc));
+
+        let loader = duke_loader::DirectoryLoader::new(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("fixtures"),
+        );
+        let mut out: Vec<u8> = Vec::new();
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/util/ArrayList",
+            "sort",
+            "(Ljava/util/Comparator;)V",
+            &[Slot::Reference(Some(list)), Slot::Reference(None)],
+        )
+        .unwrap();
+
+        let str_val = |heap: &duke_gc::Heap, s: &Slot| -> String {
+            match s {
+                Slot::Reference(Some(r)) => heap
+                    .get(*r)
+                    .unwrap()
+                    .string_value
+                    .clone()
+                    .unwrap_or_default(),
+                _ => String::new(),
+            }
+        };
+        let f = |i: usize| heap.get(list).unwrap().fields[i].clone();
+        assert_eq!(str_val(&heap, &f(1)), "apple");
+        assert_eq!(str_val(&heap, &f(2)), "banana");
+        assert_eq!(str_val(&heap, &f(3)), "cherry");
     }
 }
