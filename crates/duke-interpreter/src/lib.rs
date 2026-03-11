@@ -1504,6 +1504,26 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Z",
         native_hashset_is_empty,
     );
+
+    // java/util/Collections — static utility class
+    // Only sort(List) is supported; delegates to ArrayList.sort(null).
+    let collections_ctx = ClassContext {
+        class_name: "java/util/Collections".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(collections_ctx);
+    registry.natives_mut().register_callback(
+        "java/util/Collections",
+        "sort",
+        "(Ljava/util/List;)V",
+        native_collections_sort,
+    );
 }
 
 fn native_println_string(
@@ -8921,6 +8941,46 @@ fn array_list_sort(
 }
 
 // ---------------------------------------------------------------------------
+// Collections natives
+// ---------------------------------------------------------------------------
+
+/// Native: `Collections.sort(List)V` — delegates to the list's sort(null) method.
+///
+/// `Collections.sort(list)` is compiled by javac as
+/// `invokestatic java/util/Collections.sort:(Ljava/util/List;)V`.
+/// We forward to `ArrayList.sort(Comparator=null)` which performs the
+/// insertion-sort-with-compareTo callback.
+fn native_collections_sort(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    invoke: &mut dyn FnMut(
+        &mut duke_gc::Heap,
+        &mut dyn Write,
+        &str,
+        &str,
+        &str,
+        Vec<Slot>,
+    ) -> VmResult<Option<Slot>>,
+) -> VmResult<Option<Slot>> {
+    // args[0] = List (ArrayList ref)
+    let list_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    // Delegate to ArrayList.sort(null) — null Comparator means natural ordering.
+    invoke(
+        heap,
+        output,
+        "java/util/ArrayList",
+        "sort",
+        "(Ljava/util/Comparator;)V",
+        vec![Slot::Reference(Some(list_ref)), Slot::Reference(None)],
+    )?;
+    Ok(None)
+}
+
+// ---------------------------------------------------------------------------
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
 
@@ -15107,5 +15167,43 @@ mod tests {
         assert_eq!(int_val(&heap, 2), 1);
         assert_eq!(int_val(&heap, 3), 2);
         assert_eq!(int_val(&heap, 4), 3);
+    }
+
+    // ---- Phase 26 Task 5: CollectionsSortTest end-to-end integration test ----
+
+    #[test]
+    fn collections_sort_end_to_end() {
+        let ctx = load_class_context("CollectionsSortTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let loader = fixtures_loader();
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 1);
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            "main",
+            "([Ljava/lang/String;)V",
+            &[Slot::Reference(Some(arr_ref))],
+        );
+        assert!(result.is_ok(), "CollectionsSortTest failed: {result:?}");
+        let output = String::from_utf8(out).unwrap();
+        // Integer sort: 1 1 3 4 5 (one per line)
+        assert!(
+            output.contains("1\n1\n3\n4\n5"),
+            "integer sort wrong:\n{output}"
+        );
+        // String sort: apple banana cherry (one per line)
+        assert!(
+            output.contains("apple\nbanana\ncherry"),
+            "string sort wrong:\n{output}"
+        );
     }
 }
