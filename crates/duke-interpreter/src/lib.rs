@@ -14282,4 +14282,93 @@ mod tests {
             "Callback handler was never invoked via invokeinterface bytecode"
         );
     }
+
+    /// Site 5 — lambda SAM virtual/interface native-fallback Callback arm.
+    ///
+    /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
+    ///
+    ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
+    ///   // creates $$Lambda$0 with impl_class="java/lang/String",
+    ///   //   impl_method="length", impl_kind=5 (REF_invokeVirtual),
+    ///   //   captured_count=1 (the string "hello")
+    ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
+    ///   // → lambda SAM: impl_kind==5, resolve_method_in_hierarchy returns None
+    ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
+    ///   //   registry.natives.get_kind("java/lang/String", "length", "()I")
+    ///
+    /// We override `String.length` with a Callback handler to prove the arm fires.
+    #[test]
+    fn callback_fires_via_lambda_sam_fallback() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static CALLED: AtomicBool = AtomicBool::new(false);
+
+        let ctx = load_class_context("LambdaCallbackTest.class");
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // javac emits `dup; invokestatic Objects.requireNonNull; pop` for
+        // captured instance method references.  Register a ClassContext and a
+        // passthrough native so the invokestatic dispatch doesn't fail.
+        registry.register(ClassContext {
+            class_name: "java/util/Objects".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        });
+        registry.natives.register(
+            "java/util/Objects",
+            "requireNonNull",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            |args, _heap, _out| Ok(Some(args[0].clone())),
+        );
+
+        // Override String.length with a Callback.  This replaces the Simple
+        // handler that bootstrap_stdlib registered, so the lambda SAM fallback
+        // (Site 5) must route through the Callback arm to fire at all.
+        registry.natives.register_callback(
+            "java/lang/String",
+            "length",
+            "()I",
+            |args, heap, _output, _invoke| {
+                CALLED.store(true, Ordering::SeqCst);
+                // args[0] is `this` (the captured String reference).
+                let r = match &args[0] {
+                    Slot::Reference(Some(r)) => *r,
+                    _ => return Err(VmError::NullPointerException),
+                };
+                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
+                Ok(Some(Slot::Int(len)))
+            },
+        );
+
+        let loader = fixtures_loader();
+        let s_ref = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "LambdaCallbackTest",
+            "capturedLengthViaMethodRef",
+            "(Ljava/lang/String;)I",
+            &[Slot::Reference(Some(s_ref))],
+        );
+        assert!(
+            result.is_ok(),
+            "lambda SAM Callback dispatch failed: {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(5)));
+        assert!(
+            CALLED.load(Ordering::SeqCst),
+            "Callback handler was never invoked via lambda SAM fallback (Site 5)"
+        );
+    }
 }
