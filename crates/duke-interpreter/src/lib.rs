@@ -2274,8 +2274,14 @@ fn native_string_compareto_object(
             _ => Err(VmError::NullPointerException),
         }
     };
-    let a = str_val(args.first().unwrap_or(&Slot::Reference(None)))?;
-    let b = str_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
+    let a = match args.first() {
+        Some(s) => str_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = match args.get(1) {
+        Some(s) => str_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
     Ok(Some(Slot::Int(match a.as_str().cmp(b.as_str()) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
@@ -2458,8 +2464,14 @@ fn native_integer_compareto(
             _ => Err(VmError::NullPointerException),
         }
     };
-    let a = int_val(args.first().unwrap_or(&Slot::Reference(None)))?;
-    let b = int_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
+    let a = match args.first() {
+        Some(s) => int_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = match args.get(1) {
+        Some(s) => int_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
     Ok(Some(Slot::Int(match a.cmp(&b) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
@@ -3359,8 +3371,14 @@ fn native_long_compareto(
             _ => Err(VmError::NullPointerException),
         }
     };
-    let a = long_val(args.first().unwrap_or(&Slot::Reference(None)))?;
-    let b = long_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
+    let a = match args.first() {
+        Some(s) => long_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = match args.get(1) {
+        Some(s) => long_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
     Ok(Some(Slot::Int(match a.cmp(&b) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
@@ -8889,17 +8907,20 @@ fn native_double_compareto(
             _ => Err(VmError::NullPointerException),
         }
     };
-    let a = double_val(args.first().unwrap_or(&Slot::Reference(None)))?;
-    let b = double_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
-    Ok(Some(Slot::Int(
-        a.partial_cmp(&b)
-            .map(|o| match o {
-                std::cmp::Ordering::Less => -1i32,
-                std::cmp::Ordering::Equal => 0,
-                std::cmp::Ordering::Greater => 1,
-            })
-            .unwrap_or(0), // NaN case → 0
-    )))
+    let a = match args.first() {
+        Some(s) => double_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = match args.get(1) {
+        Some(s) => double_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
+    Ok(Some(Slot::Int(match a.total_cmp(&b) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })))
 }
 
 // ---- Arrays natives ----
@@ -14567,5 +14588,116 @@ mod tests {
             Some(Slot::Int(n)) => assert!(n < 0, "apple < banana: expected negative, got {n}"),
             other => panic!("expected Int, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn integer_compare_to_greater_returns_positive() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let a = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(a).unwrap().fields[0] = Slot::Int(9);
+        let b = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(b).unwrap().fields[0] = Slot::Int(3);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/lang/Integer",
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(a)), Slot::Reference(Some(b))],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn long_compare_to_less_returns_negative() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let a = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(a).unwrap().fields[0] = Slot::Long(100);
+        let b = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(b).unwrap().fields[0] = Slot::Long(200);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/lang/Long",
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(a)), Slot::Reference(Some(b))],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(-1)));
+    }
+
+    #[test]
+    fn double_compare_to_nan_is_greatest() {
+        // Java spec: NaN > any value including POSITIVE_INFINITY.
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+
+        // Case 1: NaN > +∞ → result should be 1.
+        let nan_ref = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(nan_ref).unwrap().fields[0] = Slot::Double(f64::NAN);
+        let inf_ref = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(inf_ref).unwrap().fields[0] = Slot::Double(f64::INFINITY);
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/lang/Double",
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            &[
+                Slot::Reference(Some(nan_ref)),
+                Slot::Reference(Some(inf_ref)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            Some(Slot::Int(1)),
+            "NaN.compareTo(+Inf) should be 1 (NaN is greatest)"
+        );
+
+        // Case 2: 1.0 < NaN → result should be -1.
+        let one_ref = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(one_ref).unwrap().fields[0] = Slot::Double(1.0);
+        let nan_ref2 = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(nan_ref2).unwrap().fields[0] = Slot::Double(f64::NAN);
+        let mut out2: Vec<u8> = Vec::new();
+        let result2 = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out2,
+            "java/lang/Double",
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            &[
+                Slot::Reference(Some(one_ref)),
+                Slot::Reference(Some(nan_ref2)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            result2,
+            Some(Slot::Int(-1)),
+            "1.0.compareTo(NaN) should be -1 (NaN is greatest)"
+        );
     }
 }
