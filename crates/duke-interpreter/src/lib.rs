@@ -245,6 +245,10 @@ pub type CallbackNativeHandler = fn(
 ///
 /// Defined separately so function signatures that accept this parameter avoid the
 /// `clippy::type_complexity` lint.
+///
+/// `pub` so that external crates can write their own [`CallbackNativeHandler`]
+/// implementations.  If external registration is not needed, consider
+/// narrowing to `pub(crate)`.
 pub type InvokeFn<'a> = dyn FnMut(&mut duke_gc::Heap, &mut dyn Write, &str, &str, &str, Vec<Slot>) -> VmResult<Option<Slot>>
     + 'a;
 
@@ -2272,27 +2276,31 @@ fn native_string_isempty(
     Ok(Some(Slot::Int(if s.is_empty() { 1 } else { 0 })))
 }
 
-/// Native: `String.compareTo(String)` — lexicographic comparison.
+// Dispatch string constants used by the callback-based sort chain.
+const COMPARE_TO_METHOD: &str = "compareTo";
+const COMPARE_TO_OBJECT_DESC: &str = "(Ljava/lang/Object;)I";
+const SORT_COMPARATOR_DESC: &str = "(Ljava/util/Comparator;)V";
+
+/// Maps a `std::cmp::Ordering` to the Java `compareTo` convention: -1 / 0 / 1.
+///
+/// Used by all boxed-type `compareTo` natives to return a consistent,
+/// sign-correct value without relying on `Ordering`'s internal discriminant.
+#[inline]
+fn ordering_to_int(o: std::cmp::Ordering) -> i32 {
+    match o {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+
+/// Native: `String.compareTo(String)` — delegates to the Object overload.
 fn native_string_compareto(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let other_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let other = heap
-        .get(other_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
-    Ok(Some(Slot::Int(s.cmp(&other) as i32)))
+    native_string_compareto_object(args, heap, out)
 }
 
 /// Native: `String.compareTo(Object)` — lexicographic comparison via Object descriptor.
@@ -2315,11 +2323,7 @@ fn native_string_compareto_object(
         Some(s) => str_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    Ok(Some(Slot::Int(match a.as_str().cmp(b.as_str()) {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    })))
+    Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
 }
 
 /// Native: `String.startsWith(String)` — check if string starts with prefix.
@@ -2505,11 +2509,7 @@ fn native_integer_compareto(
         Some(s) => int_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    Ok(Some(Slot::Int(match a.cmp(&b) {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    })))
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
 // ---- String.valueOf overloads ----
@@ -3412,11 +3412,7 @@ fn native_long_compareto(
         Some(s) => long_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    Ok(Some(Slot::Int(match a.cmp(&b) {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    })))
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
 // ---- Double class natives ----
@@ -5092,6 +5088,10 @@ pub fn execute_class(
             return h(args, heap, stdout);
         }
         Some(HandlerKind::Callback(h)) => {
+            // TODO: this `invoke_cb` closure body is duplicated at 5 dispatch
+            // sites. It can't be extracted into a free function because it
+            // captures `registry` and `loader` from the enclosing frame; a
+            // macro or an `InvokeContext` struct would remove the duplication.
             let mut invoke_cb = |heap: &mut duke_gc::Heap,
                                  output: &mut dyn std::io::Write,
                                  class: &str,
@@ -8892,22 +8892,24 @@ fn array_list_sort(
                 heap,
                 output,
                 &class_name,
-                "compareTo",
-                "(Ljava/lang/Object;)I",
+                COMPARE_TO_METHOD,
+                COMPARE_TO_OBJECT_DESC,
                 vec![Slot::Reference(Some(receiver)), Slot::Reference(Some(key))],
             )?;
 
-            // Fix 5: patch all elems for GC forwarding after each invoke callback.
-            for elem in elems.iter_mut() {
-                let mut slot = Slot::Reference(Some(*elem));
-                heap.apply_forward(&mut slot);
-                if let Slot::Reference(Some(r)) = slot {
-                    *elem = r;
+            // Patch stale young-gen refs if a minor GC fired during the callback.
+            // Guarded by `has_pending_forwards` so the common (no-GC) path pays
+            // only one bool check instead of O(n) HashMap probes.
+            if heap.has_pending_forwards() {
+                for elem in elems.iter_mut() {
+                    let mut slot = Slot::Reference(Some(*elem));
+                    heap.apply_forward(&mut slot);
+                    if let Slot::Reference(Some(r)) = slot {
+                        *elem = r;
+                    }
                 }
-            }
-            // Re-read key after forwarding patch (it lives outside elems during
-            // the innermost loop iteration).
-            {
+                // Re-read key after forwarding patch (it lives outside elems
+                // during the innermost loop iteration).
                 let mut key_slot = Slot::Reference(Some(key));
                 heap.apply_forward(&mut key_slot);
                 if let Slot::Reference(Some(r)) = key_slot {
@@ -8968,7 +8970,7 @@ fn native_collections_sort(
         output,
         &class_name,
         "sort",
-        "(Ljava/util/Comparator;)V",
+        SORT_COMPARATOR_DESC,
         vec![Slot::Reference(Some(list_ref)), Slot::Reference(None)],
     )?;
     Ok(None)
@@ -9089,11 +9091,7 @@ fn native_double_compareto(
         None => return Err(VmError::NullPointerException),
     };
     // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
-    Ok(Some(Slot::Int(match a.total_cmp(&b) {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    })))
+    Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
 
 // ---- Arrays natives ----

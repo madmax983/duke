@@ -255,6 +255,15 @@ impl Heap {
         self.alloc_since_gc >= threshold
     }
 
+    /// Returns `true` if any young-gen objects have been forwarded by an
+    /// in-progress minor GC.  Used by callers to gate the `apply_forward`
+    /// sweep: when `false`, the forward map is empty and every `apply_forward`
+    /// call is a no-op, so the sweep can be skipped entirely.
+    #[must_use]
+    pub fn has_pending_forwards(&self) -> bool {
+        !self.forward_map.is_empty()
+    }
+
     /// Compatibility shim — use `should_minor_gc` / `should_major_gc` instead.
     #[must_use]
     pub fn should_gc(&self) -> bool {
