@@ -448,6 +448,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/String",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_string_compareto_object,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
         "startsWith",
         "(Ljava/lang/String;)Z",
         native_string_startswith,
@@ -782,6 +788,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(I)Ljava/lang/String;",
         native_integer_tostring_static,
     );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_integer_compareto,
+    );
 
     // java/lang/Long — boxed long with value field + numeric constants
     let long_ctx = ClassContext {
@@ -831,6 +843,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "toString",
         "(J)Ljava/lang/String;",
         native_long_tostring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_long_compareto,
     );
 
     // java/lang/Double — boxed double with value field + numeric constants
@@ -903,6 +921,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Double", "isNaN", "(D)Z", native_double_isnan);
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_double_compareto,
+    );
 
     // java/lang/Float — boxed float with value field
     let float_ctx = ClassContext {
@@ -2238,6 +2262,27 @@ fn native_string_compareto(
     Ok(Some(Slot::Int(s.cmp(&other) as i32)))
 }
 
+/// Native: `String.compareTo(Object)` — lexicographic comparison via Object descriptor.
+fn native_string_compareto_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let str_val = |s: &Slot| -> VmResult<String> {
+        match s {
+            Slot::Reference(Some(r)) => Ok(heap.get(*r)?.string_value.clone().unwrap_or_default()),
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = str_val(args.first().unwrap_or(&Slot::Reference(None)))?;
+    let b = str_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
+    Ok(Some(Slot::Int(match a.as_str().cmp(b.as_str()) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })))
+}
+
 /// Native: `String.startsWith(String)` — check if string starts with prefix.
 fn native_string_startswith(
     args: &[Slot],
@@ -2396,6 +2441,30 @@ fn native_integer_tostring_static(
     };
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.compareTo(Object)` — compares two boxed Integers.
+fn native_integer_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let int_val = |s: &Slot| -> VmResult<i32> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Int(n)) => Ok(*n),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = int_val(args.first().unwrap_or(&Slot::Reference(None)))?;
+    let b = int_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
+    Ok(Some(Slot::Int(match a.cmp(&b) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })))
 }
 
 // ---- String.valueOf overloads ----
@@ -3273,6 +3342,30 @@ fn native_long_tostring_static(
     };
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.compareTo(Object)` — compares two boxed Longs.
+fn native_long_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let long_val = |s: &Slot| -> VmResult<i64> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Long(n)) => Ok(*n),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = long_val(args.first().unwrap_or(&Slot::Reference(None)))?;
+    let b = long_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
+    Ok(Some(Slot::Int(match a.cmp(&b) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })))
 }
 
 // ---- Double class natives ----
@@ -8779,6 +8872,34 @@ fn native_double_isnan(
         Some(Slot::Double(v)) => Ok(Some(Slot::Int(i32::from(v.is_nan())))),
         _ => Ok(Some(Slot::Int(0))),
     }
+}
+
+/// Native: `Double.compareTo(Object)` — compares two boxed Doubles.
+fn native_double_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let double_val = |s: &Slot| -> VmResult<f64> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Double(n)) => Ok(*n),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = double_val(args.first().unwrap_or(&Slot::Reference(None)))?;
+    let b = double_val(args.get(1).unwrap_or(&Slot::Reference(None)))?;
+    Ok(Some(Slot::Int(
+        a.partial_cmp(&b)
+            .map(|o| match o {
+                std::cmp::Ordering::Less => -1i32,
+                std::cmp::Ordering::Equal => 0,
+                std::cmp::Ordering::Greater => 1,
+            })
+            .unwrap_or(0), // NaN case → 0
+    )))
 }
 
 // ---- Arrays natives ----
@@ -14370,5 +14491,81 @@ mod tests {
             CALLED.load(Ordering::SeqCst),
             "Callback handler was never invoked via lambda SAM fallback (Site 5)"
         );
+    }
+
+    #[test]
+    fn integer_compare_to_less_returns_negative() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let a = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(a).unwrap().fields[0] = Slot::Int(3);
+        let b = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(b).unwrap().fields[0] = Slot::Int(5);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/lang/Integer",
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(a)), Slot::Reference(Some(b))],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(-1)));
+    }
+
+    #[test]
+    fn integer_compare_to_equal_returns_zero() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let a = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(a).unwrap().fields[0] = Slot::Int(7);
+        let b = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(b).unwrap().fields[0] = Slot::Int(7);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/lang/Integer",
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(a)), Slot::Reference(Some(b))],
+        )
+        .unwrap();
+        assert_eq!(result, Some(Slot::Int(0)));
+    }
+
+    #[test]
+    fn string_compare_to_apple_less_than_banana() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let a = heap.allocate_string("apple".to_string());
+        let b = heap.allocate_string("banana".to_string());
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "java/lang/String",
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(a)), Slot::Reference(Some(b))],
+        )
+        .unwrap();
+        match result {
+            Some(Slot::Int(n)) => assert!(n < 0, "apple < banana: expected negative, got {n}"),
+            other => panic!("expected Int, got {other:?}"),
+        }
     }
 }
