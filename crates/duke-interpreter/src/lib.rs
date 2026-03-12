@@ -51,6 +51,8 @@ pub struct ClassContext {
     pub class_name: String,
     /// Superclass name (`None` for `java/lang/Object`).
     pub super_class: Option<String>,
+    /// Directly implemented interfaces (used by checkcast / instanceof).
+    pub interfaces: Vec<String>,
     pub constant_pool: Vec<Option<CpEntry>>,
     pub methods: Vec<MethodEntry>,
     /// All field declarations (static and instance), in class file order.
@@ -376,6 +378,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: vec![Slot::Reference(Some(ps_ref))],
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(system_ctx);
@@ -389,6 +392,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(ps_ctx);
@@ -416,6 +420,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: vec![
+            "java/lang/Comparable".to_string(),
+            "java/io/Serializable".to_string(),
+            "java/lang/CharSequence".to_string(),
+        ],
         bootstrap_methods: Vec::new(),
     };
     registry.register(string_ctx);
@@ -634,6 +643,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(object_ctx);
@@ -667,6 +677,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(class_ctx);
@@ -680,6 +691,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
@@ -693,6 +705,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(exception_ctx);
@@ -706,6 +719,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(rte_ctx);
@@ -731,6 +745,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(enum_ctx);
@@ -781,6 +796,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ],
         static_fields: vec![Slot::Int(i32::MAX), Slot::Int(i32::MIN)],
         instance_field_count: 1,
+        interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
     };
     registry.register(integer_ctx);
@@ -840,6 +856,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ],
         static_fields: vec![Slot::Long(i64::MAX), Slot::Long(i64::MIN)],
         instance_field_count: 1,
+        interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
     };
     registry.register(long_ctx);
@@ -917,6 +934,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             Slot::Double(f64::NEG_INFINITY),
         ],
         instance_field_count: 1,
+        interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
     };
     registry.register(double_ctx);
@@ -961,6 +979,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
+        interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
     };
     registry.register(float_ctx);
@@ -980,6 +999,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
     };
     registry.register(boolean_ctx);
@@ -1013,6 +1033,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             Slot::Double(std::f64::consts::E),
         ],
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(math_ctx);
@@ -1122,6 +1143,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: vec!["java/lang/CharSequence".to_string()],
         bootstrap_methods: Vec::new(),
     };
     registry.register(sb_ctx);
@@ -1211,6 +1233,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
+        interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
     };
     registry.register(character_ctx);
@@ -1300,6 +1323,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
+        interfaces: vec![
+            "java/util/List".to_string(),
+            "java/util/Collection".to_string(),
+            "java/lang/Iterable".to_string(),
+        ],
         bootstrap_methods: Vec::new(),
     };
     registry.register(arraylist_ctx);
@@ -1358,6 +1386,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(iter_ctx);
@@ -1389,6 +1418,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(arrays_ctx);
@@ -1431,6 +1461,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(hashmap_ctx);
@@ -1491,6 +1522,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(hashset_ctx);
@@ -1535,6 +1567,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
+        interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
     registry.register(collections_ctx);
@@ -7982,6 +8015,13 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         None
     };
 
+    // Resolve directly-implemented interfaces.
+    let interfaces: Vec<String> = cf
+        .interfaces
+        .iter()
+        .filter_map(|idx| resolve_class_name(&cf.constant_pool, idx.0 as usize).ok())
+        .collect();
+
     // Extract BootstrapMethods from class-level attributes.
     let bootstrap_methods = cf
         .attributes
@@ -7998,6 +8038,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     ClassContext {
         class_name,
         super_class,
+        interfaces,
         constant_pool: cf.constant_pool.clone(),
         methods,
         fields,
@@ -8037,35 +8078,51 @@ fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<(
 ///
 /// Walks the class hierarchy from `from` upward through superclasses.
 /// Returns `true` if `to` is found in the chain, or if `to` is `"java/lang/Object"`.
+/// Return `true` if a reference of type `from` can be used where `to` is expected.
+///
+/// BFS over the full type graph (superclass + all implemented interfaces at each
+/// level), so `String instanceof Comparable` resolves correctly.
 fn is_assignable_from(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
     from: &str,
     to: &str,
 ) -> bool {
-    if from == to {
+    if from == to || to == "java/lang/Object" {
         return true;
     }
-    if to == "java/lang/Object" {
-        return true;
+    // Arrays implement Cloneable and Serializable; everything else is Object.
+    if from.starts_with('[') {
+        return matches!(to, "java/lang/Cloneable" | "java/io/Serializable");
     }
-    let mut current = from.to_string();
-    let mut visited = HashSet::new();
-    loop {
+
+    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    queue.push_back(from.to_string());
+
+    while let Some(current) = queue.pop_front() {
         if !visited.insert(current.clone()) {
-            return false; // circular hierarchy — bail
+            continue;
         }
         let _ = registry.ensure_loaded(&current, loader);
-        let super_name = match registry.get(&current) {
-            Ok(ctx) => ctx.super_class.clone(),
-            Err(_) => return false,
+        let (super_class, interfaces) = match registry.get(&current) {
+            Ok(ctx) => (ctx.super_class.clone(), ctx.interfaces.clone()),
+            Err(_) => continue,
         };
-        match super_name {
-            Some(s) if s == to => return true,
-            Some(s) => current = s,
-            None => return false,
+        if let Some(sc) = super_class {
+            if sc == to {
+                return true;
+            }
+            queue.push_back(sc);
+        }
+        for iface in interfaces {
+            if iface == to {
+                return true;
+            }
+            queue.push_back(iface);
         }
     }
+    false
 }
 
 /// Search a method's exception table for a handler matching the given pc and exception class.
@@ -14736,6 +14793,7 @@ mod tests {
             fields: Vec::new(),
             static_fields: Vec::new(),
             instance_field_count: 0,
+            interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
         });
         registry.natives.register(
