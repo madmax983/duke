@@ -261,9 +261,24 @@ pub enum HandlerKind {
 
 /// Registry of native method implementations.
 ///
-/// Maps `(class_name, method_name, descriptor)` to a Rust function pointer.
+/// Maps `"class_name\x00method_name\x00descriptor"` to a handler kind.
 pub struct NativeRegistry {
-    handlers: HashMap<(String, String, String), HandlerKind>,
+    handlers: HashMap<String, HandlerKind>,
+}
+
+/// Build the lookup key for a native method: `"class\x00method\x00desc"`.
+///
+/// Using NUL as separator avoids ambiguity (JVM identifiers cannot contain NUL)
+/// and reduces the three allocations previously required per lookup to one.
+#[inline]
+fn make_key(class: &str, method: &str, desc: &str) -> String {
+    let mut key = String::with_capacity(class.len() + method.len() + desc.len() + 2);
+    key.push_str(class);
+    key.push('\x00');
+    key.push_str(method);
+    key.push('\x00');
+    key.push_str(desc);
+    key
 }
 
 impl NativeRegistry {
@@ -275,14 +290,8 @@ impl NativeRegistry {
     }
 
     fn insert_handler(&mut self, class: &str, method: &str, descriptor: &str, kind: HandlerKind) {
-        self.handlers.insert(
-            (
-                class.to_string(),
-                method.to_string(),
-                descriptor.to_string(),
-            ),
-            kind,
-        );
+        self.handlers
+            .insert(make_key(class, method, descriptor), kind);
     }
 
     /// Register a native method handler.
@@ -315,11 +324,7 @@ impl NativeRegistry {
     /// [`get_kind`]: NativeRegistry::get_kind
     #[must_use]
     pub fn get(&self, class: &str, method: &str, descriptor: &str) -> Option<NativeHandler> {
-        match self.handlers.get(&(
-            class.to_string(),
-            method.to_string(),
-            descriptor.to_string(),
-        ))? {
+        match self.handlers.get(&make_key(class, method, descriptor))? {
             HandlerKind::Simple(h) => Some(*h),
             HandlerKind::Callback(_) => None,
         }
@@ -329,11 +334,7 @@ impl NativeRegistry {
     #[must_use]
     pub fn get_kind(&self, class: &str, method: &str, descriptor: &str) -> Option<HandlerKind> {
         self.handlers
-            .get(&(
-                class.to_string(),
-                method.to_string(),
-                descriptor.to_string(),
-            ))
+            .get(&make_key(class, method, descriptor))
             .copied()
     }
 }
