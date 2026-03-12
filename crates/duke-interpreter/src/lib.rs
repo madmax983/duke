@@ -2009,6 +2009,54 @@ fn native_println_char(
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+/// Convert a heap object to its Java display string.
+///
+/// Checks `string_value` first (handles String/StringBuilder).
+/// For boxed primitives, extracts the stored value from `fields[0]`.
+/// Falls back to `class_name@hex_ref` for opaque objects.
+fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
+    if let Some(s) = &obj.string_value {
+        return s.clone();
+    }
+    match obj.class_name.as_str() {
+        "java/lang/Integer" => {
+            if let Some(Slot::Int(v)) = obj.fields.first() {
+                return v.to_string();
+            }
+        }
+        "java/lang/Long" => {
+            if let Some(Slot::Long(v)) = obj.fields.first() {
+                return v.to_string();
+            }
+        }
+        "java/lang/Double" => {
+            if let Some(Slot::Double(v)) = obj.fields.first() {
+                return format_java_double(*v);
+            }
+        }
+        "java/lang/Float" => {
+            if let Some(Slot::Float(v)) = obj.fields.first() {
+                return format_java_float(*v);
+            }
+        }
+        "java/lang/Boolean" => {
+            return match obj.fields.first() {
+                Some(Slot::Int(v)) if *v != 0 => "true".to_string(),
+                _ => "false".to_string(),
+            };
+        }
+        "java/lang/Character" => {
+            if let Some(Slot::Int(v)) = obj.fields.first() {
+                if let Some(c) = char::from_u32(*v as u32) {
+                    return c.to_string();
+                }
+            }
+        }
+        _ => {}
+    }
+    format!("{}@{:x}", obj.class_name, obj_ref)
+}
+
 fn native_println_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2016,13 +2064,8 @@ fn native_println_object(
 ) -> VmResult<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
-            let obj = heap.get(*r)?;
-            if let Some(s) = &obj.string_value {
-                writeln!(out, "{s}").ok();
-            } else {
-                let hash = *r as i32;
-                writeln!(out, "{}@{:x}", obj.class_name, hash).ok();
-            }
+            let s = heap_object_to_string(heap.get(*r)?, *r);
+            writeln!(out, "{s}").ok();
         }
         Some(Slot::Reference(None)) => {
             writeln!(out, "null").ok();
@@ -2136,13 +2179,8 @@ fn native_print_object(
 ) -> VmResult<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
-            let obj = heap.get(*r)?;
-            if let Some(s) = &obj.string_value {
-                write!(out, "{s}").ok();
-            } else {
-                let hash = *r as i32;
-                write!(out, "{}@{:x}", obj.class_name, hash).ok();
-            }
+            let s = heap_object_to_string(heap.get(*r)?, *r);
+            write!(out, "{s}").ok();
         }
         Some(Slot::Reference(None)) => {
             write!(out, "null").ok();
@@ -2659,13 +2697,7 @@ fn native_string_value_of_object(
 ) -> VmResult<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let obj = heap.get(*r)?;
-            let s = if let Some(sv) = &obj.string_value {
-                sv.clone()
-            } else {
-                let hash = *r as i32;
-                format!("{}@{:x}", obj.class_name, hash)
-            };
+            let s = heap_object_to_string(heap.get(*r)?, *r);
             let r = heap.allocate_string(s);
             Ok(Some(Slot::Reference(Some(r))))
         }
@@ -3628,14 +3660,7 @@ fn stringify_slot(
         Slot::Double(v) => out.push_str(&format_java_double(*v)),
         Slot::Reference(None) => out.push_str("null"),
         Slot::Reference(Some(r)) => {
-            let obj = heap.get(*r)?;
-            if let Some(s) = &obj.string_value {
-                out.push_str(s);
-            } else {
-                out.push_str(&obj.class_name);
-                out.push('@');
-                out.push_str(&format!("{r:x}"));
-            }
+            out.push_str(&heap_object_to_string(heap.get(*r)?, *r));
         }
         Slot::ReturnAddress(v) => out.push_str(&v.to_string()),
     }
