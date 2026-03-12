@@ -4,7 +4,7 @@
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 
 use duke_bytecode::Instruction;
@@ -1711,8 +1711,8 @@ fn native_object_hashcode(
     }
 }
 
-/// Native: `Object.toString()` — returns `ClassName@hexHash`.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+/// Native: `Object.toString()` — delegates to `heap_object_to_string` so String,
+/// boxed primitives, and opaque objects all produce the correct Java representation.
 fn native_object_tostring(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1722,9 +1722,7 @@ fn native_object_tostring(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let class_name = heap.get(this_ref)?.class_name.clone();
-    let hash = this_ref as i32;
-    let s = format!("{class_name}@{hash:x}");
+    let s = heap_object_to_string(heap.get(this_ref)?, this_ref);
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -2008,7 +2006,7 @@ fn native_println_char(
     Ok(None)
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+#[allow(clippy::cast_possible_wrap)]
 /// Convert a heap object to its Java display string.
 ///
 /// Checks `string_value` first (handles String/StringBuilder).
@@ -2756,18 +2754,7 @@ fn format_arg(
         Slot::Reference(Some(r)) => {
             let obj = heap.get(*r)?;
             match spec {
-                's' => {
-                    if let Some(ref s) = obj.string_value {
-                        return Ok(s.clone());
-                    }
-                    match obj.fields.first() {
-                        Some(Slot::Int(v)) => Ok(v.to_string()),
-                        Some(Slot::Long(v)) => Ok(v.to_string()),
-                        Some(Slot::Double(v)) => Ok(v.to_string()),
-                        Some(Slot::Float(v)) => Ok(v.to_string()),
-                        _ => Ok(format!("{}@{:x}", obj.class_name, r)),
-                    }
-                }
+                's' => Ok(heap_object_to_string(obj, *r)),
                 'd' => match obj.fields.first() {
                     Some(Slot::Int(v)) => Ok(v.to_string()),
                     Some(Slot::Long(v)) => Ok(v.to_string()),
@@ -8121,7 +8108,7 @@ fn is_assignable_from(
         return matches!(to, "java/lang/Cloneable" | "java/io/Serializable");
     }
 
-    let mut queue: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let mut queue: VecDeque<String> = VecDeque::new();
     let mut visited: HashSet<String> = HashSet::new();
     queue.push_back(from.to_string());
 
