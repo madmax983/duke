@@ -7,7 +7,7 @@ use duke_classfile::{
 };
 use duke_gc::Heap;
 use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
-use duke_loader::{ClassLoader, DirectoryLoader};
+use duke_loader::{BootstrapLoader, ClassLoader, DirectoryLoader};
 use duke_runtime::{Slot, VmError};
 
 /// Where to write telemetry JSON after execution.
@@ -15,6 +15,48 @@ use duke_runtime::{Slot, VmError};
 enum TelemetryDest {
     Stdout,
     File(String),
+}
+
+/// Strip `--jdk=<path>` or `--jdk <path>` from `args` and return the JDK home.
+fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
+    let mut jdk = std::env::var("JAVA_HOME").ok();
+    let mut remove_next = false;
+    args.retain(|arg| {
+        if remove_next {
+            jdk = Some(arg.clone());
+            remove_next = false;
+            return false;
+        }
+        if let Some(path) = arg.strip_prefix("--jdk=") {
+            jdk = Some(path.to_string());
+            return false;
+        }
+        if arg == "--jdk" {
+            remove_next = true;
+            return false;
+        }
+        true
+    });
+    jdk
+}
+
+/// Build a class loader: BootstrapLoader (JDK jimage + app dir) when JDK path
+/// is known, or plain DirectoryLoader otherwise.
+fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn ClassLoader> {
+    if let Some(home) = jdk_home {
+        let modules = std::path::Path::new(home).join("lib").join("modules");
+        if modules.exists() {
+            match BootstrapLoader::new(&modules, vec![app_dir]) {
+                Ok(bl) => return Box::new(bl),
+                Err(e) => eprintln!(
+                    "duke: warning: cannot open JDK modules ({e}), falling back to directory loader"
+                ),
+            }
+        } else {
+            eprintln!("duke: warning: {modules:?} not found, falling back to directory loader");
+        }
+    }
+    Box::new(DirectoryLoader::new(app_dir))
 }
 
 /// Strip `--telemetry[=path]` from `args` and return the configured destination.
@@ -37,6 +79,7 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);
+    let jdk_home = extract_jdk_flag(&mut args);
 
     if args.len() < 2 {
         eprintln!("Usage: duke <classfile.class>");
@@ -45,6 +88,8 @@ fn main() {
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
+        eprintln!("         --jdk=<path>        JDK home for loading real JDK classes");
+        eprintln!("         (also reads JAVA_HOME env var)");
         process::exit(1);
     }
 
@@ -56,13 +101,13 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..], telemetry);
+        exec_method(&args[2..], telemetry, jdk_home.as_deref());
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..], telemetry);
+        run_main(&args[2..], telemetry, jdk_home.as_deref());
         return;
     }
 
@@ -141,7 +186,7 @@ fn load_and_dump(class_name: &str) {
 /// `duke exec <classfile.class> <method> [int-arg...]`
 ///
 /// Parses and executes a static method, printing the return value.
-fn exec_method(args: &[String], telemetry: Option<TelemetryDest>) {
+fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
     if args.len() < 2 {
         eprintln!("Usage: duke exec <classfile.class> <method> [int-arg...]");
         process::exit(1);
@@ -190,19 +235,19 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>) {
     let mut registry = ClassRegistry::new();
     registry.register(ctx);
 
-    // Create a DirectoryLoader from the class file's parent directory so that
-    // cross-class references can be resolved at runtime.
+    // Create a class loader from the class file's parent directory.
+    // When --jdk is given, also loads missing classes from the JDK jimage.
     let parent = std::path::Path::new(path)
         .parent()
         .unwrap_or(std::path::Path::new("."));
-    let loader = DirectoryLoader::new(parent);
+    let loader = make_loader(jdk_home, parent);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
 
     let mut stdout = std::io::stdout();
     let exit_code = match execute_class(
         &mut registry,
-        &loader,
+        loader.as_ref(),
         &mut heap,
         &mut stdout,
         &entry_class,
@@ -237,7 +282,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>) {
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
-fn run_main(args: &[String], telemetry: Option<TelemetryDest>) {
+fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
     if args.is_empty() {
         eprintln!("Usage: duke run <classfile.class> [string-arg...]");
         process::exit(1);
@@ -262,7 +307,7 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>) {
     let parent = std::path::Path::new(path)
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
-    let loader = DirectoryLoader::new(parent);
+    let loader = make_loader(jdk_home, parent);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
 
@@ -282,7 +327,7 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>) {
     let mut stdout = std::io::stdout();
     let exit_code = match execute_class(
         &mut registry,
-        &loader,
+        loader.as_ref(),
         &mut heap,
         &mut stdout,
         &entry_class,

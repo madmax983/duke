@@ -171,6 +171,9 @@ impl ClassRegistry {
     /// Ensure a class is loaded. If not already present, loads it via the class
     /// loader, parses it, builds a ClassContext, and registers it.
     ///
+    /// Also recursively loads the superclass chain so that field slot offsets
+    /// can be computed correctly before any object of this type is allocated.
+    ///
     /// Returns `Ok(true)` if loaded, `Ok(false)` if the class could not be found
     /// (soft failure — for classes like `java/lang/Object` that we can't load yet).
     pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
@@ -186,7 +189,12 @@ impl ClassRegistry {
             Err(_) => return Ok(false),
         };
         let ctx = build_class_context(&cf);
+        let super_class = ctx.super_class.clone();
         self.classes.insert(name.to_string(), ctx);
+        // Recursively load the superclass so ancestor field counts are known.
+        if let Some(sc) = super_class {
+            self.ensure_loaded(&sc, loader)?;
+        }
         Ok(true)
     }
 
@@ -6189,7 +6197,11 @@ pub fn execute_class(
                     pc,
                     &target_class,
                 );
-                let r = heap.allocate(target_class, field_count);
+                let r = heap.allocate(target_class.clone(), field_count);
+                // Set reference/long/float/double fields to their JVM-spec defaults.
+                // heap.allocate initialises everything to Int(0), which is wrong
+                // for reference-typed fields (should be Reference(None)).
+                init_object_fields(registry, heap, r, &target_class);
                 frame.push(Slot::Reference(Some(r)))?;
                 if heap.should_gc() {
                     let roots = gather_roots(&frame, &call_stack, registry);
@@ -6206,7 +6218,7 @@ pub fn execute_class(
                 };
                 let r = frame.pop_ref()?;
                 registry.ensure_loaded(&target_class, loader)?;
-                let fidx = instance_field_idx(registry.get(&target_class)?, &field_name)?;
+                let fidx = field_slot_idx(registry, &target_class, &field_name)?;
                 let val = heap.get(r)?.fields[fidx].clone();
                 frame.push(val)?;
             }
@@ -6218,7 +6230,7 @@ pub fn execute_class(
                 let val = frame.pop()?;
                 let r = frame.pop_ref()?;
                 registry.ensure_loaded(&target_class, loader)?;
-                let fidx = instance_field_idx(registry.get(&target_class)?, &field_name)?;
+                let fidx = field_slot_idx(registry, &target_class, &field_name)?;
                 heap.write_field(r, fidx, val)?;
             }
             Instruction::Getstatic(cp_idx) => {
@@ -8345,12 +8357,103 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
 }
 
 /// Index of a named instance field within ctx.fields (non-static only).
-fn instance_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
-    ctx.fields
-        .iter()
-        .filter(|f| !f.is_static)
-        .position(|f| f.name == name)
-        .ok_or(VmError::InvalidFieldref { index: 0 })
+/// Return the correct default [`Slot`] for a field with the given JVM descriptor.
+///
+/// Per JVMS §2.3/2.4: numeric types default to 0, reference/array types to null.
+#[inline]
+fn default_slot_for_descriptor(desc: &str) -> Slot {
+    match desc.chars().next() {
+        Some('J') => Slot::Long(0),
+        Some('F') => Slot::Float(0.0),
+        Some('D') => Slot::Double(0.0),
+        Some('L') | Some('[') => Slot::Reference(None),
+        _ => Slot::Int(0), // I, Z, B, C, S
+    }
+}
+
+/// After allocating an object on the heap, initialize each field slot to the
+/// JVM-spec default for its descriptor.
+///
+/// `heap.allocate` sets all slots to `Slot::Int(0)`, which is wrong for
+/// reference-typed fields (`L…;` / `[…`), which must be `Reference(None)`.
+/// This function walks the full class hierarchy (Object-first) and writes the
+/// correct default into every slot that differs from `Int(0)`.
+fn init_object_fields(
+    registry: &ClassRegistry,
+    heap: &mut duke_gc::Heap,
+    obj_ref: u64,
+    class_name: &str,
+) {
+    // Collect hierarchy: class_name → … → root
+    let mut chain: Vec<String> = Vec::new();
+    let mut cur = Some(class_name.to_string());
+    while let Some(cls) = cur {
+        if let Ok(ctx) = registry.get(&cls) {
+            let sc = ctx.super_class.clone();
+            chain.push(cls);
+            cur = sc;
+        } else {
+            break;
+        }
+    }
+    chain.reverse(); // Object-first
+
+    let mut slot_idx = 0usize;
+    for cls in &chain {
+        if let Ok(ctx) = registry.get(cls) {
+            for field in ctx.fields.iter().filter(|f| !f.is_static) {
+                let default = default_slot_for_descriptor(&field.descriptor);
+                // Only write non-Int-zero defaults (avoids an unnecessary mut borrow).
+                if !matches!(default, Slot::Int(0)) {
+                    if let Ok(obj) = heap.get_mut(obj_ref) {
+                        if slot_idx < obj.fields.len() {
+                            obj.fields[slot_idx] = default;
+                        }
+                    }
+                }
+                slot_idx += 1;
+            }
+        }
+    }
+}
+
+/// Compute the absolute slot index of a named instance field within a heap
+/// object whose class is `target_class` (or any subclass of it).
+///
+/// JVM `Fieldref` entries name the access class (often a subclass), not
+/// necessarily the declaring class. This function walks the full hierarchy
+/// from the root (Object) down to `target_class`, searching each class for
+/// the field and accumulating the running slot offset as it goes.
+///
+/// Layout: root fields occupy the lowest-numbered slots; each subclass
+/// appends its fields immediately after its superclass's fields.
+fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> VmResult<usize> {
+    // Build chain from target_class up to the root, then reverse for Object-first.
+    let mut chain: Vec<String> = Vec::new();
+    let mut cur = Some(target_class.to_string());
+    while let Some(cls) = cur {
+        if let Ok(ctx) = registry.get(&cls) {
+            let sc = ctx.super_class.clone();
+            chain.push(cls);
+            cur = sc;
+        } else {
+            break;
+        }
+    }
+    chain.reverse();
+
+    let mut slot = 0usize;
+    for cls in &chain {
+        if let Ok(ctx) = registry.get(cls) {
+            let instance_fields: Vec<_> = ctx.fields.iter().filter(|f| !f.is_static).collect();
+            if let Some(local_idx) = instance_fields.iter().position(|f| f.name == name) {
+                return Ok(slot + local_idx);
+            }
+            slot += instance_fields.len();
+        }
+    }
+
+    Err(VmError::InvalidFieldref { index: 0 })
 }
 
 /// Index of a named static field within ctx.static_fields.
