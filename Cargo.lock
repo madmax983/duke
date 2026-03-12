@@ -264,6 +264,7 @@ version = "0.1.0"
 dependencies = [
  "duke-classfile",
  "flate2",
+ "proptest",
  "thiserror",
 ]
 

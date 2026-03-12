@@ -167,9 +167,11 @@ impl JImageReader {
             usize::try_from(info.uncompressed).unwrap_or(usize::MAX)
         };
         let offset = usize::try_from(info.offset).unwrap_or(usize::MAX);
-        let start = self.data_offset.saturating_add(offset);
+        let start = self.data_offset.checked_add(offset).ok_or_else(|| LoadError::JImageFormat {
+            msg: format!("resource '{path}' offset overflow"),
+        })?;
 
-        if start + raw_len > self.data.len() {
+        if start.checked_add(raw_len).map_or(true, |end| end > self.data.len()) {
             return Err(LoadError::JImageFormat {
                 msg: format!("resource '{path}' data out of bounds"),
             });
@@ -399,4 +401,36 @@ fn read_be_u64(bytes: &[u8]) -> u64 {
 
 fn read_u32_le(data: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes(data[offset..offset + 4].try_into().expect("4 bytes"))
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use std::collections::HashMap;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn fuzz_jimage_resource_info(
+            offset in any::<u64>(),
+            compressed in any::<u64>(),
+            uncompressed in any::<u64>()
+        ) {
+            let mut index = HashMap::new();
+            index.insert("test".to_string(), ResourceInfo {
+                offset,
+                compressed,
+                uncompressed,
+            });
+
+            let reader = JImageReader {
+                data: vec![0; 100],
+                resource_count: 1,
+                data_offset: 0,
+                index,
+            };
+
+            let _ = reader.read_resource("test");
+        }
+    }
 }
