@@ -11,6 +11,29 @@ pub struct DirectoryLoader {
 }
 
 impl DirectoryLoader {
+    /// Mounts a filesystem path as a root for class loading.
+    ///
+    /// This is the simplest type of class loader. It translates Java package names into filesystem
+    /// directories, using the provided `root` as the base.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    ///
+    /// // Given a directory structure:
+    /// // my_classes/
+    /// // └── com/
+    /// //     └── example/
+    /// //         └── Main.class
+    ///
+    /// let loader = DirectoryLoader::new(Path::new("my_classes"));
+    ///
+    /// // The loader expects fully qualified names using forward slashes.
+    /// // It will attempt to read `my_classes/com/example/Main.class`.
+    /// // let result = loader.find_class("com/example/Main");
+    /// ```
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
