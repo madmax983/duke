@@ -799,12 +799,12 @@ mod tests {
     fn minor_gc_copies_reachable_young_object() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("Keep".to_string(), 0);
-        let _r1 = heap.allocate("Drop".to_string(), 0);
+        let r1 = heap.allocate("Drop".to_string(), 0);
         let roots = vec![Slot::Reference(Some(r0))];
         heap.minor_collect_prepare(&roots);
-        // r0 must have a forwarding pointer; _r1 must not.
-        assert!(heap.young[r0 as usize].as_ref().unwrap().forward.is_some());
-        assert!(heap.young[_r1 as usize].as_ref().unwrap().forward.is_none());
+        // r0 must have a forwarding pointer; r1 must not.
+        assert!(heap.young[usize::try_from(r0).unwrap()].as_ref().unwrap().forward.is_some());
+        assert!(heap.young[usize::try_from(r1).unwrap()].as_ref().unwrap().forward.is_none());
     }
 
     #[test]
@@ -816,7 +816,7 @@ mod tests {
         let mut slot = Slot::Reference(Some(r0));
         heap.apply_forward(&mut slot);
         // After forwarding, slot must point to the new location.
-        let new_r = heap.young[r0 as usize].as_ref().unwrap().forward.unwrap();
+        let new_r = heap.young[usize::try_from(r0).unwrap()].as_ref().unwrap().forward.unwrap();
         assert_eq!(slot, Slot::Reference(Some(new_r)));
     }
 
@@ -842,10 +842,10 @@ mod tests {
         let roots = vec![Slot::Reference(Some(r))];
         heap.minor_collect_prepare(&roots);
         // Locate the copy in to_space (new_ref from forward pointer).
-        let new_r = heap.young[r as usize].as_ref().unwrap().forward.unwrap();
+        let new_r = heap.young[usize::try_from(r).unwrap()].as_ref().unwrap().forward.unwrap();
         heap.minor_collect_finish();
         // After finish, young is former to_space. new_r has no OLD_BIT → young index.
-        let survivor = heap.young[new_r as usize].as_ref().unwrap();
+        let survivor = heap.young[usize::try_from(new_r).unwrap()].as_ref().unwrap();
         assert_eq!(survivor.age, 1);
     }
 
@@ -903,7 +903,7 @@ mod tests {
         // No stack roots — young object reachable only through remembered set.
         heap.minor_collect_prepare(&[]);
         assert!(
-            heap.young[young_ref as usize]
+            heap.young[usize::try_from(young_ref).unwrap()]
                 .as_ref()
                 .unwrap()
                 .forward
