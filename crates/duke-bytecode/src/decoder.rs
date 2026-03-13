@@ -63,9 +63,9 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u16(&mut self) -> DecodeResult<u16> {
-        let hi = self.read_u8()? as u16;
-        let lo = self.read_u8()? as u16;
-        Ok((hi << 8) | lo)
+        let b0 = self.read_u8()?;
+        let b1 = self.read_u8()?;
+        Ok(u16::from_be_bytes([b0, b1]))
     }
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
@@ -73,9 +73,11 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u32(&mut self) -> DecodeResult<u32> {
-        let hi = self.read_u16()? as u32;
-        let lo = self.read_u16()? as u32;
-        Ok((hi << 16) | lo)
+        let b0 = self.read_u8()?;
+        let b1 = self.read_u8()?;
+        let b2 = self.read_u8()?;
+        let b3 = self.read_u8()?;
+        Ok(u32::from_be_bytes([b0, b1, b2, b3]))
     }
 
     fn read_i32(&mut self) -> DecodeResult<i32> {
@@ -304,10 +306,11 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
             // Use i64 to avoid i32 overflow when low is very negative.
+            // count_i64 >= 1 here because `high < low` was rejected above.
             let count_i64 = (high as i64) - (low as i64) + 1;
             // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
             let max_possible = c.data.len().saturating_sub(c.pos) / 4;
-            if count_i64 < 0 || count_i64 as usize > max_possible {
+            if count_i64 as usize > max_possible {
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
             let count = count_i64 as usize;

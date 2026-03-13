@@ -315,4 +315,366 @@ mod tests {
             let _ = decode(&bytes);
         }
     }
+
+    // -----------------------------------------------------------------------
+    // ArrayType::from_u8 — all valid codes + invalid boundary
+    // Kills: delete match arm 4..11 mutants in instruction.rs
+    // -----------------------------------------------------------------------
+
+    use crate::instruction::ArrayType;
+
+    #[test]
+    fn array_type_from_u8_all_valid() {
+        assert_eq!(ArrayType::from_u8(4), Some(ArrayType::Boolean));
+        assert_eq!(ArrayType::from_u8(5), Some(ArrayType::Char));
+        assert_eq!(ArrayType::from_u8(6), Some(ArrayType::Float));
+        assert_eq!(ArrayType::from_u8(7), Some(ArrayType::Double));
+        assert_eq!(ArrayType::from_u8(8), Some(ArrayType::Byte));
+        assert_eq!(ArrayType::from_u8(9), Some(ArrayType::Short));
+        assert_eq!(ArrayType::from_u8(10), Some(ArrayType::Int));
+        assert_eq!(ArrayType::from_u8(11), Some(ArrayType::Long));
+    }
+
+    #[test]
+    fn array_type_from_u8_invalid_returns_none() {
+        assert_eq!(ArrayType::from_u8(0), None);
+        assert_eq!(ArrayType::from_u8(3), None);   // just below valid range
+        assert_eq!(ArrayType::from_u8(12), None);  // just above valid range
+        assert_eq!(ArrayType::from_u8(255), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Instruction::mnemonic spot-checks
+    // Kills: replace mnemonic -> "" / "xyzzy" mutants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn mnemonic_spot_checks() {
+        assert_eq!(Instruction::Nop.mnemonic(), "nop");
+        assert_eq!(Instruction::Return.mnemonic(), "return");
+        assert_eq!(Instruction::Ireturn.mnemonic(), "ireturn");
+        assert_eq!(Instruction::Athrow.mnemonic(), "athrow");
+        assert_eq!(Instruction::Iconst0.mnemonic(), "iconst_0");
+        assert_eq!(Instruction::Bipush(42).mnemonic(), "bipush");
+    }
+
+    // -----------------------------------------------------------------------
+    // Decoder: tableswitch boundary cases
+    // Kills: < vs <= on count_i64 (line 310), > vs >= on count vs max_possible
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tableswitch_single_entry_decodes_ok() {
+        // low=3, high=3 → count=1 (minimum valid tableswitch).
+        // Confirms count_i64 path handles count=1 correctly.
+        let code: Vec<u8> = vec![
+            0xAA,           // tableswitch
+            0x00, 0x00, 0x00, // padding (pc=0, align to 4)
+            0x00, 0x00, 0x00, 0x09, // default = 9
+            0x00, 0x00, 0x00, 0x03, // low = 3
+            0x00, 0x00, 0x00, 0x03, // high = 3  →  count = 1
+            0x00, 0x00, 0x00, 0x07, // offset[0] = 7
+        ];
+        let instrs = decode(&code).expect("single-entry tableswitch should decode");
+        assert_eq!(instrs.len(), 1);
+        if let (0, Instruction::Tableswitch { low, high, offsets, .. }) = &instrs[0] {
+            assert_eq!(*low, 3);
+            assert_eq!(*high, 3);
+            assert_eq!(offsets.len(), 1);
+            assert_eq!(offsets[0], 7);
+        } else {
+            panic!("expected Tableswitch");
+        }
+    }
+
+    #[test]
+    fn tableswitch_exact_fit_decodes_ok() {
+        // count=1 and exactly 4 bytes remain → count == max_possible; should pass.
+        // Mutant `> max_possible → >= max_possible` would incorrectly reject this.
+        let code: Vec<u8> = vec![
+            0xAA,           // tableswitch
+            0x00, 0x00, 0x00, // padding
+            0x00, 0x00, 0x00, 0x05, // default = 5
+            0x00, 0x00, 0x00, 0x00, // low = 0
+            0x00, 0x00, 0x00, 0x00, // high = 0  →  count = 1
+            0x00, 0x00, 0x00, 0x07, // offset[0] = 7  (exactly 4 bytes, max_possible = 1)
+        ];
+        let instrs = decode(&code).expect("exact-fit tableswitch should decode");
+        assert_eq!(instrs.len(), 1);
+        if let (0, Instruction::Tableswitch { low, high, offsets, default }) = &instrs[0] {
+            assert_eq!(*low, 0);
+            assert_eq!(*high, 0);
+            assert_eq!(*default, 5);
+            assert_eq!(offsets, &[7i32]);
+        } else {
+            panic!("expected Tableswitch");
+        }
+    }
+
+    #[test]
+    fn tableswitch_multi_entry_decodes_ok() {
+        // low=0, high=1 → count=2; high > low kills the `< → >` mutant on the high<low guard.
+        let code: Vec<u8> = vec![
+            0xAA,           // tableswitch
+            0x00, 0x00, 0x00, // padding
+            0x00, 0x00, 0x00, 0x0F, // default = 15
+            0x00, 0x00, 0x00, 0x00, // low = 0
+            0x00, 0x00, 0x00, 0x01, // high = 1  →  count = 2
+            0x00, 0x00, 0x00, 0x05, // offset[0] = 5
+            0x00, 0x00, 0x00, 0x07, // offset[1] = 7
+        ];
+        let instrs = decode(&code).expect("multi-entry tableswitch should decode");
+        if let (0, Instruction::Tableswitch { low, high, offsets, .. }) = &instrs[0] {
+            assert_eq!(*low, 0);
+            assert_eq!(*high, 1);
+            assert_eq!(offsets, &[5i32, 7i32]);
+        } else {
+            panic!("expected Tableswitch");
+        }
+    }
+
+    #[test]
+    fn tableswitch_large_offset_decodes_ok() {
+        // default = 0x00010005 (high word non-zero) kills the `<< → >>` mutant in read_u32.
+        // With `>>`, (0x0001 >> 16) | 0x0005 = 0 | 5 = 5 ≠ 65541.
+        let code: Vec<u8> = vec![
+            0xAA,           // tableswitch
+            0x00, 0x00, 0x00, // padding
+            0x00, 0x01, 0x00, 0x05, // default = 0x00010005 = 65541
+            0x00, 0x00, 0x00, 0x00, // low = 0
+            0x00, 0x00, 0x00, 0x00, // high = 0  →  count = 1
+            0x00, 0x00, 0x00, 0x03, // offset[0] = 3
+        ];
+        let instrs = decode(&code).expect("tableswitch with large default should decode");
+        if let (0, Instruction::Tableswitch { default, .. }) = &instrs[0] {
+            assert_eq!(*default, 65541);
+        } else {
+            panic!("expected Tableswitch");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Decoder: lookupswitch boundary cases
+    // Kills: < vs == / > / <= on npairs (line 331), / vs % / * (line 334), > vs >= (line 335)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn lookupswitch_zero_pairs_decodes_ok() {
+        // npairs=0 — valid empty switch; must NOT be rejected.
+        // Mutants `< 0 → == 0` and `< 0 → <= 0` would incorrectly reject npairs=0.
+        let code: Vec<u8> = vec![
+            0xAB,           // lookupswitch
+            0x00, 0x00, 0x00, // padding
+            0x00, 0x00, 0x00, 0x05, // default = 5
+            0x00, 0x00, 0x00, 0x00, // npairs = 0
+        ];
+        let instrs = decode(&code).expect("zero-pairs lookupswitch should decode");
+        assert_eq!(instrs.len(), 1);
+        if let (0, Instruction::Lookupswitch { default, pairs }) = &instrs[0] {
+            assert_eq!(*default, 5);
+            assert!(pairs.is_empty());
+        } else {
+            panic!("expected Lookupswitch");
+        }
+    }
+
+    #[test]
+    fn lookupswitch_exact_one_pair_decodes_ok() {
+        // npairs=1 and exactly 8 bytes for the pair → npairs == remaining_pairs; should pass.
+        // Kills: `> → >=` mutant (exact-fit rejection) and `/ 8 → % 8` (% gives 0 for 8 bytes).
+        let code: Vec<u8> = vec![
+            0xAB,           // lookupswitch
+            0x00, 0x00, 0x00, // padding
+            0x00, 0x00, 0x00, 0x05, // default = 5
+            0x00, 0x00, 0x00, 0x01, // npairs = 1
+            0x00, 0x00, 0x00, 0x2A, // match_val = 42
+            0x00, 0x00, 0x00, 0x07, // offset = 7
+        ];
+        let instrs = decode(&code).expect("one-pair lookupswitch should decode");
+        assert_eq!(instrs.len(), 1);
+        if let (0, Instruction::Lookupswitch { pairs, default }) = &instrs[0] {
+            assert_eq!(*default, 5);
+            assert_eq!(pairs.len(), 1);
+            assert_eq!(pairs[0], (42, 7));
+        } else {
+            panic!("expected Lookupswitch");
+        }
+    }
+
+    #[test]
+    fn lookupswitch_truncated_pair_data_rejected() {
+        // npairs=1 but only 4 bytes available (half a pair).
+        // Kills: `/ 8 → * 8` mutant — with * 8, remaining = 4*8=32 ≥ 1, wrongly accepts.
+        let code: Vec<u8> = vec![
+            0xAB,           // lookupswitch
+            0x00, 0x00, 0x00, // padding
+            0x00, 0x00, 0x00, 0x05, // default = 5
+            0x00, 0x00, 0x00, 0x01, // npairs = 1
+            0x00, 0x00, 0x00, 0x2A, // match_val only — offset bytes missing
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(err, DecodeError::InvalidLookupswitch { npairs: 1, .. }),
+            "truncated pair data should be rejected: {err}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Decoder: invokedynamic with valid (zero) reserved bytes
+    // Kills: `!= → ==` mutant (line 376) that would reject zero reserved bytes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn invokedynamic_zero_reserved_bytes_decodes_ok() {
+        // Both reserved bytes = 0 → valid; must NOT trigger the error.
+        // Mutant `!= → ==` flips the check so zero bytes would *always* error.
+        let code: Vec<u8> = vec![
+            0xBA,           // invokedynamic
+            0x00, 0x01,     // cp index = 1
+            0x00, 0x00,     // reserved1=0, reserved2=0
+        ];
+        let instrs = decode(&code).expect("valid invokedynamic should decode");
+        assert_eq!(instrs.len(), 1);
+        assert!(matches!(instrs[0], (0, Instruction::Invokedynamic(_))));
+    }
+
+    // -----------------------------------------------------------------------
+    // Verifier: non-empty stack on return
+    // Kills: `replace is_return -> bool with false` mutant (verifier.rs:338)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn verify_nonempty_stack_on_ireturn_fails() {
+        // iconst_0 pushes 1 value; then iconst_1 pushes a second; ireturn
+        // with depth=2 should give NonEmptyStackOnReturn.
+        let instrs = vec![
+            (0, Instruction::Iconst0),
+            (1, Instruction::Iconst1),
+            (2, Instruction::Ireturn),
+        ];
+        let err = verify(&instrs, 4, 1).unwrap_err();
+        // ireturn pops 1 (the return value); depth goes 2→1; check fires at depth=1
+        assert!(
+            matches!(err, VerifyError::NonEmptyStackOnReturn { pc: 2, depth: 1 }),
+            "should reject return with non-empty stack: {err}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Verifier: check_locals — one out-of-bounds test per instruction family
+    // Each test kills the corresponding arm-deletion mutant in check_locals.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn verify_local_out_of_bounds_iload_family() {
+        // Iload(5) with max_locals=3 → LocalOutOfBounds. Kills the Iload/Lload/…/Ret arm.
+        let instrs = vec![(0, Instruction::Iload(5))];
+        let err = verify(&instrs, 10, 3).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds { index: 5, max_locals: 3, .. }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds_iinc() {
+        // Iinc{index:3, delta:1} with max_locals=2 → LocalOutOfBounds. Kills Iinc arm.
+        let instrs = vec![(0, Instruction::Iinc { index: 3, value: 1 })];
+        let err = verify(&instrs, 4, 2).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds { index: 3, max_locals: 2, .. }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds_wide_load_family() {
+        // IloadW(100) with max_locals=10 → LocalOutOfBounds. Kills IloadW/…/RetW arm.
+        let instrs = vec![(0, Instruction::IloadW(100))];
+        let err = verify(&instrs, 10, 10).unwrap_err();
+        assert!(
+            matches!(err, VerifyError::LocalOutOfBounds { index: 100, .. }),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds_iinc_wide() {
+        // IincW{index:5, delta:1} with max_locals=3 → LocalOutOfBounds. Kills IincW arm.
+        let instrs = vec![(0, Instruction::IincW { index: 5, value: 1 })];
+        let err = verify(&instrs, 4, 3).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds { index: 5, max_locals: 3, .. }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds_short_form_0() {
+        // Iload0 uses fixed index 0; max_locals=0 means even index 0 is out of range.
+        // Kills: arm deletion for Iload0/Lload0/…/Astore0.
+        let instrs = vec![(0, Instruction::Iload0)];
+        let err = verify(&instrs, 2, 0).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds { index: 0, max_locals: 0, .. }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds_short_form_1() {
+        // Iload1 uses fixed index 1; max_locals=1 → out of bounds (0 is valid, not 1).
+        // Kills: arm deletion for Iload1/…/Astore1.
+        let instrs = vec![(0, Instruction::Iload1)];
+        let err = verify(&instrs, 2, 1).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds { index: 1, max_locals: 1, .. }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds_short_form_2() {
+        // Iload2 uses fixed index 2; max_locals=2 → out of bounds.
+        // Kills: arm deletion for Iload2/…/Astore2.
+        let instrs = vec![(0, Instruction::Iload2)];
+        let err = verify(&instrs, 2, 2).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds { index: 2, max_locals: 2, .. }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds_short_form_3() {
+        // Iload3 uses fixed index 3; max_locals=3 → out of bounds.
+        // Kills: arm deletion for Iload3/…/Astore3.
+        let instrs = vec![(0, Instruction::Iload3)];
+        let err = verify(&instrs, 2, 3).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds { index: 3, max_locals: 3, .. }
+            ),
+            "{err}"
+        );
+    }
 }
