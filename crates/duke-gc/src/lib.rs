@@ -63,7 +63,7 @@ pub struct Heap {
     // ── Old generation ───────────────────────────────────────────────────────
     /// Old-gen object store. Index = `(r & !OLD_BIT)`.
     pub(crate) old: Vec<Option<HeapObject>>,
-    /// Free-list of raw old-gen indices (no OLD_BIT) for reuse after sweep.
+    /// Free-list of raw old-gen indices (no `OLD_BIT`) for reuse after sweep.
     old_free_list: Vec<u64>,
 
     // ── GC accounting ────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ pub struct Heap {
     young_dropped: usize,
 
     // ── Post-minor-GC forwarding map ─────────────────────────────────────────
-    /// Maps old young-gen ref → new ref (young or old-gen with OLD_BIT).
+    /// Maps old young-gen ref → new ref (young or old-gen with `OLD_BIT`).
     /// Populated during `minor_collect_prepare`, kept alive past
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
@@ -123,7 +123,11 @@ impl Heap {
 
     // ── Allocation ───────────────────────────────────────────────────────────
 
-    fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
+    const fn make_obj(
+        class_name: String,
+        fields: Vec<Slot>,
+        string_value: Option<String>,
+    ) -> HeapObject {
         HeapObject {
             class_name,
             fields,
@@ -169,7 +173,7 @@ impl Heap {
         obj.age = 0; // reset age in old gen (not used there)
         obj.forward = None;
         if let Some(raw_idx) = self.old_free_list.pop() {
-            self.old[raw_idx as usize] = Some(obj);
+            self.old[usize::try_from(raw_idx).unwrap_or(usize::MAX)] = Some(obj);
             raw_idx | OLD_BIT
         } else {
             let raw_idx = self.old.len() as u64;
@@ -180,19 +184,19 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
-    /// Returns a reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = usize::try_from(r & !OLD_BIT).unwrap_or(usize::MAX);
             self.old
                 .get(idx)
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -200,19 +204,19 @@ impl Heap {
         }
     }
 
-    /// Returns a mutable reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a mutable reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = usize::try_from(r & !OLD_BIT).unwrap_or(usize::MAX);
             self.old
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -224,12 +228,12 @@ impl Heap {
 
     /// Returns the total number of live objects across both generations.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.live_count
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.live_count == 0
     }
 
@@ -243,7 +247,7 @@ impl Heap {
 
     /// Returns `true` when the young gen is full (minor GC should fire).
     #[must_use]
-    pub fn should_minor_gc(&self) -> bool {
+    pub const fn should_minor_gc(&self) -> bool {
         self.young_top >= self.young_capacity
     }
 
@@ -306,7 +310,7 @@ impl Heap {
             if let Some(r) = slot.as_reference()
                 && r & OLD_BIT == 0
             {
-                worklist.push(r as usize);
+                worklist.push(usize::try_from(r).unwrap_or(usize::MAX));
             }
         }
 
@@ -319,7 +323,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).unwrap_or(usize::MAX))
                     .collect();
                 worklist.extend(young_refs);
             }
@@ -358,7 +362,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).unwrap_or(usize::MAX))
                     .collect();
                 worklist.extend(children);
             }
@@ -370,11 +374,11 @@ impl Heap {
         let rs2: Vec<usize> = self.remembered_set.iter().copied().collect();
         for old_idx in rs2 {
             if let Some(Some(obj)) = self.old.get_mut(old_idx) {
-                for slot in obj.fields.iter_mut() {
+                for slot in &mut obj.fields {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = r as usize;
+                        let y_idx = usize::try_from(r).unwrap_or(usize::MAX);
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -403,7 +407,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(r as usize)
+                    .get(usize::try_from(r).unwrap_or(usize::MAX))
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -440,7 +444,7 @@ impl Heap {
 
     // ── Major GC (old-gen mark-sweep) ────────────────────────────────────────
 
-    /// Mark-sweep the old generation. Only old-gen roots (OLD_BIT set) are
+    /// Mark-sweep the old generation. Only old-gen roots (`OLD_BIT` set) are
     /// traced. Young-gen survivors must be promoted before calling this.
     pub fn major_collect(&mut self, roots: &[Slot]) {
         self.mark_old(roots);
@@ -507,7 +511,7 @@ impl Heap {
 
         // Build patched roots for the major GC by applying forwarding pointers.
         let mut patched: Vec<Slot> = roots.to_vec();
-        for slot in patched.iter_mut() {
+        for slot in &mut patched {
             self.apply_forward(slot);
         }
 

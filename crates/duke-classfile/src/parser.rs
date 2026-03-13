@@ -515,15 +515,33 @@ pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&st
         return Err(ParseError::CpIndexZero);
     }
     match pool.get(i) {
-        None => Err(ParseError::CpIndexOutOfBounds {
-            index: idx.0,
-            pool_size: pool.len(),
-        }),
         Some(None) => Err(ParseError::CpPhantomSlot { index: idx.0 }),
         Some(Some(CpEntry::Utf8(s))) => Ok(s.as_str()),
-        Some(Some(_)) => Err(ParseError::CpIndexOutOfBounds {
+        None | Some(Some(_)) => Err(ParseError::CpIndexOutOfBounds {
             index: idx.0,
             pool_size: pool.len(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cp_utf8_out_of_bounds_and_wrong_type() {
+        let pool = vec![None, Some(CpEntry::Integer(42))];
+
+        let out_of_bounds = cp_utf8(&pool, CpIndex(5));
+        assert!(matches!(
+            out_of_bounds,
+            Err(ParseError::CpIndexOutOfBounds { .. })
+        ));
+
+        let wrong_type = cp_utf8(&pool, CpIndex(1));
+        assert!(matches!(
+            wrong_type,
+            Err(ParseError::CpIndexOutOfBounds { .. })
+        ));
     }
 }
