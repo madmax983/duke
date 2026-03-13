@@ -16553,4 +16553,285 @@ mod tests {
         .unwrap();
         assert_eq!(result, Slot::Reference(Some(def)));
     }
+
+    // ---------------------------------------------------------------------------
+    // null-arm tests: String.indexOf, String.contains
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_string_indexof_null_target_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_string_indexof(
+            &[Slot::Reference(Some(this)), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    #[test]
+    fn native_string_contains_null_target_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_string_contains(
+            &[Slot::Reference(Some(this)), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    // ---------------------------------------------------------------------------
+    // null-arm: Integer.parseInt, Long.parseLong, Double.parseDouble,
+    //           Float.parseFloat, Boolean.parseBoolean
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_integer_parseint_null_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let err =
+            native_integer_parseint(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    #[test]
+    fn native_integer_parseint_valid_string() {
+        let mut heap = duke_gc::Heap::new();
+        let s = heap.allocate_string("42".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_integer_parseint(&[Slot::Reference(Some(s))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(42));
+    }
+
+    #[test]
+    fn native_long_parselong_null_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let err =
+            native_long_parselong(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    #[test]
+    fn native_long_parselong_valid_string() {
+        let mut heap = duke_gc::Heap::new();
+        let s = heap.allocate_string("99999999999".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_long_parselong(&[Slot::Reference(Some(s))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Long(99_999_999_999_i64));
+    }
+
+    #[test]
+    fn native_double_parsedouble_null_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let err =
+            native_double_parsedouble(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    #[test]
+    fn native_double_parsedouble_valid_string() {
+        let mut heap = duke_gc::Heap::new();
+        let s = heap.allocate_string("3.14".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_double_parsedouble(&[Slot::Reference(Some(s))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 3.14).abs() < 1e-9));
+    }
+
+    #[test]
+    fn native_double_doublevalue_nonnull() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Double(2.718);
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_double_doublevalue(&[Slot::Reference(Some(r))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, Slot::Double(v) if (v - 2.718).abs() < 1e-9));
+    }
+
+    #[test]
+    fn native_float_parsefloat_null_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let err =
+            native_float_parsefloat(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    #[test]
+    fn native_float_parsefloat_valid_string() {
+        let mut heap = duke_gc::Heap::new();
+        let s = heap.allocate_string("1.5".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_float_parsefloat(&[Slot::Reference(Some(s))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v - 1.5_f32).abs() < 1e-6));
+    }
+
+    #[test]
+    fn native_boolean_parseboolean_null_returns_false() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_boolean_parseboolean(&[Slot::Reference(None)], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn native_boolean_parseboolean_true_string() {
+        let mut heap = duke_gc::Heap::new();
+        let s = heap.allocate_string("true".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_boolean_parseboolean(&[Slot::Reference(Some(s))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn native_boolean_parseboolean_false_string() {
+        let mut heap = duke_gc::Heap::new();
+        let s = heap.allocate_string("false".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_boolean_parseboolean(&[Slot::Reference(Some(s))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    // ---------------------------------------------------------------------------
+    // null-arm: String.valueOf(Object) null/nonnull
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_string_value_of_object_null_returns_null_string() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_string_value_of_object(&[Slot::Reference(None)], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        let ref_r = r.as_reference().unwrap();
+        assert_eq!(
+            heap.get(ref_r).unwrap().string_value.as_deref(),
+            Some("null")
+        );
+    }
+
+    #[test]
+    fn native_string_value_of_object_nonnull() {
+        let mut heap = duke_gc::Heap::new();
+        let obj = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_string_value_of_object(
+            &[Slot::Reference(Some(obj))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let ref_r = r.as_reference().unwrap();
+        assert_eq!(
+            heap.get(ref_r).unwrap().string_value.as_deref(),
+            Some("hello")
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // null-arm: String.concat, String.replace(CharSequence), String.split
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_string_concat_null_other_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_string_concat(
+            &[Slot::Reference(Some(this)), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    #[test]
+    fn native_string_replace_charsequence_null_target_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let rep = heap.allocate_string("x".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_string_replace_charsequence(
+            &[
+                Slot::Reference(Some(this)),
+                Slot::Reference(None),
+                Slot::Reference(Some(rep)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    #[test]
+    fn native_string_split_null_delimiter_raises_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("a,b".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_string_split(
+            &[Slot::Reference(Some(this)), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NullPointerException));
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_math_min_double
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_math_min_double_returns_smaller() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_math_min_double(
+            &[Slot::Double(3.0), Slot::Double(1.5)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 1.5).abs() < 1e-9));
+    }
+
+    #[test]
+    fn native_math_min_double_returns_first_when_equal() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_math_min_double(
+            &[Slot::Double(2.0), Slot::Double(2.0)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 2.0).abs() < 1e-9));
+    }
 }
