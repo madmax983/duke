@@ -345,6 +345,315 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Double phantom-slot (mirrors Long test, kills i += 2 mutants in Double branch)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn double_constant_inserts_phantom_slot() {
+        let mut v: Vec<u8> = Vec::new();
+        v.extend_from_slice(&[0xCA, 0xFE, 0xBA, 0xBE]); // magic
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x41]); // Java 21
+
+        // cp_count = 6 (indices 1-5; Double at 1 eats slots 1+2)
+        v.extend_from_slice(&[0x00, 0x06]);
+
+        // #1 CONSTANT_Double (tag 6) = 3.14 — occupies slots 1 and 2
+        v.push(6);
+        let bits = 3.14_f64.to_bits();
+        v.extend_from_slice(&bits.to_be_bytes());
+
+        // #3 CONSTANT_Utf8 "DblClass"
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x08]);
+        v.extend_from_slice(b"DblClass");
+
+        // #4 CONSTANT_Class { name_index = 3 }
+        v.push(7);
+        v.extend_from_slice(&[0x00, 0x03]);
+
+        // #5 CONSTANT_Utf8 "java/lang/Object"
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x10]);
+        v.extend_from_slice(b"java/lang/Object");
+
+        // Footer
+        v.extend_from_slice(&[0x00, 0x00]); // access_flags
+        v.extend_from_slice(&[0x00, 0x04]); // this_class = 4
+        v.extend_from_slice(&[0x00, 0x04]); // super_class = 4 (reuse)
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // ifaces/fields/methods/attrs
+
+        let cf = parse(&v).expect("class with CONSTANT_Double should parse");
+        assert!(
+            matches!(&cf.constant_pool[1], Some(CpEntry::Double(d)) if (*d - 3.14).abs() < 1e-10),
+            "slot 1 should be Double(3.14)"
+        );
+        assert!(cf.constant_pool[2].is_none(), "slot 2 should be phantom None after Double");
+        assert!(
+            matches!(&cf.constant_pool[3], Some(CpEntry::Utf8(s)) if s == "DblClass"),
+            "slot 3 should be Utf8"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // MethodHandle validation (kills `delete !` on bounds check)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn method_handle_invalid_kind_rejected() {
+        // kind=0 is invalid (valid range 1-9); `delete !` mutant would ACCEPT this
+        let mut v = minimal_class_bytes();
+        // We need to rebuild with a MethodHandle CP entry (tag=15).
+        // Easiest: craft a class with cp_count=4: #1=MethodHandle(kind=0,ref=2), #2=Utf8("X"), #3=Class(2)
+        let mut v2: Vec<u8> = Vec::new();
+        v2.extend_from_slice(&[0xCA, 0xFE, 0xBA, 0xBE]);
+        v2.extend_from_slice(&[0x00, 0x00, 0x00, 0x41]); // Java 21
+        v2.extend_from_slice(&[0x00, 0x04]); // cp_count = 4
+
+        // #1 CONSTANT_MethodHandle (tag=15) kind=0 (invalid), ref=#2
+        v2.push(15);
+        v2.push(0);             // reference_kind = 0 — INVALID
+        v2.extend_from_slice(&[0x00, 0x02]); // reference_index
+
+        // #2 CONSTANT_Utf8 "X"
+        v2.push(1);
+        v2.extend_from_slice(&[0x00, 0x01]);
+        v2.push(b'X');
+
+        // #3 CONSTANT_Class { name_index=2 }
+        v2.push(7);
+        v2.extend_from_slice(&[0x00, 0x02]);
+
+        // Footer
+        v2.extend_from_slice(&[0x00, 0x00, 0x00, 0x03, 0x00, 0x03]); // flags, this=3, super=3
+        v2.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        let err = parse(&v2).unwrap_err();
+        assert!(
+            matches!(err, ParseError::InvalidMethodHandleKind { kind: 0 }),
+            "kind=0 should be rejected: {err}"
+        );
+        // Silence unused warning from variable
+        let _ = v;
+    }
+
+    #[test]
+    fn method_handle_valid_kind_parses() {
+        // kind=6 (REF_invokeVirtual) is valid; `delete !` mutant would REJECT this
+        let mut v: Vec<u8> = Vec::new();
+        v.extend_from_slice(&[0xCA, 0xFE, 0xBA, 0xBE]);
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x41]); // Java 21
+        v.extend_from_slice(&[0x00, 0x05]); // cp_count = 5
+
+        // #1 CONSTANT_MethodHandle (tag=15) kind=6, ref=#2
+        v.push(15);
+        v.push(6);              // REF_invokeVirtual — valid
+        v.extend_from_slice(&[0x00, 0x02]);
+
+        // #2 CONSTANT_Utf8 "Foo"
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x03]);
+        v.extend_from_slice(b"Foo");
+
+        // #3 CONSTANT_Class { name_index=2 }
+        v.push(7);
+        v.extend_from_slice(&[0x00, 0x02]);
+
+        // #4 CONSTANT_Utf8 "java/lang/Object"
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x10]);
+        v.extend_from_slice(b"java/lang/Object");
+
+        // Footer: flags, this=3, super=0 (Object has no super)
+        v.extend_from_slice(&[0x00, 0x20]); // ACC_SUPER
+        v.extend_from_slice(&[0x00, 0x03]); // this_class
+        v.extend_from_slice(&[0x00, 0x03]); // super_class (reuse)
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        let cf = parse(&v).expect("valid method handle kind=6 should parse");
+        assert!(
+            matches!(&cf.constant_pool[1], Some(CpEntry::MethodHandle { reference_kind: 6, .. })),
+            "slot 1 should be MethodHandle(kind=6)"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Attribute arm tests — each verifies a specific AttributeData variant
+    // is decoded (not left as Raw), killing the "delete match arm" mutants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn source_file_attribute_decoded() {
+        let path = fixture("HelloWorld.class");
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|_| panic!("fixture not found: {}", path.display()));
+        let cf = parse(&bytes).unwrap();
+        let has_source_file = cf
+            .attributes
+            .iter()
+            .any(|a| matches!(&a.data, AttributeData::SourceFile { .. }));
+        assert!(has_source_file, "HelloWorld.class should have a decoded SourceFile attribute");
+    }
+
+    #[test]
+    fn line_number_table_decoded() {
+        let path = fixture("HelloWorld.class");
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|_| panic!("fixture not found: {}", path.display()));
+        let cf = parse(&bytes).unwrap();
+        let has_lnt = cf.methods.iter().any(|m| {
+            m.attributes.iter().any(|a| {
+                if let AttributeData::Code(code) = &a.data {
+                    code.attributes
+                        .iter()
+                        .any(|ca| matches!(&ca.data, AttributeData::LineNumberTable(_)))
+                } else {
+                    false
+                }
+            })
+        });
+        assert!(has_lnt, "HelloWorld.class should have a decoded LineNumberTable in some method");
+    }
+
+    #[test]
+    fn local_variable_table_decoded() {
+        let path = fixture("HelloWorld.class");
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|_| panic!("fixture not found: {}", path.display()));
+        let cf = parse(&bytes).unwrap();
+        let has_lvt = cf.methods.iter().any(|m| {
+            m.attributes.iter().any(|a| {
+                if let AttributeData::Code(code) = &a.data {
+                    code.attributes
+                        .iter()
+                        .any(|ca| matches!(&ca.data, AttributeData::LocalVariableTable(_)))
+                } else {
+                    false
+                }
+            })
+        });
+        assert!(has_lvt, "HelloWorld.class should have a decoded LocalVariableTable in some method");
+    }
+
+    #[test]
+    fn constant_value_attribute_decoded() {
+        // Hand-crafted class with a static final int field (ConstantValue attribute).
+        // CP: #1=Utf8("CV"), #2=Utf8("I"), #3=Utf8("ConstantValue"), #4=Integer(99),
+        //     #5=Utf8("FooClass"), #6=Class(5), #7=Utf8("java/lang/Object"), #8=Class(7)
+        let mut v: Vec<u8> = Vec::new();
+        v.extend_from_slice(&[0xCA, 0xFE, 0xBA, 0xBE]);
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x41]); // Java 21
+        v.extend_from_slice(&[0x00, 0x09]); // cp_count = 9
+
+        // #1 Utf8 "CV"
+        v.push(1); v.extend_from_slice(&[0x00, 0x02]); v.extend_from_slice(b"CV");
+        // #2 Utf8 "I"
+        v.push(1); v.extend_from_slice(&[0x00, 0x01]); v.push(b'I');
+        // #3 Utf8 "ConstantValue"
+        v.push(1); v.extend_from_slice(&[0x00, 0x0D]); v.extend_from_slice(b"ConstantValue");
+        // #4 Integer 99
+        v.push(3); v.extend_from_slice(&[0x00, 0x00, 0x00, 0x63]);
+        // #5 Utf8 "FooClass"
+        v.push(1); v.extend_from_slice(&[0x00, 0x08]); v.extend_from_slice(b"FooClass");
+        // #6 Class { name_index=5 }
+        v.push(7); v.extend_from_slice(&[0x00, 0x05]);
+        // #7 Utf8 "java/lang/Object"
+        v.push(1); v.extend_from_slice(&[0x00, 0x10]); v.extend_from_slice(b"java/lang/Object");
+        // #8 Class { name_index=7 }
+        v.push(7); v.extend_from_slice(&[0x00, 0x07]);
+
+        // access_flags=PUBLIC|SUPER, this=6, super=8
+        v.extend_from_slice(&[0x00, 0x21, 0x00, 0x06, 0x00, 0x08]);
+        // interfaces=0, fields=1
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+
+        // Field: ACC_PUBLIC|ACC_STATIC|ACC_FINAL=0x0019, name=#1, desc=#2, attrs=1
+        v.extend_from_slice(&[0x00, 0x19, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01]);
+        // ConstantValue attribute: name=#3, length=2, index=#4
+        v.extend_from_slice(&[0x00, 0x03]); // name_index = 3
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x02]); // attribute_length = 2
+        v.extend_from_slice(&[0x00, 0x04]); // constant_value_index = 4
+
+        // methods=0, class_attrs=0
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+
+        let cf = parse(&v).expect("class with ConstantValue field should parse");
+        assert_eq!(cf.fields.len(), 1);
+        let has_cv = cf.fields[0]
+            .attributes
+            .iter()
+            .any(|a| matches!(&a.data, AttributeData::ConstantValue { .. }));
+        assert!(has_cv, "static final field should have a decoded ConstantValue attribute");
+    }
+
+    #[test]
+    fn exceptions_attribute_decoded() {
+        // Hand-crafted method with Exceptions attribute listing one exception class.
+        // CP: #1=Utf8("<init>"), #2=Utf8("()V"), #3=Utf8("Exceptions"),
+        //     #4=Class(5), #5=Utf8("java/io/IOException"),
+        //     #6=Utf8("ThrowsClass"), #7=Class(6), #8=Utf8("java/lang/Object"), #9=Class(8)
+        let mut v: Vec<u8> = Vec::new();
+        v.extend_from_slice(&[0xCA, 0xFE, 0xBA, 0xBE]);
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x41]); // Java 21
+        v.extend_from_slice(&[0x00, 0x0A]); // cp_count = 10
+
+        // #1 Utf8 "<init>"
+        v.push(1); v.extend_from_slice(&[0x00, 0x06]); v.extend_from_slice(b"<init>");
+        // #2 Utf8 "()V"
+        v.push(1); v.extend_from_slice(&[0x00, 0x03]); v.extend_from_slice(b"()V");
+        // #3 Utf8 "Exceptions"
+        v.push(1); v.extend_from_slice(&[0x00, 0x0A]); v.extend_from_slice(b"Exceptions");
+        // #4 Class { name_index=5 }
+        v.push(7); v.extend_from_slice(&[0x00, 0x05]);
+        // #5 Utf8 "java/io/IOException"
+        v.push(1); v.extend_from_slice(&[0x00, 0x13]); v.extend_from_slice(b"java/io/IOException");
+        // #6 Utf8 "ThrowsClass"
+        v.push(1); v.extend_from_slice(&[0x00, 0x0B]); v.extend_from_slice(b"ThrowsClass");
+        // #7 Class { name_index=6 }
+        v.push(7); v.extend_from_slice(&[0x00, 0x06]);
+        // #8 Utf8 "java/lang/Object"
+        v.push(1); v.extend_from_slice(&[0x00, 0x10]); v.extend_from_slice(b"java/lang/Object");
+        // #9 Class { name_index=8 }
+        v.push(7); v.extend_from_slice(&[0x00, 0x08]);
+
+        // access_flags=PUBLIC|SUPER, this=7, super=9
+        v.extend_from_slice(&[0x00, 0x21, 0x00, 0x07, 0x00, 0x09]);
+        // interfaces=0, fields=0, methods=1
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
+
+        // Method: ACC_PUBLIC=0x0001, name=#1, desc=#2, attrs=1
+        v.extend_from_slice(&[0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01]);
+        // Exceptions attribute: name=#3, length=4 (num=1, one index), exception=#4
+        v.extend_from_slice(&[0x00, 0x03]); // name_index = 3
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x04]); // attribute_length = 4
+        v.extend_from_slice(&[0x00, 0x01]); // number_of_exceptions = 1
+        v.extend_from_slice(&[0x00, 0x04]); // exception_index_table[0] = 4
+
+        // class_attrs=0
+        v.extend_from_slice(&[0x00, 0x00]);
+
+        let cf = parse(&v).expect("class with Exceptions method attribute should parse");
+        assert_eq!(cf.methods.len(), 1);
+        let has_exc = cf.methods[0]
+            .attributes
+            .iter()
+            .any(|a| matches!(&a.data, AttributeData::Exceptions { exception_index_table } if !exception_index_table.is_empty()));
+        assert!(has_exc, "method should have a decoded Exceptions attribute with one entry");
+    }
+
+    #[test]
+    fn bootstrap_methods_attribute_decoded() {
+        let path = fixture("LambdaTest.class");
+        let bytes = std::fs::read(&path)
+            .unwrap_or_else(|_| panic!("fixture not found: {}", path.display()));
+        let cf = parse(&bytes).unwrap();
+        let has_bsm = cf
+            .attributes
+            .iter()
+            .any(|a| matches!(&a.data, AttributeData::BootstrapMethods(entries) if !entries.is_empty()));
+        assert!(has_bsm, "LambdaTest.class should have a non-empty BootstrapMethods attribute");
+    }
+
+    // -----------------------------------------------------------------------
     // Property tests: parser must never panic on arbitrary input
     // -----------------------------------------------------------------------
 

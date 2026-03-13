@@ -34,11 +34,6 @@ impl<'a> Cursor<'a> {
         self.pos
     }
 
-    #[allow(dead_code)]
-    fn remaining(&self) -> usize {
-        self.data.len() - self.pos
-    }
-
     fn read_u8(&mut self) -> ParseResult<u8> {
         if self.pos >= self.data.len() {
             return Err(ParseError::UnexpectedEof { offset: self.pos });
@@ -49,9 +44,9 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u16(&mut self) -> ParseResult<u16> {
-        let hi = self.read_u8()? as u16;
-        let lo = self.read_u8()? as u16;
-        Ok((hi << 8) | lo)
+        let b0 = self.read_u8()?;
+        let b1 = self.read_u8()?;
+        Ok(u16::from_be_bytes([b0, b1]))
     }
 
     #[allow(dead_code)]
@@ -60,9 +55,11 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u32(&mut self) -> ParseResult<u32> {
-        let hi = self.read_u16()? as u32;
-        let lo = self.read_u16()? as u32;
-        Ok((hi << 16) | lo)
+        let b0 = self.read_u8()?;
+        let b1 = self.read_u8()?;
+        let b2 = self.read_u8()?;
+        let b3 = self.read_u8()?;
+        Ok(u32::from_be_bytes([b0, b1, b2, b3]))
     }
 
     fn read_i32(&mut self) -> ParseResult<i32> {
@@ -70,9 +67,15 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u64(&mut self) -> ParseResult<u64> {
-        let hi = self.read_u32()? as u64;
-        let lo = self.read_u32()? as u64;
-        Ok((hi << 32) | lo)
+        let b0 = self.read_u8()?;
+        let b1 = self.read_u8()?;
+        let b2 = self.read_u8()?;
+        let b3 = self.read_u8()?;
+        let b4 = self.read_u8()?;
+        let b5 = self.read_u8()?;
+        let b6 = self.read_u8()?;
+        let b7 = self.read_u8()?;
+        Ok(u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7]))
     }
 
     fn read_i64(&mut self) -> ParseResult<i64> {
