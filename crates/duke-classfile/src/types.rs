@@ -111,12 +111,12 @@ pub struct AttributeInfo {
     pub data: AttributeData,
 }
 
-/// Single entry in the BootstrapMethods attribute (§4.7.23).
+/// Single entry in the `BootstrapMethods` attribute (§4.7.23).
 #[derive(Debug, Clone)]
 pub struct BootstrapMethodEntry {
-    /// CP index pointing to a CONSTANT_MethodHandle.
+    /// CP index pointing to a `CONSTANT_MethodHandle`.
     pub method_ref: CpIndex,
-    /// CP indices pointing to static arguments (String, MethodType, MethodHandle, etc.).
+    /// CP indices pointing to static arguments (String, `MethodType`, `MethodHandle`, etc.).
     pub arguments: Vec<CpIndex>,
 }
 
@@ -125,17 +125,17 @@ pub struct BootstrapMethodEntry {
 pub enum AttributeData {
     /// Code attribute (§4.7.3) — method bytecode.
     Code(CodeAttribute),
-    /// ConstantValue attribute (§4.7.2) — compile-time constant for static fields.
+    /// `ConstantValue` attribute (§4.7.2) — compile-time constant for static fields.
     ConstantValue { constant_value_index: CpIndex },
-    /// SourceFile attribute (§4.7.10).
+    /// `SourceFile` attribute (§4.7.10).
     SourceFile { sourcefile_index: CpIndex },
-    /// LineNumberTable (§4.7.12).
+    /// `LineNumberTable` (§4.7.12).
     LineNumberTable(Vec<LineNumberEntry>),
-    /// LocalVariableTable (§4.7.13).
+    /// `LocalVariableTable` (§4.7.13).
     LocalVariableTable(Vec<LocalVariableEntry>),
     /// Exceptions attribute (§4.7.5).
     Exceptions { exception_index_table: Vec<CpIndex> },
-    /// BootstrapMethods attribute (§4.7.23) — required for invokedynamic.
+    /// `BootstrapMethods` attribute (§4.7.23) — required for invokedynamic.
     BootstrapMethods(Vec<BootstrapMethodEntry>),
     /// Any attribute we don't parse in detail yet.
     Raw(Vec<u8>),
@@ -161,14 +161,14 @@ pub struct ExceptionTableEntry {
     pub catch_type: CpIndex,
 }
 
-/// Single entry in a LineNumberTable attribute.
+/// Single entry in a `LineNumberTable` attribute.
 #[derive(Debug, Clone)]
 pub struct LineNumberEntry {
     pub start_pc: u16,
     pub line_number: u16,
 }
 
-/// Single entry in a LocalVariableTable attribute.
+/// Single entry in a `LocalVariableTable` attribute.
 #[derive(Debug, Clone)]
 pub struct LocalVariableEntry {
     pub start_pc: u16,
