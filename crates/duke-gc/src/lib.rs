@@ -374,7 +374,7 @@ impl Heap {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = usize::try_from(r).unwrap();
+                        let y_idx = r as usize;
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -403,7 +403,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(usize::try_from(r).unwrap())
+                    .get(r as usize)
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -804,8 +804,20 @@ mod tests {
         let roots = vec![Slot::Reference(Some(r0))];
         heap.minor_collect_prepare(&roots);
         // r0 must have a forwarding pointer; _r1 must not.
-        assert!(heap.young[usize::try_from(r0).unwrap()].as_ref().unwrap().forward.is_some());
-        assert!(heap.young[usize::try_from(_r1).unwrap()].as_ref().unwrap().forward.is_none());
+        assert!(
+            heap.young[usize::try_from(r0).unwrap()]
+                .as_ref()
+                .unwrap()
+                .forward
+                .is_some()
+        );
+        assert!(
+            heap.young[usize::try_from(_r1).unwrap()]
+                .as_ref()
+                .unwrap()
+                .forward
+                .is_none()
+        );
     }
 
     #[test]
@@ -817,7 +829,11 @@ mod tests {
         let mut slot = Slot::Reference(Some(r0));
         heap.apply_forward(&mut slot);
         // After forwarding, slot must point to the new location.
-        let new_r = heap.young[usize::try_from(r0).unwrap()].as_ref().unwrap().forward.unwrap();
+        let new_r = heap.young[usize::try_from(r0).unwrap()]
+            .as_ref()
+            .unwrap()
+            .forward
+            .unwrap();
         assert_eq!(slot, Slot::Reference(Some(new_r)));
     }
 
@@ -843,10 +859,16 @@ mod tests {
         let roots = vec![Slot::Reference(Some(r))];
         heap.minor_collect_prepare(&roots);
         // Locate the copy in to_space (new_ref from forward pointer).
-        let new_r = heap.young[usize::try_from(r).unwrap()].as_ref().unwrap().forward.unwrap();
+        let new_r = heap.young[usize::try_from(r).unwrap()]
+            .as_ref()
+            .unwrap()
+            .forward
+            .unwrap();
         heap.minor_collect_finish();
         // After finish, young is former to_space. new_r has no OLD_BIT → young index.
-        let survivor = heap.young[usize::try_from(new_r).unwrap()].as_ref().unwrap();
+        let survivor = heap.young[usize::try_from(new_r).unwrap()]
+            .as_ref()
+            .unwrap();
         assert_eq!(survivor.age, 1);
     }
 
