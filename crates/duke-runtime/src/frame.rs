@@ -269,4 +269,73 @@ mod tests {
         assert_eq!(f2.load_local(1).unwrap(), Slot::Int(0));
         assert_eq!(f2.pop().unwrap_err(), VmError::StackUnderflow);
     }
+
+    #[test]
+    fn peek_on_nonempty_stack_returns_top() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+        f.push(Slot::Int(42)).unwrap();
+        assert_eq!(f.peek(), Some(&Slot::Int(42)));
+    }
+
+    #[test]
+    fn peek_on_empty_stack_returns_none() {
+        let f = Frame::new(4, 1, vec![]).unwrap();
+        assert_eq!(f.peek(), None);
+    }
+
+    #[test]
+    fn clear_stack_removes_all_elements() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+        f.push(Slot::Int(1)).unwrap();
+        f.push(Slot::Int(2)).unwrap();
+        f.push(Slot::Int(3)).unwrap();
+        f.clear_stack();
+        assert_eq!(f.pop().unwrap_err(), VmError::StackUnderflow);
+    }
+
+    #[test]
+    fn stack_depth_reflects_push_count() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+        assert_eq!(f.stack_depth(), 0);
+        f.push(Slot::Int(1)).unwrap();
+        assert_eq!(f.stack_depth(), 1);
+        f.push(Slot::Int(2)).unwrap();
+        assert_eq!(f.stack_depth(), 2);
+        f.push(Slot::Int(3)).unwrap();
+        assert_eq!(f.stack_depth(), 3);
+    }
+
+    #[test]
+    fn stack_len_reflects_push_count() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+        assert_eq!(f.stack_len(), 0);
+        f.push(Slot::Int(10)).unwrap();
+        assert_eq!(f.stack_len(), 1);
+        f.push(Slot::Int(20)).unwrap();
+        assert_eq!(f.stack_len(), 2);
+        f.push(Slot::Int(30)).unwrap();
+        assert_eq!(f.stack_len(), 3);
+    }
+
+    #[test]
+    fn slots_mut_yields_all_locals_and_stack() {
+        let mut f = Frame::new(4, 2, vec![Slot::Int(10), Slot::Int(20)]).unwrap();
+        f.push(Slot::Int(30)).unwrap();
+        f.push(Slot::Int(40)).unwrap();
+        assert_eq!(f.slots_mut().count(), 4); // 2 locals + 2 stack
+    }
+
+    #[test]
+    fn slots_mut_mutations_are_visible() {
+        let mut f = Frame::new(4, 2, vec![Slot::Int(1), Slot::Int(2)]).unwrap();
+        f.push(Slot::Int(3)).unwrap();
+        for slot in f.slots_mut() {
+            if let Slot::Int(v) = slot {
+                *v *= 10;
+            }
+        }
+        assert_eq!(f.load_local(0).unwrap(), Slot::Int(10));
+        assert_eq!(f.load_local(1).unwrap(), Slot::Int(20));
+        assert_eq!(f.peek().unwrap(), &Slot::Int(30));
+    }
 }

@@ -100,3 +100,35 @@ impl Slot {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_reference_returns_value_for_nonnull() {
+        assert_eq!(Slot::Reference(Some(42)).as_reference(), Some(42));
+        assert_eq!(Slot::Reference(Some(2)).as_reference(), Some(2));
+        assert_eq!(Slot::Reference(Some(u64::MAX)).as_reference(), Some(u64::MAX));
+    }
+
+    #[test]
+    fn as_reference_returns_none_for_null_and_other_types() {
+        assert_eq!(Slot::Reference(None).as_reference(), None);
+        assert_eq!(Slot::Int(0).as_reference(), None);
+        assert_eq!(Slot::Long(0).as_reference(), None);
+        assert_eq!(Slot::Float(0.0).as_reference(), None);
+        assert_eq!(Slot::Double(0.0).as_reference(), None);
+    }
+
+    #[test]
+    fn type_name_all_variants() {
+        assert_eq!(Slot::Int(0).type_name(), "int");
+        assert_eq!(Slot::Long(0).type_name(), "long");
+        assert_eq!(Slot::Float(0.0).type_name(), "float");
+        assert_eq!(Slot::Double(0.0).type_name(), "double");
+        assert_eq!(Slot::Reference(None).type_name(), "reference");
+        assert_eq!(Slot::Reference(Some(1)).type_name(), "reference");
+        assert_eq!(Slot::ReturnAddress(0).type_name(), "returnAddress");
+    }
+}
