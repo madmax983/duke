@@ -9845,14 +9845,7 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
-            _invoke: &mut dyn FnMut(
-                &mut duke_gc::Heap,
-                &mut dyn std::io::Write,
-                &str,
-                &str,
-                &str,
-                Vec<Slot>,
-            ) -> VmResult<Option<Slot>>,
+            _invoke: &mut InvokeFn<'_>,
         ) -> VmResult<Option<Slot>> {
             Ok(None)
         }
