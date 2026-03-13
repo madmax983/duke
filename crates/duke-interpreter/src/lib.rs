@@ -15484,4 +15484,1073 @@ mod tests {
             2
         );
     }
+
+    // ---------------------------------------------------------------------------
+    // ClassRegistry unit tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn class_registry_register_lambda_increments_counter() {
+        let mut reg = ClassRegistry::new();
+        let info = LambdaInfo {
+            impl_class: "Foo".to_string(),
+            impl_method: "lambda$0".to_string(),
+            impl_desc: "()V".to_string(),
+            impl_kind: 6,
+            sam_method: "run".to_string(),
+            sam_desc: "()V".to_string(),
+            captured_count: 0,
+        };
+        let n0 = reg.register_lambda(info.clone());
+        let n1 = reg.register_lambda(info);
+        assert_ne!(n0, n1, "each lambda gets a distinct name");
+        assert!(n0.contains('0'), "first lambda name contains '0'");
+        assert!(n1.contains('1'), "second lambda name contains '1'");
+    }
+
+    #[test]
+    fn class_registry_natives_returns_registry() {
+        let mut reg = ClassRegistry::new();
+        fn dummy(
+            _args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            _out: &mut dyn std::io::Write,
+        ) -> VmResult<Option<Slot>> {
+            Ok(Some(Slot::Int(99)))
+        }
+        reg.natives_mut().register("C", "m", "()I", dummy);
+        assert!(
+            reg.natives().get_kind("C", "m", "()I").is_some(),
+            "natives() getter must expose registered handler"
+        );
+    }
+
+    #[test]
+    fn class_registry_contains_true_after_register() {
+        let mut reg = ClassRegistry::new();
+        let ctx = ClassContext {
+            class_name: "Foo".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: vec![],
+            methods: vec![],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        assert!(!reg.contains("Foo"));
+        reg.register(ctx);
+        assert!(reg.contains("Foo"));
+    }
+
+    #[test]
+    fn class_registry_all_classes_counts_after_bootstrap() {
+        let mut reg = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut reg, &mut heap);
+        let count = reg.all_classes().count();
+        assert!(count > 10, "bootstrap registers many classes; got {count}");
+    }
+
+    #[test]
+    fn class_registry_all_classes_mut_allows_mutation() {
+        let mut reg = ClassRegistry::new();
+        let ctx = ClassContext {
+            class_name: "Bar".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: vec![],
+            methods: vec![],
+            fields: vec![],
+            static_fields: vec![Slot::Int(1)],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        reg.register(ctx);
+        for cls in reg.all_classes_mut() {
+            for slot in &mut cls.static_fields {
+                if let Slot::Int(v) = slot {
+                    *v = 42;
+                }
+            }
+        }
+        let bar = reg.get("Bar").unwrap();
+        assert_eq!(bar.static_fields[0], Slot::Int(42));
+    }
+
+    // ---------------------------------------------------------------------------
+    // heap_object_to_string
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn heap_object_to_string_integer_field() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(42);
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "42");
+    }
+
+    #[test]
+    fn heap_object_to_string_long_field() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Long(999_000_000_000_i64);
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "999000000000");
+    }
+
+    #[test]
+    fn heap_object_to_string_double_field() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Double(3.14);
+        let obj = heap.get(r).unwrap().clone();
+        let s = heap_object_to_string(&obj, r);
+        assert!(s.contains("3.14"), "expected '3.14' in '{s}'");
+    }
+
+    #[test]
+    fn heap_object_to_string_float_field() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Float".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Float(1.5_f32);
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "1.5");
+    }
+
+    #[test]
+    fn heap_object_to_string_boolean_true() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(1);
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "true");
+    }
+
+    #[test]
+    fn heap_object_to_string_boolean_false() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(0);
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "false");
+    }
+
+    #[test]
+    fn heap_object_to_string_boolean_nonzero_is_true() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(7);
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "true");
+    }
+
+    #[test]
+    fn heap_object_to_string_character_field() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Character".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int('A' as i32);
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "A");
+    }
+
+    #[test]
+    fn heap_object_to_string_string_value_takes_priority() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate_string("hello".to_string());
+        let obj = heap.get(r).unwrap().clone();
+        assert_eq!(heap_object_to_string(&obj, r), "hello");
+    }
+
+    #[test]
+    fn heap_object_to_string_opaque_object_uses_class_at_hex() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 0);
+        let obj = heap.get(r).unwrap().clone();
+        let s = heap_object_to_string(&obj, r);
+        assert!(
+            s.starts_with("java/lang/Object@"),
+            "expected 'java/lang/Object@...' but got '{s}'"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // format_java_float / format_java_double
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn format_java_float_nan() {
+        assert_eq!(format_java_float(f32::NAN), "NaN");
+    }
+
+    #[test]
+    fn format_java_float_positive_infinity() {
+        assert_eq!(format_java_float(f32::INFINITY), "Infinity");
+    }
+
+    #[test]
+    fn format_java_float_negative_infinity() {
+        assert_eq!(format_java_float(f32::NEG_INFINITY), "-Infinity");
+    }
+
+    #[test]
+    fn format_java_float_finite_with_decimal() {
+        let s = format_java_float(3.14_f32);
+        assert!(s.contains('.'), "finite float must contain '.': {s}");
+    }
+
+    #[test]
+    fn format_java_float_whole_number_gets_dot_zero() {
+        let s = format_java_float(2.0_f32);
+        assert!(s.ends_with(".0") || s.contains('.'), "must have decimal: {s}");
+    }
+
+    #[test]
+    fn format_java_double_nan() {
+        assert_eq!(format_java_double(f64::NAN), "NaN");
+    }
+
+    #[test]
+    fn format_java_double_positive_infinity() {
+        assert_eq!(format_java_double(f64::INFINITY), "Infinity");
+    }
+
+    #[test]
+    fn format_java_double_negative_infinity() {
+        assert_eq!(format_java_double(f64::NEG_INFINITY), "-Infinity");
+    }
+
+    #[test]
+    fn format_java_double_finite_with_decimal() {
+        let s = format_java_double(2.718_281_828);
+        assert!(s.contains('.'), "finite double must contain '.': {s}");
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_println_string / native_print_string null arms
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_println_string_null_ref_prints_null() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_println_string(
+            &[Slot::Reference(None), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        );
+        assert!(result.is_ok());
+        assert_eq!(String::from_utf8(out).unwrap().trim(), "null");
+    }
+
+    #[test]
+    fn native_print_string_null_ref_prints_null() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_print_string(
+            &[Slot::Reference(None), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        );
+        assert!(result.is_ok());
+        assert_eq!(String::from_utf8(out).unwrap(), "null");
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_println_boolean / native_print_boolean
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_println_boolean_false() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_println_boolean(
+            &[Slot::Reference(None), Slot::Int(0)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap().trim(), "false");
+    }
+
+    #[test]
+    fn native_println_boolean_true() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_println_boolean(
+            &[Slot::Reference(None), Slot::Int(1)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap().trim(), "true");
+    }
+
+    #[test]
+    fn native_print_boolean_false() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_print_boolean(
+            &[Slot::Reference(None), Slot::Int(0)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "false");
+    }
+
+    #[test]
+    fn native_print_boolean_true() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_print_boolean(
+            &[Slot::Reference(None), Slot::Int(5)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "true");
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_print_char / native_print_long / native_print_float / native_print_double
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_print_char_ascii() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_print_char(&[Slot::Reference(None), Slot::Int('Z' as i32)], &mut heap, &mut out)
+            .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "Z");
+    }
+
+    #[test]
+    fn native_print_long_value() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_print_long(
+            &[Slot::Reference(None), Slot::Long(123_456_789_000_i64)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "123456789000");
+    }
+
+    #[test]
+    fn native_print_float_value() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_print_float(&[Slot::Reference(None), Slot::Float(3.0_f32)], &mut heap, &mut out)
+            .unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains('3'), "expected '3' in '{s}'");
+    }
+
+    #[test]
+    fn native_print_double_value() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_print_double(
+            &[Slot::Reference(None), Slot::Double(2.5)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("2.5"), "expected '2.5' in '{s}'");
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_println_object / native_print_object
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_println_object_null_prints_null() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_println_object(
+            &[Slot::Reference(None), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap().trim(), "null");
+    }
+
+    #[test]
+    fn native_println_object_nonnull_uses_string_value() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate_string("hi".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        native_println_object(
+            &[Slot::Reference(None), Slot::Reference(Some(r))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap().trim(), "hi");
+    }
+
+    #[test]
+    fn native_print_object_null_prints_null() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        native_print_object(
+            &[Slot::Reference(None), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "null");
+    }
+
+    #[test]
+    fn native_print_object_nonnull() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate_string("world".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        native_print_object(
+            &[Slot::Reference(None), Slot::Reference(Some(r))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "world");
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_object_tostring
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_object_tostring_returns_string_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate_string("test".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_object_tostring(&[Slot::Reference(Some(r))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
+        let new_ref = result.as_reference().unwrap();
+        let s = heap.get(new_ref).unwrap().string_value.as_deref().unwrap();
+        assert_eq!(s, "test");
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_string_equals null arm
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_string_equals_null_other_returns_false() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_string_equals(
+            &[Slot::Reference(Some(this)), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, Slot::Int(0));
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_system_exit
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_system_exit_returns_system_exit_error() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_system_exit(&[Slot::Int(42)], &mut heap, &mut out).unwrap_err();
+        assert!(
+            matches!(err, VmError::SystemExit { code: 42 }),
+            "expected SystemExit(42), got {err:?}"
+        );
+    }
+
+    #[test]
+    fn native_system_exit_non_int_arg_uses_code_1() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_system_exit(&[], &mut heap, &mut out).unwrap_err();
+        assert!(
+            matches!(err, VmError::SystemExit { code: 1 }),
+            "empty args → SystemExit(1), got {err:?}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_string_substring boundary / error
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_string_substring_full_string() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_string_substring(
+            &[Slot::Reference(Some(this)), Slot::Int(0)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let sub_ref = r.as_reference().unwrap();
+        assert_eq!(
+            heap.get(sub_ref).unwrap().string_value.as_deref(),
+            Some("hello")
+        );
+    }
+
+    #[test]
+    fn native_string_substring_tail() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_string_substring(
+            &[Slot::Reference(Some(this)), Slot::Int(2)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let sub_ref = r.as_reference().unwrap();
+        assert_eq!(
+            heap.get(sub_ref).unwrap().string_value.as_deref(),
+            Some("llo")
+        );
+    }
+
+    #[test]
+    fn native_string_substring_out_of_bounds_returns_error() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hi".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_string_substring(
+            &[Slot::Reference(Some(this)), Slot::Int(10)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn native_string_substring_range_basic() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hello".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_string_substring_range(
+            &[Slot::Reference(Some(this)), Slot::Int(1), Slot::Int(4)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let sub_ref = r.as_reference().unwrap();
+        assert_eq!(
+            heap.get(sub_ref).unwrap().string_value.as_deref(),
+            Some("ell")
+        );
+    }
+
+    #[test]
+    fn native_string_substring_range_out_of_bounds() {
+        let mut heap = duke_gc::Heap::new();
+        let this = heap.allocate_string("hi".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_string_substring_range(
+            &[Slot::Reference(Some(this)), Slot::Int(0), Slot::Int(10)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---------------------------------------------------------------------------
+    // format_arg
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn format_arg_long_d_spec() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Long(12345_i64);
+        let result = format_arg('d', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        assert_eq!(result, "12345");
+    }
+
+    #[test]
+    fn format_arg_double_f_spec() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Double(3.14159);
+        let result = format_arg('f', Some(2), &Slot::Reference(Some(r)), &heap).unwrap();
+        assert_eq!(result, "3.14");
+    }
+
+    #[test]
+    fn format_arg_float_f_spec() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Float".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Float(1.5_f32);
+        let result = format_arg('f', Some(1), &Slot::Reference(Some(r)), &heap).unwrap();
+        assert_eq!(result, "1.5");
+    }
+
+    #[test]
+    fn format_arg_int_x_spec() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(255);
+        let result = format_arg('x', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        assert_eq!(result, "ff");
+    }
+
+    #[test]
+    fn format_arg_int_uppercase_x_spec() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(255);
+        let result = format_arg('X', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        assert_eq!(result, "FF");
+    }
+
+    #[test]
+    fn format_arg_long_x_spec() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Long(255_i64);
+        let result = format_arg('x', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        assert_eq!(result, "ff");
+    }
+
+    #[test]
+    fn format_arg_null_returns_null_string() {
+        let heap = duke_gc::Heap::new();
+        let result = format_arg('s', None, &Slot::Reference(None), &heap).unwrap();
+        assert_eq!(result, "null");
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_string_format
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_string_format_percent_d() {
+        let mut heap = duke_gc::Heap::new();
+        let fmt_ref = heap.allocate_string("%d".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        let int_obj = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(int_obj).unwrap().fields[0] = Slot::Int(7);
+        heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(int_obj));
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_string_format(
+            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let s_ref = result.as_reference().unwrap();
+        assert_eq!(
+            heap.get(s_ref).unwrap().string_value.as_deref(),
+            Some("7")
+        );
+    }
+
+    #[test]
+    fn native_string_format_percent_n() {
+        let mut heap = duke_gc::Heap::new();
+        let fmt_ref = heap.allocate_string("a%nb".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_string_format(
+            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let s_ref = result.as_reference().unwrap();
+        assert_eq!(
+            heap.get(s_ref).unwrap().string_value.as_deref(),
+            Some("a\nb")
+        );
+    }
+
+    #[test]
+    fn native_string_format_percent_percent() {
+        let mut heap = duke_gc::Heap::new();
+        let fmt_ref = heap.allocate_string("100%%".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_string_format(
+            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let s_ref = result.as_reference().unwrap();
+        assert_eq!(
+            heap.get(s_ref).unwrap().string_value.as_deref(),
+            Some("100%")
+        );
+    }
+
+    #[test]
+    fn native_string_format_precision() {
+        let mut heap = duke_gc::Heap::new();
+        let fmt_ref = heap.allocate_string("%.2f".to_string());
+        let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        let dbl_obj = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(dbl_obj).unwrap().fields[0] = Slot::Double(3.14159);
+        heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(dbl_obj));
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_string_format(
+            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        let s_ref = result.as_reference().unwrap();
+        assert_eq!(
+            heap.get(s_ref).unwrap().string_value.as_deref(),
+            Some("3.14")
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // execute_string_concat_recipe
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn execute_string_concat_recipe_single_dynamic_int() {
+        let mut heap = duke_gc::Heap::new();
+        let slot = execute_string_concat_recipe(
+            "\u{1}",
+            &[Slot::Int(42)],
+            &['I'],
+            &[],
+            &mut heap,
+        )
+        .unwrap();
+        let r = slot.as_reference().unwrap();
+        assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn execute_string_concat_recipe_constant_only() {
+        let mut heap = duke_gc::Heap::new();
+        let slot = execute_string_concat_recipe(
+            "\u{2}",
+            &[],
+            &[],
+            &["hello".to_string()],
+            &mut heap,
+        )
+        .unwrap();
+        let r = slot.as_reference().unwrap();
+        assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn execute_string_concat_recipe_literal_chars() {
+        let mut heap = duke_gc::Heap::new();
+        let slot =
+            execute_string_concat_recipe("xyz", &[], &[], &[], &mut heap).unwrap();
+        let r = slot.as_reference().unwrap();
+        assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn execute_string_concat_recipe_mixed() {
+        let mut heap = duke_gc::Heap::new();
+        let slot = execute_string_concat_recipe(
+            "x\u{1}y",
+            &[Slot::Int(5)],
+            &['I'],
+            &[],
+            &mut heap,
+        )
+        .unwrap();
+        let r = slot.as_reference().unwrap();
+        assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("x5y"));
+    }
+
+    #[test]
+    fn execute_string_concat_recipe_multiple_dynamics() {
+        let mut heap = duke_gc::Heap::new();
+        let slot = execute_string_concat_recipe(
+            "\u{1}+\u{1}",
+            &[Slot::Int(3), Slot::Int(4)],
+            &['I', 'I'],
+            &[],
+            &mut heap,
+        )
+        .unwrap();
+        let r = slot.as_reference().unwrap();
+        assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("3+4"));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Ishr / Iushr masking via execute()
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn execute_ishr_masks_shift_amount() {
+        // Arithmetic right shift: -8 >> 1 = -4 (sign-extending)
+        // Also verifies s & 0x1F: shift=1 means bit mask = 1
+        let instrs = vec![
+            (0, Instruction::Bipush(-8_i8)),
+            (2, Instruction::Bipush(1_i8)),
+            (4, Instruction::Ishr),
+            (5, Instruction::Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 4, 1).unwrap();
+        assert_eq!(result, Some(Slot::Int(-4)));
+    }
+
+    #[test]
+    fn execute_ishr_large_shift_masked_to_31() {
+        // shift = 33 → 33 & 0x1F = 1; -8 >> 1 = -4
+        let instrs = vec![
+            (0, Instruction::Bipush(-8_i8)),
+            (2, Instruction::Bipush(33_i8)),
+            (4, Instruction::Ishr),
+            (5, Instruction::Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 4, 1).unwrap();
+        assert_eq!(result, Some(Slot::Int(-4)));
+    }
+
+    #[test]
+    fn execute_iushr_masks_shift_amount() {
+        // Logical right shift: -1 (0xFFFFFFFF) >>> 28 = 15
+        let instrs = vec![
+            (0, Instruction::IconstM1),
+            (1, Instruction::Bipush(28_i8)),
+            (3, Instruction::Iushr),
+            (4, Instruction::Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 4, 1).unwrap();
+        assert_eq!(result, Some(Slot::Int(15)));
+    }
+
+    #[test]
+    fn execute_iushr_large_shift_masked() {
+        // shift=60 → 60 & 0x1F = 28; -1 >>> 28 = 15
+        let instrs = vec![
+            (0, Instruction::IconstM1),
+            (1, Instruction::Bipush(60_i8)),
+            (3, Instruction::Iushr),
+            (4, Instruction::Ireturn),
+        ];
+        let result = execute(&instrs, &[], vec![], 4, 1).unwrap();
+        assert_eq!(result, Some(Slot::Int(15)));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Lshr / Lushr masking via execute()
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn execute_lshr_arithmetic_shift() {
+        // long -8 >> 1 = -4 (arithmetic; sign bit preserved)
+        let instrs = vec![
+            (0, Instruction::Lload0),
+            (1, Instruction::Bipush(1_i8)),
+            (3, Instruction::Lshr),
+            (4, Instruction::Lreturn),
+        ];
+        let result = execute(&instrs, &[], vec![Slot::Long(-8_i64)], 4, 2).unwrap();
+        assert_eq!(result, Some(Slot::Long(-4)));
+    }
+
+    #[test]
+    fn execute_lushr_logical_shift() {
+        // long -1 (0xFFFFFFFFFFFFFFFF) >>> 60 = 15
+        use duke_bytecode::Instruction;
+        let instrs = vec![
+            (0, Instruction::Lload0),
+            (1, Instruction::Bipush(60_i8)),
+            (3, Instruction::Lushr),
+            (4, Instruction::Lreturn),
+        ];
+        let result = execute(&instrs, &[], vec![Slot::Long(-1_i64)], 4, 2).unwrap();
+        assert_eq!(result, Some(Slot::Long(15)));
+    }
+
+    #[test]
+    fn execute_lshr_large_shift_masked_to_63() {
+        // shift = 65 → 65 & 0x3F = 1; -8 >> 1 = -4
+        use duke_bytecode::Instruction;
+        let instrs = vec![
+            (0, Instruction::Lload0),
+            (1, Instruction::Bipush(65_i8)),
+            (3, Instruction::Lshr),
+            (4, Instruction::Lreturn),
+        ];
+        let result = execute(&instrs, &[], vec![Slot::Long(-8_i64)], 4, 2).unwrap();
+        assert_eq!(result, Some(Slot::Long(-4)));
+    }
+
+    // ---------------------------------------------------------------------------
+    // LDC CpEntry::Utf8 arm — via execute() with a hand-crafted CP
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn execute_ldc_string_from_utf8_cp() {
+        use duke_classfile::types::{CpEntry, CpIndex};
+        // CP: [None, Some(String{string_index:2}), Some(Utf8("hi"))]
+        let cp: Vec<Option<CpEntry>> = vec![
+            None,
+            Some(CpEntry::String {
+                string_index: CpIndex(2),
+            }),
+            Some(CpEntry::Utf8("hi".to_string())),
+        ];
+        // Ldc takes u8 cp index; execute() doesn't implement Areturn so just Pop+Iconst0+Ireturn
+        let instrs = vec![
+            (0, Instruction::Ldc(1u8)),
+            (2, Instruction::Pop),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Ireturn),
+        ];
+        // Must not error — exercises the CpEntry::Utf8 branch
+        let result = execute(&instrs, &cp, vec![], 2, 1).unwrap();
+        assert_eq!(result, Some(Slot::Int(0)));
+    }
+
+    #[test]
+    fn execute_ldcw_string_from_utf8_cp() {
+        use duke_classfile::types::{CpEntry, CpIndex};
+        let cp: Vec<Option<CpEntry>> = vec![
+            None,
+            Some(CpEntry::String {
+                string_index: CpIndex(2),
+            }),
+            Some(CpEntry::Utf8("world".to_string())),
+        ];
+        let instrs = vec![
+            (0, Instruction::LdcW(CpIndex(1))),
+            (3, Instruction::Pop),
+            (4, Instruction::Iconst1),
+            (5, Instruction::Ireturn),
+        ];
+        let result = execute(&instrs, &cp, vec![], 2, 1).unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_hashmap_remove
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_hashmap_remove_existing_key_returns_value_and_decrements_size() {
+        let mut heap = duke_gc::Heap::new();
+        // Build map: fields = [Int(1), key_ref, val_ref]
+        let map = heap.allocate("java/util/HashMap".to_string(), 1);
+        let key = heap.allocate_string("k".to_string());
+        let val = heap.allocate_string("v".to_string());
+        {
+            let obj = heap.get_mut(map).unwrap();
+            obj.fields[0] = Slot::Int(1); // size
+            obj.fields.push(Slot::Reference(Some(key)));
+            obj.fields.push(Slot::Reference(Some(val)));
+        }
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_remove(
+            &[Slot::Reference(Some(map)), Slot::Reference(Some(key))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, Slot::Reference(Some(val)));
+        // Size should be 0 now
+        assert_eq!(heap.get(map).unwrap().fields[0], Slot::Int(0));
+    }
+
+    #[test]
+    fn native_hashmap_remove_absent_key_returns_null() {
+        let mut heap = duke_gc::Heap::new();
+        let map = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map).unwrap().fields[0] = Slot::Int(0);
+        let missing_key = heap.allocate_string("missing".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_remove(
+            &[Slot::Reference(Some(map)), Slot::Reference(Some(missing_key))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, Slot::Reference(None));
+    }
+
+    // ---------------------------------------------------------------------------
+    // native_hashmap_get_or_default
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn native_hashmap_get_or_default_key_present() {
+        let mut heap = duke_gc::Heap::new();
+        let map = heap.allocate("java/util/HashMap".to_string(), 1);
+        let key = heap.allocate_string("k".to_string());
+        let val = heap.allocate_string("v".to_string());
+        let def = heap.allocate_string("default".to_string());
+        {
+            let obj = heap.get_mut(map).unwrap();
+            obj.fields[0] = Slot::Int(1);
+            obj.fields.push(Slot::Reference(Some(key)));
+            obj.fields.push(Slot::Reference(Some(val)));
+        }
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_get_or_default(
+            &[
+                Slot::Reference(Some(map)),
+                Slot::Reference(Some(key)),
+                Slot::Reference(Some(def)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, Slot::Reference(Some(val)));
+    }
+
+    #[test]
+    fn native_hashmap_get_or_default_key_absent_returns_default() {
+        let mut heap = duke_gc::Heap::new();
+        let map = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map).unwrap().fields[0] = Slot::Int(0);
+        let missing = heap.allocate_string("nope".to_string());
+        let def = heap.allocate_string("fallback".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_get_or_default(
+            &[
+                Slot::Reference(Some(map)),
+                Slot::Reference(Some(missing)),
+                Slot::Reference(Some(def)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, Slot::Reference(Some(def)));
+    }
 }
