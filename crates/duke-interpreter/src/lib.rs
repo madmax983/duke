@@ -695,14 +695,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
-    registry
-        .natives_mut()
-        .register(
-            "java/lang/Throwable",
-            "addSuppressed",
-            "(Ljava/lang/Throwable;)V",
-            native_throwable_add_suppressed,
-        );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "addSuppressed",
+        "(Ljava/lang/Throwable;)V",
+        native_throwable_add_suppressed,
+    );
 
     // java/lang/Exception extends Throwable
     let exception_ctx = ClassContext {
@@ -2084,10 +2082,10 @@ fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
             };
         }
         "java/lang/Character" => {
-            if let Some(Slot::Int(v)) = obj.fields.first() {
-                if let Some(c) = char::from_u32(*v as u32) {
-                    return c.to_string();
-                }
+            if let Some(Slot::Int(v)) = obj.fields.first()
+                && let Some(c) = char::from_u32(*v as u32)
+            {
+                return c.to_string();
             }
         }
         _ => {}
@@ -3059,7 +3057,11 @@ fn native_string_split(
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
     for (i, part) in parts.iter().enumerate() {
         let str_ref = heap.allocate_string((*part).to_string());
-        heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Reference(Some(str_ref));
+        if let Ok(arr) = heap.get_mut(arr_ref)
+            && i < arr.fields.len()
+        {
+            arr.fields[i] = Slot::Reference(Some(str_ref));
+        }
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
@@ -4911,7 +4913,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    _triggered_by: &str,
+    #[allow(unused_variables)] triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -8513,12 +8515,11 @@ fn init_object_fields(
             for field in ctx.fields.iter().filter(|f| !f.is_static) {
                 let default = default_slot_for_descriptor(&field.descriptor);
                 // Only write non-Int-zero defaults (avoids an unnecessary mut borrow).
-                if !matches!(default, Slot::Int(0)) {
-                    if let Ok(obj) = heap.get_mut(obj_ref) {
-                        if slot_idx < obj.fields.len() {
-                            obj.fields[slot_idx] = default;
-                        }
-                    }
+                if !matches!(default, Slot::Int(0))
+                    && let Ok(obj) = heap.get_mut(obj_ref)
+                    && slot_idx < obj.fields.len()
+                {
+                    obj.fields[slot_idx] = default;
                 }
                 slot_idx += 1;
             }
@@ -9835,6 +9836,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn native_registry_register_callback_can_be_looked_up() {
         fn dummy_cb(
             _args: &[Slot],
@@ -13653,6 +13655,20 @@ mod tests {
     }
 
     #[test]
+    fn string_split_bounds_check() {
+        let mut heap = duke_gc::Heap::new();
+        let str_ref = heap.allocate_string("a,b,c".to_string());
+        let delim_ref = heap.allocate_string(",".to_string());
+        let mut out = Vec::new();
+        let result = native_string_split(
+            &[Slot::Reference(Some(str_ref)), Slot::Reference(Some(delim_ref))],
+            &mut heap,
+            &mut out,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn string_ops2_hashcode() {
         let ctx = load_string_ops2_class();
         let mut registry = ClassRegistry::new();
@@ -14430,7 +14446,7 @@ mod tests {
         assert_eq!(result, Some(Slot::Int(99)));
         let events = &registry.telemetry.exception_flow.events;
         // Two throw events: inner throw + rethrow
-        assert!(events.len() >= 1);
+        assert!(!events.is_empty());
         assert!(events.iter().all(|e| e.catch_site.is_some()));
     }
 
