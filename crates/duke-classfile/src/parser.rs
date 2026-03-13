@@ -407,61 +407,71 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
             }
         }
         "Code" => AttributeData::Code(parse_code_attribute(&mut c)?),
-        "LineNumberTable" => {
-            let len = c.read_u16()?;
-            let mut entries = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                entries.push(LineNumberEntry {
-                    start_pc: c.read_u16()?,
-                    line_number: c.read_u16()?,
-                });
-            }
-            AttributeData::LineNumberTable(entries)
-        }
+        "LineNumberTable" => AttributeData::LineNumberTable(parse_line_number_table(&mut c)?),
         "LocalVariableTable" => {
-            let len = c.read_u16()?;
-            let mut entries = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                entries.push(LocalVariableEntry {
-                    start_pc: c.read_u16()?,
-                    length: c.read_u16()?,
-                    name_index: c.read_cp_index()?,
-                    descriptor_index: c.read_cp_index()?,
-                    index: c.read_u16()?,
-                });
-            }
-            AttributeData::LocalVariableTable(entries)
+            AttributeData::LocalVariableTable(parse_local_variable_table(&mut c)?)
         }
-        "Exceptions" => {
-            let num = c.read_u16()?;
-            let mut table = Vec::with_capacity(num as usize);
-            for _ in 0..num {
-                table.push(c.read_cp_index()?);
-            }
-            AttributeData::Exceptions {
-                exception_index_table: table,
-            }
-        }
-        "BootstrapMethods" => {
-            let num = c.read_u16()?;
-            let mut entries = Vec::with_capacity(num as usize);
-            for _ in 0..num {
-                let method_ref = c.read_cp_index()?;
-                let num_args = c.read_u16()?;
-                let mut arguments = Vec::with_capacity(num_args as usize);
-                for _ in 0..num_args {
-                    arguments.push(c.read_cp_index()?);
-                }
-                entries.push(BootstrapMethodEntry {
-                    method_ref,
-                    arguments,
-                });
-            }
-            AttributeData::BootstrapMethods(entries)
-        }
+        "Exceptions" => AttributeData::Exceptions {
+            exception_index_table: parse_exceptions_attribute(&mut c)?,
+        },
+        "BootstrapMethods" => AttributeData::BootstrapMethods(parse_bootstrap_methods(&mut c)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
+}
+
+fn parse_line_number_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LineNumberEntry>> {
+    let len = c.read_u16()?;
+    let mut entries = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        entries.push(LineNumberEntry {
+            start_pc: c.read_u16()?,
+            line_number: c.read_u16()?,
+        });
+    }
+    Ok(entries)
+}
+
+fn parse_local_variable_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LocalVariableEntry>> {
+    let len = c.read_u16()?;
+    let mut entries = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        entries.push(LocalVariableEntry {
+            start_pc: c.read_u16()?,
+            length: c.read_u16()?,
+            name_index: c.read_cp_index()?,
+            descriptor_index: c.read_cp_index()?,
+            index: c.read_u16()?,
+        });
+    }
+    Ok(entries)
+}
+
+fn parse_exceptions_attribute(c: &mut Cursor<'_>) -> ParseResult<Vec<CpIndex>> {
+    let num = c.read_u16()?;
+    let mut table = Vec::with_capacity(num as usize);
+    for _ in 0..num {
+        table.push(c.read_cp_index()?);
+    }
+    Ok(table)
+}
+
+fn parse_bootstrap_methods(c: &mut Cursor<'_>) -> ParseResult<Vec<BootstrapMethodEntry>> {
+    let num = c.read_u16()?;
+    let mut entries = Vec::with_capacity(num as usize);
+    for _ in 0..num {
+        let method_ref = c.read_cp_index()?;
+        let num_args = c.read_u16()?;
+        let mut arguments = Vec::with_capacity(num_args as usize);
+        for _ in 0..num_args {
+            arguments.push(c.read_cp_index()?);
+        }
+        entries.push(BootstrapMethodEntry {
+            method_ref,
+            arguments,
+        });
+    }
+    Ok(entries)
 }
 
 fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
