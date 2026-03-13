@@ -295,16 +295,12 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
                 name_index: c.read_cp_index()?,
             },
             other => {
-                let index = match u16::try_from(i) {
-                    Ok(idx) => idx,
-                    Err(_) => {
-                        return Err(ParseError::UnexpectedEof { offset: c.position() });
-                    }
+                let Ok(index) = u16::try_from(i) else {
+                    return Err(ParseError::UnexpectedEof {
+                        offset: c.position(),
+                    });
                 };
-                return Err(ParseError::UnknownCpTag {
-                    tag: other,
-                    index,
-                });
+                return Err(ParseError::UnknownCpTag { tag: other, index });
             }
         };
         pool.push(Some(entry));
