@@ -74,7 +74,7 @@ pub struct ResourceInfo {
 ///
 /// On [`open`](JImageReader::open), reads the entire file into memory and
 /// scans the locations table to build a path→resource index.  All subsequent
-/// [`find_resource`] and [`read_resource`] calls are O(1) hash lookups.
+/// [`find_resource`](JImageReader::find_resource) and [`read_resource`](JImageReader::read_resource) calls are O(1) hash lookups.
 pub struct JImageReader {
     data: Vec<u8>,
     resource_count: u32,
@@ -171,7 +171,7 @@ impl JImageReader {
             msg: format!("resource '{path}' offset overflow"),
         })?;
 
-        if start.checked_add(raw_len).map_or(true, |end| end > self.data.len()) {
+        if start.checked_add(raw_len).is_none_or(|end| end > self.data.len()) {
             return Err(LoadError::JImageFormat {
                 msg: format!("resource '{path}' data out of bounds"),
             });

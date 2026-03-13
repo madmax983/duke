@@ -783,7 +783,7 @@ mod tests {
             age: 0,
             forward: None,
         }));
-        let a_ref = 0u64 | OLD_BIT;
+        let a_ref = OLD_BIT;
         let b_ref = 1u64 | OLD_BIT;
         heap.write_field(a_ref, 0, Slot::Reference(Some(b_ref)))
             .unwrap();
@@ -894,7 +894,7 @@ mod tests {
             age: 0,
             forward: None,
         }));
-        let old_ref = 0u64 | OLD_BIT;
+        let old_ref = OLD_BIT;
         let young_ref = heap.allocate("Young".to_string(), 0);
         // Wire old→young via write_field (populates remembered_set).
         heap.write_field(old_ref, 0, Slot::Reference(Some(young_ref)))
@@ -940,7 +940,7 @@ mod tests {
     #[test]
     fn apply_forward_is_no_op_on_old_gen_ref() {
         let heap = Heap::new();
-        let old_ref = 0u64 | OLD_BIT;
+        let old_ref = OLD_BIT;
         let mut slot = Slot::Reference(Some(old_ref));
         heap.apply_forward(&mut slot);
         // No forwarding pointer in old gen → slot unchanged.
@@ -960,7 +960,7 @@ mod tests {
             age: 0,
             forward: None,
         }));
-        let old_ref = 0u64 | OLD_BIT;
+        let old_ref = OLD_BIT;
         assert_ne!(old_ref & OLD_BIT, 0, "old ref must have OLD_BIT set");
         assert_eq!(heap.get(old_ref).unwrap().class_name, "OldObj");
     }
@@ -984,7 +984,7 @@ mod tests {
             age: 0,
             forward: None,
         }));
-        let keep_ref = 0u64 | OLD_BIT;
+        let keep_ref = OLD_BIT;
         let drop_ref = 1u64 | OLD_BIT;
         let roots = vec![Slot::Reference(Some(keep_ref))];
         heap.major_collect(&roots);
@@ -1012,7 +1012,7 @@ mod tests {
         }));
         heap.old.push(Some(HeapObject {
             class_name: "B".to_string(),
-            fields: vec![Slot::Reference(Some(0u64 | OLD_BIT))],
+            fields: vec![Slot::Reference(Some(OLD_BIT))],
             string_value: None,
             marked: false,
             age: 0,
@@ -1052,7 +1052,7 @@ mod tests {
             age: 0,
             forward: None,
         }));
-        let keep_ref = 0u64 | OLD_BIT;
+        let keep_ref = OLD_BIT;
         heap.major_collect(&[Slot::Reference(Some(keep_ref))]);
         // old_free_list has raw index 1 (no OLD_BIT).
         assert!(heap.old_free_list.contains(&1u64));

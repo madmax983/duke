@@ -229,7 +229,7 @@ impl Default for ClassRegistry {
 /// Arguments:
 /// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
 /// - `&mut Heap`: the object heap for reading/writing objects
-/// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
+/// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
 pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
 
 /// A native handler that can call back into the interpreter to invoke Java methods.
@@ -1779,7 +1779,7 @@ fn native_object_clone(
 /// addSuppressed only affects what getSuppressed() returns, which is not
 /// yet implemented. Suppressed exception is silently dropped.
 ///
-/// Signature: args[0] = this (Throwable), args[1] = suppressed (Throwable)
+/// Signature: `args[0]` = this (Throwable), `args[1]` = suppressed (Throwable)
 fn native_throwable_add_suppressed(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -2084,6 +2084,7 @@ fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
             };
         }
         "java/lang/Character" => {
+            #[allow(clippy::collapsible_if)]
             if let Some(Slot::Int(v)) = obj.fields.first() {
                 if let Some(c) = char::from_u32(*v as u32) {
                     return c.to_string();
@@ -4911,7 +4912,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    _triggered_by: &str,
+    triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -4934,6 +4935,9 @@ fn ensure_initialized(
         // Run <clinit> by calling it through execute_class.
         #[cfg(feature = "telemetry")]
         let _clinit_start = std::time::Instant::now();
+        #[cfg(not(feature = "telemetry"))]
+        let _ = triggered_by;
+
         execute_class(
             registry,
             loader,
@@ -7935,7 +7939,7 @@ struct CallFrame {
     class_name: String,
 }
 
-/// Build a [`ClassContext`] from a parsed [`ClassFile`].
+/// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
@@ -8513,6 +8517,7 @@ fn init_object_fields(
             for field in ctx.fields.iter().filter(|f| !f.is_static) {
                 let default = default_slot_for_descriptor(&field.descriptor);
                 // Only write non-Int-zero defaults (avoids an unnecessary mut borrow).
+                #[allow(clippy::collapsible_if)]
                 if !matches!(default, Slot::Int(0)) {
                     if let Ok(obj) = heap.get_mut(obj_ref) {
                         if slot_idx < obj.fields.len() {
@@ -9448,7 +9453,7 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     }
 }
 
-/// Native: `HashMap.<init>()V` — initialises size counter at fields[0] to 0.
+/// Native: `HashMap.<init>()V` — initialises size counter at `fields[0]` to 0.
 fn native_hashmap_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9546,7 +9551,7 @@ fn native_hashmap_contains_key(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `HashMap.size()I` — returns entry count from fields[0].
+/// Native: `HashMap.size()I` — returns entry count from `fields[0]`.
 fn native_hashmap_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9640,7 +9645,7 @@ fn native_hashmap_get_or_default(
 // HashSet natives
 // ---------------------------------------------------------------------------
 
-/// Native: `HashSet.<init>()V` — initialises size counter at fields[0] to 0.
+/// Native: `HashSet.<init>()V` — initialises size counter at `fields[0]` to 0.
 fn native_hashset_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9737,7 +9742,7 @@ fn native_hashset_remove(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `HashSet.size()I` — returns element count from fields[0].
+/// Native: `HashSet.size()I` — returns element count from `fields[0]`.
 fn native_hashset_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9836,6 +9841,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_callback_can_be_looked_up() {
+        #[allow(clippy::type_complexity)]
         fn dummy_cb(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -14430,7 +14436,7 @@ mod tests {
         assert_eq!(result, Some(Slot::Int(99)));
         let events = &registry.telemetry.exception_flow.events;
         // Two throw events: inner throw + rethrow
-        assert!(events.len() >= 1);
+        assert!(!events.is_empty());
         assert!(events.iter().all(|e| e.catch_site.is_some()));
     }
 
