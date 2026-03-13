@@ -38,7 +38,7 @@ mod tests {
         p
     }
 
-    fn get_method_code<'a>(class_bytes: &'a [u8], method_name: &str) -> (Vec<u8>, u16, u16) {
+    fn get_method_code(class_bytes: &[u8], method_name: &str) -> (Vec<u8>, u16, u16) {
         let cf = parse(class_bytes).expect("parse failed");
         let method = cf
             .methods

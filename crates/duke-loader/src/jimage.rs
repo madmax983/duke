@@ -171,7 +171,7 @@ impl JImageReader {
             msg: format!("resource '{path}' offset overflow"),
         })?;
 
-        if start.checked_add(raw_len).map_or(true, |end| end > self.data.len()) {
+        if start.checked_add(raw_len).is_none_or(|end| end > self.data.len()) {
             return Err(LoadError::JImageFormat {
                 msg: format!("resource '{path}' data out of bounds"),
             });

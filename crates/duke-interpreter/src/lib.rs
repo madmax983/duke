@@ -2084,10 +2084,10 @@ fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
             };
         }
         "java/lang/Character" => {
-            if let Some(Slot::Int(v)) = obj.fields.first() {
-                if let Some(c) = char::from_u32(*v as u32) {
-                    return c.to_string();
-                }
+            if let Some(Slot::Int(v)) = obj.fields.first()
+                && let Some(c) = char::from_u32(*v as u32)
+            {
+                return c.to_string();
             }
         }
         _ => {}
@@ -8513,12 +8513,11 @@ fn init_object_fields(
             for field in ctx.fields.iter().filter(|f| !f.is_static) {
                 let default = default_slot_for_descriptor(&field.descriptor);
                 // Only write non-Int-zero defaults (avoids an unnecessary mut borrow).
-                if !matches!(default, Slot::Int(0)) {
-                    if let Ok(obj) = heap.get_mut(obj_ref) {
-                        if slot_idx < obj.fields.len() {
-                            obj.fields[slot_idx] = default;
-                        }
-                    }
+                if !matches!(default, Slot::Int(0))
+                    && let Ok(obj) = heap.get_mut(obj_ref)
+                    && slot_idx < obj.fields.len()
+                {
+                    obj.fields[slot_idx] = default;
                 }
                 slot_idx += 1;
             }
@@ -9840,14 +9839,7 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
-            _invoke: &mut dyn FnMut(
-                &mut duke_gc::Heap,
-                &mut dyn std::io::Write,
-                &str,
-                &str,
-                &str,
-                Vec<Slot>,
-            ) -> VmResult<Option<Slot>>,
+            _invoke: &mut InvokeFn<'_>,
         ) -> VmResult<Option<Slot>> {
             Ok(None)
         }
