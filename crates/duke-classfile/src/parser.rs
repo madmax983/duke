@@ -25,17 +25,17 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    const fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
     /// Current read position.
-    fn position(&self) -> usize {
+    const fn position(&self) -> usize {
         self.pos
     }
 
     #[allow(dead_code)]
-    fn remaining(&self) -> usize {
+    const fn remaining(&self) -> usize {
         self.data.len() - self.pos
     }
 
@@ -49,33 +49,36 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u16(&mut self) -> ParseResult<u16> {
-        let hi = self.read_u8()? as u16;
-        let lo = self.read_u8()? as u16;
+        let hi = u16::from(self.read_u8()?);
+        let lo = u16::from(self.read_u8()?);
         Ok((hi << 8) | lo)
     }
 
     #[allow(dead_code)]
     fn read_i16(&mut self) -> ParseResult<i16> {
+        #[allow(clippy::cast_possible_wrap)]
         Ok(self.read_u16()? as i16)
     }
 
     fn read_u32(&mut self) -> ParseResult<u32> {
-        let hi = self.read_u16()? as u32;
-        let lo = self.read_u16()? as u32;
+        let hi = u32::from(self.read_u16()?);
+        let lo = u32::from(self.read_u16()?);
         Ok((hi << 16) | lo)
     }
 
     fn read_i32(&mut self) -> ParseResult<i32> {
+        #[allow(clippy::cast_possible_wrap)]
         Ok(self.read_u32()? as i32)
     }
 
     fn read_u64(&mut self) -> ParseResult<u64> {
-        let hi = self.read_u32()? as u64;
-        let lo = self.read_u32()? as u64;
+        let hi = u64::from(self.read_u32()?);
+        let lo = u64::from(self.read_u32()?);
         Ok((hi << 32) | lo)
     }
 
     fn read_i64(&mut self) -> ParseResult<i64> {
+        #[allow(clippy::cast_possible_wrap)]
         Ok(self.read_u64()? as i64)
     }
 
@@ -294,7 +297,7 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
             other => {
                 return Err(ParseError::UnknownCpTag {
                     tag: other,
-                    index: i as u16,
+                    index: u16::try_from(i).unwrap_or(0),
                 });
             }
         };
@@ -515,13 +518,9 @@ pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&st
         return Err(ParseError::CpIndexZero);
     }
     match pool.get(i) {
-        None => Err(ParseError::CpIndexOutOfBounds {
-            index: idx.0,
-            pool_size: pool.len(),
-        }),
-        Some(None) => Err(ParseError::CpPhantomSlot { index: idx.0 }),
         Some(Some(CpEntry::Utf8(s))) => Ok(s.as_str()),
-        Some(Some(_)) => Err(ParseError::CpIndexOutOfBounds {
+        Some(None) => Err(ParseError::CpPhantomSlot { index: idx.0 }),
+        None | Some(Some(_)) => Err(ParseError::CpIndexOutOfBounds {
             index: idx.0,
             pool_size: pool.len(),
         }),
