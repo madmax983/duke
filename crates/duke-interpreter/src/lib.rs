@@ -695,14 +695,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
-    registry
-        .natives_mut()
-        .register(
-            "java/lang/Throwable",
-            "addSuppressed",
-            "(Ljava/lang/Throwable;)V",
-            native_throwable_add_suppressed,
-        );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "addSuppressed",
+        "(Ljava/lang/Throwable;)V",
+        native_throwable_add_suppressed,
+    );
 
     // java/lang/Exception extends Throwable
     let exception_ctx = ClassContext {
@@ -1687,8 +1685,11 @@ fn native_string_equals(
         Some(Slot::Reference(None)) => return Ok(Some(Slot::Int(0))),
         _ => return Ok(Some(Slot::Int(0))),
     };
-    let this_str = heap.get(this_ref)?.string_value.clone();
-    let other_str = heap.get(other_ref)?.string_value.clone();
+    // Fetch objects from heap in one go to keep borrows short
+    let this_obj = heap.get(this_ref)?;
+    let other_obj = heap.get(other_ref)?;
+    let this_str = this_obj.string_value.as_deref().unwrap_or_default();
+    let other_str = other_obj.string_value.as_deref().unwrap_or_default();
     Ok(Some(Slot::Int(if this_str == other_str { 1 } else { 0 })))
 }
 
@@ -2257,7 +2258,7 @@ fn native_string_substring(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+
     let begin = match args.get(1) {
         Some(Slot::Int(v)) => *v as usize,
         _ => {
@@ -2267,13 +2268,18 @@ fn native_string_substring(
             });
         }
     };
-    if begin > s.len() {
-        return Err(VmError::ArrayIndexOutOfBounds {
-            index: begin as i32,
-            length: s.len(),
-        });
-    }
-    let sub: String = s.chars().skip(begin).collect();
+    let sub = {
+        let obj = heap.get(this_ref)?;
+        let s = obj.string_value.as_deref().unwrap_or_default();
+        if begin > s.len() {
+            return Err(VmError::ArrayIndexOutOfBounds {
+                index: begin as i32,
+                length: s.len(),
+            });
+        }
+        s.chars().skip(begin).collect::<String>()
+    };
+
     let r = heap.allocate_string(sub);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -2289,7 +2295,7 @@ fn native_string_substring_range(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+
     let begin = match args.get(1) {
         Some(Slot::Int(v)) => *v as usize,
         _ => {
@@ -2308,13 +2314,18 @@ fn native_string_substring_range(
             });
         }
     };
-    if begin > end || end > s.len() {
-        return Err(VmError::ArrayIndexOutOfBounds {
-            index: end as i32,
-            length: s.len(),
-        });
-    }
-    let sub: String = s.chars().skip(begin).take(end - begin).collect();
+    let sub = {
+        let obj = heap.get(this_ref)?;
+        let s = obj.string_value.as_deref().unwrap_or_default();
+        if begin > end || end > s.len() {
+            return Err(VmError::ArrayIndexOutOfBounds {
+                index: end as i32,
+                length: s.len(),
+            });
+        }
+        s.chars().skip(begin).take(end - begin).collect::<String>()
+    };
+
     let r = heap.allocate_string(sub);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -2329,7 +2340,7 @@ fn native_string_indexof(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
@@ -2340,13 +2351,14 @@ fn native_string_indexof(
             });
         }
     };
-    let target = heap
-        .get(target_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    // Fetch objects from heap in one go to keep borrows short
+    let this_obj = heap.get(this_ref)?;
+    let target_obj = heap.get(target_ref)?;
+    let s = this_obj.string_value.as_deref().unwrap_or_default();
+    let target = target_obj.string_value.as_deref().unwrap_or_default();
+
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    let result = s.find(&target).map_or(-1, |i| i as i32);
+    let result = s.find(target).map_or(-1, |i| i as i32);
     Ok(Some(Slot::Int(result)))
 }
 
@@ -2360,7 +2372,7 @@ fn native_string_contains(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
@@ -2371,12 +2383,12 @@ fn native_string_contains(
             });
         }
     };
-    let target = heap
-        .get(target_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
-    Ok(Some(Slot::Int(if s.contains(&target) { 1 } else { 0 })))
+    // Fetch objects from heap in one go to keep borrows short
+    let this_obj = heap.get(this_ref)?;
+    let target_obj = heap.get(target_ref)?;
+    let s = this_obj.string_value.as_deref().unwrap_or_default();
+    let target = target_obj.string_value.as_deref().unwrap_or_default();
+    Ok(Some(Slot::Int(if s.contains(target) { 1 } else { 0 })))
 }
 
 /// Native: `String.isEmpty()` — check if string is empty.
@@ -2390,7 +2402,8 @@ fn native_string_isempty(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let obj = heap.get(this_ref)?;
+    let s = obj.string_value.as_deref().unwrap_or_default();
     Ok(Some(Slot::Int(if s.is_empty() { 1 } else { 0 })))
 }
 
@@ -4947,7 +4960,7 @@ fn ensure_initialized(
         #[cfg(feature = "telemetry")]
         registry.telemetry.class_init_dag.record(
             class_name,
-            triggered_by,
+            _triggered_by,
             _clinit_start.elapsed().as_nanos() as u64,
         );
     }
@@ -14417,6 +14430,7 @@ mod tests {
 
     #[cfg(feature = "telemetry")]
     #[test]
+    #[allow(clippy::len_zero)]
     fn telemetry_exception_flow_rethrow_caught() {
         let (result, registry) = run_fixture("ExceptionTest.class", "rethrow", "()I");
         assert_eq!(result, Some(Slot::Int(99)));
