@@ -123,7 +123,7 @@ impl Heap {
 
     // ── Allocation ───────────────────────────────────────────────────────────
 
-    fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
+    const fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
         HeapObject {
             class_name,
             fields,
@@ -169,7 +169,7 @@ impl Heap {
         obj.age = 0; // reset age in old gen (not used there)
         obj.forward = None;
         if let Some(raw_idx) = self.old_free_list.pop() {
-            self.old[raw_idx as usize] = Some(obj);
+            self.old[usize::try_from(raw_idx).unwrap()] = Some(obj);
             raw_idx | OLD_BIT
         } else {
             let raw_idx = self.old.len() as u64;
@@ -192,7 +192,7 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).unwrap();
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -212,7 +212,7 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).unwrap();
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -224,12 +224,12 @@ impl Heap {
 
     /// Returns the total number of live objects across both generations.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.live_count
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.live_count == 0
     }
 
@@ -243,7 +243,7 @@ impl Heap {
 
     /// Returns `true` when the young gen is full (minor GC should fire).
     #[must_use]
-    pub fn should_minor_gc(&self) -> bool {
+    pub const fn should_minor_gc(&self) -> bool {
         self.young_top >= self.young_capacity
     }
 
@@ -306,7 +306,7 @@ impl Heap {
             if let Some(r) = slot.as_reference()
                 && r & OLD_BIT == 0
             {
-                worklist.push(r as usize);
+                worklist.push(usize::try_from(r).unwrap());
             }
         }
 
@@ -319,7 +319,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).unwrap())
                     .collect();
                 worklist.extend(young_refs);
             }
@@ -358,7 +358,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).unwrap())
                     .collect();
                 worklist.extend(children);
             }
@@ -370,7 +370,7 @@ impl Heap {
         let rs2: Vec<usize> = self.remembered_set.iter().copied().collect();
         for old_idx in rs2 {
             if let Some(Some(obj)) = self.old.get_mut(old_idx) {
-                for slot in obj.fields.iter_mut() {
+                for slot in &mut obj.fields {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
