@@ -4945,7 +4945,7 @@ fn ensure_initialized(
         #[cfg(feature = "telemetry")]
         registry.telemetry.class_init_dag.record(
             class_name,
-            _triggered_by,
+            triggered_by,
             _clinit_start.elapsed().as_nanos() as u64,
         );
     }
