@@ -380,7 +380,7 @@ mod tests {
 
         assert_eq!(cf.attributes.len(), 4);
 
-        let mut found_lnt = false;
+        let mut lnt_found = false;
         let mut found_lvt = false;
         let mut found_exc = false;
         let mut found_bm = false;
@@ -388,7 +388,7 @@ mod tests {
         for attr in &cf.attributes {
             match &attr.data {
                 crate::types::AttributeData::LineNumberTable(entries) => {
-                    found_lnt = true;
+                    lnt_found = true;
                     assert_eq!(entries.len(), 1);
                     assert_eq!(entries[0].start_pc, 0);
                     assert_eq!(entries[0].line_number, 10);
@@ -416,7 +416,7 @@ mod tests {
             }
         }
 
-        assert!(found_lnt);
+        assert!(lnt_found);
         assert!(found_lvt);
         assert!(found_exc);
         assert!(found_bm);
