@@ -13,36 +13,14 @@ pub struct BootstrapLoader {
 }
 
 impl BootstrapLoader {
-    /// Forges a new `BootstrapLoader` capable of loading both system and user classes.
+    /// Create a new bootstrap loader.
     ///
-    /// The JVM needs to know where its core libraries live (like `java.lang.Object`), as well
-    /// as any application-specific logic provided by the user. This constructor wires together
-    /// the specialized `lib/modules` reader and the standard filesystem loaders.
-    ///
-    /// # Parameters
-    ///
-    /// * `modules_path` - The absolute path to the `lib/modules` file from a standard OpenJDK
-    ///   installation. This is where the core Java classes reside.
-    /// * `classpath_dirs` - A sequence of directories where the loader should look for `.class` files
-    ///   when a class cannot be found in the JDK image.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use std::path::Path;
-    /// use duke_loader::BootstrapLoader;
-    ///
-    /// let jdk_path = Path::new("/usr/lib/jvm/java-21-openjdk/lib/modules");
-    /// let user_paths = vec!["./target/classes", "./bin"];
-    ///
-    /// // If the JDK file doesn't exist or is corrupted, this will fail.
-    /// let loader = BootstrapLoader::new(jdk_path, user_paths).unwrap();
-    /// ```
+    /// - `modules_path`: path to the JDK `lib/modules` jimage file.
+    /// - `classpath_dirs`: directories to search for application classes.
     ///
     /// # Errors
     ///
-    /// Returns a [`LoadError::Io`] if the `jimage` file at `modules_path` cannot be
-    /// opened, or if it has an invalid structure.
+    /// Returns [`LoadError`] if the jimage file cannot be opened.
     pub fn new(modules_path: &Path, classpath_dirs: Vec<impl AsRef<Path>>) -> LoadResult<Self> {
         let jimage = JImageReader::open(modules_path)?;
         let classpath = classpath_dirs
