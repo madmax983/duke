@@ -3057,11 +3057,14 @@ fn native_string_split(
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
     for (i, part) in parts.iter().enumerate() {
         let str_ref = heap.allocate_string((*part).to_string());
-        if let Ok(arr) = heap.get_mut(arr_ref)
-            && i < arr.fields.len()
-        {
-            arr.fields[i] = Slot::Reference(Some(str_ref));
+        let arr = heap.get_mut(arr_ref)?;
+        if i >= arr.fields.len() {
+            return Err(VmError::ArrayIndexOutOfBounds {
+                index: i as i32,
+                length: arr.fields.len(),
+            });
         }
+        arr.fields[i] = Slot::Reference(Some(str_ref));
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
@@ -4913,7 +4916,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    #[allow(unused_variables)] triggered_by: &str,
+    _triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -4949,7 +4952,7 @@ fn ensure_initialized(
         #[cfg(feature = "telemetry")]
         registry.telemetry.class_init_dag.record(
             class_name,
-            triggered_by,
+            _triggered_by,
             _clinit_start.elapsed().as_nanos() as u64,
         );
     }
@@ -13661,7 +13664,10 @@ mod tests {
         let delim_ref = heap.allocate_string(",".to_string());
         let mut out = Vec::new();
         let result = native_string_split(
-            &[Slot::Reference(Some(str_ref)), Slot::Reference(Some(delim_ref))],
+            &[
+                Slot::Reference(Some(str_ref)),
+                Slot::Reference(Some(delim_ref)),
+            ],
             &mut heap,
             &mut out,
         );
