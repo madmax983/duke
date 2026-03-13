@@ -167,17 +167,11 @@ impl JImageReader {
             usize::try_from(info.uncompressed).unwrap_or(usize::MAX)
         };
         let offset = usize::try_from(info.offset).unwrap_or(usize::MAX);
-        let start =
-            self.data_offset
-                .checked_add(offset)
-                .ok_or_else(|| LoadError::JImageFormat {
-                    msg: format!("resource '{path}' offset overflow"),
-                })?;
+        let start = self.data_offset.checked_add(offset).ok_or_else(|| LoadError::JImageFormat {
+            msg: format!("resource '{path}' offset overflow"),
+        })?;
 
-        if start
-            .checked_add(raw_len)
-            .is_none_or(|end| end > self.data.len())
-        {
+        if start.checked_add(raw_len).is_none_or(|end| end > self.data.len()) {
             return Err(LoadError::JImageFormat {
                 msg: format!("resource '{path}' data out of bounds"),
             });
@@ -389,9 +383,7 @@ fn read_str(data: &[u8], str_offset: usize, idx: u64) -> &str {
     let Ok(idx_usize) = usize::try_from(idx) else {
         return "";
     };
-    let Some(start) = str_offset.checked_add(idx_usize) else {
-        return "";
-    };
+    let start = str_offset + idx_usize;
     if start >= data.len() {
         return "";
     }
@@ -414,8 +406,8 @@ fn read_u32_le(data: &[u8], offset: usize) -> u32 {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use proptest::prelude::*;
     use std::collections::HashMap;
+    use proptest::prelude::*;
 
     proptest! {
         #[test]

@@ -118,8 +118,7 @@ fn bench_bootstrap_only(c: &mut Criterion) {
         b.iter(|| {
             let mut registry = ClassRegistry::new();
             let mut heap = duke_gc::Heap::new();
-            bootstrap_stdlib(&mut registry, &mut heap);
-            black_box(());
+            bootstrap_stdlib(&mut registry, &mut heap); black_box(());
         });
     });
 }
