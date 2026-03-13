@@ -396,11 +396,312 @@ fn read_str(data: &[u8], str_offset: usize, idx: u64) -> &str {
 
 /// Read up to 8 bytes as a big-endian u64.
 fn read_be_u64(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0u64, |acc, &b| (acc << 8) | u64::from(b))
+    let mut buf = [0u8; 8];
+    let n = bytes.len().min(8);
+    buf[8 - n..].copy_from_slice(&bytes[..n]);
+    u64::from_be_bytes(buf)
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes(data[offset..offset + 4].try_into().expect("4 bytes"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    /// Encode a single jimage location attribute: header byte + big-endian value.
+    fn attr(kind: u8, val: u64) -> Vec<u8> {
+        // Minimum bytes needed to represent val
+        let bytes_needed = if val == 0 { 1 } else { (64 - val.leading_zeros() as usize + 7) / 8 }.max(1).min(8);
+        let data = &val.to_be_bytes()[8 - bytes_needed..];
+        let mut v = vec![(kind << 3) | (bytes_needed as u8 - 1)];
+        v.extend_from_slice(data);
+        v
+    }
+
+    fn attr_end() -> u8 { 0x00 }
+
+    // -----------------------------------------------------------------------
+    // parse_header (lines 239: < → == and < → <=)
+    // Kills: rejecting data with exactly HEADER_SIZE bytes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_header_exactly_28_bytes_ok() {
+        // Exactly HEADER_SIZE=28 bytes with valid magic + version.
+        // `< → ==` mutant rejects data.len() == 28; `< → <=` does the same.
+        let mut data = vec![0u8; 28];
+        data[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        data[4..8].copy_from_slice(&JIMAGE_VERSION.to_le_bytes());
+        assert!(parse_header(&data).is_ok(), "exactly 28 bytes should pass size check");
+    }
+
+    // -----------------------------------------------------------------------
+    // build_index basic — general loop correctness
+    // -----------------------------------------------------------------------
+
+    /// Construct a test data array: string table followed by location entries.
+    /// Returns (data, locs_offset, locs_size, str_offset).
+    fn make_build_index_data(locs: &[u8]) -> (Vec<u8>, usize, usize, usize) {
+        // String table: "\0mod\0Foo\0"
+        //   idx=0: '' (empty)
+        //   idx=1: "mod"
+        //   idx=5: "Foo"
+        let strings: &[u8] = b"\x00mod\x00Foo\x00";
+        let str_offset = 0usize;
+        let locs_offset = strings.len();
+        let mut data = strings.to_vec();
+        data.extend_from_slice(locs);
+        (data, locs_offset, locs.len(), str_offset)
+    }
+
+    #[test]
+    fn build_index_basic_entry() {
+        // MODULE=1("mod"), BASE=5("Foo"), UNCOMPRESSED=42, OFFSET=7, END
+        let mut locs: Vec<u8> = Vec::new();
+        locs.extend(attr(ATTR_MODULE, 1));
+        locs.extend(attr(ATTR_BASE, 5));
+        locs.extend(attr(ATTR_UNCOMPRESSED, 42));
+        locs.extend(attr(ATTR_OFFSET, 7));
+        locs.push(attr_end());
+
+        let (data, locs_offset, locs_size, str_offset) = make_build_index_data(&locs);
+        let index = build_index(&data, locs_offset, locs_size, str_offset);
+
+        assert_eq!(index.len(), 1);
+        let info = index.get("/mod/Foo").expect("expected /mod/Foo in index");
+        assert_eq!(info.uncompressed, 42);
+        assert_eq!(info.offset, 7);
+        assert_eq!(info.compressed, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // build_index: ATTR_COMPRESSED stored (line 317: delete match arm)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_index_stores_compressed_field() {
+        // ATTR_COMPRESSED=5 should be stored; deleting the match arm leaves it as 0.
+        let mut locs: Vec<u8> = Vec::new();
+        locs.extend(attr(ATTR_MODULE, 1));
+        locs.extend(attr(ATTR_BASE, 5));
+        locs.extend(attr(ATTR_UNCOMPRESSED, 10));
+        locs.extend(attr(ATTR_COMPRESSED, 5));
+        locs.push(attr_end());
+
+        let (data, locs_offset, locs_size, str_offset) = make_build_index_data(&locs);
+        let index = build_index(&data, locs_offset, locs_size, str_offset);
+
+        let info = index.get("/mod/Foo").expect("expected /mod/Foo in index");
+        assert_eq!(info.compressed, 5, "compressed attribute must be stored");
+    }
+
+    // -----------------------------------------------------------------------
+    // build_index: skip when uncompressed==0 (line 324: || → &&)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_index_skips_zero_uncompressed() {
+        // base != 0 but uncompressed == 0 → entry skipped.
+        // Mutant `&&` would NOT skip (only skips when BOTH zero).
+        let mut locs: Vec<u8> = Vec::new();
+        locs.extend(attr(ATTR_MODULE, 1));
+        locs.extend(attr(ATTR_BASE, 5));
+        locs.extend(attr(ATTR_UNCOMPRESSED, 0));
+        locs.push(attr_end());
+
+        let (data, locs_offset, locs_size, str_offset) = make_build_index_data(&locs);
+        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        assert!(index.is_empty(), "entry with uncompressed=0 should be skipped");
+    }
+
+    // -----------------------------------------------------------------------
+    // build_index: bounds check at line 304 (> → ==, > → >=, + → -, + → *)
+    // Two scenarios: exact fit (kills >=) and truncated (kills -, *, ==)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_index_exact_fit_attr_is_read() {
+        // The UNCOMPRESSED attribute's last byte is exactly at data.len().
+        // With `> → >=` mutant: pos+len >= data.len() → breaks → value not read → entry skipped.
+        // With `> → ==` mutant: same.
+        //
+        // Layout: strings at [0..9], locs at [9..15] (no END byte — outer loop hits locs_end).
+        //   str_offset=0, locs_offset=9, locs_size=6
+        //   strings = b"\0mod\0Foo\0"  (9 bytes)
+        //   locs    = [MODULE(idx=1), BASE(idx=5), UNCOMPRESSED(1)]  (no END)
+        //   data.len() = 15
+
+        let strings: &[u8] = b"\x00mod\x00Foo\x00"; // 9 bytes
+        let mut locs: Vec<u8> = Vec::new();
+        locs.extend(attr(ATTR_MODULE, 1));   // 2 bytes
+        locs.extend(attr(ATTR_BASE, 5));     // 2 bytes
+        locs.extend(attr(ATTR_UNCOMPRESSED, 1)); // 2 bytes  → locs = 6 bytes
+
+        let mut data = strings.to_vec();
+        data.extend_from_slice(&locs);
+        // data.len() = 9 + 6 = 15; pos+len for last attr = (9+4+1) + 1 = 15 == data.len()
+        let (locs_offset, locs_size, str_offset) = (9, 6, 0);
+
+        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        let info = index.get("/mod/Foo").expect("exact-fit attribute must be read into index");
+        assert_eq!(info.uncompressed, 1);
+    }
+
+    #[test]
+    fn build_index_truncated_attr_skips_safely() {
+        // Attribute header claims len=4, but only 0 data bytes follow → pos+len > data.len().
+        // Original: breaks safely, entry not added.
+        // `+ → -` mutant: 3-4 wraps → huge number > data.len() → ALSO breaks (safe, same).
+        // BUT: for 1-byte attrs with data at the very last byte, `+ → -` would try to read.
+        // Use len=4, short data → triggers OOB path.
+        //
+        // locs = [MODULE(1), BASE(5,truncated header only — claims len=4 with no data)]
+        //   After MODULE (2 bytes), pos is at locs_offset+2.
+        //   Next: header 0x1B = (ATTR_BASE<<3)|(4-1) = 0x18|3 = 0x1B → kind=3, len=4.
+        //   pos after hdr = locs_offset+3. pos+len = locs_offset+7 > data.len() → break.
+
+        let strings: &[u8] = b"\x00mod\x00Foo\x00"; // 9 bytes
+        let locs: Vec<u8> = vec![
+            0x08, 0x01,  // ATTR_MODULE (kind=1, len=1) = 1
+            0x1B,        // ATTR_BASE (kind=3, len=4) header only — no data bytes follow
+        ];
+        let mut data = strings.to_vec();
+        data.extend_from_slice(&locs);
+        // data.len() = 12; after BASE hdr at pos=locs_offset+2=11, pos=12, pos+len=16 > 12 → break
+        let (locs_offset, locs_size, str_offset) = (9, locs.len(), 0);
+
+        // Must not panic, and entry must not be indexed (BASE never set → path empty)
+        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        assert!(index.is_empty(), "truncated attribute stream should produce empty index");
+    }
+
+    #[test]
+    fn build_index_truncated_attr_len2_pos1_skips_safely() {
+        // Specifically kills the `+ → *` mutant at line 304.
+        // pos=1, len=2 → pos+len=3 > data.len()=2 (breaks).
+        // `+ → *` mutant: pos*len=1*2=2 ≤ data.len()=2 → does NOT break → reads data[1..3] → panic.
+        //
+        // data = [header_byte, one_extra_byte]
+        //   header_byte = 0x09 = (ATTR_MODULE<<3)|(2-1) = 0x08|0x01 → kind=1, len=2
+        // locs_offset=0, locs_size=2, str_offset=2, data.len()=2
+        let data = vec![0x09u8, 0x42];
+        let index = build_index(&data, 0, 2, 2);
+        assert!(index.is_empty(), "truncated len=2 at pos=1 must not panic and should be empty");
+    }
+
+    // -----------------------------------------------------------------------
+    // JImageReader::open — data.len() check (line 117: < → ==, < → <=)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn open_minimal_jimage_exact_data_offset_ok() {
+        // Build a minimal jimage: table_length=0, locations_size=0, strings_size=0.
+        // data_offset = HEADER_SIZE + 0 + 0 + 0 = 28, so a 28-byte file is the minimum.
+        // `< → ==` mutant rejects data.len() == data_offset (28 == 28).
+        // `< → <=` mutant rejects data.len() <= data_offset.
+        let mut buf = vec![0u8; 28];
+        buf[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        buf[4..8].copy_from_slice(&JIMAGE_VERSION.to_le_bytes());
+        // flags=0, resource_count=0, table_length=0, locations_size=0, strings_size=0 (all zero)
+
+        let tmp = std::env::temp_dir().join("duke_test_minimal.jimage");
+        std::fs::write(&tmp, &buf).expect("write temp jimage");
+        let result = JImageReader::open(&tmp);
+        let _ = std::fs::remove_file(&tmp);
+
+        assert!(result.is_ok(), "minimal 28-byte jimage should open");
+    }
+
+    // -----------------------------------------------------------------------
+    // resource_count (line 140: replace return with 1)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn resource_count_reflects_header_value() {
+        // Build a jimage with resource_count=7; verify resource_count() returns 7, not 1.
+        let mut buf = vec![0u8; 28];
+        buf[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        buf[4..8].copy_from_slice(&JIMAGE_VERSION.to_le_bytes());
+        buf[12..16].copy_from_slice(&7u32.to_le_bytes()); // resource_count = 7
+
+        let tmp = std::env::temp_dir().join("duke_test_rc7.jimage");
+        std::fs::write(&tmp, &buf).expect("write temp jimage");
+        let reader = JImageReader::open(&tmp).expect("open");
+        let _ = std::fs::remove_file(&tmp);
+
+        assert_eq!(reader.resource_count(), 7, "resource_count() must return header value");
+    }
+
+    // -----------------------------------------------------------------------
+    // build_jimage_path (line 358: || → &&)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_jimage_path_empty_module_returns_empty() {
+        // module="" → return "". Mutant `&&` only returns "" if BOTH empty.
+        assert!(build_jimage_path("", "parent", "base", "ext").is_empty());
+    }
+
+    #[test]
+    fn build_jimage_path_empty_base_returns_empty() {
+        // base="" → return "". Mutant `&&` only returns "" if BOTH empty.
+        assert!(build_jimage_path("module", "parent", "", "ext").is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // read_resource (lines 164, 174, 182)
+    // -----------------------------------------------------------------------
+
+    fn make_reader(data: Vec<u8>, compressed: u64, uncompressed: u64) -> JImageReader {
+        let mut index = HashMap::new();
+        index.insert("r".to_string(), ResourceInfo { offset: 0, compressed, uncompressed });
+        JImageReader { data, resource_count: 1, data_offset: 0, index }
+    }
+
+    #[test]
+    fn read_resource_uses_compressed_len_for_bounds_check() {
+        // compressed=3, uncompressed=1000. data.len()=6 is enough for compressed but not uncompressed.
+        // Original: raw_len=3 → bounds pass → decompresses [0xFF,0xFF,0xFF] → Decompress error.
+        // Mutant (compressed > 0 → < 0, always false): raw_len=1000 → bounds fail → JImageFormat.
+        let reader = make_reader(vec![0xFF, 0xFF, 0xFF, 0, 0, 0], 3, 1000);
+        let result = reader.read_resource("r");
+        assert!(
+            !matches!(result, Err(LoadError::JImageFormat { .. })),
+            "should use compressed length (3), not uncompressed (1000)"
+        );
+    }
+
+    #[test]
+    fn read_resource_decompresses_when_compressed_nonzero() {
+        // compressed=2, data=[0xFF, 0xFF] — BTYPE=11 reserved → invalid deflate → Decompress error.
+        // Original: decompresses → Err(Decompress).
+        // Mutant (compressed > 0 → < 0): skips decompression → Ok([0xFF, 0xFF]).
+        let reader = make_reader(vec![0xFF, 0xFF, 0, 0, 0], 2, 5);
+        let result = reader.read_resource("r");
+        assert!(
+            matches!(result, Err(LoadError::Decompress { .. })),
+            "compressed > 0 must trigger decompression: {result:?}"
+        );
+    }
+
+    #[test]
+    fn read_resource_exact_boundary_succeeds() {
+        // uncompressed=5, data.len()=5 → end==data.len(), original passes.
+        // Mutant `> → >=`: end >= data.len() → JImageFormat error.
+        let reader = make_reader(vec![1, 2, 3, 4, 5], 0, 5);
+        let result = reader.read_resource("r");
+        assert!(
+            matches!(result, Ok(ref v) if v == &[1, 2, 3, 4, 5]),
+            "resource ending exactly at data boundary must succeed"
+        );
+    }
 }
 
 #[cfg(test)]
