@@ -695,6 +695,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
+    registry
+        .natives_mut()
+        .register(
+            "java/lang/Throwable",
+            "addSuppressed",
+            "(Ljava/lang/Throwable;)V",
+            native_throwable_add_suppressed,
+        );
 
     // java/lang/Exception extends Throwable
     let exception_ctx = ClassContext {
@@ -723,6 +731,23 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(rte_ctx);
+
+    // java/lang/AutoCloseable — marker interface for try-with-resources.
+    // Registered so is_assignable_from correctly handles queries like
+    // "does TryWithResources$Res implement AutoCloseable?" without
+    // erroring on an unknown class.
+    let autocloseable_ctx = ClassContext {
+        class_name: "java/lang/AutoCloseable".to_string(),
+        super_class: None, // interface — no super class
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(autocloseable_ctx);
 
     // java/lang/Enum — abstract superclass for all enums.
     // Fields: name (String) at index 0, ordinal (int) at index 1.
@@ -1746,6 +1771,21 @@ fn native_object_clone(
     dest.fields = cloned_fields;
     dest.string_value = cloned_string;
     Ok(Some(Slot::Reference(Some(new_ref))))
+}
+
+/// `Throwable.addSuppressed(Throwable suppressed)V`
+///
+/// No-op stub. Control flow is handled entirely by the bytecode desugaring —
+/// addSuppressed only affects what getSuppressed() returns, which is not
+/// yet implemented. Suppressed exception is silently dropped.
+///
+/// Signature: args[0] = this (Throwable), args[1] = suppressed (Throwable)
+fn native_throwable_add_suppressed(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _stdout: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
 }
 
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
@@ -15417,5 +15457,39 @@ mod tests {
             &[Slot::Reference(Some(list))],
         );
         assert!(result.is_ok(), "empty list sort failed: {result:?}");
+    }
+
+    // --- Phase 27: try-with-resources ---
+
+    #[test]
+    fn try_with_resources_simple_value() {
+        assert_eq!(
+            run_bootstrap_int("TryWithResources.class", "simpleValue", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn try_with_resources_closed_on_success() {
+        assert_eq!(
+            run_bootstrap_int("TryWithResources.class", "closedOnSuccess", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn try_with_resources_closed_on_exception() {
+        assert_eq!(
+            run_bootstrap_int("TryWithResources.class", "closedOnException", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn try_with_resources_nested_closed() {
+        assert_eq!(
+            run_bootstrap_int("TryWithResources.class", "nestedClosed", "()I"),
+            2
+        );
     }
 }
