@@ -1777,7 +1777,7 @@ fn native_object_clone(
 /// addSuppressed only affects what getSuppressed() returns, which is not
 /// yet implemented. Suppressed exception is silently dropped.
 ///
-/// Signature: `args[0]` = this (Throwable), `args[1]` = suppressed (Throwable)
+/// Signature: args[0] = this (Throwable), args[1] = suppressed (Throwable)
 fn native_throwable_add_suppressed(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9452,7 +9452,7 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     }
 }
 
-/// Native: `HashMap.<init>()V` — initialises size counter at `fields[0]` to 0.
+/// Native: `HashMap.<init>()V` — initialises size counter at fields[0] to 0.
 fn native_hashmap_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9550,7 +9550,7 @@ fn native_hashmap_contains_key(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `HashMap.size()I` — returns entry count from `fields[0]`.
+/// Native: `HashMap.size()I` — returns entry count from fields[0].
 fn native_hashmap_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9644,7 +9644,7 @@ fn native_hashmap_get_or_default(
 // HashSet natives
 // ---------------------------------------------------------------------------
 
-/// Native: `HashSet.<init>()V` — initialises size counter at `fields[0]` to 0.
+/// Native: `HashSet.<init>()V` — initialises size counter at fields[0] to 0.
 fn native_hashset_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9741,7 +9741,7 @@ fn native_hashset_remove(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `HashSet.size()I` — returns element count from `fields[0]`.
+/// Native: `HashSet.size()I` — returns element count from fields[0].
 fn native_hashset_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
