@@ -282,7 +282,9 @@ fn build_index(
 ) -> HashMap<String, ResourceInfo> {
     let mut index = HashMap::new();
     let mut pos = locs_offset;
-    let locs_end = locs_offset.checked_add(locs_size).unwrap_or(usize::MAX).min(data.len());
+    let locs_end = locs_offset
+        .saturating_add(locs_size)
+        .min(data.len());
 
     while pos < locs_end {
         // Decode all attributes for this location entry
