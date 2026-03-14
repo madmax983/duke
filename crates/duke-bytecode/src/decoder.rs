@@ -41,11 +41,11 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    const fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
-    fn has_remaining(&self) -> bool {
+    const fn has_remaining(&self) -> bool {
         self.pos < self.data.len()
     }
 
@@ -58,26 +58,29 @@ impl<'a> Cursor<'a> {
         Ok(b)
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     fn read_i8(&mut self) -> DecodeResult<i8> {
         Ok(self.read_u8()? as i8)
     }
 
     fn read_u16(&mut self) -> DecodeResult<u16> {
-        let hi = self.read_u8()? as u16;
-        let lo = self.read_u8()? as u16;
+        let hi = u16::from(self.read_u8()?);
+        let lo = u16::from(self.read_u8()?);
         Ok((hi << 8) | lo)
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     fn read_i16(&mut self) -> DecodeResult<i16> {
         Ok(self.read_u16()? as i16)
     }
 
     fn read_u32(&mut self) -> DecodeResult<u32> {
-        let hi = self.read_u16()? as u32;
-        let lo = self.read_u16()? as u32;
+        let hi = u32::from(self.read_u16()?);
+        let lo = u32::from(self.read_u16()?);
         Ok((hi << 16) | lo)
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     fn read_i32(&mut self) -> DecodeResult<i32> {
         Ok(self.read_u32()? as i32)
     }
@@ -87,7 +90,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Advance to the next 4-byte boundary (relative to the start of the Code array).
-    fn align4(&mut self) {
+    const fn align4(&mut self) {
         let rem = self.pos % 4;
         if rem != 0 {
             self.pos += 4 - rem;
@@ -304,13 +307,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
             // Use i64 to avoid i32 overflow when low is very negative.
-            let count_i64 = (high as i64) - (low as i64) + 1;
+            let count_i64 = i64::from(high) - i64::from(low) + 1;
             // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
             let max_possible = c.data.len().saturating_sub(c.pos) / 4;
-            if count_i64 < 0 || count_i64 as usize > max_possible {
+            if count_i64 < 0 || usize::try_from(count_i64).unwrap_or(usize::MAX) > max_possible {
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
-            let count = count_i64 as usize;
+            let count = usize::try_from(count_i64).unwrap_or(0);
             let mut offsets = Vec::with_capacity(count);
             for _ in 0..count {
                 offsets.push(c.read_i32()?);
@@ -332,10 +335,10 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
                 return Err(DecodeError::InvalidLookupswitch { pc, npairs });
             }
             let remaining_pairs = c.data.len().saturating_sub(c.pos) / 8;
-            if npairs as usize > remaining_pairs {
+            if usize::try_from(npairs).unwrap_or(usize::MAX) > remaining_pairs {
                 return Err(DecodeError::InvalidLookupswitch { pc, npairs });
             }
-            let mut pairs = Vec::with_capacity(npairs as usize);
+            let mut pairs = Vec::with_capacity(usize::try_from(npairs).unwrap_or(0));
             for _ in 0..npairs {
                 let match_val = c.read_i32()?;
                 let offset = c.read_i32()?;

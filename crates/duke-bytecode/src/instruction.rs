@@ -2,7 +2,7 @@
 //!
 //! Each [`Instruction`] variant carries exactly the operands decoded from
 //! the bytecode stream. The variant names match the JVM spec opcode names
-//! (PascalCase). Wide-prefixed forms carry a `u16` local index instead of `u8`.
+//! (`PascalCase`). Wide-prefixed forms carry a `u16` local index instead of `u8`.
 
 use duke_classfile::CpIndex;
 
@@ -20,7 +20,8 @@ pub enum ArrayType {
 }
 
 impl ArrayType {
-    pub fn from_u8(v: u8) -> Option<Self> {
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
             4 => Self::Boolean,
             5 => Self::Char,
@@ -39,7 +40,7 @@ impl ArrayType {
 ///
 /// Wide-prefixed variants (e.g., `IloadW`) are represented as distinct variants
 /// so callers can exhaustively match without needing to track a separate `wide` flag.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     // -----------------------------------------------------------------------
     // Constants
@@ -335,7 +336,9 @@ pub enum Instruction {
 
 impl Instruction {
     /// Returns the mnemonic string for display/debugging.
-    pub fn mnemonic(&self) -> &'static str {
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub const fn mnemonic(&self) -> &'static str {
         match self {
             Self::Nop => "nop",
             Self::AconstNull => "aconst_null",
