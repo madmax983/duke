@@ -25,17 +25,17 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    const fn new(data: &'a [u8]) -> Self {
+    fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
     /// Current read position.
-    const fn position(&self) -> usize {
+    fn position(&self) -> usize {
         self.pos
     }
 
     #[allow(dead_code)]
-    const fn remaining(&self) -> usize {
+    fn remaining(&self) -> usize {
         self.data.len() - self.pos
     }
 
@@ -49,34 +49,34 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u16(&mut self) -> ParseResult<u16> {
-        let hi = u16::from(self.read_u8()?);
-        let lo = u16::from(self.read_u8()?);
+        let hi = self.read_u8()? as u16;
+        let lo = self.read_u8()? as u16;
         Ok((hi << 8) | lo)
     }
 
     #[allow(dead_code)]
     fn read_i16(&mut self) -> ParseResult<i16> {
-        Ok(self.read_u16()?.cast_signed())
+        Ok(self.read_u16()? as i16)
     }
 
     fn read_u32(&mut self) -> ParseResult<u32> {
-        let hi = u32::from(self.read_u16()?);
-        let lo = u32::from(self.read_u16()?);
+        let hi = self.read_u16()? as u32;
+        let lo = self.read_u16()? as u32;
         Ok((hi << 16) | lo)
     }
 
     fn read_i32(&mut self) -> ParseResult<i32> {
-        Ok(self.read_u32()?.cast_signed())
+        Ok(self.read_u32()? as i32)
     }
 
     fn read_u64(&mut self) -> ParseResult<u64> {
-        let hi = u64::from(self.read_u32()?);
-        let lo = u64::from(self.read_u32()?);
+        let hi = self.read_u32()? as u64;
+        let lo = self.read_u32()? as u64;
         Ok((hi << 32) | lo)
     }
 
     fn read_i64(&mut self) -> ParseResult<i64> {
-        Ok(self.read_u64()?.cast_signed())
+        Ok(self.read_u64()? as i64)
     }
 
     fn read_f32(&mut self) -> ParseResult<f32> {
@@ -294,7 +294,7 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
             other => {
                 return Err(ParseError::UnknownCpTag {
                     tag: other,
-                    index: u16::try_from(i).unwrap_or(u16::MAX),
+                    index: i as u16,
                 });
             }
         };
@@ -407,61 +407,71 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
             }
         }
         "Code" => AttributeData::Code(parse_code_attribute(&mut c)?),
-        "LineNumberTable" => {
-            let len = c.read_u16()?;
-            let mut entries = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                entries.push(LineNumberEntry {
-                    start_pc: c.read_u16()?,
-                    line_number: c.read_u16()?,
-                });
-            }
-            AttributeData::LineNumberTable(entries)
-        }
+        "LineNumberTable" => AttributeData::LineNumberTable(parse_line_number_table(&mut c)?),
         "LocalVariableTable" => {
-            let len = c.read_u16()?;
-            let mut entries = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                entries.push(LocalVariableEntry {
-                    start_pc: c.read_u16()?,
-                    length: c.read_u16()?,
-                    name_index: c.read_cp_index()?,
-                    descriptor_index: c.read_cp_index()?,
-                    index: c.read_u16()?,
-                });
-            }
-            AttributeData::LocalVariableTable(entries)
+            AttributeData::LocalVariableTable(parse_local_variable_table(&mut c)?)
         }
-        "Exceptions" => {
-            let num = c.read_u16()?;
-            let mut table = Vec::with_capacity(num as usize);
-            for _ in 0..num {
-                table.push(c.read_cp_index()?);
-            }
-            AttributeData::Exceptions {
-                exception_index_table: table,
-            }
-        }
-        "BootstrapMethods" => {
-            let num = c.read_u16()?;
-            let mut entries = Vec::with_capacity(num as usize);
-            for _ in 0..num {
-                let method_ref = c.read_cp_index()?;
-                let num_args = c.read_u16()?;
-                let mut arguments = Vec::with_capacity(num_args as usize);
-                for _ in 0..num_args {
-                    arguments.push(c.read_cp_index()?);
-                }
-                entries.push(BootstrapMethodEntry {
-                    method_ref,
-                    arguments,
-                });
-            }
-            AttributeData::BootstrapMethods(entries)
-        }
+        "Exceptions" => AttributeData::Exceptions {
+            exception_index_table: parse_exceptions_attribute(&mut c)?,
+        },
+        "BootstrapMethods" => AttributeData::BootstrapMethods(parse_bootstrap_methods(&mut c)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
+}
+
+fn parse_line_number_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LineNumberEntry>> {
+    let len = c.read_u16()?;
+    let mut entries = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        entries.push(LineNumberEntry {
+            start_pc: c.read_u16()?,
+            line_number: c.read_u16()?,
+        });
+    }
+    Ok(entries)
+}
+
+fn parse_local_variable_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LocalVariableEntry>> {
+    let len = c.read_u16()?;
+    let mut entries = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        entries.push(LocalVariableEntry {
+            start_pc: c.read_u16()?,
+            length: c.read_u16()?,
+            name_index: c.read_cp_index()?,
+            descriptor_index: c.read_cp_index()?,
+            index: c.read_u16()?,
+        });
+    }
+    Ok(entries)
+}
+
+fn parse_exceptions_attribute(c: &mut Cursor<'_>) -> ParseResult<Vec<CpIndex>> {
+    let num = c.read_u16()?;
+    let mut table = Vec::with_capacity(num as usize);
+    for _ in 0..num {
+        table.push(c.read_cp_index()?);
+    }
+    Ok(table)
+}
+
+fn parse_bootstrap_methods(c: &mut Cursor<'_>) -> ParseResult<Vec<BootstrapMethodEntry>> {
+    let num = c.read_u16()?;
+    let mut entries = Vec::with_capacity(num as usize);
+    for _ in 0..num {
+        let method_ref = c.read_cp_index()?;
+        let num_args = c.read_u16()?;
+        let mut arguments = Vec::with_capacity(num_args as usize);
+        for _ in 0..num_args {
+            arguments.push(c.read_cp_index()?);
+        }
+        entries.push(BootstrapMethodEntry {
+            method_ref,
+            arguments,
+        });
+    }
+    Ok(entries)
 }
 
 fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
@@ -515,9 +525,13 @@ pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&st
         return Err(ParseError::CpIndexZero);
     }
     match pool.get(i) {
+        None => Err(ParseError::CpIndexOutOfBounds {
+            index: idx.0,
+            pool_size: pool.len(),
+        }),
         Some(None) => Err(ParseError::CpPhantomSlot { index: idx.0 }),
         Some(Some(CpEntry::Utf8(s))) => Ok(s.as_str()),
-        None | Some(Some(_)) => Err(ParseError::CpIndexOutOfBounds {
+        Some(Some(_)) => Err(ParseError::CpIndexOutOfBounds {
             index: idx.0,
             pool_size: pool.len(),
         }),

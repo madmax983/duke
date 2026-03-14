@@ -123,7 +123,7 @@ impl Heap {
 
     // ── Allocation ───────────────────────────────────────────────────────────
 
-    fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
+    const fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
         HeapObject {
             class_name,
             fields,
@@ -169,7 +169,7 @@ impl Heap {
         obj.age = 0; // reset age in old gen (not used there)
         obj.forward = None;
         if let Some(raw_idx) = self.old_free_list.pop() {
-            self.old[raw_idx as usize] = Some(obj);
+            self.old[usize::try_from(raw_idx).unwrap()] = Some(obj);
             raw_idx | OLD_BIT
         } else {
             let raw_idx = self.old.len() as u64;
@@ -192,7 +192,7 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).unwrap();
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -212,7 +212,7 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).unwrap();
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -224,12 +224,12 @@ impl Heap {
 
     /// Returns the total number of live objects across both generations.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.live_count
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.live_count == 0
     }
 
@@ -243,7 +243,7 @@ impl Heap {
 
     /// Returns `true` when the young gen is full (minor GC should fire).
     #[must_use]
-    pub fn should_minor_gc(&self) -> bool {
+    pub const fn should_minor_gc(&self) -> bool {
         self.young_top >= self.young_capacity
     }
 
@@ -306,7 +306,7 @@ impl Heap {
             if let Some(r) = slot.as_reference()
                 && r & OLD_BIT == 0
             {
-                worklist.push(r as usize);
+                worklist.push(usize::try_from(r).unwrap());
             }
         }
 
@@ -319,7 +319,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).unwrap())
                     .collect();
                 worklist.extend(young_refs);
             }
@@ -358,7 +358,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).unwrap())
                     .collect();
                 worklist.extend(children);
             }
@@ -370,7 +370,7 @@ impl Heap {
         let rs2: Vec<usize> = self.remembered_set.iter().copied().collect();
         for old_idx in rs2 {
             if let Some(Some(obj)) = self.old.get_mut(old_idx) {
-                for slot in obj.fields.iter_mut() {
+                for slot in &mut obj.fields {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
@@ -440,7 +440,7 @@ impl Heap {
 
     // ── Major GC (old-gen mark-sweep) ────────────────────────────────────────
 
-    /// Mark-sweep the old generation. Only old-gen roots (OLD_BIT set) are
+    /// Mark-sweep the old generation. Only old-gen roots (`OLD_BIT` set) are
     /// traced. Young-gen survivors must be promoted before calling this.
     pub fn major_collect(&mut self, roots: &[Slot]) {
         self.mark_old(roots);
@@ -507,7 +507,7 @@ impl Heap {
 
         // Build patched roots for the major GC by applying forwarding pointers.
         let mut patched: Vec<Slot> = roots.to_vec();
-        for slot in patched.iter_mut() {
+        for slot in &mut patched {
             self.apply_forward(slot);
         }
 
@@ -523,7 +523,8 @@ impl Heap {
     /// the most recent minor GC. This combined count is used by tests that
     /// verify reclamation without caring which generation the objects lived in.
     #[cfg(test)]
-    pub fn free_list_len(&self) -> usize {
+    #[must_use]
+    pub const fn free_list_len(&self) -> usize {
         self.old_free_list.len() + self.young_dropped
     }
 }
@@ -664,9 +665,9 @@ mod tests {
     #[test]
     fn get_on_swept_slot_returns_error() {
         let mut heap = Heap::new();
-        let _keep = heap.allocate("Keep".to_string(), 0);
+        let keep = heap.allocate("Keep".to_string(), 0);
         let drop_r = heap.allocate("Drop".to_string(), 0);
-        heap.collect(&[Slot::Reference(Some(_keep))]);
+        heap.collect(&[Slot::Reference(Some(keep))]);
         // drop_r is now in the old-gen free list or absent.
         // Either way, get() on it must error.
         assert!(heap.get(drop_r).is_err() || heap.get(drop_r | OLD_BIT).is_err());
@@ -803,8 +804,20 @@ mod tests {
         let roots = vec![Slot::Reference(Some(r0))];
         heap.minor_collect_prepare(&roots);
         // r0 must have a forwarding pointer; _r1 must not.
-        assert!(heap.young[r0 as usize].as_ref().unwrap().forward.is_some());
-        assert!(heap.young[_r1 as usize].as_ref().unwrap().forward.is_none());
+        assert!(
+            heap.young[usize::try_from(r0).unwrap()]
+                .as_ref()
+                .unwrap()
+                .forward
+                .is_some()
+        );
+        assert!(
+            heap.young[usize::try_from(_r1).unwrap()]
+                .as_ref()
+                .unwrap()
+                .forward
+                .is_none()
+        );
     }
 
     #[test]
@@ -816,7 +829,11 @@ mod tests {
         let mut slot = Slot::Reference(Some(r0));
         heap.apply_forward(&mut slot);
         // After forwarding, slot must point to the new location.
-        let new_r = heap.young[r0 as usize].as_ref().unwrap().forward.unwrap();
+        let new_r = heap.young[usize::try_from(r0).unwrap()]
+            .as_ref()
+            .unwrap()
+            .forward
+            .unwrap();
         assert_eq!(slot, Slot::Reference(Some(new_r)));
     }
 
@@ -842,10 +859,16 @@ mod tests {
         let roots = vec![Slot::Reference(Some(r))];
         heap.minor_collect_prepare(&roots);
         // Locate the copy in to_space (new_ref from forward pointer).
-        let new_r = heap.young[r as usize].as_ref().unwrap().forward.unwrap();
+        let new_r = heap.young[usize::try_from(r).unwrap()]
+            .as_ref()
+            .unwrap()
+            .forward
+            .unwrap();
         heap.minor_collect_finish();
         // After finish, young is former to_space. new_r has no OLD_BIT → young index.
-        let survivor = heap.young[new_r as usize].as_ref().unwrap();
+        let survivor = heap.young[usize::try_from(new_r).unwrap()]
+            .as_ref()
+            .unwrap();
         assert_eq!(survivor.age, 1);
     }
 
@@ -862,7 +885,7 @@ mod tests {
         for round in 0..2u8 {
             let roots = vec![Slot::Reference(Some(current_r))];
             heap.minor_collect_prepare(&roots);
-            let new_r = heap.young[current_r as usize]
+            let new_r = heap.young[usize::try_from(current_r).unwrap()]
                 .as_ref()
                 .unwrap()
                 .forward
@@ -903,7 +926,7 @@ mod tests {
         // No stack roots — young object reachable only through remembered set.
         heap.minor_collect_prepare(&[]);
         assert!(
-            heap.young[young_ref as usize]
+            heap.young[usize::try_from(young_ref).unwrap()]
                 .as_ref()
                 .unwrap()
                 .forward

@@ -304,13 +304,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
             // Use i64 to avoid i32 overflow when low is very negative.
-            let count_i64 = (high as i64) - (low as i64) + 1;
+            let count_i64 = i64::from(high) - i64::from(low) + 1;
             // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
             let max_possible = c.data.len().saturating_sub(c.pos) / 4;
-            if count_i64 < 0 || count_i64 as usize > max_possible {
+            if count_i64 < 0 || usize::try_from(count_i64).unwrap_or(usize::MAX) > max_possible {
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
-            let count = count_i64 as usize;
+            let count = usize::try_from(count_i64).unwrap_or(0);
             let mut offsets = Vec::with_capacity(count);
             for _ in 0..count {
                 offsets.push(c.read_i32()?);
@@ -332,10 +332,10 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
                 return Err(DecodeError::InvalidLookupswitch { pc, npairs });
             }
             let remaining_pairs = c.data.len().saturating_sub(c.pos) / 8;
-            if npairs as usize > remaining_pairs {
+            if usize::try_from(npairs).unwrap_or(usize::MAX) > remaining_pairs {
                 return Err(DecodeError::InvalidLookupswitch { pc, npairs });
             }
-            let mut pairs = Vec::with_capacity(npairs as usize);
+            let mut pairs = Vec::with_capacity(usize::try_from(npairs).unwrap_or(0));
             for _ in 0..npairs {
                 let match_val = c.read_i32()?;
                 let offset = c.read_i32()?;
