@@ -63,7 +63,7 @@ pub struct Heap {
     // ── Old generation ───────────────────────────────────────────────────────
     /// Old-gen object store. Index = `(r & !OLD_BIT)`.
     pub(crate) old: Vec<Option<HeapObject>>,
-    /// Free-list of raw old-gen indices (no OLD_BIT) for reuse after sweep.
+    /// Free-list of raw old-gen indices (no `OLD_BIT`) for reuse after sweep.
     old_free_list: Vec<u64>,
 
     // ── GC accounting ────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ pub struct Heap {
     young_dropped: usize,
 
     // ── Post-minor-GC forwarding map ─────────────────────────────────────────
-    /// Maps old young-gen ref → new ref (young or old-gen with OLD_BIT).
+    /// Maps old young-gen ref → new ref (young or old-gen with `OLD_BIT`).
     /// Populated during `minor_collect_prepare`, kept alive past
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
@@ -184,10 +184,14 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
-    /// Returns a reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `r` does not fit in `usize`.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -204,10 +208,14 @@ impl Heap {
         }
     }
 
-    /// Returns a mutable reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a mutable reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `r` does not fit in `usize`.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -299,6 +307,10 @@ impl Heap {
     ///
     /// Call [`Heap::apply_forward`] on every live interpreter slot after this,
     /// then call [`Heap::minor_collect_finish`] to complete the collection.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a root reference does not fit in `usize`.
     pub fn minor_collect_prepare(&mut self, roots: &[Slot]) {
         self.to_space = Vec::new();
         self.forward_map.clear();
@@ -378,7 +390,7 @@ impl Heap {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = r as usize;
+                        let y_idx = usize::try_from(r).unwrap();
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -407,7 +419,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(r as usize)
+                    .get(usize::try_from(r).unwrap())
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -1081,7 +1093,7 @@ mod tests {
         }));
         let keep_ref = OLD_BIT;
         heap.major_collect(&[Slot::Reference(Some(keep_ref))]);
-        // old_free_list has raw index 1 (no OLD_BIT).
+        // old_free_list has raw index 1 (no `OLD_BIT`).
         assert!(heap.old_free_list.contains(&1u64));
     }
 
