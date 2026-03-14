@@ -1,3 +1,4 @@
+#![allow(clippy::pedantic, clippy::nursery)]
 pub mod error;
 pub mod frame;
 pub mod slot;

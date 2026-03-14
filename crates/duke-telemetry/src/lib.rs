@@ -1,3 +1,4 @@
+#![allow(clippy::pedantic, clippy::nursery)]
 use std::collections::{HashMap, HashSet};
 
 // -- Serialization helpers for tuple-keyed HashMaps ------------------------------
