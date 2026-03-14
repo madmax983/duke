@@ -82,7 +82,7 @@ pub fn verify(
 // we're doing structural depth tracking, not JVM computational-type checking.
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::match_same_arms)]
+#[allow(clippy::match_same_arms, clippy::too_many_lines)]
 const fn stack_effect(instr: &Instruction) -> (usize, usize) {
     match instr {
         // Constants — push 1
