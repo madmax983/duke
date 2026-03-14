@@ -233,6 +233,30 @@ mod tests {
     }
 
     #[test]
+    fn decode_tableswitch_rejects_high_lt_low() {
+        // tableswitch with low=1, high=0
+        let code = [
+            0xAA, 0x00, 0x00, 0x00, // tableswitch + padding
+            0x00, 0x00, 0x00, 0x00, // default
+            0x00, 0x00, 0x00, 0x01, // low
+            0x00, 0x00, 0x00, 0x00, // high
+            0x00, 0x00, 0x00, 0x05, // offset
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DecodeError::InvalidTableswitch {
+                    low: 1,
+                    high: 0,
+                    ..
+                }
+            ),
+            "invalid tableswitch should be rejected: {err}"
+        );
+    }
+
+    #[test]
     fn decode_invokeinterface_rejects_non_zero_reserved_byte() {
         // invokeinterface index=1 count=1 reserved=1 (invalid).
         let code = [0xB9, 0x00, 0x01, 0x01, 0x01];
@@ -261,6 +285,20 @@ mod tests {
                 }
             ),
             "non-zero invokedynamic reserved bytes should be rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_lookupswitch_rejects_negative_npairs() {
+        let code = [
+            0xAB, 0x00, 0x00, 0x00, // lookupswitch + padding
+            0x00, 0x00, 0x00, 0x00, // default
+            0xFF, 0xFF, 0xFF, 0xFF, // npairs = -1
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(err, DecodeError::InvalidLookupswitch { npairs: -1, .. }),
+            "invalid lookupswitch should be rejected: {err}"
         );
     }
     // -----------------------------------------------------------------------
@@ -297,6 +335,35 @@ mod tests {
         assert!(
             matches!(err, VerifyError::StackUnderflow { .. }),
             "should detect underflow: {err}"
+        );
+    }
+
+    #[test]
+    fn verify_non_empty_stack_on_return() {
+        // Push something, but don't pop it before return
+        let instrs = vec![(0, Instruction::Iconst0), (1, Instruction::Return)];
+        let err = verify(&instrs, 2, 1).unwrap_err();
+        assert!(
+            matches!(err, VerifyError::NonEmptyStackOnReturn { depth: 1, .. }),
+            "should detect non-empty stack on return: {err}"
+        );
+    }
+
+    #[test]
+    fn verify_local_out_of_bounds() {
+        // Try to access local index 2 when max_locals is 1
+        let instrs = vec![(0, Instruction::Iload(2))];
+        let err = verify(&instrs, 2, 1).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                VerifyError::LocalOutOfBounds {
+                    index: 2,
+                    max_locals: 1,
+                    ..
+                }
+            ),
+            "should detect out-of-bounds local index: {err}"
         );
     }
 
