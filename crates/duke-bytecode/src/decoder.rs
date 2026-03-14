@@ -311,10 +311,9 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
                 return Err(DecodeError::InvalidTableswitch { pc, low, high });
             }
             let count = usize::try_from(count_i64).unwrap_or(0);
-            let mut offsets = Vec::with_capacity(count);
-            for _ in 0..count {
-                offsets.push(c.read_i32()?);
-            }
+            let offsets = (0..count)
+                .map(|_| c.read_i32())
+                .collect::<DecodeResult<Vec<_>>>()?;
             Instruction::Tableswitch {
                 default,
                 low,
@@ -335,12 +334,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             if usize::try_from(npairs).unwrap_or(usize::MAX) > remaining_pairs {
                 return Err(DecodeError::InvalidLookupswitch { pc, npairs });
             }
-            let mut pairs = Vec::with_capacity(usize::try_from(npairs).unwrap_or(0));
-            for _ in 0..npairs {
-                let match_val = c.read_i32()?;
-                let offset = c.read_i32()?;
-                pairs.push((match_val, offset));
-            }
+            let pairs = (0..npairs)
+                .map(|_| {
+                    let match_val = c.read_i32()?;
+                    let offset = c.read_i32()?;
+                    Ok((match_val, offset))
+                })
+                .collect::<DecodeResult<Vec<_>>>()?;
             Instruction::Lookupswitch { default, pairs }
         }
 
