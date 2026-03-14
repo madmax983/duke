@@ -3743,9 +3743,6 @@ fn format_java_double(v: f64) -> String {
 /// # Returns
 /// `Ok(Some(slot))` for value-returning methods, `Ok(None)` for `void`.
 ///
-/// # Errors
-/// Returns [`VmError`] on execution faults (division by zero, stack overflow,
-/// unimplemented instruction, etc.).
 macro_rules! create_invoke_cb {
     ($registry:expr, $loader:expr) => {
         |heap: &mut duke_gc::Heap,
@@ -3762,6 +3759,9 @@ macro_rules! create_invoke_cb {
     };
 }
 
+/// # Errors
+/// Returns [`VmError`] on execution faults (division by zero, stack overflow,
+/// unimplemented instruction, etc.).
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
