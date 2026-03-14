@@ -1,4 +1,3 @@
-#![allow(clippy::pedantic, clippy::nursery)]
 use std::process;
 
 use duke_bytecode::decode;

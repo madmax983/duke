@@ -1,4 +1,3 @@
-#![allow(clippy::pedantic, clippy::nursery)]
 //! Generational mark-sweep GC for the Duke JVM (Phase 25).
 //!
 //! **Young generation** — bump-pointer allocation (Eden-style). Minor GC uses
@@ -124,11 +123,7 @@ impl Heap {
 
     // ── Allocation ───────────────────────────────────────────────────────────
 
-    const fn make_obj(
-        class_name: String,
-        fields: Vec<Slot>,
-        string_value: Option<String>,
-    ) -> HeapObject {
+    const fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
         HeapObject {
             class_name,
             fields,
