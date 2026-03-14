@@ -226,14 +226,10 @@ impl Default for ClassRegistry {
 
 /// Signature for native method implementations.
 ///
-/// Many JVM standard library functions are declared as `native` and require custom
-/// Rust logic rather than executing JVM bytecode. This function pointer is registered
-/// with the `NativeRegistry`.
-///
 /// Arguments:
-/// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods). Note that `long` and `double` occupy only a single 64-bit slot here.
-/// - `&mut Heap`: the object heap for reading/writing objects.
-/// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests).
+/// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
+/// - `&mut Heap`: the object heap for reading/writing objects
+/// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
 pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
 
 /// A native handler that can call back into the interpreter to invoke Java methods.
@@ -7952,32 +7948,10 @@ struct CallFrame {
     class_name: String,
 }
 
-/// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
-///
-/// The JVM executes methods on a class, but a parsed class file is just raw
-/// attributes. This method prepares the class by finding and decoding `Code`
-/// attributes and converting them into an executable format.
+/// Build a [`ClassContext`] from a parsed [`ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
-///
-/// # Panics
-///
-/// Panics if the `this_class` index in the constant pool is not a `Class`
-/// entry pointing to a `Utf8` name. This shouldn't happen for valid `.class`
-/// files parsed via `duke_classfile`.
-///
-/// # Examples
-///
-/// ```no_run
-/// use duke_classfile::parse;
-/// use duke_interpreter::build_class_context;
-///
-/// let bytes = std::fs::read("HelloWorld.class").unwrap();
-/// let class_file = parse(&bytes).unwrap();
-/// let context = build_class_context(&class_file);
-/// println!("Methods with Code: {}", context.methods.len());
-/// ```
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
     use duke_classfile::access_flags::FieldAccessFlags;

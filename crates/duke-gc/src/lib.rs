@@ -1,17 +1,30 @@
-//! Generational mark-sweep GC for the Duke JVM (Phase 25).
+//! Generational mark-sweep Garbage Collector for the Duke JVM.
+//!
+//! The JVM creates objects dynamically, which requires an effective memory management
+//! architecture to reclaim abandoned variables. This module implements a **Generational GC**
+//! which splits object storage into two zones based on the "generational hypothesis":
+//! most objects die young.
+//!
+//! # Architecture
 //!
 //! **Young generation** — bump-pointer allocation (Eden-style). Minor GC uses
 //! a copy-collector: live objects are copied to `to_space`, forwarding pointers
-//! patch all live slots, then `to_space` becomes the new young gen.
+//! patch all live slots, then `to_space` becomes the new young gen. This makes allocation
+//! O(1) and short-lived garbage collection practically free.
 //!
-//! **Old generation** — Phase 24 mark-sweep with free-list reuse.
+//! **Old generation** — a mark-sweep implementation with free-list reuse.
+//! Objects that survive enough minor collections are "promoted" here. When this space
+//! fills up, a more expensive major collection runs.
 //!
-//! **Reference encoding** — the high bit of every `u64` heap reference indicates
-//! generation: `r & OLD_BIT == 0` → young-gen index; `r & OLD_BIT != 0` →
-//! old-gen index `(r & !OLD_BIT)`.
+//! # Reference Encoding
 //!
-//! [`Heap::get`] and [`Heap::get_mut`] are generation-agnostic; callers never
-//! need to know which gen an object lives in.
+//! Why use a single `u64` for all references? It ensures standard 64-bit JVM slot compatibility.
+//! The high bit of every `u64` heap reference indicates its generation:
+//! - `r & OLD_BIT == 0` → young-gen index.
+//! - `r & OLD_BIT != 0` → old-gen index `(r & !OLD_BIT)`.
+//!
+//! Through methods like [`Heap::get`] and [`Heap::get_mut`], the complexity of this encoding
+//! is entirely abstracted—callers never need to know which generation an object lives in.
 
 use std::collections::{HashMap, HashSet};
 
@@ -63,7 +76,7 @@ pub struct Heap {
     // ── Old generation ───────────────────────────────────────────────────────
     /// Old-gen object store. Index = `(r & !OLD_BIT)`.
     pub(crate) old: Vec<Option<HeapObject>>,
-    /// Free-list of raw old-gen indices (no OLD_BIT) for reuse after sweep.
+    /// Free-list of raw old-gen indices (no `OLD_BIT`) for reuse after sweep.
     old_free_list: Vec<u64>,
 
     // ── GC accounting ────────────────────────────────────────────────────────
@@ -94,7 +107,7 @@ pub struct Heap {
     young_dropped: usize,
 
     // ── Post-minor-GC forwarding map ─────────────────────────────────────────
-    /// Maps old young-gen ref → new ref (young or old-gen with OLD_BIT).
+    /// Maps old young-gen ref → new ref (young or old-gen with `OLD_BIT`).
     /// Populated during `minor_collect_prepare`, kept alive past
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
@@ -102,6 +115,19 @@ pub struct Heap {
 }
 
 impl Heap {
+    /// Creates a new garbage-collected heap.
+    ///
+    /// The heap is initialized with a default young-generation capacity and promotion
+    /// age. Memory is lazily allocated as objects are requested.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let heap = Heap::new();
+    /// assert!(heap.is_empty());
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -135,6 +161,19 @@ impl Heap {
     }
 
     /// Allocate a new object in the young generation. Returns a young-gen reference.
+    ///
+    /// The young generation is a bump-pointer allocation area. If this allocation
+    /// crosses the `young_capacity` threshold, a minor GC should be triggered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let _point_ref = heap.allocate("java/awt/Point".to_string(), 2);
+    /// assert_eq!(heap.len(), 1);
+    /// ```
     pub fn allocate(&mut self, class_name: String, field_count: usize) -> u64 {
         self.alloc_since_gc += 1;
         self.live_count += 1;
@@ -150,6 +189,19 @@ impl Heap {
     }
 
     /// Allocate a new String object in the young generation. Returns a young-gen reference.
+    ///
+    /// Internally, JVM Strings are objects with an intrinsic character sequence. This method
+    /// explicitly initializes a `java/lang/String` object with Rust string content.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let _str_ref = heap.allocate_string("Hello, World!".to_string());
+    /// assert_eq!(heap.len(), 1);
+    /// ```
     pub fn allocate_string(&mut self, value: String) -> u64 {
         self.alloc_since_gc += 1;
         self.live_count += 1;
@@ -169,7 +221,9 @@ impl Heap {
         obj.age = 0; // reset age in old gen (not used there)
         obj.forward = None;
         if let Some(raw_idx) = self.old_free_list.pop() {
-            self.old[raw_idx as usize] = Some(obj);
+            self.old
+                [usize::try_from(raw_idx).expect("heap address exceeds 32-bit address space")] =
+                Some(obj);
             raw_idx | OLD_BIT
         } else {
             let raw_idx = self.old.len() as u64;
@@ -180,19 +234,23 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
-    /// Returns a reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    /// Panics on 32-bit platforms if the `u64` reference exceeds the addressable memory space.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx =
+                usize::try_from(r & !OLD_BIT).expect("heap address exceeds 32-bit address space");
             self.old
                 .get(idx)
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).expect("heap address exceeds 32-bit address space");
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -200,19 +258,23 @@ impl Heap {
         }
     }
 
-    /// Returns a mutable reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a mutable reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    /// Panics on 32-bit platforms if the `u64` reference exceeds the addressable memory space.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx =
+                usize::try_from(r & !OLD_BIT).expect("heap address exceeds 32-bit address space");
             self.old
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = r as usize;
+            let idx = usize::try_from(r).expect("heap address exceeds 32-bit address space");
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -224,12 +286,12 @@ impl Heap {
 
     /// Returns the total number of live objects across both generations.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.live_count
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.live_count == 0
     }
 
@@ -242,13 +304,31 @@ impl Heap {
     // ── GC triggers ──────────────────────────────────────────────────────────
 
     /// Returns `true` when the young gen is full (minor GC should fire).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let heap = Heap::new();
+    /// assert!(!heap.should_minor_gc());
+    /// ```
     #[must_use]
-    pub fn should_minor_gc(&self) -> bool {
+    pub const fn should_minor_gc(&self) -> bool {
         self.young_top >= self.young_capacity
     }
 
     /// Returns `true` when the old gen has grown to 2× its post-GC size.
     /// The minimum threshold is 256 allocations (prevents thrashing on tiny heaps).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let heap = Heap::new();
+    /// assert!(!heap.should_major_gc());
+    /// ```
     #[must_use]
     pub fn should_major_gc(&self) -> bool {
         let threshold = (self.live_after_last_gc * 2).max(256);
@@ -306,7 +386,8 @@ impl Heap {
             if let Some(r) = slot.as_reference()
                 && r & OLD_BIT == 0
             {
-                worklist.push(r as usize);
+                worklist
+                    .push(usize::try_from(r).expect("heap address exceeds 32-bit address space"));
             }
         }
 
@@ -319,7 +400,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).expect("heap address exceeds 32-bit address space"))
                     .collect();
                 worklist.extend(young_refs);
             }
@@ -358,7 +439,7 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| r as usize)
+                    .map(|r| usize::try_from(r).expect("heap address exceeds 32-bit address space"))
                     .collect();
                 worklist.extend(children);
             }
@@ -370,11 +451,12 @@ impl Heap {
         let rs2: Vec<usize> = self.remembered_set.iter().copied().collect();
         for old_idx in rs2 {
             if let Some(Some(obj)) = self.old.get_mut(old_idx) {
-                for slot in obj.fields.iter_mut() {
+                for slot in &mut obj.fields {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = r as usize;
+                        let y_idx =
+                            usize::try_from(r).expect("heap address exceeds 32-bit address space");
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -403,7 +485,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(r as usize)
+                    .get(usize::try_from(r).expect("heap address exceeds 32-bit address space"))
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -440,7 +522,7 @@ impl Heap {
 
     // ── Major GC (old-gen mark-sweep) ────────────────────────────────────────
 
-    /// Mark-sweep the old generation. Only old-gen roots (OLD_BIT set) are
+    /// Mark-sweep the old generation. Only old-gen roots (`OLD_BIT` set) are
     /// traced. Young-gen survivors must be promoted before calling this.
     pub fn major_collect(&mut self, roots: &[Slot]) {
         self.mark_old(roots);
@@ -507,7 +589,7 @@ impl Heap {
 
         // Build patched roots for the major GC by applying forwarding pointers.
         let mut patched: Vec<Slot> = roots.to_vec();
-        for slot in patched.iter_mut() {
+        for slot in &mut patched {
             self.apply_forward(slot);
         }
 

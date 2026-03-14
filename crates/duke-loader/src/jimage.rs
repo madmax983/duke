@@ -74,7 +74,7 @@ pub struct ResourceInfo {
 ///
 /// On [`open`](JImageReader::open), reads the entire file into memory and
 /// scans the locations table to build a path→resource index.  All subsequent
-/// [`JImageReader::find_resource`] and [`JImageReader::read_resource`] calls are O(1) hash lookups.
+/// [`find_resource`] and [`read_resource`] calls are O(1) hash lookups.
 pub struct JImageReader {
     data: Vec<u8>,
     resource_count: u32,
@@ -90,26 +90,10 @@ pub struct JImageReader {
 impl JImageReader {
     /// Open and parse a jimage file, building the resource index.
     ///
-    /// This parses the header and perfect-hash redirect table to build
-    /// an index of all modules in a single pass. Subsequent reads use
-    /// this `HashMap` to find bytes without needing to traverse the tree.
-    ///
     /// # Errors
     ///
     /// Returns [`LoadError::Io`] if the file cannot be read, or
     /// [`LoadError::JImageFormat`] if the file is not a valid jimage.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use std::path::PathBuf;
-    /// use duke_loader::JImageReader;
-    ///
-    /// let path = PathBuf::from("/path/to/jdk-21/lib/modules");
-    /// if let Ok(reader) = JImageReader::open(&path) {
-    ///     println!("Loaded {} resources", reader.resource_count());
-    /// }
-    /// ```
     pub fn open(path: &Path) -> LoadResult<Self> {
         let data = std::fs::read(path).map_err(|e| LoadError::Io {
             path: path.display().to_string(),
@@ -167,30 +151,11 @@ impl JImageReader {
 
     /// Read and (if necessary) decompress a resource by its full jimage path.
     ///
-    /// The jimage format uses raw deflate compression (no zlib headers) to save
-    /// space. This method checks if the entry is compressed and inflate the bytes
-    /// before returning them so they can be parsed immediately.
-    ///
     /// # Errors
     ///
     /// Returns [`LoadError::NotFound`] if the path is not in the index,
     /// [`LoadError::JImageFormat`] if the data is out of bounds, or
     /// [`LoadError::Decompress`] if decompression fails.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use std::path::PathBuf;
-    /// use duke_loader::JImageReader;
-    ///
-    /// let path = PathBuf::from("/path/to/jdk-21/lib/modules");
-    /// if let Ok(reader) = JImageReader::open(&path) {
-    ///     let object_bytes = reader.read_resource("/java.base/java/lang/Object.class");
-    ///     if let Ok(bytes) = object_bytes {
-    ///         println!("Object.class is {} bytes", bytes.len());
-    ///     }
-    /// }
-    /// ```
     pub fn read_resource(&self, path: &str) -> LoadResult<Vec<u8>> {
         let info = self.index.get(path).ok_or_else(|| LoadError::NotFound {
             name: path.to_string(),
