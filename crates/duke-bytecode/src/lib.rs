@@ -8,7 +8,6 @@
 //! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
-pub mod cfg;
 pub mod decoder;
 pub mod error;
 pub mod instruction;
