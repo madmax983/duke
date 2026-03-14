@@ -1,4 +1,3 @@
-#![allow(clippy::pedantic, clippy::nursery)]
 pub mod bootstrap;
 pub mod directory;
 pub mod error;

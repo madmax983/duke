@@ -1,4 +1,3 @@
-#![allow(clippy::pedantic, clippy::nursery)]
 //! `duke-bytecode` — JVM bytecode definitions, decoder, and structural verifier.
 //!
 //! # Modules
