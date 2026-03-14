@@ -282,7 +282,7 @@ fn build_index(
 ) -> HashMap<String, ResourceInfo> {
     let mut index = HashMap::new();
     let mut pos = locs_offset;
-    let locs_end = locs_offset + locs_size;
+    let locs_end = locs_offset.checked_add(locs_size).unwrap_or(usize::MAX).min(data.len());
 
     while pos < locs_end {
         // Decode all attributes for this location entry
@@ -437,6 +437,23 @@ mod proptests {
             };
 
             let _ = reader.read_resource("test");
+        }
+
+        #[test]
+        fn fuzz_jimage_reader_build_index(
+            bytes in proptest::collection::vec(any::<u8>(), 0..2048),
+            locs_offset in 0usize..2048,
+            locs_size in 0usize..2048,
+            str_offset in 0usize..2048
+        ) {
+            let _ = build_index(&bytes, locs_offset, locs_size, str_offset);
+        }
+
+        #[test]
+        fn fuzz_jimage_reader_parse_header(
+            bytes in proptest::collection::vec(any::<u8>(), 0..2048)
+        ) {
+            let _ = parse_header(&bytes);
         }
     }
 }
