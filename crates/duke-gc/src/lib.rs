@@ -935,7 +935,7 @@ mod tests {
         );
         heap.minor_collect_finish();
         // Verify old-gen field was patched to the new young location.
-        let new_field = heap.old[0].as_ref().unwrap().fields[0].clone();
+        let new_field = heap.old[0].as_ref().unwrap().fields[0];
         match new_field {
             Slot::Reference(Some(r)) => {
                 heap.get(r).expect("patched old→young field must be valid");

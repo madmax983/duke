@@ -155,7 +155,7 @@ impl Frame {
     pub fn load_local(&self, index: usize) -> VmResult<Slot> {
         self.locals
             .get(index)
-            .cloned()
+            .copied()
             .ok_or(VmError::LocalOutOfBounds {
                 index,
                 max_locals: self.locals.len(),
@@ -197,7 +197,7 @@ impl Frame {
     pub fn peek_at(&self, index: usize) -> VmResult<Slot> {
         self.stack
             .get(index)
-            .cloned()
+            .copied()
             .ok_or(VmError::StackUnderflow)
     }
 
@@ -209,7 +209,7 @@ impl Frame {
 
     /// Yields all slots in locals and operand stack — used by GC root gathering.
     pub fn slots(&self) -> impl Iterator<Item = Slot> + '_ {
-        self.locals.iter().chain(self.stack.iter()).cloned()
+        self.locals.iter().chain(self.stack.iter()).copied()
     }
 
     /// Mutable iterator over all slots (locals + stack) — used to apply GC
