@@ -40,8 +40,8 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
     jdk
 }
 
-/// Build a class loader: BootstrapLoader (JDK jimage + app dir) when JDK path
-/// is known, or plain DirectoryLoader otherwise.
+/// Build a class loader: `BootstrapLoader` (JDK jimage + app dir) when JDK path
+/// is known, or plain `DirectoryLoader` otherwise.
 fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn ClassLoader> {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
@@ -53,7 +53,10 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn Cla
                 ),
             }
         } else {
-            eprintln!("duke: warning: {modules:?} not found, falling back to directory loader");
+            eprintln!(
+                "duke: warning: {} not found, falling back to directory loader",
+                modules.display()
+            );
         }
     }
     Box::new(DirectoryLoader::new(app_dir))
@@ -101,13 +104,13 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..], telemetry, jdk_home.as_deref());
+        exec_method(&args[2..], telemetry.as_ref(), jdk_home.as_deref());
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..], telemetry, jdk_home.as_deref());
+        run_main(&args[2..], telemetry.as_ref(), jdk_home.as_deref());
         return;
     }
 
@@ -119,12 +122,12 @@ fn main() {
     };
 
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{}': {e}", path);
+        eprintln!("duke: cannot read '{path}': {e}");
         process::exit(1);
     });
 
     let class_file = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error in '{}': {e}", path);
+        eprintln!("duke: parse error in '{path}': {e}");
         process::exit(1);
     });
 
@@ -153,7 +156,7 @@ fn emit_telemetry(registry: &ClassRegistry, dest: Option<TelemetryDest>) {
 }
 
 #[cfg(not(feature = "telemetry"))]
-fn emit_telemetry(_registry: &ClassRegistry, dest: Option<TelemetryDest>) {
+fn emit_telemetry(_registry: &ClassRegistry, dest: Option<&TelemetryDest>) {
     if dest.is_some() {
         eprintln!(
             "duke: --telemetry flag requires the 'telemetry' feature \
@@ -186,7 +189,7 @@ fn load_and_dump(class_name: &str) {
 /// `duke exec <classfile.class> <method> [int-arg...]`
 ///
 /// Parses and executes a static method, printing the return value.
-fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
+fn exec_method(args: &[String], telemetry: Option<&TelemetryDest>, jdk_home: Option<&str>) {
     if args.len() < 2 {
         eprintln!("Usage: duke exec <classfile.class> <method> [int-arg...]");
         process::exit(1);
@@ -239,7 +242,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
     // When --jdk is given, also loads missing classes from the JDK jimage.
     let parent = std::path::Path::new(path)
         .parent()
-        .unwrap_or(std::path::Path::new("."));
+        .unwrap_or_else(|| std::path::Path::new("."));
     let loader = make_loader(jdk_home, parent);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
@@ -282,7 +285,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
-fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
+fn run_main(args: &[String], telemetry: Option<&TelemetryDest>, jdk_home: Option<&str>) {
     if args.is_empty() {
         eprintln!("Usage: duke run <classfile.class> [string-arg...]");
         process::exit(1);

@@ -820,10 +820,10 @@ mod tests {
     fn minor_gc_copies_reachable_young_object() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("Keep".to_string(), 0);
-        let _r1 = heap.allocate("Drop".to_string(), 0);
+        let r1 = heap.allocate("Drop".to_string(), 0);
         let roots = vec![Slot::Reference(Some(r0))];
         heap.minor_collect_prepare(&roots);
-        // r0 must have a forwarding pointer; _r1 must not.
+        // r0 must have a forwarding pointer; r1 must not.
         assert!(
             heap.young[usize::try_from(r0).unwrap()]
                 .as_ref()
@@ -832,7 +832,7 @@ mod tests {
                 .is_some()
         );
         assert!(
-            heap.young[usize::try_from(_r1).unwrap()]
+            heap.young[usize::try_from(r1).unwrap()]
                 .as_ref()
                 .unwrap()
                 .forward
