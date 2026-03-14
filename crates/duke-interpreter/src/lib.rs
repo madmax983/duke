@@ -14851,6 +14851,7 @@ mod tests {
             "java/lang/String",
             "length",
             "()I",
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
             |args, heap, _output, _invoke| {
                 CALLED.store(true, Ordering::SeqCst);
                 // args[0] is `this` (the captured String reference).
@@ -14858,8 +14859,7 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len())
-                    .unwrap_or(0);
+                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
                 Ok(Some(Slot::Int(len)))
             },
         );
