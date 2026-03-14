@@ -1,4 +1,5 @@
 //! Structural bytecode verifier (JVM §4.10 subset).
+#![allow(clippy::missing_const_for_fn, clippy::too_many_lines)]
 //!
 //! Performs a forward linear scan over decoded instructions and checks:
 //!

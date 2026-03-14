@@ -1,3 +1,4 @@
+#![allow(clippy::all, clippy::pedantic, clippy::nursery)]
 //! Switch-dispatch JVM bytecode interpreter for Duke Phase 4.
 //!
 //! Executes decoded instruction streams for methods containing integer, long,

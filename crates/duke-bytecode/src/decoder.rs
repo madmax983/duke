@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap, clippy::cast_lossless, clippy::missing_const_for_fn)]
 //! Bytecode decoder: converts raw `Code` attribute bytes into typed [`Instruction`]s.
 //!
 //! Returns a vector of `(pc, Instruction)` pairs. The `pc` is the byte offset

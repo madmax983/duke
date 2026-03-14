@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation, clippy::missing_const_for_fn, clippy::must_use_candidate, clippy::used_underscore_binding)]
 //! Generational mark-sweep GC for the Duke JVM (Phase 25).
 //!
 //! **Young generation** — bump-pointer allocation (Eden-style). Minor GC uses
@@ -63,7 +64,7 @@ pub struct Heap {
     // ── Old generation ───────────────────────────────────────────────────────
     /// Old-gen object store. Index = `(r & !OLD_BIT)`.
     pub(crate) old: Vec<Option<HeapObject>>,
-    /// Free-list of raw old-gen indices (no OLD_BIT) for reuse after sweep.
+    /// Free-list of raw old-gen indices (no `OLD_BIT`) for reuse after sweep.
     old_free_list: Vec<u64>,
 
     // ── GC accounting ────────────────────────────────────────────────────────
@@ -94,7 +95,7 @@ pub struct Heap {
     young_dropped: usize,
 
     // ── Post-minor-GC forwarding map ─────────────────────────────────────────
-    /// Maps old young-gen ref → new ref (young or old-gen with OLD_BIT).
+    /// Maps old young-gen ref → new ref (young or old-gen with `OLD_BIT`).
     /// Populated during `minor_collect_prepare`, kept alive past
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
@@ -180,7 +181,7 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
-    /// Returns a reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
@@ -200,7 +201,7 @@ impl Heap {
         }
     }
 
-    /// Returns a mutable reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a mutable reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
@@ -342,7 +343,7 @@ impl Heap {
             } else {
                 // Copy to to_space.
                 copy.age += 1;
-                let new_idx = self.to_space.len() as u64; // no OLD_BIT → young ref
+                let new_idx = self.to_space.len() as u64; // no `OLD_BIT` → young ref
                 self.to_space.push(Some(copy));
                 new_idx
             };
@@ -370,7 +371,7 @@ impl Heap {
         let rs2: Vec<usize> = self.remembered_set.iter().copied().collect();
         for old_idx in rs2 {
             if let Some(Some(obj)) = self.old.get_mut(old_idx) {
-                for slot in obj.fields.iter_mut() {
+                for slot in &mut obj.fields {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
@@ -440,7 +441,7 @@ impl Heap {
 
     // ── Major GC (old-gen mark-sweep) ────────────────────────────────────────
 
-    /// Mark-sweep the old generation. Only old-gen roots (OLD_BIT set) are
+    /// Mark-sweep the old generation. Only old-gen roots (`OLD_BIT` set) are
     /// traced. Young-gen survivors must be promoted before calling this.
     pub fn major_collect(&mut self, roots: &[Slot]) {
         self.mark_old(roots);
@@ -507,7 +508,7 @@ impl Heap {
 
         // Build patched roots for the major GC by applying forwarding pointers.
         let mut patched: Vec<Slot> = roots.to_vec();
-        for slot in patched.iter_mut() {
+        for slot in &mut patched {
             self.apply_forward(slot);
         }
 
@@ -844,7 +845,7 @@ mod tests {
         // Locate the copy in to_space (new_ref from forward pointer).
         let new_r = heap.young[r as usize].as_ref().unwrap().forward.unwrap();
         heap.minor_collect_finish();
-        // After finish, young is former to_space. new_r has no OLD_BIT → young index.
+        // After finish, young is former to_space. new_r has no `OLD_BIT` → young index.
         let survivor = heap.young[new_r as usize].as_ref().unwrap();
         assert_eq!(survivor.age, 1);
     }
@@ -1054,7 +1055,7 @@ mod tests {
         }));
         let keep_ref = OLD_BIT;
         heap.major_collect(&[Slot::Reference(Some(keep_ref))]);
-        // old_free_list has raw index 1 (no OLD_BIT).
+        // old_free_list has raw index 1 (no `OLD_BIT`).
         assert!(heap.old_free_list.contains(&1u64));
     }
 

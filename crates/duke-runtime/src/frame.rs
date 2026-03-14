@@ -193,7 +193,7 @@ impl Frame {
     /// Peek at the slot at a given absolute position in the operand stack (0-indexed from bottom).
     ///
     /// # Errors
-    /// Returns `VmError::StackUnderflow` if the index is out of bounds.
+    /// Returns `VmError::StackUnderflow` if `index` is out of bounds.
     pub fn peek_at(&self, index: usize) -> VmResult<Slot> {
         self.stack
             .get(index)

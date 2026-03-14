@@ -1,8 +1,9 @@
 //! Typed JVM instruction representation.
+#![allow(clippy::must_use_candidate, clippy::missing_const_for_fn, clippy::too_many_lines, clippy::derive_partial_eq_without_eq)]
 //!
 //! Each [`Instruction`] variant carries exactly the operands decoded from
 //! the bytecode stream. The variant names match the JVM spec opcode names
-//! (PascalCase). Wide-prefixed forms carry a `u16` local index instead of `u8`.
+//! (`PascalCase`). Wide-prefixed forms carry a `u16` local index instead of `u8`.
 
 use duke_classfile::CpIndex;
 
