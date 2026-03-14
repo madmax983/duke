@@ -189,7 +189,8 @@ impl JImageReader {
             // Raw deflate stream (negative window bits — no zlib header)
             let cap = usize::try_from(info.uncompressed).unwrap_or(0);
             let mut decoder = DeflateDecoder::new(raw);
-            let mut out = Vec::with_capacity(cap);
+            let initial_cap = cap.min(32 * 1024 * 1024);
+            let mut out = Vec::with_capacity(initial_cap);
             decoder
                 .read_to_end(&mut out)
                 .map_err(|_| LoadError::Decompress {
