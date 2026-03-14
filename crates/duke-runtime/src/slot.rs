@@ -5,7 +5,10 @@ use crate::error::{VmError, VmResult};
 /// Note: in the JVM spec, `long` and `double` occupy two computational slots.
 /// For Phase 4 we track them as single `Slot` entries for simplicity; Phase 5+
 /// will introduce proper two-slot tracking via a `Padding` variant.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `Slot` derives `Copy` because it is small (fits in registers) and is passed by value
+/// across all frame and stack operations to avoid the overhead of cloning on hot paths.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Slot {
     Int(i32),
     Long(i64),
