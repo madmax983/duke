@@ -167,11 +167,17 @@ impl JImageReader {
             usize::try_from(info.uncompressed).unwrap_or(usize::MAX)
         };
         let offset = usize::try_from(info.offset).unwrap_or(usize::MAX);
-        let start = self.data_offset.checked_add(offset).ok_or_else(|| LoadError::JImageFormat {
-            msg: format!("resource '{path}' offset overflow"),
-        })?;
+        let start =
+            self.data_offset
+                .checked_add(offset)
+                .ok_or_else(|| LoadError::JImageFormat {
+                    msg: format!("resource '{path}' offset overflow"),
+                })?;
 
-        if start.checked_add(raw_len).is_none_or(|end| end > self.data.len()) {
+        if start
+            .checked_add(raw_len)
+            .is_none_or(|end| end > self.data.len())
+        {
             return Err(LoadError::JImageFormat {
                 msg: format!("resource '{path}' data out of bounds"),
             });
@@ -418,14 +424,21 @@ mod tests {
     /// Encode a single jimage location attribute: header byte + big-endian value.
     fn attr(kind: u8, val: u64) -> Vec<u8> {
         // Minimum bytes needed to represent val
-        let bytes_needed = if val == 0 { 1 } else { (64 - val.leading_zeros() as usize + 7) / 8 }.max(1).min(8);
+        let bytes_needed = (if val == 0 {
+            1
+        } else {
+            (64 - val.leading_zeros() as usize).div_ceil(8)
+        })
+        .clamp(1, 8);
         let data = &val.to_be_bytes()[8 - bytes_needed..];
         let mut v = vec![(kind << 3) | (bytes_needed as u8 - 1)];
         v.extend_from_slice(data);
         v
     }
 
-    fn attr_end() -> u8 { 0x00 }
+    fn attr_end() -> u8 {
+        0x00
+    }
 
     // -----------------------------------------------------------------------
     // parse_header (lines 239: < → == and < → <=)
@@ -439,7 +452,10 @@ mod tests {
         let mut data = vec![0u8; 28];
         data[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
         data[4..8].copy_from_slice(&JIMAGE_VERSION.to_le_bytes());
-        assert!(parse_header(&data).is_ok(), "exactly 28 bytes should pass size check");
+        assert!(
+            parse_header(&data).is_ok(),
+            "exactly 28 bytes should pass size check"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -518,7 +534,10 @@ mod tests {
 
         let (data, locs_offset, locs_size, str_offset) = make_build_index_data(&locs);
         let index = build_index(&data, locs_offset, locs_size, str_offset);
-        assert!(index.is_empty(), "entry with uncompressed=0 should be skipped");
+        assert!(
+            index.is_empty(),
+            "entry with uncompressed=0 should be skipped"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -540,8 +559,8 @@ mod tests {
 
         let strings: &[u8] = b"\x00mod\x00Foo\x00"; // 9 bytes
         let mut locs: Vec<u8> = Vec::new();
-        locs.extend(attr(ATTR_MODULE, 1));   // 2 bytes
-        locs.extend(attr(ATTR_BASE, 5));     // 2 bytes
+        locs.extend(attr(ATTR_MODULE, 1)); // 2 bytes
+        locs.extend(attr(ATTR_BASE, 5)); // 2 bytes
         locs.extend(attr(ATTR_UNCOMPRESSED, 1)); // 2 bytes  → locs = 6 bytes
 
         let mut data = strings.to_vec();
@@ -550,7 +569,9 @@ mod tests {
         let (locs_offset, locs_size, str_offset) = (9, 6, 0);
 
         let index = build_index(&data, locs_offset, locs_size, str_offset);
-        let info = index.get("/mod/Foo").expect("exact-fit attribute must be read into index");
+        let info = index
+            .get("/mod/Foo")
+            .expect("exact-fit attribute must be read into index");
         assert_eq!(info.uncompressed, 1);
     }
 
@@ -569,8 +590,8 @@ mod tests {
 
         let strings: &[u8] = b"\x00mod\x00Foo\x00"; // 9 bytes
         let locs: Vec<u8> = vec![
-            0x08, 0x01,  // ATTR_MODULE (kind=1, len=1) = 1
-            0x1B,        // ATTR_BASE (kind=3, len=4) header only — no data bytes follow
+            0x08, 0x01, // ATTR_MODULE (kind=1, len=1) = 1
+            0x1B, // ATTR_BASE (kind=3, len=4) header only — no data bytes follow
         ];
         let mut data = strings.to_vec();
         data.extend_from_slice(&locs);
@@ -579,7 +600,10 @@ mod tests {
 
         // Must not panic, and entry must not be indexed (BASE never set → path empty)
         let index = build_index(&data, locs_offset, locs_size, str_offset);
-        assert!(index.is_empty(), "truncated attribute stream should produce empty index");
+        assert!(
+            index.is_empty(),
+            "truncated attribute stream should produce empty index"
+        );
     }
 
     #[test]
@@ -593,7 +617,10 @@ mod tests {
         // locs_offset=0, locs_size=2, str_offset=2, data.len()=2
         let data = vec![0x09u8, 0x42];
         let index = build_index(&data, 0, 2, 2);
-        assert!(index.is_empty(), "truncated len=2 at pos=1 must not panic and should be empty");
+        assert!(
+            index.is_empty(),
+            "truncated len=2 at pos=1 must not panic and should be empty"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -636,7 +663,11 @@ mod tests {
         let reader = JImageReader::open(&tmp).expect("open");
         let _ = std::fs::remove_file(&tmp);
 
-        assert_eq!(reader.resource_count(), 7, "resource_count() must return header value");
+        assert_eq!(
+            reader.resource_count(),
+            7,
+            "resource_count() must return header value"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -661,8 +692,20 @@ mod tests {
 
     fn make_reader(data: Vec<u8>, compressed: u64, uncompressed: u64) -> JImageReader {
         let mut index = HashMap::new();
-        index.insert("r".to_string(), ResourceInfo { offset: 0, compressed, uncompressed });
-        JImageReader { data, resource_count: 1, data_offset: 0, index }
+        index.insert(
+            "r".to_string(),
+            ResourceInfo {
+                offset: 0,
+                compressed,
+                uncompressed,
+            },
+        );
+        JImageReader {
+            data,
+            resource_count: 1,
+            data_offset: 0,
+            index,
+        }
     }
 
     #[test]
@@ -707,8 +750,8 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use std::collections::HashMap;
     use proptest::prelude::*;
+    use std::collections::HashMap;
 
     proptest! {
         #[test]

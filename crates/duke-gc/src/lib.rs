@@ -1084,8 +1084,14 @@ mod tests {
         let r0 = heap.allocate_string("hello".to_string());
         let r1 = heap.allocate_string("world".to_string());
         assert_ne!(r0, r1);
-        assert_eq!(heap.get(r0).unwrap().string_value, Some("hello".to_string()));
-        assert_eq!(heap.get(r1).unwrap().string_value, Some("world".to_string()));
+        assert_eq!(
+            heap.get(r0).unwrap().string_value,
+            Some("hello".to_string())
+        );
+        assert_eq!(
+            heap.get(r1).unwrap().string_value,
+            Some("world".to_string())
+        );
     }
 
     #[test]
@@ -1112,7 +1118,10 @@ mod tests {
         heap.minor_collect_finish();
         // old[0] holds TempOld; major GC with no roots frees it → raw idx 0 → free list
         heap.major_collect(&[]);
-        assert!(!heap.old_free_list.is_empty(), "free list must be non-empty after sweep");
+        assert!(
+            !heap.old_free_list.is_empty(),
+            "free list must be non-empty after sweep"
+        );
 
         // Round 2: promote via free-list path (raw_idx=0 from old_free_list)
         let r1 = heap.allocate("NewObj".to_string(), 0);
@@ -1202,7 +1211,8 @@ mod tests {
 
         // Create old object with field pointing to young[1]; write_field populates remembered_set.
         let old_ref = make_old_obj(&mut heap); // old[0], fields[0] = Int(0)
-        heap.write_field(old_ref, 0, Slot::Reference(Some(survive))).unwrap();
+        heap.write_field(old_ref, 0, Slot::Reference(Some(survive)))
+            .unwrap();
 
         // Minor GC: no stack roots. young[1] survives via remembered set → forwarded to to_space[0].
         heap.minor_collect_prepare(&[]);
@@ -1267,12 +1277,18 @@ mod tests {
         let young_r = heap.allocate("Young".to_string(), 0);
         assert_eq!(young_r, 0);
         // Roots: live_ref (old) + young_r (young). Young ref must NOT mark old[0].
-        heap.major_collect(&[Slot::Reference(Some(live_ref)), Slot::Reference(Some(young_r))]);
+        heap.major_collect(&[
+            Slot::Reference(Some(live_ref)),
+            Slot::Reference(Some(young_r)),
+        ]);
         assert!(
             heap.get(die_ref).is_err(),
             "unreachable old object must be swept even when young ref shares raw index"
         );
-        assert!(heap.get(live_ref).is_ok(), "reachable old object must survive");
+        assert!(
+            heap.get(live_ref).is_ok(),
+            "reachable old object must survive"
+        );
     }
 
     #[test]

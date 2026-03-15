@@ -338,8 +338,8 @@ mod tests {
     #[test]
     fn array_type_from_u8_invalid_returns_none() {
         assert_eq!(ArrayType::from_u8(0), None);
-        assert_eq!(ArrayType::from_u8(3), None);   // just below valid range
-        assert_eq!(ArrayType::from_u8(12), None);  // just above valid range
+        assert_eq!(ArrayType::from_u8(3), None); // just below valid range
+        assert_eq!(ArrayType::from_u8(12), None); // just above valid range
         assert_eq!(ArrayType::from_u8(255), None);
     }
 
@@ -368,7 +368,7 @@ mod tests {
         // low=3, high=3 → count=1 (minimum valid tableswitch).
         // Confirms count_i64 path handles count=1 correctly.
         let code: Vec<u8> = vec![
-            0xAA,           // tableswitch
+            0xAA, // tableswitch
             0x00, 0x00, 0x00, // padding (pc=0, align to 4)
             0x00, 0x00, 0x00, 0x09, // default = 9
             0x00, 0x00, 0x00, 0x03, // low = 3
@@ -377,7 +377,13 @@ mod tests {
         ];
         let instrs = decode(&code).expect("single-entry tableswitch should decode");
         assert_eq!(instrs.len(), 1);
-        if let (0, Instruction::Tableswitch { low, high, offsets, .. }) = &instrs[0] {
+        if let (
+            0,
+            Instruction::Tableswitch {
+                low, high, offsets, ..
+            },
+        ) = &instrs[0]
+        {
             assert_eq!(*low, 3);
             assert_eq!(*high, 3);
             assert_eq!(offsets.len(), 1);
@@ -392,7 +398,7 @@ mod tests {
         // count=1 and exactly 4 bytes remain → count == max_possible; should pass.
         // Mutant `> max_possible → >= max_possible` would incorrectly reject this.
         let code: Vec<u8> = vec![
-            0xAA,           // tableswitch
+            0xAA, // tableswitch
             0x00, 0x00, 0x00, // padding
             0x00, 0x00, 0x00, 0x05, // default = 5
             0x00, 0x00, 0x00, 0x00, // low = 0
@@ -401,7 +407,16 @@ mod tests {
         ];
         let instrs = decode(&code).expect("exact-fit tableswitch should decode");
         assert_eq!(instrs.len(), 1);
-        if let (0, Instruction::Tableswitch { low, high, offsets, default }) = &instrs[0] {
+        if let (
+            0,
+            Instruction::Tableswitch {
+                low,
+                high,
+                offsets,
+                default,
+            },
+        ) = &instrs[0]
+        {
             assert_eq!(*low, 0);
             assert_eq!(*high, 0);
             assert_eq!(*default, 5);
@@ -415,7 +430,7 @@ mod tests {
     fn tableswitch_multi_entry_decodes_ok() {
         // low=0, high=1 → count=2; high > low kills the `< → >` mutant on the high<low guard.
         let code: Vec<u8> = vec![
-            0xAA,           // tableswitch
+            0xAA, // tableswitch
             0x00, 0x00, 0x00, // padding
             0x00, 0x00, 0x00, 0x0F, // default = 15
             0x00, 0x00, 0x00, 0x00, // low = 0
@@ -424,7 +439,13 @@ mod tests {
             0x00, 0x00, 0x00, 0x07, // offset[1] = 7
         ];
         let instrs = decode(&code).expect("multi-entry tableswitch should decode");
-        if let (0, Instruction::Tableswitch { low, high, offsets, .. }) = &instrs[0] {
+        if let (
+            0,
+            Instruction::Tableswitch {
+                low, high, offsets, ..
+            },
+        ) = &instrs[0]
+        {
             assert_eq!(*low, 0);
             assert_eq!(*high, 1);
             assert_eq!(offsets, &[5i32, 7i32]);
@@ -438,7 +459,7 @@ mod tests {
         // default = 0x00010005 (high word non-zero) kills the `<< → >>` mutant in read_u32.
         // With `>>`, (0x0001 >> 16) | 0x0005 = 0 | 5 = 5 ≠ 65541.
         let code: Vec<u8> = vec![
-            0xAA,           // tableswitch
+            0xAA, // tableswitch
             0x00, 0x00, 0x00, // padding
             0x00, 0x01, 0x00, 0x05, // default = 0x00010005 = 65541
             0x00, 0x00, 0x00, 0x00, // low = 0
@@ -463,7 +484,7 @@ mod tests {
         // npairs=0 — valid empty switch; must NOT be rejected.
         // Mutants `< 0 → == 0` and `< 0 → <= 0` would incorrectly reject npairs=0.
         let code: Vec<u8> = vec![
-            0xAB,           // lookupswitch
+            0xAB, // lookupswitch
             0x00, 0x00, 0x00, // padding
             0x00, 0x00, 0x00, 0x05, // default = 5
             0x00, 0x00, 0x00, 0x00, // npairs = 0
@@ -483,7 +504,7 @@ mod tests {
         // npairs=1 and exactly 8 bytes for the pair → npairs == remaining_pairs; should pass.
         // Kills: `> → >=` mutant (exact-fit rejection) and `/ 8 → % 8` (% gives 0 for 8 bytes).
         let code: Vec<u8> = vec![
-            0xAB,           // lookupswitch
+            0xAB, // lookupswitch
             0x00, 0x00, 0x00, // padding
             0x00, 0x00, 0x00, 0x05, // default = 5
             0x00, 0x00, 0x00, 0x01, // npairs = 1
@@ -506,7 +527,7 @@ mod tests {
         // npairs=1 but only 4 bytes available (half a pair).
         // Kills: `/ 8 → * 8` mutant — with * 8, remaining = 4*8=32 ≥ 1, wrongly accepts.
         let code: Vec<u8> = vec![
-            0xAB,           // lookupswitch
+            0xAB, // lookupswitch
             0x00, 0x00, 0x00, // padding
             0x00, 0x00, 0x00, 0x05, // default = 5
             0x00, 0x00, 0x00, 0x01, // npairs = 1
@@ -529,9 +550,9 @@ mod tests {
         // Both reserved bytes = 0 → valid; must NOT trigger the error.
         // Mutant `!= → ==` flips the check so zero bytes would *always* error.
         let code: Vec<u8> = vec![
-            0xBA,           // invokedynamic
-            0x00, 0x01,     // cp index = 1
-            0x00, 0x00,     // reserved1=0, reserved2=0
+            0xBA, // invokedynamic
+            0x00, 0x01, // cp index = 1
+            0x00, 0x00, // reserved1=0, reserved2=0
         ];
         let instrs = decode(&code).expect("valid invokedynamic should decode");
         assert_eq!(instrs.len(), 1);
@@ -573,7 +594,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds { index: 5, max_locals: 3, .. }
+                VerifyError::LocalOutOfBounds {
+                    index: 5,
+                    max_locals: 3,
+                    ..
+                }
             ),
             "{err}"
         );
@@ -587,7 +612,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds { index: 3, max_locals: 2, .. }
+                VerifyError::LocalOutOfBounds {
+                    index: 3,
+                    max_locals: 2,
+                    ..
+                }
             ),
             "{err}"
         );
@@ -612,7 +641,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds { index: 5, max_locals: 3, .. }
+                VerifyError::LocalOutOfBounds {
+                    index: 5,
+                    max_locals: 3,
+                    ..
+                }
             ),
             "{err}"
         );
@@ -627,7 +660,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds { index: 0, max_locals: 0, .. }
+                VerifyError::LocalOutOfBounds {
+                    index: 0,
+                    max_locals: 0,
+                    ..
+                }
             ),
             "{err}"
         );
@@ -642,7 +679,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds { index: 1, max_locals: 1, .. }
+                VerifyError::LocalOutOfBounds {
+                    index: 1,
+                    max_locals: 1,
+                    ..
+                }
             ),
             "{err}"
         );
@@ -657,7 +698,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds { index: 2, max_locals: 2, .. }
+                VerifyError::LocalOutOfBounds {
+                    index: 2,
+                    max_locals: 2,
+                    ..
+                }
             ),
             "{err}"
         );
@@ -672,7 +717,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds { index: 3, max_locals: 3, .. }
+                VerifyError::LocalOutOfBounds {
+                    index: 3,
+                    max_locals: 3,
+                    ..
+                }
             ),
             "{err}"
         );

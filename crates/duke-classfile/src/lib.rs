@@ -359,7 +359,7 @@ mod tests {
 
         // #1 CONSTANT_Double (tag 6) = 3.14 — occupies slots 1 and 2
         v.push(6);
-        let bits = 3.14_f64.to_bits();
+        let bits = std::f64::consts::PI.to_bits();
         v.extend_from_slice(&bits.to_be_bytes());
 
         // #3 CONSTANT_Utf8 "DblClass"
@@ -384,10 +384,13 @@ mod tests {
 
         let cf = parse(&v).expect("class with CONSTANT_Double should parse");
         assert!(
-            matches!(&cf.constant_pool[1], Some(CpEntry::Double(d)) if (*d - 3.14).abs() < 1e-10),
+            matches!(&cf.constant_pool[1], Some(CpEntry::Double(d)) if (*d - std::f64::consts::PI).abs() < 1e-10),
             "slot 1 should be Double(3.14)"
         );
-        assert!(cf.constant_pool[2].is_none(), "slot 2 should be phantom None after Double");
+        assert!(
+            cf.constant_pool[2].is_none(),
+            "slot 2 should be phantom None after Double"
+        );
         assert!(
             matches!(&cf.constant_pool[3], Some(CpEntry::Utf8(s)) if s == "DblClass"),
             "slot 3 should be Utf8"
@@ -401,7 +404,7 @@ mod tests {
     #[test]
     fn method_handle_invalid_kind_rejected() {
         // kind=0 is invalid (valid range 1-9); `delete !` mutant would ACCEPT this
-        let mut v = minimal_class_bytes();
+        let v = minimal_class_bytes();
         // We need to rebuild with a MethodHandle CP entry (tag=15).
         // Easiest: craft a class with cp_count=4: #1=MethodHandle(kind=0,ref=2), #2=Utf8("X"), #3=Class(2)
         let mut v2: Vec<u8> = Vec::new();
@@ -411,7 +414,7 @@ mod tests {
 
         // #1 CONSTANT_MethodHandle (tag=15) kind=0 (invalid), ref=#2
         v2.push(15);
-        v2.push(0);             // reference_kind = 0 — INVALID
+        v2.push(0); // reference_kind = 0 — INVALID
         v2.extend_from_slice(&[0x00, 0x02]); // reference_index
 
         // #2 CONSTANT_Utf8 "X"
@@ -446,7 +449,7 @@ mod tests {
 
         // #1 CONSTANT_MethodHandle (tag=15) kind=6, ref=#2
         v.push(15);
-        v.push(6);              // REF_invokeVirtual — valid
+        v.push(6); // REF_invokeVirtual — valid
         v.extend_from_slice(&[0x00, 0x02]);
 
         // #2 CONSTANT_Utf8 "Foo"
@@ -471,7 +474,13 @@ mod tests {
 
         let cf = parse(&v).expect("valid method handle kind=6 should parse");
         assert!(
-            matches!(&cf.constant_pool[1], Some(CpEntry::MethodHandle { reference_kind: 6, .. })),
+            matches!(
+                &cf.constant_pool[1],
+                Some(CpEntry::MethodHandle {
+                    reference_kind: 6,
+                    ..
+                })
+            ),
             "slot 1 should be MethodHandle(kind=6)"
         );
     }
@@ -491,7 +500,10 @@ mod tests {
             .attributes
             .iter()
             .any(|a| matches!(&a.data, AttributeData::SourceFile { .. }));
-        assert!(has_source_file, "HelloWorld.class should have a decoded SourceFile attribute");
+        assert!(
+            has_source_file,
+            "HelloWorld.class should have a decoded SourceFile attribute"
+        );
     }
 
     #[test]
@@ -511,7 +523,10 @@ mod tests {
                 }
             })
         });
-        assert!(has_lnt, "HelloWorld.class should have a decoded LineNumberTable in some method");
+        assert!(
+            has_lnt,
+            "HelloWorld.class should have a decoded LineNumberTable in some method"
+        );
     }
 
     #[test]
@@ -531,7 +546,10 @@ mod tests {
                 }
             })
         });
-        assert!(has_lvt, "HelloWorld.class should have a decoded LocalVariableTable in some method");
+        assert!(
+            has_lvt,
+            "HelloWorld.class should have a decoded LocalVariableTable in some method"
+        );
     }
 
     #[test]
@@ -545,21 +563,34 @@ mod tests {
         v.extend_from_slice(&[0x00, 0x09]); // cp_count = 9
 
         // #1 Utf8 "CV"
-        v.push(1); v.extend_from_slice(&[0x00, 0x02]); v.extend_from_slice(b"CV");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x02]);
+        v.extend_from_slice(b"CV");
         // #2 Utf8 "I"
-        v.push(1); v.extend_from_slice(&[0x00, 0x01]); v.push(b'I');
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x01]);
+        v.push(b'I');
         // #3 Utf8 "ConstantValue"
-        v.push(1); v.extend_from_slice(&[0x00, 0x0D]); v.extend_from_slice(b"ConstantValue");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x0D]);
+        v.extend_from_slice(b"ConstantValue");
         // #4 Integer 99
-        v.push(3); v.extend_from_slice(&[0x00, 0x00, 0x00, 0x63]);
+        v.push(3);
+        v.extend_from_slice(&[0x00, 0x00, 0x00, 0x63]);
         // #5 Utf8 "FooClass"
-        v.push(1); v.extend_from_slice(&[0x00, 0x08]); v.extend_from_slice(b"FooClass");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x08]);
+        v.extend_from_slice(b"FooClass");
         // #6 Class { name_index=5 }
-        v.push(7); v.extend_from_slice(&[0x00, 0x05]);
+        v.push(7);
+        v.extend_from_slice(&[0x00, 0x05]);
         // #7 Utf8 "java/lang/Object"
-        v.push(1); v.extend_from_slice(&[0x00, 0x10]); v.extend_from_slice(b"java/lang/Object");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x10]);
+        v.extend_from_slice(b"java/lang/Object");
         // #8 Class { name_index=7 }
-        v.push(7); v.extend_from_slice(&[0x00, 0x07]);
+        v.push(7);
+        v.extend_from_slice(&[0x00, 0x07]);
 
         // access_flags=PUBLIC|SUPER, this=6, super=8
         v.extend_from_slice(&[0x00, 0x21, 0x00, 0x06, 0x00, 0x08]);
@@ -582,7 +613,10 @@ mod tests {
             .attributes
             .iter()
             .any(|a| matches!(&a.data, AttributeData::ConstantValue { .. }));
-        assert!(has_cv, "static final field should have a decoded ConstantValue attribute");
+        assert!(
+            has_cv,
+            "static final field should have a decoded ConstantValue attribute"
+        );
     }
 
     #[test]
@@ -597,23 +631,38 @@ mod tests {
         v.extend_from_slice(&[0x00, 0x0A]); // cp_count = 10
 
         // #1 Utf8 "<init>"
-        v.push(1); v.extend_from_slice(&[0x00, 0x06]); v.extend_from_slice(b"<init>");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x06]);
+        v.extend_from_slice(b"<init>");
         // #2 Utf8 "()V"
-        v.push(1); v.extend_from_slice(&[0x00, 0x03]); v.extend_from_slice(b"()V");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x03]);
+        v.extend_from_slice(b"()V");
         // #3 Utf8 "Exceptions"
-        v.push(1); v.extend_from_slice(&[0x00, 0x0A]); v.extend_from_slice(b"Exceptions");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x0A]);
+        v.extend_from_slice(b"Exceptions");
         // #4 Class { name_index=5 }
-        v.push(7); v.extend_from_slice(&[0x00, 0x05]);
+        v.push(7);
+        v.extend_from_slice(&[0x00, 0x05]);
         // #5 Utf8 "java/io/IOException"
-        v.push(1); v.extend_from_slice(&[0x00, 0x13]); v.extend_from_slice(b"java/io/IOException");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x13]);
+        v.extend_from_slice(b"java/io/IOException");
         // #6 Utf8 "ThrowsClass"
-        v.push(1); v.extend_from_slice(&[0x00, 0x0B]); v.extend_from_slice(b"ThrowsClass");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x0B]);
+        v.extend_from_slice(b"ThrowsClass");
         // #7 Class { name_index=6 }
-        v.push(7); v.extend_from_slice(&[0x00, 0x06]);
+        v.push(7);
+        v.extend_from_slice(&[0x00, 0x06]);
         // #8 Utf8 "java/lang/Object"
-        v.push(1); v.extend_from_slice(&[0x00, 0x10]); v.extend_from_slice(b"java/lang/Object");
+        v.push(1);
+        v.extend_from_slice(&[0x00, 0x10]);
+        v.extend_from_slice(b"java/lang/Object");
         // #9 Class { name_index=8 }
-        v.push(7); v.extend_from_slice(&[0x00, 0x08]);
+        v.push(7);
+        v.extend_from_slice(&[0x00, 0x08]);
 
         // access_flags=PUBLIC|SUPER, this=7, super=9
         v.extend_from_slice(&[0x00, 0x21, 0x00, 0x07, 0x00, 0x09]);
@@ -637,7 +686,10 @@ mod tests {
             .attributes
             .iter()
             .any(|a| matches!(&a.data, AttributeData::Exceptions { exception_index_table } if !exception_index_table.is_empty()));
-        assert!(has_exc, "method should have a decoded Exceptions attribute with one entry");
+        assert!(
+            has_exc,
+            "method should have a decoded Exceptions attribute with one entry"
+        );
     }
 
     #[test]
@@ -646,11 +698,13 @@ mod tests {
         let bytes = std::fs::read(&path)
             .unwrap_or_else(|_| panic!("fixture not found: {}", path.display()));
         let cf = parse(&bytes).unwrap();
-        let has_bsm = cf
-            .attributes
-            .iter()
-            .any(|a| matches!(&a.data, AttributeData::BootstrapMethods(entries) if !entries.is_empty()));
-        assert!(has_bsm, "LambdaTest.class should have a non-empty BootstrapMethods attribute");
+        let has_bsm = cf.attributes.iter().any(
+            |a| matches!(&a.data, AttributeData::BootstrapMethods(entries) if !entries.is_empty()),
+        );
+        assert!(
+            has_bsm,
+            "LambdaTest.class should have a non-empty BootstrapMethods attribute"
+        );
     }
 
     // -----------------------------------------------------------------------

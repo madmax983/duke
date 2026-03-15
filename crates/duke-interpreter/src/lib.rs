@@ -695,14 +695,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
-    registry
-        .natives_mut()
-        .register(
-            "java/lang/Throwable",
-            "addSuppressed",
-            "(Ljava/lang/Throwable;)V",
-            native_throwable_add_suppressed,
-        );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "addSuppressed",
+        "(Ljava/lang/Throwable;)V",
+        native_throwable_add_suppressed,
+    );
 
     // java/lang/Exception extends Throwable
     let exception_ctx = ClassContext {
@@ -15632,7 +15630,7 @@ mod tests {
     fn heap_object_to_string_double_field() {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Double".to_string(), 1);
-        heap.get_mut(r).unwrap().fields[0] = Slot::Double(3.14);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Double(std::f64::consts::PI);
         let obj = heap.get(r).unwrap().clone();
         let s = heap_object_to_string(&obj, r);
         assert!(s.contains("3.14"), "expected '3.14' in '{s}'");
@@ -15724,14 +15722,17 @@ mod tests {
 
     #[test]
     fn format_java_float_finite_with_decimal() {
-        let s = format_java_float(3.14_f32);
+        let s = format_java_float(std::f32::consts::PI);
         assert!(s.contains('.'), "finite float must contain '.': {s}");
     }
 
     #[test]
     fn format_java_float_whole_number_gets_dot_zero() {
         let s = format_java_float(2.0_f32);
-        assert!(s.ends_with(".0") || s.contains('.'), "must have decimal: {s}");
+        assert!(
+            s.ends_with(".0") || s.contains('.'),
+            "must have decimal: {s}"
+        );
     }
 
     #[test]
@@ -15751,7 +15752,7 @@ mod tests {
 
     #[test]
     fn format_java_double_finite_with_decimal() {
-        let s = format_java_double(2.718_281_828);
+        let s = format_java_double(std::f64::consts::E);
         assert!(s.contains('.'), "finite double must contain '.': {s}");
     }
 
@@ -15793,12 +15794,8 @@ mod tests {
     fn native_println_boolean_false() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        native_println_boolean(
-            &[Slot::Reference(None), Slot::Int(0)],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap();
+        native_println_boolean(&[Slot::Reference(None), Slot::Int(0)], &mut heap, &mut out)
+            .unwrap();
         assert_eq!(String::from_utf8(out).unwrap().trim(), "false");
     }
 
@@ -15806,12 +15803,8 @@ mod tests {
     fn native_println_boolean_true() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        native_println_boolean(
-            &[Slot::Reference(None), Slot::Int(1)],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap();
+        native_println_boolean(&[Slot::Reference(None), Slot::Int(1)], &mut heap, &mut out)
+            .unwrap();
         assert_eq!(String::from_utf8(out).unwrap().trim(), "true");
     }
 
@@ -15819,12 +15812,7 @@ mod tests {
     fn native_print_boolean_false() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        native_print_boolean(
-            &[Slot::Reference(None), Slot::Int(0)],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap();
+        native_print_boolean(&[Slot::Reference(None), Slot::Int(0)], &mut heap, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "false");
     }
 
@@ -15832,12 +15820,7 @@ mod tests {
     fn native_print_boolean_true() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        native_print_boolean(
-            &[Slot::Reference(None), Slot::Int(5)],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap();
+        native_print_boolean(&[Slot::Reference(None), Slot::Int(5)], &mut heap, &mut out).unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "true");
     }
 
@@ -15849,8 +15832,12 @@ mod tests {
     fn native_print_char_ascii() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        native_print_char(&[Slot::Reference(None), Slot::Int('Z' as i32)], &mut heap, &mut out)
-            .unwrap();
+        native_print_char(
+            &[Slot::Reference(None), Slot::Int('Z' as i32)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "Z");
     }
 
@@ -15871,8 +15858,12 @@ mod tests {
     fn native_print_float_value() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        native_print_float(&[Slot::Reference(None), Slot::Float(3.0_f32)], &mut heap, &mut out)
-            .unwrap();
+        native_print_float(
+            &[Slot::Reference(None), Slot::Float(3.0_f32)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
         let s = String::from_utf8(out).unwrap();
         assert!(s.contains('3'), "expected '3' in '{s}'");
     }
@@ -16120,7 +16111,7 @@ mod tests {
     fn format_arg_double_f_spec() {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Double".to_string(), 1);
-        heap.get_mut(r).unwrap().fields[0] = Slot::Double(3.14159);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Double(std::f64::consts::PI);
         let result = format_arg('f', Some(2), &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "3.14");
     }
@@ -16182,17 +16173,17 @@ mod tests {
         heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(int_obj));
         let mut out: Vec<u8> = Vec::new();
         let result = native_string_format(
-            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &[
+                Slot::Reference(Some(fmt_ref)),
+                Slot::Reference(Some(arr_ref)),
+            ],
             &mut heap,
             &mut out,
         )
         .unwrap()
         .unwrap();
         let s_ref = result.as_reference().unwrap();
-        assert_eq!(
-            heap.get(s_ref).unwrap().string_value.as_deref(),
-            Some("7")
-        );
+        assert_eq!(heap.get(s_ref).unwrap().string_value.as_deref(), Some("7"));
     }
 
     #[test]
@@ -16202,7 +16193,10 @@ mod tests {
         let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
         let mut out: Vec<u8> = Vec::new();
         let result = native_string_format(
-            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &[
+                Slot::Reference(Some(fmt_ref)),
+                Slot::Reference(Some(arr_ref)),
+            ],
             &mut heap,
             &mut out,
         )
@@ -16222,7 +16216,10 @@ mod tests {
         let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
         let mut out: Vec<u8> = Vec::new();
         let result = native_string_format(
-            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &[
+                Slot::Reference(Some(fmt_ref)),
+                Slot::Reference(Some(arr_ref)),
+            ],
             &mut heap,
             &mut out,
         )
@@ -16241,11 +16238,14 @@ mod tests {
         let fmt_ref = heap.allocate_string("%.2f".to_string());
         let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
         let dbl_obj = heap.allocate("java/lang/Double".to_string(), 1);
-        heap.get_mut(dbl_obj).unwrap().fields[0] = Slot::Double(3.14159);
+        heap.get_mut(dbl_obj).unwrap().fields[0] = Slot::Double(std::f64::consts::PI);
         heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(Some(dbl_obj));
         let mut out: Vec<u8> = Vec::new();
         let result = native_string_format(
-            &[Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr_ref))],
+            &[
+                Slot::Reference(Some(fmt_ref)),
+                Slot::Reference(Some(arr_ref)),
+            ],
             &mut heap,
             &mut out,
         )
@@ -16265,14 +16265,8 @@ mod tests {
     #[test]
     fn execute_string_concat_recipe_single_dynamic_int() {
         let mut heap = duke_gc::Heap::new();
-        let slot = execute_string_concat_recipe(
-            "\u{1}",
-            &[Slot::Int(42)],
-            &['I'],
-            &[],
-            &mut heap,
-        )
-        .unwrap();
+        let slot = execute_string_concat_recipe("\u{1}", &[Slot::Int(42)], &['I'], &[], &mut heap)
+            .unwrap();
         let r = slot.as_reference().unwrap();
         assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("42"));
     }
@@ -16280,14 +16274,9 @@ mod tests {
     #[test]
     fn execute_string_concat_recipe_constant_only() {
         let mut heap = duke_gc::Heap::new();
-        let slot = execute_string_concat_recipe(
-            "\u{2}",
-            &[],
-            &[],
-            &["hello".to_string()],
-            &mut heap,
-        )
-        .unwrap();
+        let slot =
+            execute_string_concat_recipe("\u{2}", &[], &[], &["hello".to_string()], &mut heap)
+                .unwrap();
         let r = slot.as_reference().unwrap();
         assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("hello"));
     }
@@ -16295,8 +16284,7 @@ mod tests {
     #[test]
     fn execute_string_concat_recipe_literal_chars() {
         let mut heap = duke_gc::Heap::new();
-        let slot =
-            execute_string_concat_recipe("xyz", &[], &[], &[], &mut heap).unwrap();
+        let slot = execute_string_concat_recipe("xyz", &[], &[], &[], &mut heap).unwrap();
         let r = slot.as_reference().unwrap();
         assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("xyz"));
     }
@@ -16304,14 +16292,8 @@ mod tests {
     #[test]
     fn execute_string_concat_recipe_mixed() {
         let mut heap = duke_gc::Heap::new();
-        let slot = execute_string_concat_recipe(
-            "x\u{1}y",
-            &[Slot::Int(5)],
-            &['I'],
-            &[],
-            &mut heap,
-        )
-        .unwrap();
+        let slot = execute_string_concat_recipe("x\u{1}y", &[Slot::Int(5)], &['I'], &[], &mut heap)
+            .unwrap();
         let r = slot.as_reference().unwrap();
         assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("x5y"));
     }
@@ -16518,7 +16500,10 @@ mod tests {
         let missing_key = heap.allocate_string("missing".to_string());
         let mut out: Vec<u8> = Vec::new();
         let result = native_hashmap_remove(
-            &[Slot::Reference(Some(map)), Slot::Reference(Some(missing_key))],
+            &[
+                Slot::Reference(Some(map)),
+                Slot::Reference(Some(missing_key)),
+            ],
             &mut heap,
             &mut out,
         )
@@ -16642,8 +16627,7 @@ mod tests {
     fn native_long_parselong_null_raises_npe() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        let err =
-            native_long_parselong(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
+        let err = native_long_parselong(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
         assert!(matches!(err, VmError::NullPointerException));
     }
 
@@ -16670,24 +16654,24 @@ mod tests {
     #[test]
     fn native_double_parsedouble_valid_string() {
         let mut heap = duke_gc::Heap::new();
-        let s = heap.allocate_string("3.14".to_string());
+        let s = heap.allocate_string("2.5".to_string());
         let mut out: Vec<u8> = Vec::new();
         let r = native_double_parsedouble(&[Slot::Reference(Some(s))], &mut heap, &mut out)
             .unwrap()
             .unwrap();
-        assert!(matches!(r, Slot::Double(v) if (v - 3.14).abs() < 1e-9));
+        assert!(matches!(r, Slot::Double(v) if (v - 2.5).abs() < 1e-9));
     }
 
     #[test]
     fn native_double_doublevalue_nonnull() {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Double".to_string(), 1);
-        heap.get_mut(r).unwrap().fields[0] = Slot::Double(2.718);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Double(2.5);
         let mut out: Vec<u8> = Vec::new();
         let result = native_double_doublevalue(&[Slot::Reference(Some(r))], &mut heap, &mut out)
             .unwrap()
             .unwrap();
-        assert!(matches!(result, Slot::Double(v) if (v - 2.718).abs() < 1e-9));
+        assert!(matches!(result, Slot::Double(v) if (v - 2.5).abs() < 1e-9));
     }
 
     #[test]
@@ -16765,13 +16749,9 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let obj = heap.allocate_string("hello".to_string());
         let mut out: Vec<u8> = Vec::new();
-        let r = native_string_value_of_object(
-            &[Slot::Reference(Some(obj))],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap()
-        .unwrap();
+        let r = native_string_value_of_object(&[Slot::Reference(Some(obj))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
         let ref_r = r.as_reference().unwrap();
         assert_eq!(
             heap.get(ref_r).unwrap().string_value.as_deref(),
@@ -16838,13 +16818,10 @@ mod tests {
     fn native_math_min_double_returns_smaller() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        let r = native_math_min_double(
-            &[Slot::Double(3.0), Slot::Double(1.5)],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap()
-        .unwrap();
+        let r =
+            native_math_min_double(&[Slot::Double(3.0), Slot::Double(1.5)], &mut heap, &mut out)
+                .unwrap()
+                .unwrap();
         assert!(matches!(r, Slot::Double(v) if (v - 1.5).abs() < 1e-9));
     }
 
@@ -16852,13 +16829,10 @@ mod tests {
     fn native_math_min_double_returns_first_when_equal() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        let r = native_math_min_double(
-            &[Slot::Double(2.0), Slot::Double(2.0)],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap()
-        .unwrap();
+        let r =
+            native_math_min_double(&[Slot::Double(2.0), Slot::Double(2.0)], &mut heap, &mut out)
+                .unwrap()
+                .unwrap();
         assert!(matches!(r, Slot::Double(v) if (v - 2.0).abs() < 1e-9));
     }
 
@@ -18045,7 +18019,10 @@ mod tests {
         assert_eq!(parse_arg_types("(Ljava/lang/String;)V"), vec!['L']);
         assert_eq!(parse_arg_types("([I)V"), vec!['[']);
         assert_eq!(parse_arg_types("([Ljava/lang/String;)V"), vec!['[']);
-        assert_eq!(parse_arg_types("(ILjava/lang/String;[I)V"), vec!['I', 'L', '[']);
+        assert_eq!(
+            parse_arg_types("(ILjava/lang/String;[I)V"),
+            vec!['I', 'L', '[']
+        );
     }
 
     // ===========================================================================
@@ -18073,7 +18050,10 @@ mod tests {
             default_slot_for_descriptor("Ljava/lang/String;"),
             Slot::Reference(None)
         ));
-        assert!(matches!(default_slot_for_descriptor("[I"), Slot::Reference(None)));
+        assert!(matches!(
+            default_slot_for_descriptor("[I"),
+            Slot::Reference(None)
+        ));
     }
 
     #[test]
@@ -18416,10 +18396,7 @@ mod tests {
         .unwrap()
         .unwrap();
         if let Slot::Reference(Some(r)) = result {
-            assert_eq!(
-                heap.get(r).unwrap().string_value.as_deref(),
-                Some("second")
-            );
+            assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("second"));
         } else {
             panic!("expected reference, got {result:?}");
         }
@@ -18470,9 +18447,11 @@ mod tests {
         )
         .unwrap();
         let fields = &heap.get(arr_ref).unwrap().fields;
-        assert!(fields
-            .iter()
-            .all(|s| matches!(s, Slot::Reference(Some(r)) if *r == val_ref)));
+        assert!(
+            fields
+                .iter()
+                .all(|s| matches!(s, Slot::Reference(Some(r)) if *r == val_ref))
+        );
     }
 
     // ===========================================================================
@@ -18650,12 +18629,7 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
         let hm_ref = heap.allocate("java/util/HashMap".to_string(), 1);
-        native_hashmap_init(
-            &[Slot::Reference(Some(hm_ref))],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap();
+        native_hashmap_init(&[Slot::Reference(Some(hm_ref))], &mut heap, &mut out).unwrap();
         let k1 = heap.allocate_string("key1".to_string());
         let v1 = heap.allocate_string("val1".to_string());
         let k2 = heap.allocate_string("key2".to_string());
@@ -18777,13 +18751,9 @@ mod tests {
             panic!("expected reference, got {old:?}");
         }
         // Size should now be 1
-        let size = native_hashmap_size(
-            &[Slot::Reference(Some(hm_ref))],
-            &mut heap,
-            &mut out,
-        )
-        .unwrap()
-        .unwrap();
+        let size = native_hashmap_size(&[Slot::Reference(Some(hm_ref))], &mut heap, &mut out)
+            .unwrap()
+            .unwrap();
         assert_eq!(size, Slot::Int(1));
     }
 
@@ -18967,8 +18937,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Int(-8), Slot::Int(2)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         // (-8u32) >> 2 = 0x3FFFFFFE = 1073741822
         assert_eq!(r, Slot::Int(1_073_741_822));
     }
@@ -18986,8 +18960,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Int(0b1111_0000), Slot::Int(0b1010_1010)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0b1010_0000)); // 160
     }
 
@@ -19002,8 +18980,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Int(12), Slot::Int(10)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(14));
     }
 
@@ -19018,8 +19000,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Int(5), Slot::Int(3)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(6));
     }
 
@@ -19036,8 +19022,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(10), Slot::Long(3)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(3));
     }
 
@@ -19052,8 +19042,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(10), Slot::Long(3)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(1));
     }
 
@@ -19070,8 +19064,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(1), Slot::Int(65)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         // 1L << 1 = 2
         assert_eq!(r, Slot::Long(2));
     }
@@ -19087,8 +19085,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(-8), Slot::Int(65)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(-4));
     }
 
@@ -19103,8 +19105,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(i64::MIN), Slot::Int(1)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(4_611_686_018_427_387_904));
     }
 
@@ -19119,8 +19125,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(i64::MIN), Slot::Int(65)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(4_611_686_018_427_387_904));
     }
 
@@ -19137,8 +19147,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(0xF0F0_F0F0), Slot::Long(0x0F0F_0F0F)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(0));
     }
 
@@ -19153,8 +19167,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(0b1100), Slot::Long(0b0110)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(14));
     }
 
@@ -19169,8 +19187,12 @@ mod tests {
                 (3, Instruction::Lreturn),
             ],
             vec![Slot::Long(0b1010), Slot::Long(0b1010)],
-            4, 2, "()J",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(0));
     }
 
@@ -19187,8 +19209,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Long(2), Slot::Long(5)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(-1));
     }
 
@@ -19202,8 +19228,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Long(7), Slot::Long(7)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19217,8 +19247,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Long(10), Slot::Long(3)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19234,8 +19268,12 @@ mod tests {
                 (3, Instruction::Freturn),
             ],
             vec![Slot::Float(2.0), Slot::Float(3.0)],
-            4, 2, "()F",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Float(5.0));
     }
 
@@ -19249,8 +19287,12 @@ mod tests {
                 (3, Instruction::Freturn),
             ],
             vec![Slot::Float(7.0), Slot::Float(3.0)],
-            4, 2, "()F",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Float(4.0));
     }
 
@@ -19264,8 +19306,12 @@ mod tests {
                 (3, Instruction::Freturn),
             ],
             vec![Slot::Float(4.0), Slot::Float(3.0)],
-            4, 2, "()F",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Float(12.0));
     }
 
@@ -19279,8 +19325,12 @@ mod tests {
                 (3, Instruction::Freturn),
             ],
             vec![Slot::Float(10.0), Slot::Float(4.0)],
-            4, 2, "()F",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Float(2.5));
     }
 
@@ -19294,11 +19344,17 @@ mod tests {
                 (3, Instruction::Freturn),
             ],
             vec![Slot::Float(10.0), Slot::Float(3.0)],
-            4, 2, "()F",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         if let Slot::Float(v) = r {
             assert!((v - 1.0_f32).abs() < 0.001);
-        } else { panic!("{r:?}"); }
+        } else {
+            panic!("{r:?}");
+        }
     }
 
     #[test]
@@ -19311,8 +19367,12 @@ mod tests {
                 (2, Instruction::Freturn),
             ],
             vec![Slot::Float(-5.0)],
-            4, 1, "()F",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Float(5.0));
     }
 
@@ -19329,8 +19389,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Float(3.0), Slot::Float(2.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19345,8 +19409,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Float(2.0), Slot::Float(3.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(-1));
     }
 
@@ -19361,8 +19429,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Float(f32::NAN), Slot::Float(0.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(-1));
     }
 
@@ -19377,8 +19449,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Float(f32::NAN), Slot::Float(0.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19394,8 +19470,12 @@ mod tests {
                 (3, Instruction::Dreturn),
             ],
             vec![Slot::Double(2.0), Slot::Double(3.0)],
-            4, 2, "()D",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(5.0));
     }
 
@@ -19409,8 +19489,12 @@ mod tests {
                 (3, Instruction::Dreturn),
             ],
             vec![Slot::Double(7.0), Slot::Double(3.0)],
-            4, 2, "()D",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(4.0));
     }
 
@@ -19424,8 +19508,12 @@ mod tests {
                 (3, Instruction::Dreturn),
             ],
             vec![Slot::Double(4.0), Slot::Double(3.0)],
-            4, 2, "()D",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(12.0));
     }
 
@@ -19439,8 +19527,12 @@ mod tests {
                 (3, Instruction::Dreturn),
             ],
             vec![Slot::Double(10.0), Slot::Double(4.0)],
-            4, 2, "()D",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(2.5));
     }
 
@@ -19454,11 +19546,17 @@ mod tests {
                 (3, Instruction::Dreturn),
             ],
             vec![Slot::Double(10.0), Slot::Double(3.0)],
-            4, 2, "()D",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         if let Slot::Double(v) = r {
             assert!((v - 1.0_f64).abs() < 1e-9);
-        } else { panic!("{r:?}"); }
+        } else {
+            panic!("{r:?}");
+        }
     }
 
     #[test]
@@ -19470,8 +19568,12 @@ mod tests {
                 (2, Instruction::Dreturn),
             ],
             vec![Slot::Double(-5.0)],
-            4, 1, "()D",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(5.0));
     }
 
@@ -19487,8 +19589,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Double(3.0), Slot::Double(2.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19502,8 +19608,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Double(2.0), Slot::Double(3.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(-1));
     }
 
@@ -19517,8 +19627,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Double(f64::NAN), Slot::Double(0.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(-1));
     }
 
@@ -19532,8 +19646,12 @@ mod tests {
                 (3, Instruction::Ireturn),
             ],
             vec![Slot::Double(f64::NAN), Slot::Double(0.0)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19546,15 +19664,19 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Iload0),
-                (1, Instruction::Iflt(5)),   // target = 1+5 = 6
+                (1, Instruction::Iflt(5)), // target = 1+5 = 6
                 (4, Instruction::Iconst0),
                 (5, Instruction::Ireturn),
                 (6, Instruction::Iconst1),
                 (7, Instruction::Ireturn),
             ],
             vec![Slot::Int(-1)],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19571,8 +19693,12 @@ mod tests {
                 (7, Instruction::Ireturn),
             ],
             vec![Slot::Int(0)],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19589,8 +19715,12 @@ mod tests {
                 (7, Instruction::Ireturn),
             ],
             vec![Slot::Int(1)],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19599,15 +19729,19 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Iload0),
-                (1, Instruction::Ifgt(5)),   // target = 6
+                (1, Instruction::Ifgt(5)), // target = 6
                 (4, Instruction::Iconst0),
                 (5, Instruction::Ireturn),
                 (6, Instruction::Iconst1),
                 (7, Instruction::Ireturn),
             ],
             vec![Slot::Int(1)],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19625,8 +19759,12 @@ mod tests {
                 (7, Instruction::Ireturn),
             ],
             vec![Slot::Int(0)],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19643,8 +19781,12 @@ mod tests {
                 (7, Instruction::Ireturn),
             ],
             vec![Slot::Int(-1)],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19655,15 +19797,19 @@ mod tests {
             vec![
                 (0, Instruction::Iload0),
                 (1, Instruction::Iload1),
-                (2, Instruction::IfIcmpeq(5)),  // target = 2+5 = 7
+                (2, Instruction::IfIcmpeq(5)), // target = 2+5 = 7
                 (5, Instruction::Iconst0),
                 (6, Instruction::Ireturn),
                 (7, Instruction::Iconst1),
                 (8, Instruction::Ireturn),
             ],
             vec![Slot::Int(3), Slot::Int(3)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19680,8 +19826,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![Slot::Int(3), Slot::Int(4)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19699,8 +19849,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![Slot::Int(2), Slot::Int(5)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19718,8 +19872,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![Slot::Int(3), Slot::Int(3)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19737,8 +19895,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![Slot::Int(5), Slot::Int(2)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19756,8 +19918,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![Slot::Int(3), Slot::Int(3)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(1));
     }
 
@@ -19775,8 +19941,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![Slot::Int(4), Slot::Int(3)],
-            4, 2, "()I",
-        ).unwrap().unwrap();
+            4,
+            2,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19788,7 +19958,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Iconst1),
-                (1, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (
+                    1,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
+                ),
                 (3, Instruction::Astore0),
                 (4, Instruction::Aload0),
                 (5, Instruction::Iconst0),
@@ -19796,8 +19969,12 @@ mod tests {
                 (7, Instruction::Lreturn),
             ],
             vec![],
-            4, 1, "()J",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(0));
     }
 
@@ -19806,7 +19983,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Iconst1),
-                (1, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (
+                    1,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
+                ),
                 (3, Instruction::Astore0),
                 (4, Instruction::Aload0),
                 (5, Instruction::Iconst0),
@@ -19814,8 +19994,12 @@ mod tests {
                 (7, Instruction::Freturn),
             ],
             vec![],
-            4, 1, "()F",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Float(0.0));
     }
 
@@ -19824,7 +20008,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Iconst1),
-                (1, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (
+                    1,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
+                ),
                 (3, Instruction::Astore0),
                 (4, Instruction::Aload0),
                 (5, Instruction::Iconst0),
@@ -19832,8 +20019,12 @@ mod tests {
                 (7, Instruction::Dreturn),
             ],
             vec![],
-            4, 1, "()D",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(0.0));
     }
 
@@ -19846,7 +20037,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Iconst0),
@@ -19854,8 +20048,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19865,7 +20063,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Iconst1),
@@ -19873,8 +20074,12 @@ mod tests {
                 (8, Instruction::Ireturn),
             ],
             vec![],
-            4, 1, "()I",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Int(0));
     }
 
@@ -19884,16 +20089,22 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
-                (6, Instruction::Bipush(3)),  // idx = length = OOB
+                (6, Instruction::Bipush(3)), // idx = length = OOB
                 (8, Instruction::Iaload),
                 (9, Instruction::Ireturn),
             ],
             vec![],
-            4, 1, "()I",
-        ).unwrap_err();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -19903,18 +20114,24 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
-                (6, Instruction::Bipush(3)),   // idx=3 = OOB
-                (8, Instruction::Iconst5),      // value
+                (6, Instruction::Bipush(3)), // idx=3 = OOB
+                (8, Instruction::Iconst5),   // value
                 (9, Instruction::Iastore),
                 (10, Instruction::Iconst0),
                 (11, Instruction::Ireturn),
             ],
             vec![],
-            4, 1, "()I",
-        ).unwrap_err();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -19924,7 +20141,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Iconst0),
@@ -19932,8 +20152,12 @@ mod tests {
                 (8, Instruction::Lreturn),
             ],
             vec![],
-            4, 1, "()J",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(0));
     }
 
@@ -19943,7 +20167,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Iconst1),
@@ -19951,8 +20178,12 @@ mod tests {
                 (8, Instruction::Lreturn),
             ],
             vec![],
-            4, 1, "()J",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()J",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Long(0));
     }
 
@@ -19962,7 +20193,10 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Bipush(3)),
@@ -19970,8 +20204,11 @@ mod tests {
                 (9, Instruction::Lreturn),
             ],
             vec![],
-            4, 1, "()J",
-        ).unwrap_err();
+            4,
+            1,
+            "()J",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -19981,18 +20218,24 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
-                (6, Instruction::Bipush(3)),    // idx=3 OOB
+                (6, Instruction::Bipush(3)), // idx=3 OOB
                 (8, Instruction::Lconst0),
                 (9, Instruction::Lastore),
                 (10, Instruction::Iconst0),
                 (11, Instruction::Ireturn),
             ],
             vec![],
-            4, 1, "()I",
-        ).unwrap_err();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -20002,7 +20245,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Iconst0),
@@ -20010,8 +20256,12 @@ mod tests {
                 (8, Instruction::Freturn),
             ],
             vec![],
-            4, 1, "()F",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()F",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Float(0.0));
     }
 
@@ -20020,7 +20270,10 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Bipush(3)),
@@ -20028,8 +20281,11 @@ mod tests {
                 (9, Instruction::Freturn),
             ],
             vec![],
-            4, 1, "()F",
-        ).unwrap_err();
+            4,
+            1,
+            "()F",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -20038,18 +20294,24 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
-                (6, Instruction::Bipush(3)),    // idx=3 OOB
+                (6, Instruction::Bipush(3)), // idx=3 OOB
                 (8, Instruction::Fconst0),
                 (9, Instruction::Fastore),
                 (10, Instruction::Iconst0),
                 (11, Instruction::Ireturn),
             ],
             vec![],
-            4, 1, "()I",
-        ).unwrap_err();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -20058,7 +20320,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Iconst0),
@@ -20066,8 +20331,12 @@ mod tests {
                 (8, Instruction::Dreturn),
             ],
             vec![],
-            4, 1, "()D",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(0.0));
     }
 
@@ -20076,7 +20345,10 @@ mod tests {
         let r = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Iconst1),
@@ -20084,8 +20356,12 @@ mod tests {
                 (8, Instruction::Dreturn),
             ],
             vec![],
-            4, 1, "()D",
-        ).unwrap().unwrap();
+            4,
+            1,
+            "()D",
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(r, Slot::Double(0.0));
     }
 
@@ -20094,7 +20370,10 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
                 (6, Instruction::Bipush(3)),
@@ -20102,8 +20381,11 @@ mod tests {
                 (9, Instruction::Dreturn),
             ],
             vec![],
-            4, 1, "()D",
-        ).unwrap_err();
+            4,
+            1,
+            "()D",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -20112,18 +20394,24 @@ mod tests {
         let err = execute_class_synthetic(
             vec![
                 (0, Instruction::Bipush(3)),
-                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (
+                    2,
+                    Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
+                ),
                 (4, Instruction::Astore0),
                 (5, Instruction::Aload0),
-                (6, Instruction::Bipush(3)),     // idx=3 OOB
+                (6, Instruction::Bipush(3)), // idx=3 OOB
                 (8, Instruction::Dconst0),
                 (9, Instruction::Dastore),
                 (10, Instruction::Iconst0),
                 (11, Instruction::Ireturn),
             ],
             vec![],
-            4, 1, "()I",
-        ).unwrap_err();
+            4,
+            1,
+            "()I",
+        )
+        .unwrap_err();
         assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
     }
 
@@ -20134,23 +20422,45 @@ mod tests {
     #[test]
     fn ec_arithmetic_bitwise_xor() {
         // 5 ^ 3 = 6; via execute_class() kills Ixor mutants in execute_class
-        assert_eq!(run_class_int("Arithmetic.class", "bitwiseXor", "(II)I", vec![5, 3]), 6);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "bitwiseXor", "(II)I", vec![5, 3]),
+            6
+        );
     }
 
     #[test]
     fn ec_arithmetic_bitwise_and() {
-        assert_eq!(run_class_int("Arithmetic.class", "bitwiseAnd", "(II)I", vec![0b1111, 0b1010]), 0b1010);
+        assert_eq!(
+            run_class_int(
+                "Arithmetic.class",
+                "bitwiseAnd",
+                "(II)I",
+                vec![0b1111, 0b1010]
+            ),
+            0b1010
+        );
     }
 
     #[test]
     fn ec_arithmetic_bitwise_or() {
-        assert_eq!(run_class_int("Arithmetic.class", "bitwiseOr", "(II)I", vec![0b1111, 0b1010]), 0b1111);
+        assert_eq!(
+            run_class_int(
+                "Arithmetic.class",
+                "bitwiseOr",
+                "(II)I",
+                vec![0b1111, 0b1010]
+            ),
+            0b1111
+        );
     }
 
     #[test]
     fn ec_arithmetic_abs_negative() {
         // abs(-5) = 5; exercises conditional branch in execute_class
-        assert_eq!(run_class_int("Arithmetic.class", "abs", "(I)I", vec![-5]), 5);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "abs", "(I)I", vec![-5]),
+            5
+        );
     }
 
     #[test]
@@ -20160,44 +20470,68 @@ mod tests {
 
     #[test]
     fn ec_arithmetic_max_first_greater() {
-        assert_eq!(run_class_int("Arithmetic.class", "max", "(II)I", vec![7, 3]), 7);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "max", "(II)I", vec![7, 3]),
+            7
+        );
     }
 
     #[test]
     fn ec_arithmetic_max_second_greater() {
-        assert_eq!(run_class_int("Arithmetic.class", "max", "(II)I", vec![3, 7]), 7);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "max", "(II)I", vec![3, 7]),
+            7
+        );
     }
 
     #[test]
     fn ec_arithmetic_clamp_in_range() {
-        assert_eq!(run_class_int("Arithmetic.class", "clamp", "(III)I", vec![5, 1, 10]), 5);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "clamp", "(III)I", vec![5, 1, 10]),
+            5
+        );
     }
 
     #[test]
     fn ec_arithmetic_clamp_below_lo() {
-        assert_eq!(run_class_int("Arithmetic.class", "clamp", "(III)I", vec![0, 1, 10]), 1);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "clamp", "(III)I", vec![0, 1, 10]),
+            1
+        );
     }
 
     #[test]
     fn ec_arithmetic_clamp_above_hi() {
-        assert_eq!(run_class_int("Arithmetic.class", "clamp", "(III)I", vec![15, 1, 10]), 10);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "clamp", "(III)I", vec![15, 1, 10]),
+            10
+        );
     }
 
     #[test]
     fn ec_arithmetic_fibonacci_10() {
         // Exercises loop with IfIcmple / sum additions in execute_class
-        assert_eq!(run_class_int("Arithmetic.class", "fibonacci", "(I)I", vec![10]), 55);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "fibonacci", "(I)I", vec![10]),
+            55
+        );
     }
 
     #[test]
     fn ec_arithmetic_sum_to_100() {
         // Exercises += accumulation loop in execute_class
-        assert_eq!(run_class_int("Arithmetic.class", "sumTo", "(I)I", vec![100]), 5050);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "sumTo", "(I)I", vec![100]),
+            5050
+        );
     }
 
     #[test]
     fn ec_arithmetic_factorial_5() {
-        assert_eq!(run_class_int("Arithmetic.class", "factorial", "(I)I", vec![5]), 120);
+        assert_eq!(
+            run_class_int("Arithmetic.class", "factorial", "(I)I", vec![5]),
+            120
+        );
     }
 
     // =========================================================================
@@ -20237,15 +20571,15 @@ mod tests {
     fn execute_lor_overlapping_bits_is_not_xor() {
         // a=0b11=3, b=0b10=2 → a|b=3, a^b=1; asserts OR result
         let instructions = vec![
-            (0, Instruction::Lconst1),   // push 1L
-            (1, Instruction::Lconst1),   // push 1L
-            (2, Instruction::Ladd),      // 1+1=2L
-            (3, Instruction::Lconst1),   // push 1L
-            (4, Instruction::Ladd),      // 2+1=3L  (this is a=3)
-            (5, Instruction::Lconst1),   // push 1L
-            (6, Instruction::Lconst1),   // push 1L
-            (7, Instruction::Ladd),      // 1+1=2L  (this is b=2)
-            (8, Instruction::Lor),       // 3|2=3, but 3^2=1
+            (0, Instruction::Lconst1), // push 1L
+            (1, Instruction::Lconst1), // push 1L
+            (2, Instruction::Ladd),    // 1+1=2L
+            (3, Instruction::Lconst1), // push 1L
+            (4, Instruction::Ladd),    // 2+1=3L  (this is a=3)
+            (5, Instruction::Lconst1), // push 1L
+            (6, Instruction::Lconst1), // push 1L
+            (7, Instruction::Ladd),    // 1+1=2L  (this is b=2)
+            (8, Instruction::Lor),     // 3|2=3, but 3^2=1
             (9, Instruction::Lreturn),
         ];
         let r = execute(&instructions, &[], vec![], 8, 1).unwrap().unwrap();
@@ -20258,9 +20592,9 @@ mod tests {
     fn execute_lcmp_less_than_returns_minus_one() {
         // Mutant: delete - → returns 1 instead of -1
         let instructions = vec![
-            (0, Instruction::Lconst0),   // push 0L (a)
-            (1, Instruction::Lconst1),   // push 1L (b)
-            (2, Instruction::Lcmp),      // 0 < 1 → -1
+            (0, Instruction::Lconst0), // push 0L (a)
+            (1, Instruction::Lconst1), // push 1L (b)
+            (2, Instruction::Lcmp),    // 0 < 1 → -1
             (3, Instruction::Ireturn),
         ];
         let r = execute(&instructions, &[], vec![], 4, 1).unwrap().unwrap();
@@ -20276,7 +20610,7 @@ mod tests {
         let instructions = vec![
             (0, Instruction::Iconst2),
             (1, Instruction::Iconst2),
-            (2, Instruction::IfIcmpeq(5)),  // if a==b jump to 2+5=7
+            (2, Instruction::IfIcmpeq(5)), // if a==b jump to 2+5=7
             (5, Instruction::Iconst0),
             (6, Instruction::Ireturn),
             (7, Instruction::Iconst1),
@@ -20291,7 +20625,7 @@ mod tests {
         let instructions = vec![
             (0, Instruction::Iconst1),
             (1, Instruction::Iconst2),
-            (2, Instruction::IfIcmpeq(5)),  // 1!=2 → not taken
+            (2, Instruction::IfIcmpeq(5)), // 1!=2 → not taken
             (5, Instruction::Iconst0),
             (6, Instruction::Ireturn),
             (7, Instruction::Iconst1),
@@ -20308,7 +20642,7 @@ mod tests {
         let instructions = vec![
             (0, Instruction::Iconst1),
             (1, Instruction::Iconst2),
-            (2, Instruction::IfIcmpne(5)),  // 1!=2 → taken → 2+5=7
+            (2, Instruction::IfIcmpne(5)), // 1!=2 → taken → 2+5=7
             (5, Instruction::Iconst0),
             (6, Instruction::Ireturn),
             (7, Instruction::Iconst1),
@@ -20324,7 +20658,7 @@ mod tests {
         let instructions = vec![
             (0, Instruction::Iconst3),
             (1, Instruction::Iconst5),
-            (2, Instruction::IfIcmpne(5)),  // 3!=5 → taken → 2+5=7
+            (2, Instruction::IfIcmpne(5)), // 3!=5 → taken → 2+5=7
             (5, Instruction::Iconst0),
             (6, Instruction::Ireturn),
             (7, Instruction::Iconst1),
@@ -20340,7 +20674,7 @@ mod tests {
         let instructions = vec![
             (0, Instruction::Iconst4),
             (1, Instruction::Iconst4),
-            (2, Instruction::IfIcmpne(5)),  // 4!=4 → false → not taken
+            (2, Instruction::IfIcmpne(5)), // 4!=4 → false → not taken
             (5, Instruction::Iconst0),
             (6, Instruction::Ireturn),
             (7, Instruction::Iconst1),
@@ -20370,7 +20704,7 @@ mod tests {
         let instructions = vec![
             (0, Instruction::Iconst0),
             (1, Instruction::Newarray(ArrayType::Int)),
-            (3, Instruction::Pop),          // discard array ref
+            (3, Instruction::Pop), // discard array ref
             (4, Instruction::Iconst1),
             (5, Instruction::Ireturn),
         ];
@@ -20433,7 +20767,13 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 4, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { index: 2, length: 2 }));
+        assert!(matches!(
+            err,
+            VmError::ArrayIndexOutOfBounds {
+                index: 2,
+                length: 2
+            }
+        ));
     }
 
     #[test]
@@ -20484,7 +20824,7 @@ mod tests {
             (1, Instruction::Newarray(ArrayType::Int)),
             (2, Instruction::Astore0),
             (3, Instruction::Aload0),
-            (4, Instruction::Bipush(2i8)),  // idx=2=len
+            (4, Instruction::Bipush(2i8)), // idx=2=len
             (5, Instruction::Iconst1),
             (6, Instruction::Iastore),
             (7, Instruction::Ireturn),
@@ -20822,12 +21162,15 @@ mod tests {
         // Mutant - → +: offsets[key+low=3] → OOB panic (offsets.len()=3)
         let instructions = vec![
             (0, Instruction::Iconst2),
-            (2, Instruction::Tableswitch {
-                default: 6i32,    // 2+6=8 → Iconst0
-                low: 1i32,
-                high: 3i32,
-                offsets: vec![6i32, 8i32, 6i32],  // key=1→8, key=2→10, key=3→8
-            }),
+            (
+                2,
+                Instruction::Tableswitch {
+                    default: 6i32, // 2+6=8 → Iconst0
+                    low: 1i32,
+                    high: 3i32,
+                    offsets: vec![6i32, 8i32, 6i32], // key=1→8, key=2→10, key=3→8
+                },
+            ),
             (8, Instruction::Iconst0),
             (9, Instruction::Ireturn),
             (10, Instruction::Bipush(99i8)),
@@ -20845,7 +21188,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("foo".to_string())),
         ];
         let instructions = vec![
@@ -20864,7 +21209,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("[I".to_string())), // int array class
         ];
         // Create an int array (class_name="[I"), then checkcast to "[I" → should pass
@@ -20887,7 +21234,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("foo".to_string())),
         ];
         let instructions = vec![
@@ -20905,7 +21254,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("[I".to_string())),
         ];
         let instructions = vec![
@@ -20938,10 +21289,7 @@ mod tests {
         .unwrap()
         .unwrap();
         let sub_ref = r.as_reference().unwrap();
-        assert_eq!(
-            heap.get(sub_ref).unwrap().string_value.as_deref(),
-            Some("")
-        );
+        assert_eq!(heap.get(sub_ref).unwrap().string_value.as_deref(), Some(""));
     }
 
     // ---- native_string_substring_range: begin==end returns empty (first > → ==, >= ) ----
@@ -20960,10 +21308,7 @@ mod tests {
         .unwrap()
         .unwrap();
         let sub_ref = r.as_reference().unwrap();
-        assert_eq!(
-            heap.get(sub_ref).unwrap().string_value.as_deref(),
-            Some("")
-        );
+        assert_eq!(heap.get(sub_ref).unwrap().string_value.as_deref(), Some(""));
     }
 
     #[test]
@@ -21070,7 +21415,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let r = execute(
@@ -21097,7 +21444,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let r = execute(
@@ -21124,7 +21473,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let err = execute(
@@ -21152,7 +21503,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let r = execute(
@@ -21181,7 +21534,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let r = execute(
@@ -21210,7 +21565,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let err = execute(
@@ -21240,7 +21597,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let r = execute(
@@ -21271,7 +21630,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let r = execute(
@@ -21302,7 +21663,9 @@ mod tests {
         use duke_classfile::types::CpIndex;
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("java/lang/Object".to_string())),
         ];
         let err = execute(
@@ -22132,12 +22495,15 @@ mod tests {
         // Mutant - → +: offsets[(2+1)=3] → index 3 OOB panic
         let instructions = vec![
             (0, Instruction::Iconst2),
-            (1, Instruction::Tableswitch {
-                default: 11i32,         // 1+11=12 → default path
-                low: 1i32,
-                high: 3i32,
-                offsets: vec![11i32, 9i32, 11i32], // key=1→12, key=2→10, key=3→12
-            }),
+            (
+                1,
+                Instruction::Tableswitch {
+                    default: 11i32, // 1+11=12 → default path
+                    low: 1i32,
+                    high: 3i32,
+                    offsets: vec![11i32, 9i32, 11i32], // key=1→12, key=2→10, key=3→12
+                },
+            ),
             (10, Instruction::Bipush(99i8)),
             (11, Instruction::Ireturn),
             (12, Instruction::Iconst0),
@@ -22170,48 +22536,6 @@ mod tests {
 
     // ---- execute_class(): Multianewarray negative dim (line 7863: < → ==, < → <=) ----
 
-    fn make_multianewarray_registry(dim_val: i32, negative: bool) -> (ClassRegistry, duke_loader::DirectoryLoader) {
-        use std::sync::Arc;
-        use duke_classfile::types::CpIndex;
-        let instructions = vec![
-            (0, if dim_val < 0 { Instruction::IconstM1 } else { Instruction::Iconst0 }),
-            (1, Instruction::Multianewarray { index: CpIndex(1), dimensions: 1 }),
-            (4, Instruction::Pop),
-            (5, if negative { Instruction::Iconst0 } else { Instruction::Iconst1 }),
-            (6, Instruction::Ireturn),
-        ];
-        let pc_to_idx: std::collections::HashMap<usize, usize> =
-            instructions.iter().enumerate().map(|(i, (pc, _))| (*pc, i)).collect();
-        let method = MethodEntry {
-            name: "syntest".to_string(),
-            descriptor: "()I".to_string(),
-            instructions,
-            max_stack: 4,
-            max_locals: 1,
-            exception_table: vec![],
-            pc_to_idx: Arc::new(pc_to_idx),
-        };
-        let cp = vec![
-            None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
-            Some(CpEntry::Utf8("[[I".to_string())),
-        ];
-        let ctx = ClassContext {
-            class_name: "SynTest".to_string(),
-            super_class: None,
-            interfaces: vec![],
-            constant_pool: cp,
-            methods: vec![method],
-            fields: vec![],
-            static_fields: vec![],
-            instance_field_count: 0,
-            bootstrap_methods: vec![],
-        };
-        let mut registry = ClassRegistry::new();
-        registry.register(ctx);
-        (registry, make_simple_loader())
-    }
-
     #[test]
     fn ec_multianewarray_negative_dim_errors() {
         // dim=-1: kills < → == (-1==0=false→no error; correct: -1<0=true→error)
@@ -22219,13 +22543,22 @@ mod tests {
         use std::sync::Arc;
         let instructions = vec![
             (0, Instruction::IconstM1),
-            (1, Instruction::Multianewarray { index: CpIndex(1), dimensions: 1 }),
+            (
+                1,
+                Instruction::Multianewarray {
+                    index: CpIndex(1),
+                    dimensions: 1,
+                },
+            ),
             (4, Instruction::Pop),
             (5, Instruction::Iconst0),
             (6, Instruction::Ireturn),
         ];
-        let pc_to_idx: std::collections::HashMap<usize, usize> =
-            instructions.iter().enumerate().map(|(i, (pc, _))| (*pc, i)).collect();
+        let pc_to_idx: std::collections::HashMap<usize, usize> = instructions
+            .iter()
+            .enumerate()
+            .map(|(i, (pc, _))| (*pc, i))
+            .collect();
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
@@ -22237,7 +22570,9 @@ mod tests {
         };
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("[[I".to_string())),
         ];
         let ctx = ClassContext {
@@ -22257,8 +22592,14 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let mut sink: Vec<u8> = Vec::new();
         let err = execute_class(
-            &mut registry, &loader, &mut heap, &mut sink,
-            "SynTest", "syntest", "()I", &[],
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "SynTest",
+            "syntest",
+            "()I",
+            &[],
         )
         .unwrap_err();
         assert!(matches!(err, VmError::NegativeArraySize { .. }));
@@ -22271,13 +22612,22 @@ mod tests {
         use std::sync::Arc;
         let instructions = vec![
             (0, Instruction::Iconst0),
-            (1, Instruction::Multianewarray { index: CpIndex(1), dimensions: 1 }),
+            (
+                1,
+                Instruction::Multianewarray {
+                    index: CpIndex(1),
+                    dimensions: 1,
+                },
+            ),
             (4, Instruction::Pop),
             (5, Instruction::Iconst1),
             (6, Instruction::Ireturn),
         ];
-        let pc_to_idx: std::collections::HashMap<usize, usize> =
-            instructions.iter().enumerate().map(|(i, (pc, _))| (*pc, i)).collect();
+        let pc_to_idx: std::collections::HashMap<usize, usize> = instructions
+            .iter()
+            .enumerate()
+            .map(|(i, (pc, _))| (*pc, i))
+            .collect();
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
@@ -22289,7 +22639,9 @@ mod tests {
         };
         let cp = vec![
             None,
-            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
             Some(CpEntry::Utf8("[[I".to_string())),
         ];
         let ctx = ClassContext {
@@ -22309,8 +22661,14 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let mut sink: Vec<u8> = Vec::new();
         let r = execute_class(
-            &mut registry, &loader, &mut heap, &mut sink,
-            "SynTest", "syntest", "()I", &[],
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "SynTest",
+            "syntest",
+            "()I",
+            &[],
         )
         .unwrap()
         .unwrap();
@@ -22344,14 +22702,9 @@ mod tests {
         // Recipe "\u{1}\u{1}" with 1 arg: second \u{1} → dyn_idx=1 < len=1 is false → skip
         // Mutant < → <=: 1 <= 1 → true → dynamic_args[1] OOB panic
         let mut heap = duke_gc::Heap::new();
-        let r = execute_string_concat_recipe(
-            "\u{1}\u{1}",
-            &[Slot::Int(42)],
-            &['I'],
-            &[],
-            &mut heap,
-        )
-        .unwrap();
+        let r =
+            execute_string_concat_recipe("\u{1}\u{1}", &[Slot::Int(42)], &['I'], &[], &mut heap)
+                .unwrap();
         let s = heap
             .get(r.as_reference().unwrap())
             .unwrap()
@@ -22366,14 +22719,9 @@ mod tests {
         // Recipe "\u{2}\u{2}" with 1 constant: second \u{2} → const_idx=1 < len=1 is false → skip
         // Mutant < → <=: 1 <= 1 → true → constants[1] OOB panic
         let mut heap = duke_gc::Heap::new();
-        let r = execute_string_concat_recipe(
-            "\u{2}\u{2}",
-            &[],
-            &[],
-            &["hello".to_string()],
-            &mut heap,
-        )
-        .unwrap();
+        let r =
+            execute_string_concat_recipe("\u{2}\u{2}", &[], &[], &["hello".to_string()], &mut heap)
+                .unwrap();
         let s = heap
             .get(r.as_reference().unwrap())
             .unwrap()
@@ -22595,10 +22943,8 @@ mod tests {
         ];
         // LdcW → Pop (discards) → Iconst1 → Ireturn
         // With Utf8 arm deletion: LdcW errors → test fails → caught
-        let pc_to_idx: std::collections::HashMap<usize, usize> = [(0, 0), (3, 1), (4, 2), (5, 3)]
-            .iter()
-            .cloned()
-            .collect();
+        let pc_to_idx: std::collections::HashMap<usize, usize> =
+            [(0, 0), (3, 1), (4, 2), (5, 3)].iter().cloned().collect();
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
@@ -22660,10 +23006,8 @@ mod tests {
         ];
         // LdcW(Class) → Pop → Iconst1 → Ireturn
         // With Utf8 arm deletion in LdcW Class branch: class_info=None → ldc_push with Class entry → InvalidCpIndex
-        let pc_to_idx: std::collections::HashMap<usize, usize> = [(0, 0), (3, 1), (4, 2), (5, 3)]
-            .iter()
-            .cloned()
-            .collect();
+        let pc_to_idx: std::collections::HashMap<usize, usize> =
+            [(0, 0), (3, 1), (4, 2), (5, 3)].iter().cloned().collect();
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
@@ -22838,7 +23182,11 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(r, Slot::Int(1), "refField should be Reference(None) after init");
+        assert_eq!(
+            r,
+            Slot::Int(1),
+            "refField should be Reference(None) after init"
+        );
     }
 
     // ---- array_list_sort negative size (lines 9074 guard, 9075 arm deletion) ----
@@ -22861,8 +23209,7 @@ mod tests {
                              _desc: &str,
                              _args: Vec<Slot>|
          -> VmResult<Option<Slot>> { Ok(None) };
-        let err =
-            array_list_sort(&args, &mut heap, &mut sink, &mut invoke_fn).unwrap_err();
+        let err = array_list_sort(&args, &mut heap, &mut sink, &mut invoke_fn).unwrap_err();
         assert!(
             matches!(err, VmError::NegativeArraySize { .. }),
             "expected NegativeArraySize, got {err:?}"

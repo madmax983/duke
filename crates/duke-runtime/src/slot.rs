@@ -109,7 +109,10 @@ mod tests {
     fn as_reference_returns_value_for_nonnull() {
         assert_eq!(Slot::Reference(Some(42)).as_reference(), Some(42));
         assert_eq!(Slot::Reference(Some(2)).as_reference(), Some(2));
-        assert_eq!(Slot::Reference(Some(u64::MAX)).as_reference(), Some(u64::MAX));
+        assert_eq!(
+            Slot::Reference(Some(u64::MAX)).as_reference(),
+            Some(u64::MAX)
+        );
     }
 
     #[test]
