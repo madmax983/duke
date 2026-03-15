@@ -14287,6 +14287,33 @@ mod tests {
     }
 
     #[test]
+    fn hashmap_overwrite_value_returns_new_value() {
+        // kills 9488: fields[i+1]=val → fields[i]=val; get after overwrite returns null
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testOverwriteValue", "()I"),
+            99
+        );
+    }
+
+    #[test]
+    fn hashmap_update_second_key_returns_new_value() {
+        // kills 9491: i+=2 → i*=2; second key update is missed
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testUpdateSecondKeyValue", "()I"),
+            99
+        );
+    }
+
+    #[test]
+    fn hashmap_remove_then_not_contains() {
+        // kills 9586: truncate(len-2) → truncate(len+2); key persists after remove
+        assert_eq!(
+            run_bootstrap_int("HashMapTest.class", "testRemoveAndContains", "()I"),
+            0
+        );
+    }
+
+    #[test]
     fn hashset_add_and_contains() {
         assert_eq!(
             run_bootstrap_int("HashSetTest.class", "testAddAndContains", "()I"),
@@ -22457,5 +22484,388 @@ mod tests {
             .clone()
             .unwrap();
         assert_eq!(result, "XY");
+    }
+
+    // ---- execute_class: Idiv b==0 check (line 5856 == → !=) ----
+
+    #[test]
+    fn ec_idiv_nonzero_denominator_succeeds() {
+        // kills == → !=: mutation makes nonzero denominator trigger DivisionByZero
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(10i8)),
+                (2, Instruction::Bipush(3i8)),
+                (4, Instruction::Idiv),
+                (5, Instruction::Ireturn),
+            ],
+            vec![],
+            4,
+            0,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(3));
+    }
+
+    // ---- execute_class: Ishl bit mask (lines 5876 & → | and & → ^) ----
+
+    #[test]
+    fn ec_ishl_masks_shift_count() {
+        // a=1, s=1: 1 << (1 & 31 = 1) = 2
+        // & → |: 1 << (1 | 31 = 31) = i32::MIN ≠ 2
+        // & → ^: 1 << (1 ^ 31 = 30) = 2^30 ≠ 2
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iconst1),
+                (1, Instruction::Iconst1),
+                (2, Instruction::Ishl),
+                (3, Instruction::Ireturn),
+            ],
+            vec![],
+            4,
+            0,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(2));
+    }
+
+    // ---- execute_class: Ishr bit mask (lines 5881 & → | and & → ^) ----
+
+    #[test]
+    fn ec_ishr_masks_shift_count() {
+        // a=-4, s=1: (-4) >> (1 & 31 = 1) = -2
+        // & → |: (-4) >> (1 | 31 = 31) = -1 ≠ -2
+        // & → ^: (-4) >> (1 ^ 31 = 30) = -1 ≠ -2
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(-4i8)),
+                (2, Instruction::Iconst1),
+                (3, Instruction::Ishr),
+                (4, Instruction::Ireturn),
+            ],
+            vec![],
+            4,
+            0,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(-2));
+    }
+
+    // ---- execute_class: Fcmpg a < b (line 6026 < → >) ----
+
+    #[test]
+    fn ec_fcmpg_a_less_than_b_returns_minus_one() {
+        // 0.0f < 1.0f via Fcmpg: correct = -1
+        // < → >: else if a > b fires for NaN arm → returns +1 for Fcmpg
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fconst0),
+                (1, Instruction::Fconst1),
+                (2, Instruction::Fcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            vec![],
+            4,
+            0,
+            "()I",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    // ---- execute_class: LdcW String (line 5624 delete Utf8 arm) ----
+
+    #[test]
+    fn ec_ldcw_string_pushes_nonnull_ref() {
+        use duke_classfile::types::CpIndex;
+        use std::sync::Arc;
+        // CP: [0]=None, [1]=String{string_index:2}, [2]=Utf8("hi")
+        let cp = vec![
+            None,
+            Some(CpEntry::String {
+                string_index: CpIndex(2),
+            }),
+            Some(CpEntry::Utf8("hi".to_string())),
+        ];
+        // LdcW → Pop (discards) → Iconst1 → Ireturn
+        // With Utf8 arm deletion: LdcW errors → test fails → caught
+        let pc_to_idx: std::collections::HashMap<usize, usize> = [(0, 0), (3, 1), (4, 2), (5, 3)]
+            .iter()
+            .cloned()
+            .collect();
+        let method = MethodEntry {
+            name: "syntest".to_string(),
+            descriptor: "()I".to_string(),
+            instructions: vec![
+                (0, Instruction::LdcW(CpIndex(1))),
+                (3, Instruction::Pop),
+                (4, Instruction::Iconst1),
+                (5, Instruction::Ireturn),
+            ],
+            max_stack: 4,
+            max_locals: 0,
+            exception_table: vec![],
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let ctx = ClassContext {
+            class_name: "SynTest".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: cp,
+            methods: vec![method],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = make_simple_loader();
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        let r = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "SynTest",
+            "syntest",
+            "()I",
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- execute_class: LdcW Class (line 5653 delete Utf8 arm) ----
+
+    #[test]
+    fn ec_ldcw_class_constant_pushes_nonnull_ref() {
+        use duke_classfile::types::CpIndex;
+        use std::sync::Arc;
+        // CP: [0]=None, [1]=Class{name_index:2}, [2]=Utf8("java/lang/Object")
+        let cp = vec![
+            None,
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        // LdcW(Class) → Pop → Iconst1 → Ireturn
+        // With Utf8 arm deletion in LdcW Class branch: class_info=None → ldc_push with Class entry → InvalidCpIndex
+        let pc_to_idx: std::collections::HashMap<usize, usize> = [(0, 0), (3, 1), (4, 2), (5, 3)]
+            .iter()
+            .cloned()
+            .collect();
+        let method = MethodEntry {
+            name: "syntest".to_string(),
+            descriptor: "()I".to_string(),
+            instructions: vec![
+                (0, Instruction::LdcW(CpIndex(1))),
+                (3, Instruction::Pop),
+                (4, Instruction::Iconst1),
+                (5, Instruction::Ireturn),
+            ],
+            max_stack: 4,
+            max_locals: 0,
+            exception_table: vec![],
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let ctx = ClassContext {
+            class_name: "SynTest".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: cp,
+            methods: vec![method],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = make_simple_loader();
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        let r = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "SynTest",
+            "syntest",
+            "()I",
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- init_object_fields (lines 8497,8513,8516,8518,8522) ----
+
+    #[test]
+    fn ec_new_initialises_reference_field_to_null() {
+        // Class "RefBox" with: 1 static int field + 2 instance fields (int then reference).
+        // After `new RefBox`, getfield refField should return Reference(None), not Int(0).
+        //
+        // Kills:
+        //   8497 (skip init): refField stays Int(0) → ifnull fails → return 0
+        //   8513 (include statics in slot count): static offset shifts, refField goes OOB → not written
+        //   8516 (write only Int(0) defaults): refField (Reference type) skipped → stays Int(0)
+        //   8518 (< → ==): slot_idx never == len → never writes → stays Int(0)
+        //   8518 (< → >): 0 > 2 = false → never writes
+        //   8522 (+= → *=1): slot_idx stays 0, writes to intField slot → refField unchanged
+        use duke_classfile::types::CpIndex;
+        use std::sync::Arc;
+
+        // CP for "SynTest" calling class:
+        // [0]=None, [1]=Class("RefBox"), [2]=Utf8("RefBox"),
+        // [3]=Fieldref(class=1, nat=4), [4]=NameAndType(name=5,desc=6),
+        // [5]=Utf8("refField"), [6]=Utf8("Ljava/lang/Object;")
+        let cp = vec![
+            None,
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
+            Some(CpEntry::Utf8("RefBox".to_string())),
+            Some(CpEntry::Fieldref {
+                class_index: CpIndex(1),
+                name_and_type_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("refField".to_string())),
+            Some(CpEntry::Utf8("Ljava/lang/Object;".to_string())),
+        ];
+
+        // Instructions:
+        // 0: new RefBox
+        // 3: getfield refField → pushes fields[1] (slot 1 of instance)
+        // 6: ifnull 4           → if null: jump to 6+4=10 (success: field is null as expected)
+        // 8: iconst0            → not null: fail
+        // 9: ireturn
+        // 10: iconst1           → success
+        // 11: ireturn
+        let instructions = vec![
+            (0usize, Instruction::New(CpIndex(1))),
+            (3, Instruction::Getfield(CpIndex(3))),
+            (6, Instruction::Ifnull(4i16)),
+            (8, Instruction::Iconst0),
+            (9, Instruction::Ireturn),
+            (10, Instruction::Iconst1),
+            (11, Instruction::Ireturn),
+        ];
+        let pc_to_idx: std::collections::HashMap<usize, usize> = instructions
+            .iter()
+            .enumerate()
+            .map(|(i, (pc, _))| (*pc, i))
+            .collect();
+        let method = MethodEntry {
+            name: "syntest".to_string(),
+            descriptor: "()I".to_string(),
+            instructions,
+            max_stack: 4,
+            max_locals: 0,
+            exception_table: vec![],
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let caller_ctx = ClassContext {
+            class_name: "SynTest".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: cp,
+            methods: vec![method],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+
+        // RefBox: 1 static field "count:I" + 2 instance fields "intField:I", "refField:Ljava/lang/Object;"
+        let refbox_ctx = ClassContext {
+            class_name: "RefBox".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: vec![None],
+            methods: vec![],
+            fields: vec![
+                FieldEntry {
+                    name: "count".to_string(),
+                    descriptor: "I".to_string(),
+                    is_static: true,
+                },
+                FieldEntry {
+                    name: "intField".to_string(),
+                    descriptor: "I".to_string(),
+                    is_static: false,
+                },
+                FieldEntry {
+                    name: "refField".to_string(),
+                    descriptor: "Ljava/lang/Object;".to_string(),
+                    is_static: false,
+                },
+            ],
+            static_fields: vec![Slot::Int(0)],
+            instance_field_count: 2,
+            bootstrap_methods: vec![],
+        };
+
+        let mut registry = ClassRegistry::new();
+        registry.register(caller_ctx);
+        registry.register(refbox_ctx);
+        let loader = make_simple_loader();
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        let r = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "SynTest",
+            "syntest",
+            "()I",
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1), "refField should be Reference(None) after init");
+    }
+
+    // ---- array_list_sort negative size (lines 9074 guard, 9075 arm deletion) ----
+
+    #[test]
+    fn array_list_sort_negative_size_returns_error() {
+        // Allocate an ArrayList-like object with fields[0] = -1 (negative size).
+        // kills 9074 (guard *n >= 0 → true): negative n accepted as huge usize →
+        //   elems.len() != size → InvalidRef (not NegativeArraySize)
+        // kills 9075 (delete second arm): negative n falls to _ → Ok(None), not error
+        let mut heap = duke_gc::Heap::new();
+        let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(list_ref).unwrap().fields[0] = Slot::Int(-1);
+        let mut sink: Vec<u8> = Vec::new();
+        let args = [Slot::Reference(Some(list_ref)), Slot::Reference(None)];
+        let mut invoke_fn = |_heap: &mut duke_gc::Heap,
+                             _output: &mut dyn std::io::Write,
+                             _class: &str,
+                             _method: &str,
+                             _desc: &str,
+                             _args: Vec<Slot>|
+         -> VmResult<Option<Slot>> { Ok(None) };
+        let err =
+            array_list_sort(&args, &mut heap, &mut sink, &mut invoke_fn).unwrap_err();
+        assert!(
+            matches!(err, VmError::NegativeArraySize { .. }),
+            "expected NegativeArraySize, got {err:?}"
+        );
     }
 }
