@@ -1,0 +1,13 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.1%
+    patch:
+      default:
+        target: auto
+        threshold: 0.1%
+
+ignore:
+  - "crates/duke-interpreter/src/native/mod.rs"
