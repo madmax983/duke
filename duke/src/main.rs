@@ -1,6 +1,6 @@
 use std::process;
 
-use duke_bytecode::{decode, generate_dot};
+use duke_bytecode::decode;
 use duke_classfile::{
     ClassFile, parse,
     types::{AttributeData, CpEntry, CpIndex},
@@ -84,7 +84,6 @@ fn main() {
     if args.len() < 2 {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
-        eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
@@ -109,12 +108,6 @@ fn main() {
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
         run_main(&args[2..], telemetry, jdk_home.as_deref());
-        return;
-    }
-
-    // Dispatch `cfg`: generate DOT for a method.
-    if args.len() >= 4 && args[1] == "cfg" {
-        generate_cfg(&args[2..]);
         return;
     }
 
@@ -353,60 +346,6 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<
     if let Some(code) = exit_code {
         process::exit(code);
     }
-}
-
-// ---------------------------------------------------------------------------
-// CFG
-// ---------------------------------------------------------------------------
-
-/// `duke cfg <classfile.class> <method>`
-///
-/// Generates and prints a Graphviz DOT representation of the specified method's bytecode.
-fn generate_cfg(args: &[String]) {
-    let path = &args[0];
-    let method_name = &args[1];
-
-    let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{path}': {e}");
-        process::exit(1);
-    });
-    let cf = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error: {e}");
-        process::exit(1);
-    });
-
-    let target = cf
-        .methods
-        .iter()
-        .find(|m| {
-            let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize) else {
-                return false;
-            };
-            s.as_str() == method_name.as_str()
-        })
-        .unwrap_or_else(|| {
-            eprintln!("duke: method '{method_name}' not found");
-            process::exit(1);
-        });
-
-    for attr in &target.attributes {
-        if let AttributeData::Code(code) = &attr.data {
-            match decode(&code.code) {
-                Ok(instructions) => {
-                    let dot = generate_dot(&instructions);
-                    println!("{dot}");
-                }
-                Err(e) => {
-                    eprintln!("duke: decode error: {e}");
-                    process::exit(1);
-                }
-            }
-            return;
-        }
-    }
-
-    eprintln!("duke: method '{method_name}' has no Code attribute (is it abstract or native?)");
-    process::exit(1);
 }
 
 // ---------------------------------------------------------------------------

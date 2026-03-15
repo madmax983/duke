@@ -8,14 +8,12 @@
 //! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
-pub mod cfg;
 pub mod decoder;
 pub mod error;
 pub mod instruction;
 pub mod opcodes;
 pub mod verifier;
 
-pub use cfg::generate_dot;
 pub use decoder::decode;
 pub use error::{DecodeError, DecodeResult, VerifyError, VerifyResult};
 pub use instruction::Instruction;
