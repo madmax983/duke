@@ -5174,6 +5174,26 @@ fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     clippy::too_many_lines,
     clippy::too_many_arguments
 )]
+fn alloc_multi_inner(
+    heap: &mut duke_gc::Heap,
+    dims: &[i32],
+    depth: usize,
+    type_name: &str,
+) -> u64 {
+    let size = usize::try_from(dims[depth]).unwrap();
+    let r = heap.allocate(type_name.to_string(), size);
+    if depth < dims.len() - 1 {
+        // Not the innermost — fill with references to sub-arrays.
+        let inner_type = &type_name[1..]; // Strip one '[' for inner dimension.
+        for i in 0..size {
+            let inner = alloc_multi_inner(heap, dims, depth + 1, inner_type);
+            heap.get_mut(r).unwrap().fields[i] = Slot::Reference(Some(inner));
+        }
+    }
+    r
+}
+
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 pub fn execute_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -5314,7 +5334,7 @@ pub fn execute_class(
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
         #[cfg(feature = "telemetry")]
-        let (_telem_name, _telem_pc, _telem_start) = {
+        let (telem_name, telem_pc, telem_start) = {
             let name = instr_name(&instr);
             let pc_val = pc;
             (name, pc_val, std::time::Instant::now())
@@ -5461,13 +5481,13 @@ pub fn execute_class(
                                     .collect::<VmResult<Vec<_>>>()?;
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    _native_start.elapsed().as_nanos() as u64,
+                                    u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -5484,7 +5504,7 @@ pub fn execute_class(
                                     .collect::<VmResult<Vec<_>>>()?;
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let mut invoke_cb =
                                     |heap: &mut duke_gc::Heap,
                                      output: &mut dyn std::io::Write,
@@ -5503,7 +5523,7 @@ pub fn execute_class(
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    _native_start.elapsed().as_nanos() as u64,
+                                    u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -6584,14 +6604,14 @@ pub fn execute_class(
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        _native_start.elapsed().as_nanos() as u64,
+                                        u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -6621,7 +6641,7 @@ pub fn execute_class(
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let mut invoke_cb =
                                     |heap: &mut duke_gc::Heap,
                                      output: &mut dyn std::io::Write,
@@ -6641,7 +6661,7 @@ pub fn execute_class(
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        _native_start.elapsed().as_nanos() as u64,
+                                        u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -7519,14 +7539,14 @@ pub fn execute_class(
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
-                                    let _native_start = std::time::Instant::now();
+                                    let native_start = std::time::Instant::now();
                                     let result = handler(&callee_args, heap, stdout);
                                     #[cfg(feature = "telemetry")]
                                     {
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            _native_start.elapsed().as_nanos() as u64,
+                                            u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                             result.is_err(),
                                         );
                                         // Native interface methods skip the bytecode
@@ -7553,7 +7573,7 @@ pub fn execute_class(
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
-                                    let _native_start = std::time::Instant::now();
+                                    let native_start = std::time::Instant::now();
                                     let mut invoke_cb = |heap: &mut duke_gc::Heap,
                                                          output: &mut dyn std::io::Write,
                                                          class: &str,
@@ -7573,7 +7593,7 @@ pub fn execute_class(
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            _native_start.elapsed().as_nanos() as u64,
+                                            u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                             result.is_err(),
                                         );
                                         registry.telemetry.dispatch_resolution.record(
@@ -7735,13 +7755,13 @@ pub fn execute_class(
                                     match lambda_native_kind {
                                         Some(HandlerKind::Simple(handler)) => {
                                             #[cfg(feature = "telemetry")]
-                                            let _native_start = std::time::Instant::now();
+                                            let native_start = std::time::Instant::now();
                                             let result = handler(&impl_args, heap, stdout);
                                             #[cfg(feature = "telemetry")]
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                _native_start.elapsed().as_nanos() as u64,
+                                                u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                                 result.is_err(),
                                             );
                                             let result = result?;
@@ -7753,7 +7773,7 @@ pub fn execute_class(
                                         }
                                         Some(HandlerKind::Callback(handler)) => {
                                             #[cfg(feature = "telemetry")]
-                                            let _native_start = std::time::Instant::now();
+                                            let native_start = std::time::Instant::now();
                                             let mut invoke_cb =
                                                 |heap: &mut duke_gc::Heap,
                                                  output: &mut dyn std::io::Write,
@@ -7773,7 +7793,7 @@ pub fn execute_class(
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                _native_start.elapsed().as_nanos() as u64,
+                                                u64::try_from(native_start.elapsed().as_nanos()).unwrap(),
                                                 result.is_err(),
                                             );
                                             let result = result?;
@@ -7878,27 +7898,7 @@ pub fn execute_class(
                     }
                 }
 
-                // Recursive allocation helper.
-                fn alloc_multi(
-                    heap: &mut duke_gc::Heap,
-                    dims: &[i32],
-                    depth: usize,
-                    type_name: &str,
-                ) -> u64 {
-                    let size = dims[depth] as usize;
-                    let r = heap.allocate(type_name.to_string(), size);
-                    if depth < dims.len() - 1 {
-                        // Not the innermost — fill with references to sub-arrays.
-                        let inner_type = &type_name[1..]; // Strip one '[' for inner dimension.
-                        for i in 0..size {
-                            let inner = alloc_multi(heap, dims, depth + 1, inner_type);
-                            heap.get_mut(r).unwrap().fields[i] = Slot::Reference(Some(inner));
-                        }
-                    }
-                    r
-                }
-
-                let r = alloc_multi(heap, &dims, 0, &element_type);
+                let r = alloc_multi_inner(heap, &dims, 0, &element_type);
                 frame.push(Slot::Reference(Some(r)))?;
                 if heap.should_gc() {
                     let roots = gather_roots(&frame, &call_stack, registry);
@@ -7924,12 +7924,12 @@ pub fn execute_class(
 
         #[cfg(feature = "telemetry")]
         {
-            let elapsed = _telem_start.elapsed().as_nanos() as u64;
+            let elapsed = u64::try_from(telem_start.elapsed().as_nanos()).unwrap();
             registry.telemetry.bytecode_cost.record(
-                _telem_name,
+                telem_name,
                 &current_class,
                 &current_method,
-                _telem_pc,
+                telem_pc,
                 elapsed,
             );
         }
@@ -7952,6 +7952,8 @@ struct CallFrame {
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
+#[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
     use duke_classfile::access_flags::FieldAccessFlags;
@@ -8217,7 +8219,7 @@ fn find_exception_handler(
 }
 
 /// Walk the class hierarchy to find a method by name and descriptor.
-/// Returns (class_name_where_found, method_index) or None.
+/// Returns (`class_name_where_found`, `method_index`) or None.
 fn resolve_method_in_hierarchy(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -8242,7 +8244,7 @@ fn resolve_method_in_hierarchy(
                     return Some((current, idx));
                 }
                 match &ctx.super_class {
-                    Some(s) => current = s.clone(),
+                    Some(s) => current.clone_from(s),
                     None => return None,
                 }
             }
@@ -8251,17 +8253,19 @@ fn resolve_method_in_hierarchy(
     }
 }
 
-/// Resolve a constant pool Methodref to (class_name, method_name, descriptor).
+/// Resolve a constant pool Methodref to (`class_name`, `method_name`, descriptor).
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
-        Some(CpEntry::Methodref {
-            class_index,
-            name_and_type_index,
-        })
-        | Some(CpEntry::InterfaceMethodref {
-            class_index,
-            name_and_type_index,
-        }) => {
+        Some(
+            CpEntry::Methodref {
+                class_index,
+                name_and_type_index,
+            }
+            | CpEntry::InterfaceMethodref {
+                class_index,
+                name_and_type_index,
+            },
+        ) => {
             let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
@@ -8298,8 +8302,7 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
 fn parse_arg_count(descriptor: &str) -> usize {
     let params = descriptor
         .find(')')
-        .map(|i| &descriptor[1..i])
-        .unwrap_or("");
+        .map_or("", |i| &descriptor[1..i]);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8335,7 +8338,7 @@ fn parse_arg_count(descriptor: &str) -> usize {
     count
 }
 
-/// Resolve a constant pool Fieldref to (class_name, field_name, descriptor).
+/// Resolve a constant pool Fieldref to (`class_name`, `field_name`, descriptor).
 fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Fieldref {
@@ -8374,7 +8377,7 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
     }
 }
 
-/// Resolve a MethodHandle CP entry to (reference_kind, class_name, method_name, descriptor).
+/// Resolve a `MethodHandle` CP entry to (`reference_kind`, `class_name`, `method_name`, descriptor).
 fn resolve_method_handle(
     cp: &[Option<CpEntry>],
     cp_idx: usize,
@@ -8390,7 +8393,7 @@ fn resolve_method_handle(
     Ok((kind, class_name, method_name, descriptor))
 }
 
-/// Resolve a NameAndType CP entry to (name, descriptor).
+/// Resolve a `NameAndType` CP entry to (name, descriptor).
 fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(String, String)> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::NameAndType {
@@ -8440,8 +8443,7 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
     let params = descriptor
         .find(')')
-        .map(|i| &descriptor[1..i])
-        .unwrap_or("");
+        .map_or("", |i| &descriptor[1..i]);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8488,7 +8490,7 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
         Some('J') => Slot::Long(0),
         Some('F') => Slot::Float(0.0),
         Some('D') => Slot::Double(0.0),
-        Some('L') | Some('[') => Slot::Reference(None),
+        Some('L' | '[') => Slot::Reference(None),
         _ => Slot::Int(0), // I, Z, B, C, S
     }
 }
@@ -8577,7 +8579,7 @@ fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> V
     Err(VmError::InvalidFieldref { index: 0 })
 }
 
-/// Index of a named static field within ctx.static_fields.
+/// Index of a named static field within `ctx.static_fields`.
 fn static_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
     ctx.fields
         .iter()
@@ -8617,7 +8619,6 @@ fn native_sb_init_string(
     };
     let init_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => String::new(),
         _ => String::new(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8637,7 +8638,6 @@ fn native_sb_append_string(
     };
     let append_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => "null".to_string(),
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8720,7 +8720,8 @@ fn native_sb_append_double(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        use std::fmt::Write as _;
+        let _ = write!(buf, "{val}");
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8746,7 +8747,8 @@ fn native_sb_append_float(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        use std::fmt::Write as _;
+        let _ = write!(buf, "{val}");
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8783,7 +8785,7 @@ fn native_sb_append_char(
         _ => return Err(VmError::NullPointerException),
     };
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('\0'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
         _ => '\0',
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8823,7 +8825,7 @@ fn native_sb_length(
         .string_value
         .as_ref()
         .map_or(0, String::len);
-    Ok(Some(Slot::Int(len as i32)))
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap())))
 }
 
 // Character natives
@@ -8832,7 +8834,7 @@ fn native_sb_length(
 /// Helper: extract a `char` from a `Slot::Int` argument.
 fn slot_to_char(slot: &Slot) -> VmResult<char> {
     match slot {
-        Slot::Int(v) => Ok(char::from_u32(*v as u32).unwrap_or('\0')),
+        Slot::Int(v) => Ok(char::from_u32((*v).cast_unsigned()).unwrap_or('\0')),
         _ => Err(VmError::TypeMismatch {
             expected: "Int (char)",
             got: "other",
@@ -9015,12 +9017,9 @@ fn native_arraylist_get(
         }
     };
     let obj = heap.get(this_ref)?;
-    match obj.fields.get(idx + 1) {
-        Some(slot) => Ok(Some(*slot)),
-        None => Err(VmError::JavaException {
+    obj.fields.get(idx + 1).map_or_else(|| Err(VmError::JavaException {
             class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
-        }),
-    }
+        }), |slot| Ok(Some(*slot)))
 }
 
 /// Native: `ArrayList.size()I`
@@ -9040,7 +9039,7 @@ fn native_arraylist_size(
     }
 }
 
-/// Native: `ArrayList.iterator()Iterator` — creates an ArrayListIterator.
+/// Native: `ArrayList.iterator()Iterator` — creates an `ArrayListIterator`.
 fn native_arraylist_iterator(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9084,7 +9083,7 @@ fn array_list_sort(
 
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap(),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => return Ok(None),
     };
@@ -9126,7 +9125,7 @@ fn array_list_sort(
             // Guarded by `has_pending_forwards` so the common (no-GC) path pays
             // only one bool check instead of O(n) HashMap probes.
             if heap.has_pending_forwards() {
-                for elem in elems.iter_mut() {
+                for elem in &mut elems {
                     let mut slot = Slot::Reference(Some(*elem));
                     heap.apply_forward(&mut slot);
                     if let Slot::Reference(Some(r)) = slot {
@@ -9205,7 +9204,8 @@ fn native_collections_sort(
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
 
-/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by native_arraylist_iterator.
+/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by `native_arraylist_iterator`.
+#[allow(clippy::unnecessary_wraps)]
 fn native_arraylist_iter_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9281,6 +9281,7 @@ fn native_arraylist_iter_next(
 // ---- Double.isNaN ----
 
 /// Native: `Double.isNaN(D)Z` — returns 1 if value is NaN.
+#[allow(clippy::unnecessary_wraps)]
 fn native_double_isnan(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9371,7 +9372,7 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap(),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9395,7 +9396,7 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap(),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9430,7 +9431,7 @@ fn native_arrays_sort_int(
 // HashMap natives
 // ---------------------------------------------------------------------------
 
-/// Semantic equality for HashMap keys: compares by string_value for heap strings,
+/// Semantic equality for `HashMap` keys: compares by `string_value` for heap strings,
 /// or by the first field (e.g. intValue) for boxed numerics, or by reference identity.
 fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     match (a, b) {
@@ -9439,14 +9440,8 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             if ra == rb {
                 return true;
             }
-            let oa = match heap.get(*ra) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
-            let ob = match heap.get(*rb) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
+            let Ok(oa) = heap.get(*ra) else { return false };
+            let Ok(ob) = heap.get(*rb) else { return false };
             if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
             }
@@ -9822,7 +9817,7 @@ fn patch_forwarded_slots(
         }
     }
     for ctx in registry.all_classes_mut() {
-        for slot in ctx.static_fields.iter_mut() {
+        for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
         }
     }
@@ -9848,6 +9843,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_callback_can_be_looked_up() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_cb(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -9866,6 +9862,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_simple_stays_simple() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -11110,6 +11107,7 @@ mod tests {
 
     #[test]
     fn native_registry_stores_and_retrieves() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_handler(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -13752,7 +13750,7 @@ mod tests {
 
     // ---- Phase 19: Enum integration tests ----
 
-    /// Helper that loads a class, calls bootstrap_stdlib, and runs a static method.
+    /// Helper that loads a class, calls `bootstrap_stdlib`, and runs a static method.
     fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();
@@ -14364,7 +14362,7 @@ mod tests {
         let fib = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
         assert_eq!(fib, 75025);
         // benchSum overflows i32: sum(0..499999) = 124999750000 → wraps to 445698416
-        assert_eq!(sum, 445698416_i32);
+        assert_eq!(sum, 445_698_416_i32);
     }
 
     #[cfg(feature = "telemetry")]
@@ -14820,13 +14818,13 @@ mod tests {
     /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
     ///
     ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
-    ///   // creates $$Lambda$0 with impl_class="java/lang/String",
-    ///   //   impl_method="length", impl_kind=5 (REF_invokeVirtual),
-    ///   //   captured_count=1 (the string "hello")
+    ///   // creates $$Lambda$0 with `impl_class="java/lang/String`",
+    ///   //   `impl_method="length`", `impl_kind=5` (`REF_invokeVirtual`),
+    ///   //   `captured_count=1` (the string "hello")
     ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
-    ///   // → lambda SAM: impl_kind==5, resolve_method_in_hierarchy returns None
+    ///   // → lambda SAM: `impl_kind==5`, `resolve_method_in_hierarchy` returns None
     ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   registry.natives.get_kind("java/lang/String", "length", "()I")
+    ///   //   `registry.natives.get_kind("java/lang/String`", "length", "()I")
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14875,7 +14873,7 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
+                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len()).unwrap();
                 Ok(Some(Slot::Int(len)))
             },
         );

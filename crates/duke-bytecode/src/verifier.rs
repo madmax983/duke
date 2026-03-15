@@ -82,7 +82,7 @@ pub fn verify(
 // we're doing structural depth tracking, not JVM computational-type checking.
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::match_same_arms)]
+#[allow(clippy::match_same_arms, clippy::too_many_lines)]
 const fn stack_effect(instr: &Instruction) -> (usize, usize) {
     match instr {
         // Constants — push 1
@@ -347,6 +347,7 @@ const fn is_return(instr: &Instruction) -> bool {
 }
 
 /// Check that any local variable accesses are within `max_locals`.
+#[allow(clippy::too_many_lines)]
 const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResult<()> {
     let idx: Option<usize> = match instr {
         Instruction::Iload(i)
