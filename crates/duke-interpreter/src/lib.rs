@@ -18869,4 +18869,1307 @@ mod tests {
             panic!("expected old value reference, got {old:?}");
         }
     }
+
+    // ===========================================================================
+    // execute_class() synthetic tests — covers execute_class opcode paths
+    // (Distinct from execute() tests; kills mutants in execute_class body.)
+    // ===========================================================================
+
+    /// Run an instruction stream directly through execute_class() using a
+    /// synthetic ClassContext, killing mutants in the execute_class() switch body.
+    fn execute_class_synthetic(
+        instructions: Vec<(usize, Instruction)>,
+        args: Vec<Slot>,
+        max_stack: u16,
+        max_locals: u16,
+        descriptor: &str,
+    ) -> VmResult<Option<Slot>> {
+        use std::sync::Arc;
+        let pc_to_idx: std::collections::HashMap<usize, usize> = instructions
+            .iter()
+            .enumerate()
+            .map(|(idx, (pc, _))| (*pc, idx))
+            .collect();
+        let method = MethodEntry {
+            name: "syntest".to_string(),
+            descriptor: descriptor.to_string(),
+            instructions,
+            max_stack,
+            max_locals,
+            exception_table: vec![],
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let ctx = ClassContext {
+            class_name: "SynTest".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: vec![None],
+            methods: vec![method],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = make_simple_loader();
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "SynTest",
+            "syntest",
+            descriptor,
+            &args,
+        )
+    }
+
+    // ---- execute_class: Iushr ----
+
+    #[test]
+    fn ec_iushr_masks_shift_count() {
+        // -8 >>> 2: mask 2 & 0x1F = 2; if | instead: 2|31=31 → result differs
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Iushr),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(-8), Slot::Int(2)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        // (-8u32) >> 2 = 0x3FFFFFFE = 1073741822
+        assert_eq!(r, Slot::Int(1_073_741_822));
+    }
+
+    // ---- execute_class: Iand / Ior / Ixor ----
+
+    #[test]
+    fn ec_iand_selects_common_bits() {
+        // 0b11110000 & 0b10101010 = 0b10100000 = 160
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Iand),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(0b1111_0000), Slot::Int(0b1010_1010)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0b1010_0000)); // 160
+    }
+
+    #[test]
+    fn ec_ior_combines_bits() {
+        // 12 | 10 = 14
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Ior),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(12), Slot::Int(10)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(14));
+    }
+
+    #[test]
+    fn ec_ixor_flips_differing_bits() {
+        // 5 ^ 3 = 6; if | then 7; if & then 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Ixor),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(5), Slot::Int(3)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(6));
+    }
+
+    // ---- execute_class: Ldiv / Lrem division-by-zero checks ----
+
+    #[test]
+    fn ec_ldiv_normal_returns_quotient() {
+        // 10L / 3L = 3L; if b==0 check becomes !=, divides when b=3 (not 0) → errors instead
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Ldiv),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(10), Slot::Long(3)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(3));
+    }
+
+    #[test]
+    fn ec_lrem_normal_returns_remainder() {
+        // 10L % 3L = 1L; same kill logic as ldiv
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lrem),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(10), Slot::Long(3)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(1));
+    }
+
+    // ---- execute_class: Lshl / Lshr / Lushr masking ----
+
+    #[test]
+    fn ec_lshl_masks_shift_by_63_not_127() {
+        // s=65, 65 & 0x3F = 1; if | then 65|63=127 → wrapping_shl(127) ≠ wrapping_shl(1)
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Lshl),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(1), Slot::Int(65)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        // 1L << 1 = 2
+        assert_eq!(r, Slot::Long(2));
+    }
+
+    #[test]
+    fn ec_lshr_masks_shift_count() {
+        // -8L >> 65; 65 & 63 = 1 → -8 >> 1 = -4; if | then 65|63=127 → 127%64=63 → -8>>63=-1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Lshr),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(-8), Slot::Int(65)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(-4));
+    }
+
+    #[test]
+    fn ec_lushr_right_shift_direction() {
+        // i64::MIN >>> 1 = large positive; if << instead: 0
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Lushr),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(i64::MIN), Slot::Int(1)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(4_611_686_018_427_387_904));
+    }
+
+    #[test]
+    fn ec_lushr_masks_shift_count() {
+        // i64::MIN >>> 65; 65 & 63 = 1 → same as >>>1; if | then 65|63=127 → 127%64=63 → 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Lushr),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(i64::MIN), Slot::Int(65)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(4_611_686_018_427_387_904));
+    }
+
+    // ---- execute_class: Land / Lor / Lxor ----
+
+    #[test]
+    fn ec_land_selects_common_bits() {
+        // 0xF0F0F0F0L & 0x0F0F0F0FL = 0 (no common bits)
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Land),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(0xF0F0_F0F0), Slot::Long(0x0F0F_0F0F)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(0));
+    }
+
+    #[test]
+    fn ec_lor_combines_bits() {
+        // 0b1100L | 0b0110L = 0b1110 = 14
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lor),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(0b1100), Slot::Long(0b0110)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(14));
+    }
+
+    #[test]
+    fn ec_lxor_flips_differing_bits() {
+        // 0b1010L ^ 0b1010L = 0; | or & both give 0b1010=10
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lxor),
+                (3, Instruction::Lreturn),
+            ],
+            vec![Slot::Long(0b1010), Slot::Long(0b1010)],
+            4, 2, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(0));
+    }
+
+    // ---- execute_class: Lcmp (-1 arm) ----
+
+    #[test]
+    fn ec_lcmp_less_than_returns_minus_one() {
+        // lcmp(2, 5) → -1; delete - mutant returns 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lcmp),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Long(2), Slot::Long(5)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    #[test]
+    fn ec_lcmp_equal_returns_zero() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lcmp),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Long(7), Slot::Long(7)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_lcmp_greater_than_returns_one() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lcmp),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Long(10), Slot::Long(3)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- execute_class: Float arithmetic ----
+
+    #[test]
+    fn ec_fadd_adds_floats() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fadd),
+                (3, Instruction::Freturn),
+            ],
+            vec![Slot::Float(2.0), Slot::Float(3.0)],
+            4, 2, "()F",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Float(5.0));
+    }
+
+    #[test]
+    fn ec_fsub_subtracts_floats() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fsub),
+                (3, Instruction::Freturn),
+            ],
+            vec![Slot::Float(7.0), Slot::Float(3.0)],
+            4, 2, "()F",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Float(4.0));
+    }
+
+    #[test]
+    fn ec_fmul_multiplies_floats() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fmul),
+                (3, Instruction::Freturn),
+            ],
+            vec![Slot::Float(4.0), Slot::Float(3.0)],
+            4, 2, "()F",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Float(12.0));
+    }
+
+    #[test]
+    fn ec_fdiv_divides_floats() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fdiv),
+                (3, Instruction::Freturn),
+            ],
+            vec![Slot::Float(10.0), Slot::Float(4.0)],
+            4, 2, "()F",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Float(2.5));
+    }
+
+    #[test]
+    fn ec_frem_float_remainder() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Frem),
+                (3, Instruction::Freturn),
+            ],
+            vec![Slot::Float(10.0), Slot::Float(3.0)],
+            4, 2, "()F",
+        ).unwrap().unwrap();
+        if let Slot::Float(v) = r {
+            assert!((v - 1.0_f32).abs() < 0.001);
+        } else { panic!("{r:?}"); }
+    }
+
+    #[test]
+    fn ec_fneg_negates_float() {
+        // -(-5.0) = 5.0; if delete - mutant: -5.0 != 5.0
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fneg),
+                (2, Instruction::Freturn),
+            ],
+            vec![Slot::Float(-5.0)],
+            4, 1, "()F",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Float(5.0));
+    }
+
+    // ---- execute_class: Fcmpl / Fcmpg ----
+
+    #[test]
+    fn ec_fcmpl_greater_returns_1() {
+        // a > b → 1; if > mutated to < then returns -1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Float(3.0), Slot::Float(2.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_fcmpl_less_returns_minus_1() {
+        // a < b → -1; delete - mutant returns 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Float(2.0), Slot::Float(3.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    #[test]
+    fn ec_fcmpl_nan_returns_minus_1() {
+        // NaN case for Fcmpl → -1; delete - mutant at 6033 returns 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Float(f32::NAN), Slot::Float(0.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    #[test]
+    fn ec_fcmpg_nan_returns_1() {
+        // NaN case for Fcmpg → +1; verifies Fcmpg differs from Fcmpl for NaN
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Float(f32::NAN), Slot::Float(0.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- execute_class: Double arithmetic ----
+
+    #[test]
+    fn ec_dadd_adds_doubles() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dadd),
+                (3, Instruction::Dreturn),
+            ],
+            vec![Slot::Double(2.0), Slot::Double(3.0)],
+            4, 2, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(5.0));
+    }
+
+    #[test]
+    fn ec_dsub_subtracts_doubles() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dsub),
+                (3, Instruction::Dreturn),
+            ],
+            vec![Slot::Double(7.0), Slot::Double(3.0)],
+            4, 2, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(4.0));
+    }
+
+    #[test]
+    fn ec_dmul_multiplies_doubles() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dmul),
+                (3, Instruction::Dreturn),
+            ],
+            vec![Slot::Double(4.0), Slot::Double(3.0)],
+            4, 2, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(12.0));
+    }
+
+    #[test]
+    fn ec_ddiv_divides_doubles() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Ddiv),
+                (3, Instruction::Dreturn),
+            ],
+            vec![Slot::Double(10.0), Slot::Double(4.0)],
+            4, 2, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(2.5));
+    }
+
+    #[test]
+    fn ec_drem_double_remainder() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Drem),
+                (3, Instruction::Dreturn),
+            ],
+            vec![Slot::Double(10.0), Slot::Double(3.0)],
+            4, 2, "()D",
+        ).unwrap().unwrap();
+        if let Slot::Double(v) = r {
+            assert!((v - 1.0_f64).abs() < 1e-9);
+        } else { panic!("{r:?}"); }
+    }
+
+    #[test]
+    fn ec_dneg_negates_double() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dneg),
+                (2, Instruction::Dreturn),
+            ],
+            vec![Slot::Double(-5.0)],
+            4, 1, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(5.0));
+    }
+
+    // ---- execute_class: Dcmpl / Dcmpg ----
+
+    #[test]
+    fn ec_dcmpl_greater_returns_1() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Double(3.0), Slot::Double(2.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_dcmpl_less_returns_minus_1() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Double(2.0), Slot::Double(3.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    #[test]
+    fn ec_dcmpl_nan_returns_minus_1() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Double(f64::NAN), Slot::Double(0.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    #[test]
+    fn ec_dcmpg_nan_returns_1() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            vec![Slot::Double(f64::NAN), Slot::Double(0.0)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- execute_class: Conditional branches ----
+    // Branch layout: (0,push), (1,Ifxx(5))→target=6, (4,Iconst0)→not-taken, (5,Ireturn),
+    //                (6,Iconst1)→taken, (7,Ireturn)
+
+    #[test]
+    fn ec_iflt_taken_on_negative() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iflt(5)),   // target = 1+5 = 6
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(-1)],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_iflt_not_taken_on_zero() {
+        // zero is not < 0; mutant (< → ==) makes 0==0 → taken → 1 ≠ 0
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iflt(5)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(0)],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_iflt_not_taken_on_positive() {
+        // +1 not < 0; mutant (< → >) makes 1>0 → taken → 1 ≠ 0
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iflt(5)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(1)],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_ifgt_taken_on_positive() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Ifgt(5)),   // target = 6
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(1)],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_ifgt_not_taken_on_zero() {
+        // 0 not > 0; mutant (> → ==): 0==0 → taken → 1 ≠ 0
+        // also kills > → >= mutant
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Ifgt(5)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(0)],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_ifgt_not_taken_on_negative() {
+        // -1 not > 0; mutant (> → <): -1<0 → taken → 1 ≠ 0
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Ifgt(5)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(-1)],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_ificmpeq_taken_when_equal() {
+        // a==b → taken; mutant (== → !=): not taken → 0 ≠ 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::IfIcmpeq(5)),  // target = 2+5 = 7
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+                (7, Instruction::Iconst1),
+                (8, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(3), Slot::Int(3)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_ificmpeq_not_taken_when_unequal() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::IfIcmpeq(5)),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+                (7, Instruction::Iconst1),
+                (8, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(3), Slot::Int(4)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_ificmplt_taken_when_less() {
+        // 2 < 5 → taken; mutant (< → ==): 2==5 = false → 0 ≠ 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::IfIcmplt(5)),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+                (7, Instruction::Iconst1),
+                (8, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(2), Slot::Int(5)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_ificmplt_not_taken_when_equal() {
+        // 3 not < 3 → 0; mutant (< → ==): 3==3=true → 1; mutant (< → <=): 3<=3=true → 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::IfIcmplt(5)),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+                (7, Instruction::Iconst1),
+                (8, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(3), Slot::Int(3)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_ificmplt_not_taken_when_greater() {
+        // 5 not < 2 → 0; mutant (< → >): 5>2=true → 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::IfIcmplt(5)),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+                (7, Instruction::Iconst1),
+                (8, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(5), Slot::Int(2)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_ificmple_taken_when_equal() {
+        // 3 <= 3 → taken → 1; mutant (<= → >): 3>3=false → 0
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::IfIcmple(5)),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+                (7, Instruction::Iconst1),
+                (8, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(3), Slot::Int(3)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_ificmple_not_taken_when_greater() {
+        // 4 not <= 3 → 0; mutant (<= → >): 4>3=true → 1
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::IfIcmple(5)),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+                (7, Instruction::Iconst1),
+                (8, Instruction::Ireturn),
+            ],
+            vec![Slot::Int(4), Slot::Int(3)],
+            4, 2, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    // ---- execute_class: Newarray init for Long/Float/Double ----
+
+    #[test]
+    fn ec_newarray_long_default_slot_is_long_zero() {
+        // Create long[1]; arm deleted → fields stay Int(0) → Laload TypeMismatch
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (3, Instruction::Astore0),
+                (4, Instruction::Aload0),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Laload),
+                (7, Instruction::Lreturn),
+            ],
+            vec![],
+            4, 1, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(0));
+    }
+
+    #[test]
+    fn ec_newarray_float_default_slot_is_float_zero() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (3, Instruction::Astore0),
+                (4, Instruction::Aload0),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Faload),
+                (7, Instruction::Freturn),
+            ],
+            vec![],
+            4, 1, "()F",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Float(0.0));
+    }
+
+    #[test]
+    fn ec_newarray_double_default_slot_is_double_zero() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (3, Instruction::Astore0),
+                (4, Instruction::Aload0),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Daload),
+                (7, Instruction::Dreturn),
+            ],
+            vec![],
+            4, 1, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(0.0));
+    }
+
+    // ---- execute_class: Array bounds — kills || → && and < mutations ----
+
+    /// Create int[3], access valid idx=0 → succeeds.
+    /// Kills `idx_val < 0` mutated to `== 0` and `<= 0` (idx=0 would false-trigger).
+    #[test]
+    fn ec_iaload_valid_idx0_succeeds() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Iconst0),
+                (7, Instruction::Iaload),
+                (8, Instruction::Ireturn),
+            ],
+            vec![],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    /// Access valid idx=1 of int[3]; kills `< → >` (1>0=true would wrongly error).
+    #[test]
+    fn ec_iaload_valid_idx1_succeeds() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Iaload),
+                (8, Instruction::Ireturn),
+            ],
+            vec![],
+            4, 1, "()I",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    /// Access OOB idx=3 of int[3]; kills `|| → &&` (false && true = no error).
+    #[test]
+    fn ec_iaload_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),  // idx = length = OOB
+                (8, Instruction::Iaload),
+                (9, Instruction::Ireturn),
+            ],
+            vec![],
+            4, 1, "()I",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    /// Iastore OOB at length; kills its || → && mutant.
+    #[test]
+    fn ec_iastore_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),   // idx=3 = OOB
+                (8, Instruction::Iconst5),      // value
+                (9, Instruction::Iastore),
+                (10, Instruction::Iconst0),
+                (11, Instruction::Ireturn),
+            ],
+            vec![],
+            4, 1, "()I",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    /// Laload: valid idx=0 succeeds (kills < → == at Laload bounds).
+    #[test]
+    fn ec_laload_valid_idx0_succeeds() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Iconst0),
+                (7, Instruction::Laload),
+                (8, Instruction::Lreturn),
+            ],
+            vec![],
+            4, 1, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(0));
+    }
+
+    /// Laload: valid idx=1 succeeds (kills < → > at Laload bounds).
+    #[test]
+    fn ec_laload_valid_idx1_succeeds() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Laload),
+                (8, Instruction::Lreturn),
+            ],
+            vec![],
+            4, 1, "()J",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Long(0));
+    }
+
+    /// Laload OOB kills || → &&.
+    #[test]
+    fn ec_laload_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),
+                (8, Instruction::Laload),
+                (9, Instruction::Lreturn),
+            ],
+            vec![],
+            4, 1, "()J",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    /// Lastore OOB kills || → &&.
+    #[test]
+    fn ec_lastore_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),    // idx=3 OOB
+                (8, Instruction::Lconst0),
+                (9, Instruction::Lastore),
+                (10, Instruction::Iconst0),
+                (11, Instruction::Ireturn),
+            ],
+            vec![],
+            4, 1, "()I",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    /// Faload valid idx=0 and idx=1.
+    #[test]
+    fn ec_faload_valid_idx0_succeeds() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Iconst0),
+                (7, Instruction::Faload),
+                (8, Instruction::Freturn),
+            ],
+            vec![],
+            4, 1, "()F",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Float(0.0));
+    }
+
+    #[test]
+    fn ec_faload_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),
+                (8, Instruction::Faload),
+                (9, Instruction::Freturn),
+            ],
+            vec![],
+            4, 1, "()F",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn ec_fastore_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),    // idx=3 OOB
+                (8, Instruction::Fconst0),
+                (9, Instruction::Fastore),
+                (10, Instruction::Iconst0),
+                (11, Instruction::Ireturn),
+            ],
+            vec![],
+            4, 1, "()I",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn ec_daload_valid_idx0_succeeds() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Iconst0),
+                (7, Instruction::Daload),
+                (8, Instruction::Dreturn),
+            ],
+            vec![],
+            4, 1, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(0.0));
+    }
+
+    #[test]
+    fn ec_daload_valid_idx1_succeeds() {
+        let r = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Daload),
+                (8, Instruction::Dreturn),
+            ],
+            vec![],
+            4, 1, "()D",
+        ).unwrap().unwrap();
+        assert_eq!(r, Slot::Double(0.0));
+    }
+
+    #[test]
+    fn ec_daload_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),
+                (8, Instruction::Daload),
+                (9, Instruction::Dreturn),
+            ],
+            vec![],
+            4, 1, "()D",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn ec_dastore_oob_at_length_errors() {
+        let err = execute_class_synthetic(
+            vec![
+                (0, Instruction::Bipush(3)),
+                (2, Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double)),
+                (4, Instruction::Astore0),
+                (5, Instruction::Aload0),
+                (6, Instruction::Bipush(3)),     // idx=3 OOB
+                (8, Instruction::Dconst0),
+                (9, Instruction::Dastore),
+                (10, Instruction::Iconst0),
+                (11, Instruction::Ireturn),
+            ],
+            vec![],
+            4, 1, "()I",
+        ).unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- run_class_int on Arithmetic.class via execute_class() ----
+    // These tests exercise the same operations as run_static_int but via execute_class,
+    // killing mutants in the execute_class() opcode body.
+
+    #[test]
+    fn ec_arithmetic_bitwise_xor() {
+        // 5 ^ 3 = 6; via execute_class() kills Ixor mutants in execute_class
+        assert_eq!(run_class_int("Arithmetic.class", "bitwiseXor", "(II)I", vec![5, 3]), 6);
+    }
+
+    #[test]
+    fn ec_arithmetic_bitwise_and() {
+        assert_eq!(run_class_int("Arithmetic.class", "bitwiseAnd", "(II)I", vec![0b1111, 0b1010]), 0b1010);
+    }
+
+    #[test]
+    fn ec_arithmetic_bitwise_or() {
+        assert_eq!(run_class_int("Arithmetic.class", "bitwiseOr", "(II)I", vec![0b1111, 0b1010]), 0b1111);
+    }
+
+    #[test]
+    fn ec_arithmetic_abs_negative() {
+        // abs(-5) = 5; exercises conditional branch in execute_class
+        assert_eq!(run_class_int("Arithmetic.class", "abs", "(I)I", vec![-5]), 5);
+    }
+
+    #[test]
+    fn ec_arithmetic_abs_positive() {
+        assert_eq!(run_class_int("Arithmetic.class", "abs", "(I)I", vec![5]), 5);
+    }
+
+    #[test]
+    fn ec_arithmetic_max_first_greater() {
+        assert_eq!(run_class_int("Arithmetic.class", "max", "(II)I", vec![7, 3]), 7);
+    }
+
+    #[test]
+    fn ec_arithmetic_max_second_greater() {
+        assert_eq!(run_class_int("Arithmetic.class", "max", "(II)I", vec![3, 7]), 7);
+    }
+
+    #[test]
+    fn ec_arithmetic_clamp_in_range() {
+        assert_eq!(run_class_int("Arithmetic.class", "clamp", "(III)I", vec![5, 1, 10]), 5);
+    }
+
+    #[test]
+    fn ec_arithmetic_clamp_below_lo() {
+        assert_eq!(run_class_int("Arithmetic.class", "clamp", "(III)I", vec![0, 1, 10]), 1);
+    }
+
+    #[test]
+    fn ec_arithmetic_clamp_above_hi() {
+        assert_eq!(run_class_int("Arithmetic.class", "clamp", "(III)I", vec![15, 1, 10]), 10);
+    }
+
+    #[test]
+    fn ec_arithmetic_fibonacci_10() {
+        // Exercises loop with IfIcmple / sum additions in execute_class
+        assert_eq!(run_class_int("Arithmetic.class", "fibonacci", "(I)I", vec![10]), 55);
+    }
+
+    #[test]
+    fn ec_arithmetic_sum_to_100() {
+        // Exercises += accumulation loop in execute_class
+        assert_eq!(run_class_int("Arithmetic.class", "sumTo", "(I)I", vec![100]), 5050);
+    }
+
+    #[test]
+    fn ec_arithmetic_factorial_5() {
+        assert_eq!(run_class_int("Arithmetic.class", "factorial", "(I)I", vec![5]), 120);
+    }
 }
