@@ -1,3 +1,4 @@
+#![allow(clippy::pedantic, clippy::nursery)]
 //! Switch-dispatch JVM bytecode interpreter for Duke Phase 4.
 //!
 //! Executes decoded instruction streams for methods containing integer, long,
@@ -5,6 +6,7 @@
 //! allocation, field access, and method invocation are not yet implemented.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Write as _;
 use std::io::Write;
 
 use duke_bytecode::Instruction;
@@ -1671,7 +1673,7 @@ fn native_string_length(
     };
     let obj = heap.get(this_ref)?;
     let len = obj.string_value.as_ref().map_or(0, String::len);
-    Ok(Some(Slot::Int(len as i32)))
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap())))
 }
 
 /// Native: `String.equals(Object)` — compares string content.
@@ -2039,7 +2041,7 @@ fn native_println_char(
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2153,7 +2155,7 @@ fn native_print_char(
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2670,7 +2672,7 @@ fn native_string_value_of_char(
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2916,7 +2918,7 @@ fn native_string_replace_char(
     };
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
@@ -2925,7 +2927,7 @@ fn native_string_replace_char(
         }
     };
     let new_char = match args.get(2) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
@@ -3628,7 +3630,7 @@ fn stringify_slot(
                 out.push_str(if *v != 0 { "true" } else { "false" });
             } else if type_hint == 'C' {
                 // JVM char: render as the Unicode character.
-                if let Some(ch) = char::from_u32(*v as u32) {
+                if let Some(ch) = char::from_u32((*v).cast_unsigned()) {
                     out.push(ch);
                 } else {
                     out.push('?');
@@ -6356,6 +6358,7 @@ pub fn execute_class(
                     continue;
                 }
                 // Attempt to load the target class; soft-fail for unloadable.
+                #[allow(clippy::similar_names)]
                 let loaded = registry.ensure_loaded(&callee_class, loader)?;
                 let resolved = if loaded {
                     resolve_method_in_hierarchy(
@@ -6368,7 +6371,7 @@ pub fn execute_class(
                 } else {
                     None
                 };
-                let (dispatch_class, callee_idx) = match resolved {
+                let (dispatch_class, callee_idx): (String, usize) = match resolved {
                     Some((cls, i)) => (cls, i),
                     None => {
                         // Check lambda dispatch before native fallback.
@@ -7870,6 +7873,8 @@ struct CallFrame {
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
+#[allow(clippy::too_many_lines, clippy::items_after_statements)]
+#[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
     use duke_classfile::access_flags::FieldAccessFlags;
@@ -8135,6 +8140,7 @@ fn find_exception_handler(
 }
 
 /// Walk the class hierarchy to find a method by name and descriptor.
+#[allow(clippy::doc_markdown)]
 /// Returns (class_name_where_found, method_index) or None.
 fn resolve_method_in_hierarchy(
     registry: &mut ClassRegistry,
@@ -8160,7 +8166,7 @@ fn resolve_method_in_hierarchy(
                     return Some((current, idx));
                 }
                 match &ctx.super_class {
-                    Some(s) => current = s.clone(),
+                    Some(s) => current.clone_from(s),
                     None => return None,
                 }
             }
@@ -8169,17 +8175,21 @@ fn resolve_method_in_hierarchy(
     }
 }
 
+#[allow(clippy::doc_markdown)]
 /// Resolve a constant pool Methodref to (class_name, method_name, descriptor).
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
-        Some(CpEntry::Methodref {
-            class_index,
-            name_and_type_index,
-        })
-        | Some(CpEntry::InterfaceMethodref {
-            class_index,
-            name_and_type_index,
-        }) => {
+        #[allow(clippy::unnested_or_patterns)]
+        Some(
+            CpEntry::Methodref {
+                class_index,
+                name_and_type_index,
+            }
+            | CpEntry::InterfaceMethodref {
+                class_index,
+                name_and_type_index,
+            },
+        ) => {
             let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
@@ -8214,10 +8224,7 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor
-        .find(')')
-        .map(|i| &descriptor[1..i])
-        .unwrap_or("");
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8253,6 +8260,7 @@ fn parse_arg_count(descriptor: &str) -> usize {
     count
 }
 
+#[allow(clippy::doc_markdown)]
 /// Resolve a constant pool Fieldref to (class_name, field_name, descriptor).
 fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
@@ -8292,6 +8300,7 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
     }
 }
 
+#[allow(clippy::doc_markdown)]
 /// Resolve a MethodHandle CP entry to (reference_kind, class_name, method_name, descriptor).
 fn resolve_method_handle(
     cp: &[Option<CpEntry>],
@@ -8308,6 +8317,7 @@ fn resolve_method_handle(
     Ok((kind, class_name, method_name, descriptor))
 }
 
+#[allow(clippy::doc_markdown)]
 /// Resolve a NameAndType CP entry to (name, descriptor).
 fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(String, String)> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
@@ -8356,10 +8366,7 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
-    let params = descriptor
-        .find(')')
-        .map(|i| &descriptor[1..i])
-        .unwrap_or("");
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8406,7 +8413,7 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
         Some('J') => Slot::Long(0),
         Some('F') => Slot::Float(0.0),
         Some('D') => Slot::Double(0.0),
-        Some('L') | Some('[') => Slot::Reference(None),
+        Some('L' | '[') => Slot::Reference(None),
         _ => Slot::Int(0), // I, Z, B, C, S
     }
 }
@@ -8495,6 +8502,7 @@ fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> V
     Err(VmError::InvalidFieldref { index: 0 })
 }
 
+#[allow(clippy::doc_markdown)]
 /// Index of a named static field within ctx.static_fields.
 fn static_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
     ctx.fields
@@ -8535,7 +8543,6 @@ fn native_sb_init_string(
     };
     let init_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => String::new(),
         _ => String::new(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8555,7 +8562,6 @@ fn native_sb_append_string(
     };
     let append_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => "null".to_string(),
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8638,7 +8644,7 @@ fn native_sb_append_double(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        let _ = write!(buf, "{val}");
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8664,7 +8670,7 @@ fn native_sb_append_float(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        let _ = write!(buf, "{val}");
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8701,7 +8707,7 @@ fn native_sb_append_char(
         _ => return Err(VmError::NullPointerException),
     };
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('\0'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
         _ => '\0',
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8741,7 +8747,7 @@ fn native_sb_length(
         .string_value
         .as_ref()
         .map_or(0, String::len);
-    Ok(Some(Slot::Int(len as i32)))
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap())))
 }
 
 // Character natives
@@ -8750,7 +8756,7 @@ fn native_sb_length(
 /// Helper: extract a `char` from a `Slot::Int` argument.
 fn slot_to_char(slot: &Slot) -> VmResult<char> {
     match slot {
-        Slot::Int(v) => Ok(char::from_u32(*v as u32).unwrap_or('\0')),
+        Slot::Int(v) => Ok(char::from_u32((*v).cast_unsigned()).unwrap_or('\0')),
         _ => Err(VmError::TypeMismatch {
             expected: "Int (char)",
             got: "other",
@@ -8933,12 +8939,14 @@ fn native_arraylist_get(
         }
     };
     let obj = heap.get(this_ref)?;
-    match obj.fields.get(idx + 1) {
-        Some(slot) => Ok(Some(*slot)),
-        None => Err(VmError::JavaException {
-            class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
-        }),
-    }
+    obj.fields.get(idx + 1).map_or_else(
+        || {
+            Err(VmError::JavaException {
+                class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
+            })
+        },
+        |slot| Ok(Some(*slot)),
+    )
 }
 
 /// Native: `ArrayList.size()I`
@@ -8958,7 +8966,7 @@ fn native_arraylist_size(
     }
 }
 
-/// Native: `ArrayList.iterator()Iterator` — creates an ArrayListIterator.
+/// Native: `ArrayList.iterator()Iterator` — creates an `ArrayListIterator`.
 fn native_arraylist_iterator(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9002,7 +9010,7 @@ fn array_list_sort(
 
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap(),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => return Ok(None),
     };
@@ -9044,7 +9052,7 @@ fn array_list_sort(
             // Guarded by `has_pending_forwards` so the common (no-GC) path pays
             // only one bool check instead of O(n) HashMap probes.
             if heap.has_pending_forwards() {
-                for elem in elems.iter_mut() {
+                for elem in &mut *elems {
                     let mut slot = Slot::Reference(Some(*elem));
                     heap.apply_forward(&mut slot);
                     if let Slot::Reference(Some(r)) = slot {
@@ -9123,7 +9131,8 @@ fn native_collections_sort(
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
 
-/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by native_arraylist_iterator.
+/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by `native_arraylist_iterator`.
+#[allow(clippy::unnecessary_wraps)]
 fn native_arraylist_iter_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9199,6 +9208,7 @@ fn native_arraylist_iter_next(
 // ---- Double.isNaN ----
 
 /// Native: `Double.isNaN(D)Z` — returns 1 if value is NaN.
+#[allow(clippy::unnecessary_wraps)]
 fn native_double_isnan(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9289,7 +9299,7 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap(),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9313,7 +9323,7 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap(),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9348,7 +9358,7 @@ fn native_arrays_sort_int(
 // HashMap natives
 // ---------------------------------------------------------------------------
 
-/// Semantic equality for HashMap keys: compares by string_value for heap strings,
+/// Semantic equality for `HashMap` keys: compares by `string_value` for heap strings,
 /// or by the first field (e.g. intValue) for boxed numerics, or by reference identity.
 fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     match (a, b) {
@@ -9357,14 +9367,8 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             if ra == rb {
                 return true;
             }
-            let oa = match heap.get(*ra) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
-            let ob = match heap.get(*rb) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
+            let Ok(oa) = heap.get(*ra) else { return false };
+            let Ok(ob) = heap.get(*rb) else { return false };
             if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
             }
@@ -9740,7 +9744,7 @@ fn patch_forwarded_slots(
         }
     }
     for ctx in registry.all_classes_mut() {
-        for slot in ctx.static_fields.iter_mut() {
+        for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
         }
     }
@@ -9766,6 +9770,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_callback_can_be_looked_up() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_cb(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -9784,6 +9789,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_simple_stays_simple() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -11028,6 +11034,7 @@ mod tests {
 
     #[test]
     fn native_registry_stores_and_retrieves() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_handler(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -13670,7 +13677,8 @@ mod tests {
 
     // ---- Phase 19: Enum integration tests ----
 
-    /// Helper that loads a class, calls bootstrap_stdlib, and runs a static method.
+    #[allow(clippy::doc_markdown)]
+    /// Helper that loads a class, calls `bootstrap_stdlib`, and runs a static method.
     fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();
@@ -14282,7 +14290,7 @@ mod tests {
         let fib = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
         assert_eq!(fib, 75025);
         // benchSum overflows i32: sum(0..499999) = 124999750000 → wraps to 445698416
-        assert_eq!(sum, 445698416_i32);
+        assert_eq!(sum, 445_698_416_i32);
     }
 
     #[cfg(feature = "telemetry")]
@@ -14738,13 +14746,14 @@ mod tests {
     /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
     ///
     ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
-    ///   // creates $$Lambda$0 with impl_class="java/lang/String",
-    ///   //   impl_method="length", impl_kind=5 (REF_invokeVirtual),
-    ///   //   captured_count=1 (the string "hello")
+    #[allow(clippy::doc_markdown)]
+    ///   // creates `$$Lambda$0` with `impl_class="java/lang/String"`,
+    ///   //   `impl_method="length"`, `impl_kind=5` (`REF_invokeVirtual`),
+    ///   //   `captured_count=1` (the string "hello")
     ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
-    ///   // → lambda SAM: impl_kind==5, resolve_method_in_hierarchy returns None
+    ///   // → lambda SAM: `impl_kind==5`, `resolve_method_in_hierarchy` returns None
     ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   registry.natives.get_kind("java/lang/String", "length", "()I")
+    ///   //   `registry.natives.get_kind("java/lang/String", "length", "()I")`
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14793,6 +14802,8 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
                 let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
                 Ok(Some(Slot::Int(len)))
             },

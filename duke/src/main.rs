@@ -40,6 +40,7 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
     jdk
 }
 
+#[allow(clippy::doc_markdown)]
 /// Build a class loader: BootstrapLoader (JDK jimage + app dir) when JDK path
 /// is known, or plain DirectoryLoader otherwise.
 fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn ClassLoader> {
@@ -53,7 +54,10 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn Cla
                 ),
             }
         } else {
-            eprintln!("duke: warning: {modules:?} not found, falling back to directory loader");
+            eprintln!(
+                "duke: warning: {} not found, falling back to directory loader",
+                modules.display()
+            );
         }
     }
     Box::new(DirectoryLoader::new(app_dir))
@@ -119,12 +123,12 @@ fn main() {
     };
 
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{}': {e}", path);
+        eprintln!("duke: cannot read '{path}': {e}");
         process::exit(1);
     });
 
     let class_file = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error in '{}': {e}", path);
+        eprintln!("duke: parse error in '{path}': {e}");
         process::exit(1);
     });
 
@@ -153,6 +157,7 @@ fn emit_telemetry(registry: &ClassRegistry, dest: Option<TelemetryDest>) {
 }
 
 #[cfg(not(feature = "telemetry"))]
+#[allow(clippy::needless_pass_by_value)]
 fn emit_telemetry(_registry: &ClassRegistry, dest: Option<TelemetryDest>) {
     if dest.is_some() {
         eprintln!(
@@ -239,7 +244,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
     // When --jdk is given, also loads missing classes from the JDK jimage.
     let parent = std::path::Path::new(path)
         .parent()
-        .unwrap_or(std::path::Path::new("."));
+        .unwrap_or_else(|| std::path::Path::new("."));
     let loader = make_loader(jdk_home, parent);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
