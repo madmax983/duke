@@ -188,8 +188,10 @@ impl JImageReader {
         if info.compressed > 0 {
             // Raw deflate stream (negative window bits — no zlib header)
             let cap = usize::try_from(info.uncompressed).unwrap_or(0);
+            // Cap initial allocation to 32MB to prevent OOM panics on malformed data
+            let initial_cap = cap.min(1024 * 1024 * 32);
             let mut decoder = DeflateDecoder::new(raw);
-            let mut out = Vec::with_capacity(cap);
+            let mut out = Vec::with_capacity(initial_cap);
             decoder
                 .read_to_end(&mut out)
                 .map_err(|_| LoadError::Decompress {
@@ -438,5 +440,29 @@ mod proptests {
 
             let _ = reader.read_resource("test");
         }
+    }
+
+    #[test]
+    fn havoc_test_capacity_overflow() {
+        let mut index = HashMap::new();
+        index.insert(
+            "test".to_string(),
+            ResourceInfo {
+                offset: 0,
+                compressed: 1,
+                uncompressed: usize::MAX as u64, // The malicious input!
+            },
+        );
+
+        let reader = JImageReader {
+            data: vec![0; 100],
+            resource_count: 1,
+            data_offset: 0,
+            index,
+        };
+
+        // This used to panic with "capacity overflow".
+        // With the fix, it should return an error due to decompression failing on the short raw data (or success if it manages to decompress it, but either way it won't panic).
+        let _result = reader.read_resource("test");
     }
 }
