@@ -7865,26 +7865,6 @@ pub fn execute_class(
                     }
                 }
 
-                // Recursive allocation helper.
-                fn alloc_multi(
-                    heap: &mut duke_gc::Heap,
-                    dims: &[i32],
-                    depth: usize,
-                    type_name: &str,
-                ) -> u64 {
-                    let size = dims[depth] as usize;
-                    let r = heap.allocate(type_name.to_string(), size);
-                    if depth < dims.len() - 1 {
-                        // Not the innermost — fill with references to sub-arrays.
-                        let inner_type = &type_name[1..]; // Strip one '[' for inner dimension.
-                        for i in 0..size {
-                            let inner = alloc_multi(heap, dims, depth + 1, inner_type);
-                            heap.get_mut(r).unwrap().fields[i] = Slot::Reference(Some(inner));
-                        }
-                    }
-                    r
-                }
-
                 let r = alloc_multi(heap, &dims, 0, &element_type);
                 frame.push(Slot::Reference(Some(r)))?;
                 if heap.should_gc() {
@@ -8478,6 +8458,22 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
         Some('L') | Some('[') => Slot::Reference(None),
         _ => Slot::Int(0), // I, Z, B, C, S
     }
+}
+
+// Recursive allocation helper for multianewarray.
+fn alloc_multi(heap: &mut duke_gc::Heap, dims: &[i32], depth: usize, type_name: &str) -> u64 {
+    #[allow(clippy::cast_sign_loss)]
+    let size = dims[depth] as usize;
+    let r = heap.allocate(type_name.to_string(), size);
+    if depth < dims.len() - 1 {
+        // Not the innermost — fill with references to sub-arrays.
+        let inner_type = &type_name[1..]; // Strip one '[' for inner dimension.
+        for i in 0..size {
+            let inner = alloc_multi(heap, dims, depth + 1, inner_type);
+            heap.get_mut(r).unwrap().fields[i] = Slot::Reference(Some(inner));
+        }
+    }
+    r
 }
 
 /// After allocating an object on the heap, initialize each field slot to the
