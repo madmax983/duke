@@ -319,7 +319,7 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<
     }
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
     for (i, slot) in arg_refs.into_iter().enumerate() {
-        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
+        heap.get_mut(arr_ref).expect("duke: array allocation failed").fields[i] = slot;
     }
 
     let main_args = vec![Slot::Reference(Some(arr_ref))];

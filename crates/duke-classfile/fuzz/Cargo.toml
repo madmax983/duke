@@ -1,0 +1,47 @@
+[package]
+name = "duke-classfile-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.duke-classfile]
+path = ".."
+[dependencies.duke-bytecode]
+path = "../../duke-bytecode"
+[dependencies.duke-runtime]
+path = "../../duke-runtime"
+[dependencies.duke-gc]
+path = "../../duke-gc"
+[dependencies.duke-loader]
+path = "../../duke-loader"
+[dependencies.duke-interpreter]
+path = "../../duke-interpreter"
+
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "parse_classfile"
+path = "fuzz_targets/parse_classfile.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_bytecode"
+path = "fuzz_targets/parse_bytecode.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_interpreter"
+path = "fuzz_targets/fuzz_interpreter.rs"
+test = false
+doc = false

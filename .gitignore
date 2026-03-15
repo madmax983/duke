@@ -1,1 +1,3 @@
 /target
+crates/duke-classfile/fuzz/target
+crates/duke-classfile/fuzz/corpus
