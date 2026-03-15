@@ -416,7 +416,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(r as usize)
+                    .get(usize::try_from(r).unwrap_or(usize::MAX))
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
