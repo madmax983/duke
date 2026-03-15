@@ -12,6 +12,18 @@ use duke_classfile::CpIndex;
 
 /// Decode a bytecode sequence from a `Code` attribute into typed instructions.
 ///
+/// # Examples
+///
+/// ```
+/// # use duke_bytecode::{decode, Instruction};
+/// // 0x03 is ICONST_0, 0x3b is ISTORE_0
+/// let code = [0x03, 0x3b];
+/// let decoded = decode(&code).unwrap();
+/// assert_eq!(decoded.len(), 2);
+/// assert_eq!(decoded[0].1, Instruction::Iconst0);
+/// assert_eq!(decoded[1].1, Instruction::Istore0);
+/// ```
+///
 /// # Errors
 ///
 /// Returns [`DecodeError`] if the bytecode is structurally malformed (truncated
