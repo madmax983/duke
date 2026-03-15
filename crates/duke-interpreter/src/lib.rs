@@ -9375,11 +9375,15 @@ fn native_arrays_copyof_int(
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
-    let src_fields = heap.get(src_ref)?.fields.clone();
+    let src_len = heap.get(src_ref)?.fields.len();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
-    let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Int(0));
+        let val = if i < src_len {
+            heap.get(src_ref)?.fields[i]
+        } else {
+            Slot::Int(0)
+        };
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -9399,11 +9403,15 @@ fn native_arrays_copyof_object(
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
-    let src_fields = heap.get(src_ref)?.fields.clone();
+    let src_len = heap.get(src_ref)?.fields.len();
     let dst_ref = heap.allocate("[Ljava/lang/Object;".to_string(), new_len);
-    let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Reference(None));
+        let val = if i < src_len {
+            heap.get(src_ref)?.fields[i]
+        } else {
+            Slot::Reference(None)
+        };
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -9492,12 +9500,11 @@ fn native_hashmap_put(
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    // Clone fields to release the immutable borrow before mutating.
-    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < fields.len() {
-        if slots_equal(&fields[i], &key, heap) {
-            let old = fields[i + 1];
+    while i + 1 < heap.get(this_ref)?.fields.len() {
+        let field_key = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field_key, &key, heap) {
+            let old = heap.get(this_ref)?.fields[i + 1];
             heap.get_mut(this_ref)?.fields[i + 1] = val;
             return Ok(Some(old));
         }
@@ -9525,11 +9532,12 @@ fn native_hashmap_get(
         _ => return Err(VmError::NullPointerException),
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < fields.len() {
-        if slots_equal(&fields[i], &key, heap) {
-            return Ok(Some(fields[i + 1]));
+    while i + 1 < heap.get(this_ref)?.fields.len() {
+        let field_key = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field_key, &key, heap) {
+            let val = heap.get(this_ref)?.fields[i + 1];
+            return Ok(Some(val));
         }
         i += 2;
     }
@@ -9547,10 +9555,10 @@ fn native_hashmap_contains_key(
         _ => return Err(VmError::NullPointerException),
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < fields.len() {
-        if slots_equal(&fields[i], &key, heap) {
+    while i + 1 < heap.get(this_ref)?.fields.len() {
+        let field_key = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field_key, &key, heap) {
             return Ok(Some(Slot::Int(1)));
         }
         i += 2;
@@ -9586,11 +9594,11 @@ fn native_hashmap_remove(
         _ => return Err(VmError::NullPointerException),
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < fields.len() {
-        if slots_equal(&fields[i], &key, heap) {
-            let old_val = fields[i + 1];
+    while i + 1 < heap.get(this_ref)?.fields.len() {
+        let field_key = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field_key, &key, heap) {
+            let old_val = heap.get(this_ref)?.fields[i + 1];
             let obj = heap.get_mut(this_ref)?;
             let last_val_idx = obj.fields.len() - 1;
             let last_key_idx = obj.fields.len() - 2;
@@ -9637,11 +9645,12 @@ fn native_hashmap_get_or_default(
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < fields.len() {
-        if slots_equal(&fields[i], &key, heap) {
-            return Ok(Some(fields[i + 1]));
+    while i + 1 < heap.get(this_ref)?.fields.len() {
+        let field_key = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field_key, &key, heap) {
+            let val = heap.get(this_ref)?.fields[i + 1];
+            return Ok(Some(val));
         }
         i += 2;
     }
@@ -9683,12 +9692,13 @@ fn native_hashset_add(
         _ => return Err(VmError::NullPointerException),
     };
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fields = heap.get(this_ref)?.fields.clone();
-    // fields[0] = size, fields[1..] = elements
-    for field in fields.iter().skip(1) {
-        if slots_equal(field, &element, heap) {
+    let mut i = 1;
+    while i < heap.get(this_ref)?.fields.len() {
+        let field = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field, &element, heap) {
             return Ok(Some(Slot::Int(0))); // duplicate
         }
+        i += 1;
     }
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
@@ -9710,11 +9720,13 @@ fn native_hashset_contains(
         _ => return Err(VmError::NullPointerException),
     };
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fields = heap.get(this_ref)?.fields.clone();
-    for field in fields.iter().skip(1) {
-        if slots_equal(field, &element, heap) {
+    let mut i = 1;
+    while i < heap.get(this_ref)?.fields.len() {
+        let field = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field, &element, heap) {
             return Ok(Some(Slot::Int(1)));
         }
+        i += 1;
     }
     Ok(Some(Slot::Int(0)))
 }
@@ -9731,10 +9743,10 @@ fn native_hashset_remove(
         _ => return Err(VmError::NullPointerException),
     };
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fields = heap.get(this_ref)?.fields.clone();
-    #[allow(clippy::needless_range_loop)] // i is used in obj.fields.swap(i, last_idx)
-    for i in 1..fields.len() {
-        if slots_equal(&fields[i], &element, heap) {
+    let mut i = 1;
+    while i < heap.get(this_ref)?.fields.len() {
+        let field = heap.get(this_ref)?.fields[i];
+        if slots_equal(&field, &element, heap) {
             let obj = heap.get_mut(this_ref)?;
             let last_idx = obj.fields.len() - 1;
             obj.fields.swap(i, last_idx);
@@ -9745,6 +9757,7 @@ fn native_hashset_remove(
             }
             return Ok(Some(Slot::Int(1)));
         }
+        i += 1;
     }
     Ok(Some(Slot::Int(0)))
 }
