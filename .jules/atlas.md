@@ -1,0 +1,3 @@
+## 2024-03-14 - Extracted Native Handlers
+**Tangle:** The `crates/duke-interpreter/src/lib.rs` file was a massive "Blob" containing over 15,000 lines. The core interpreter loop and state management were completely entangled with the implementations of over 130 native Java methods (`println`, `String.length()`, `Math.max()`, etc.).
+**Blueprint:** Extracted all native handler implementations out of `lib.rs` into a new dedicated module `crates/duke-interpreter/src/native/mod.rs`. This enforces a clear domain boundary between the core execution engine and the standard library bridging layer, reducing file size and improving cohesion without breaking the public `native_*` API contract.
