@@ -695,14 +695,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
-    registry
-        .natives_mut()
-        .register(
-            "java/lang/Throwable",
-            "addSuppressed",
-            "(Ljava/lang/Throwable;)V",
-            native_throwable_add_suppressed,
-        );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "addSuppressed",
+        "(Ljava/lang/Throwable;)V",
+        native_throwable_add_suppressed,
+    );
 
     // java/lang/Exception extends Throwable
     let exception_ctx = ClassContext {
@@ -4911,7 +4909,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    _triggered_by: &str,
+    #[allow(unused)] triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -14422,7 +14420,7 @@ mod tests {
         assert_eq!(result, Some(Slot::Int(99)));
         let events = &registry.telemetry.exception_flow.events;
         // Two throw events: inner throw + rethrow
-        assert!(events.len() >= 1);
+        assert!(!events.is_empty());
         assert!(events.iter().all(|e| e.catch_site.is_some()));
     }
 

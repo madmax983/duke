@@ -436,3 +436,37 @@ fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResu
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verify_empty() {
+        assert!(verify(&[], 0, 0).is_ok());
+    }
+
+    #[test]
+    fn test_verify_locals_out_of_bounds() {
+        let instrs = [(0, Instruction::Iload(5))];
+        let res = verify(&instrs, 1, 2);
+        assert!(matches!(
+            res,
+            Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+        ));
+    }
+
+    #[test]
+    fn test_verify_stack_underflow() {
+        let instrs = [(0, Instruction::Iadd)]; // Pops 2, pushes 1, starting with 0 stack
+        let res = verify(&instrs, 2, 0);
+        assert!(matches!(res, Err(VerifyError::StackUnderflow { pc: 0 })));
+    }
+
+    #[test]
+    fn test_verify_stack_overflow() {
+        let instrs = [(0, Instruction::Iconst1)]; // Pushes 1
+        let res = verify(&instrs, 0, 0); // Max stack is 0
+        assert!(matches!(res, Err(VerifyError::StackOverflow { pc: 0, .. })));
+    }
+}
