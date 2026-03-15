@@ -16834,4 +16834,2039 @@ mod tests {
         .unwrap();
         assert!(matches!(r, Slot::Double(v) if (v - 2.0).abs() < 1e-9));
     }
+
+    // ===========================================================================
+    // execute() — Ixor
+    // ===========================================================================
+
+    #[test]
+    fn execute_ixor_xors_bits() {
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(5_i8)),
+                (2, Instruction::Bipush(3_i8)),
+                (4, Instruction::Ixor),
+                (5, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(6)); // 5 ^ 3 = 6
+    }
+
+    #[test]
+    fn execute_ixor_self_gives_zero() {
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(9_i8)),
+                (2, Instruction::Bipush(9_i8)),
+                (4, Instruction::Ixor),
+                (5, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    // ===========================================================================
+    // execute() — Long bitwise: Land / Lor / Lxor / Lneg / Lshl masking
+    // ===========================================================================
+
+    #[test]
+    fn execute_land_selects_common_bits() {
+        // 0b1010 & 0b1100 = 0b1000 = 8
+        let r = execute(
+            &[
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Land),
+                (3, Instruction::Lreturn),
+            ],
+            &[],
+            vec![Slot::Long(0b1010), Slot::Long(0b1100)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(8));
+    }
+
+    #[test]
+    fn execute_lor_combines_bits() {
+        // 0b1010 | 0b0101 = 0b1111 = 15
+        let r = execute(
+            &[
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lor),
+                (3, Instruction::Lreturn),
+            ],
+            &[],
+            vec![Slot::Long(0b1010), Slot::Long(0b0101)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(15));
+    }
+
+    #[test]
+    fn execute_lxor_flips_differing_bits() {
+        // 0b1010 ^ 0b1100 = 0b0110 = 6
+        let r = execute(
+            &[
+                (0, Instruction::Lload0),
+                (1, Instruction::Lload1),
+                (2, Instruction::Lxor),
+                (3, Instruction::Lreturn),
+            ],
+            &[],
+            vec![Slot::Long(0b1010), Slot::Long(0b1100)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(6));
+    }
+
+    #[test]
+    fn execute_lneg_negates_value() {
+        let r = execute(
+            &[
+                (0, Instruction::Lload0),
+                (1, Instruction::Lneg),
+                (2, Instruction::Lreturn),
+            ],
+            &[],
+            vec![Slot::Long(1)],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(-1));
+    }
+
+    #[test]
+    fn execute_lshl_masks_shift_amount_distinguishes_and_from_xor() {
+        // shift by 65: 65 & 63 = 1 → 1L << 1 = 2
+        // with ^ mutant: 65 ^ 63 = 64 → shift by 0 → 1
+        let r = execute(
+            &[
+                (0, Instruction::Lload0),
+                (1, Instruction::Iload1),
+                (2, Instruction::Lshl),
+                (3, Instruction::Lreturn),
+            ],
+            &[],
+            vec![Slot::Long(1), Slot::Int(65)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(2));
+    }
+
+    // ===========================================================================
+    // execute() — Float arithmetic
+    // ===========================================================================
+
+    #[test]
+    fn execute_fadd_sums_floats() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fadd),
+                (3, Instruction::Freturn),
+            ],
+            &[],
+            vec![Slot::Float(2.0), Slot::Float(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v - 5.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn execute_fsub_subtracts_floats() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fsub),
+                (3, Instruction::Freturn),
+            ],
+            &[],
+            vec![Slot::Float(5.0), Slot::Float(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v - 2.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn execute_fmul_multiplies_floats() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fmul),
+                (3, Instruction::Freturn),
+            ],
+            &[],
+            vec![Slot::Float(3.0), Slot::Float(4.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v - 12.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn execute_fdiv_divides_floats() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fdiv),
+                (3, Instruction::Freturn),
+            ],
+            &[],
+            vec![Slot::Float(6.0), Slot::Float(2.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v - 3.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn execute_frem_float_remainder() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Frem),
+                (3, Instruction::Freturn),
+            ],
+            &[],
+            vec![Slot::Float(7.0), Slot::Float(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v - 1.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn execute_fneg_negates_float() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fneg),
+                (2, Instruction::Freturn),
+            ],
+            &[],
+            vec![Slot::Float(5.0)],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v + 5.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn execute_fcmpg_greater_gives_1() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Float(3.0), Slot::Float(1.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_fcmpg_less_gives_minus1() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Float(1.0), Slot::Float(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    #[test]
+    fn execute_fcmpg_equal_gives_0() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Float(2.0), Slot::Float(2.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_fcmpg_nan_gives_1() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Float(f32::NAN), Slot::Float(1.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_fcmpl_nan_gives_minus1() {
+        let r = execute(
+            &[
+                (0, Instruction::Fload0),
+                (1, Instruction::Fload1),
+                (2, Instruction::Fcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Float(f32::NAN), Slot::Float(1.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    // ===========================================================================
+    // execute() — Double arithmetic
+    // ===========================================================================
+
+    #[test]
+    fn execute_dadd_sums_doubles() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dadd),
+                (3, Instruction::Dreturn),
+            ],
+            &[],
+            vec![Slot::Double(2.0), Slot::Double(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 5.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn execute_dsub_subtracts_doubles() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dsub),
+                (3, Instruction::Dreturn),
+            ],
+            &[],
+            vec![Slot::Double(5.0), Slot::Double(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 2.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn execute_dmul_multiplies_doubles() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dmul),
+                (3, Instruction::Dreturn),
+            ],
+            &[],
+            vec![Slot::Double(3.0), Slot::Double(4.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 12.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn execute_ddiv_divides_doubles() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Ddiv),
+                (3, Instruction::Dreturn),
+            ],
+            &[],
+            vec![Slot::Double(6.0), Slot::Double(2.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 3.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn execute_drem_double_remainder() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Drem),
+                (3, Instruction::Dreturn),
+            ],
+            &[],
+            vec![Slot::Double(7.0), Slot::Double(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 1.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn execute_dneg_negates_double() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dneg),
+                (2, Instruction::Dreturn),
+            ],
+            &[],
+            vec![Slot::Double(5.0)],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v + 5.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn execute_dcmpg_greater_gives_1() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Double(3.0), Slot::Double(1.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_dcmpg_less_gives_minus1() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Double(1.0), Slot::Double(3.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    #[test]
+    fn execute_dcmpg_equal_gives_0() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Double(2.0), Slot::Double(2.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_dcmpg_nan_gives_1() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpg),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Double(f64::NAN), Slot::Double(1.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_dcmpl_nan_gives_minus1() {
+        let r = execute(
+            &[
+                (0, Instruction::Dload0),
+                (1, Instruction::Dload1),
+                (2, Instruction::Dcmpl),
+                (3, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Double(f64::NAN), Slot::Double(1.0)],
+            4,
+            2,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(-1));
+    }
+
+    // ===========================================================================
+    // execute() — Conditional branches
+    // Pattern: push condition, Ifxx(offset=4) at PC=1 → target=5
+    // ===========================================================================
+
+    #[test]
+    fn execute_ifne_taken_when_nonzero() {
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(5_i8)),
+                (2, Instruction::Ifne(4)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_ifne_not_taken_when_zero() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst0),
+                (1, Instruction::Ifne(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_iflt_taken_when_negative() {
+        let r = execute(
+            &[
+                (0, Instruction::IconstM1),
+                (1, Instruction::Iflt(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_iflt_not_taken_when_zero() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst0),
+                (1, Instruction::Iflt(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_ifgt_taken_when_positive() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Ifgt(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_ifgt_not_taken_when_zero() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst0),
+                (1, Instruction::Ifgt(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_ifle_taken_when_negative() {
+        let r = execute(
+            &[
+                (0, Instruction::IconstM1),
+                (1, Instruction::Ifle(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_ifle_taken_when_zero() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst0),
+                (1, Instruction::Ifle(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_ifle_not_taken_when_positive() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Ifle(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_ifnull_taken_when_null() {
+        let r = execute(
+            &[
+                (0, Instruction::AconstNull),
+                (1, Instruction::Ifnull(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_ifnull_not_taken_when_nonnull() {
+        let r = execute(
+            &[
+                (0, Instruction::Aload0),
+                (1, Instruction::Ifnull(4)),
+                (3, Instruction::Iconst1),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Reference(Some(0))],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_ifnonnull_taken_when_nonnull() {
+        let r = execute(
+            &[
+                (0, Instruction::Aload0),
+                (1, Instruction::Ifnonnull(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![Slot::Reference(Some(42))],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_ifnonnull_not_taken_when_null() {
+        let r = execute(
+            &[
+                (0, Instruction::AconstNull),
+                (1, Instruction::Ifnonnull(4)),
+                (3, Instruction::Iconst0),
+                (4, Instruction::Ireturn),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_ificmplt_taken_when_a_less_than_b() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Iconst3),
+                (2, Instruction::IfIcmplt(4)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1)); // 2 < 3 → taken
+    }
+
+    #[test]
+    fn execute_ificmplt_not_taken_when_equal() {
+        let r = execute(
+            &[
+                (0, Instruction::Iconst3),
+                (1, Instruction::Iconst3),
+                (2, Instruction::IfIcmplt(4)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Ireturn),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0)); // 3 < 3 is false → not taken
+    }
+
+    // ===========================================================================
+    // execute() — Newarray Long/Float/Double initializes correct slot types
+    // ===========================================================================
+
+    #[test]
+    fn execute_newarray_long_initializes_long_zero() {
+        use duke_bytecode::instruction::ArrayType;
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Long)),
+                (3, Instruction::Dup),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Laload),
+                (6, Instruction::Lreturn),
+            ],
+            &[],
+            vec![],
+            8,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(0));
+    }
+
+    #[test]
+    fn execute_newarray_float_initializes_float_zero() {
+        use duke_bytecode::instruction::ArrayType;
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Float)),
+                (3, Instruction::Dup),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Faload),
+                (6, Instruction::Freturn),
+            ],
+            &[],
+            vec![],
+            8,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if v == 0.0));
+    }
+
+    #[test]
+    fn execute_newarray_double_initializes_double_zero() {
+        use duke_bytecode::instruction::ArrayType;
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Double)),
+                (3, Instruction::Dup),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Daload),
+                (6, Instruction::Dreturn),
+            ],
+            &[],
+            vec![],
+            8,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if v == 0.0));
+    }
+
+    // ===========================================================================
+    // execute() — Long/Float/Double array store/load roundtrip + bounds
+    // ===========================================================================
+
+    #[test]
+    fn execute_lastore_and_laload_roundtrip() {
+        use duke_bytecode::instruction::ArrayType;
+        // Create long[2], store Lconst1 at index 0, load and return it.
+        let r = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Newarray(ArrayType::Long)),
+                (3, Instruction::Dup),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Lconst1),
+                (6, Instruction::Lastore),
+                (7, Instruction::Iconst0),
+                (8, Instruction::Laload),
+                (9, Instruction::Lreturn),
+            ],
+            &[],
+            vec![],
+            8,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(1));
+    }
+
+    #[test]
+    fn execute_laload_out_of_bounds_raises_error() {
+        use duke_bytecode::instruction::ArrayType;
+        let err = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Long)),
+                (3, Instruction::Iconst2),
+                (4, Instruction::Laload),
+                (5, Instruction::Lreturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn execute_fastore_and_faload_roundtrip() {
+        use duke_bytecode::instruction::ArrayType;
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Float)),
+                (3, Instruction::Dup),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Fconst2),
+                (6, Instruction::Fastore),
+                (7, Instruction::Iconst0),
+                (8, Instruction::Faload),
+                (9, Instruction::Freturn),
+            ],
+            &[],
+            vec![],
+            8,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Float(v) if (v - 2.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn execute_dastore_and_daload_roundtrip() {
+        use duke_bytecode::instruction::ArrayType;
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Double)),
+                (3, Instruction::Dup),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Dconst1),
+                (6, Instruction::Dastore),
+                (7, Instruction::Iconst0),
+                (8, Instruction::Daload),
+                (9, Instruction::Dreturn),
+            ],
+            &[],
+            vec![],
+            8,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(matches!(r, Slot::Double(v) if (v - 1.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn execute_faload_out_of_bounds_raises_error() {
+        use duke_bytecode::instruction::ArrayType;
+        let err = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Float)),
+                (3, Instruction::Sipush(5_i16)),
+                (6, Instruction::Faload),
+                (7, Instruction::Freturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn execute_daload_out_of_bounds_raises_error() {
+        use duke_bytecode::instruction::ArrayType;
+        let err = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Newarray(ArrayType::Double)),
+                (3, Instruction::Sipush(10_i16)),
+                (6, Instruction::Daload),
+                (7, Instruction::Dreturn),
+            ],
+            &[],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ===========================================================================
+    // FramePool: acquire / release / cap-at-256
+    // ===========================================================================
+
+    #[test]
+    fn frame_pool_acquire_from_empty_gives_empty_vecs() {
+        let mut pool = FramePool::new();
+        let (locals, stack) = pool.acquire();
+        assert!(locals.is_empty());
+        assert!(stack.is_empty());
+    }
+
+    #[test]
+    fn frame_pool_release_and_reacquire_returns_pooled_bufs() {
+        let mut pool = FramePool::new();
+        let locals = vec![Slot::Int(1), Slot::Int(2)];
+        let stack = vec![];
+        pool.release(locals, stack);
+        let (locals2, stack2) = pool.acquire();
+        assert_eq!(locals2.len(), 2);
+        assert!(stack2.is_empty());
+        // Pool should be empty again
+        let (locals3, _) = pool.acquire();
+        assert!(locals3.is_empty());
+    }
+
+    #[test]
+    fn frame_pool_release_caps_at_256() {
+        let mut pool = FramePool::new();
+        for i in 0..300_i32 {
+            pool.release(vec![Slot::Int(i)], vec![]);
+        }
+        assert_eq!(pool.free.len(), 256);
+    }
+
+    #[test]
+    fn frame_pool_release_below_256_keeps_all() {
+        let mut pool = FramePool::new();
+        for i in 0..10_i32 {
+            pool.release(vec![Slot::Int(i)], vec![]);
+        }
+        assert_eq!(pool.free.len(), 10);
+    }
+
+    // ===========================================================================
+    // Helper functions: parse_arg_count / parse_arg_types
+    // ===========================================================================
+
+    #[test]
+    fn parse_arg_count_primitives() {
+        assert_eq!(parse_arg_count("(IZB)V"), 3);
+        assert_eq!(parse_arg_count("(JFDS)V"), 4);
+        assert_eq!(parse_arg_count("()V"), 0);
+        assert_eq!(parse_arg_count("(I)I"), 1);
+    }
+
+    #[test]
+    fn parse_arg_count_object_type_counts_once() {
+        assert_eq!(parse_arg_count("(Ljava/lang/String;)V"), 1);
+        assert_eq!(parse_arg_count("(Ljava/lang/String;I)V"), 2);
+    }
+
+    #[test]
+    fn parse_arg_count_array_types() {
+        assert_eq!(parse_arg_count("([I)V"), 1);
+        assert_eq!(parse_arg_count("([Ljava/lang/String;)V"), 1);
+        assert_eq!(parse_arg_count("([[I)V"), 1); // 2-D array = 1 slot
+        assert_eq!(parse_arg_count("([I[Z)V"), 2);
+    }
+
+    #[test]
+    fn parse_arg_types_primitives() {
+        assert_eq!(parse_arg_types("(I)V"), vec!['I']);
+        assert_eq!(parse_arg_types("(IZB)V"), vec!['I', 'Z', 'B']);
+        assert_eq!(parse_arg_types("()V"), Vec::<char>::new());
+    }
+
+    #[test]
+    fn parse_arg_types_object_and_array() {
+        assert_eq!(parse_arg_types("(Ljava/lang/String;)V"), vec!['L']);
+        assert_eq!(parse_arg_types("([I)V"), vec!['[']);
+        assert_eq!(parse_arg_types("([Ljava/lang/String;)V"), vec!['[']);
+        assert_eq!(parse_arg_types("(ILjava/lang/String;[I)V"), vec!['I', 'L', '[']);
+    }
+
+    // ===========================================================================
+    // Helper functions: default_slot_for_descriptor
+    // ===========================================================================
+
+    #[test]
+    fn default_slot_for_descriptor_long_is_long_zero() {
+        assert_eq!(default_slot_for_descriptor("J"), Slot::Long(0));
+    }
+
+    #[test]
+    fn default_slot_for_descriptor_float_is_float_zero() {
+        assert!(matches!(default_slot_for_descriptor("F"), Slot::Float(v) if v == 0.0));
+    }
+
+    #[test]
+    fn default_slot_for_descriptor_double_is_double_zero() {
+        assert!(matches!(default_slot_for_descriptor("D"), Slot::Double(v) if v == 0.0));
+    }
+
+    #[test]
+    fn default_slot_for_descriptor_reference_types_are_null() {
+        assert!(matches!(
+            default_slot_for_descriptor("Ljava/lang/String;"),
+            Slot::Reference(None)
+        ));
+        assert!(matches!(default_slot_for_descriptor("[I"), Slot::Reference(None)));
+    }
+
+    #[test]
+    fn default_slot_for_descriptor_int_and_others_are_int_zero() {
+        assert_eq!(default_slot_for_descriptor("I"), Slot::Int(0));
+        assert_eq!(default_slot_for_descriptor("Z"), Slot::Int(0));
+        assert_eq!(default_slot_for_descriptor("B"), Slot::Int(0));
+    }
+
+    // ===========================================================================
+    // Helper function: resolve_cp_string
+    // ===========================================================================
+
+    #[test]
+    fn resolve_cp_string_from_string_entry() {
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Utf8("hello".to_string())),
+            Some(CpEntry::String {
+                string_index: CpIndex(1),
+            }),
+        ];
+        assert_eq!(resolve_cp_string(&cp, 2).unwrap(), "hello");
+    }
+
+    #[test]
+    fn resolve_cp_string_from_utf8_entry() {
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Utf8("world".to_string())),
+            Some(CpEntry::String {
+                string_index: CpIndex(1),
+            }),
+        ];
+        assert_eq!(resolve_cp_string(&cp, 1).unwrap(), "world");
+    }
+
+    #[test]
+    fn resolve_cp_string_missing_utf8_raises_error() {
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            None, // missing Utf8
+            Some(CpEntry::String {
+                string_index: CpIndex(1),
+            }),
+        ];
+        assert!(resolve_cp_string(&cp, 2).is_err());
+    }
+
+    #[test]
+    fn resolve_cp_string_out_of_bounds_raises_error() {
+        let cp: Vec<Option<CpEntry>> = vec![None];
+        assert!(resolve_cp_string(&cp, 99).is_err());
+    }
+
+    // ===========================================================================
+    // Helper function: is_assignable_from — interface walk
+    // ===========================================================================
+
+    fn make_simple_loader() -> duke_loader::DirectoryLoader {
+        duke_loader::DirectoryLoader::new(std::path::Path::new("."))
+    }
+
+    #[test]
+    fn is_assignable_from_same_class_is_true() {
+        let mut registry = ClassRegistry::new();
+        let loader = make_simple_loader();
+        assert!(is_assignable_from(&mut registry, &loader, "Foo", "Foo"));
+    }
+
+    #[test]
+    fn is_assignable_from_object_is_always_true() {
+        let mut registry = ClassRegistry::new();
+        let loader = make_simple_loader();
+        assert!(is_assignable_from(
+            &mut registry,
+            &loader,
+            "Anything",
+            "java/lang/Object"
+        ));
+    }
+
+    #[test]
+    fn is_assignable_from_via_direct_interface_is_true() {
+        let mut registry = ClassRegistry::new();
+        registry.register(ClassContext {
+            class_name: "MyClass".to_string(),
+            super_class: None,
+            interfaces: vec!["MyInterface".to_string()],
+            constant_pool: vec![],
+            methods: vec![],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        });
+        let loader = make_simple_loader();
+        assert!(is_assignable_from(
+            &mut registry,
+            &loader,
+            "MyClass",
+            "MyInterface"
+        ));
+    }
+
+    #[test]
+    fn is_assignable_from_unrelated_class_is_false() {
+        let mut registry = ClassRegistry::new();
+        registry.register(ClassContext {
+            class_name: "MyClass".to_string(),
+            super_class: None,
+            interfaces: vec!["InterfaceA".to_string()],
+            constant_pool: vec![],
+            methods: vec![],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        });
+        let loader = make_simple_loader();
+        assert!(!is_assignable_from(
+            &mut registry,
+            &loader,
+            "MyClass",
+            "InterfaceB"
+        ));
+    }
+
+    // ===========================================================================
+    // Helper function: find_exception_handler — end_pc boundary
+    // ===========================================================================
+
+    #[test]
+    fn find_exception_handler_catches_within_range() {
+        let table = vec![ExceptionEntry {
+            start_pc: 0,
+            end_pc: 10,
+            handler_pc: 20,
+            catch_type: None, // catch-all
+        }];
+        let mut registry = ClassRegistry::new();
+        let loader = make_simple_loader();
+        assert_eq!(
+            find_exception_handler(&table, 5, "java/lang/Exception", &mut registry, &loader),
+            Some(20)
+        );
+    }
+
+    #[test]
+    fn find_exception_handler_excludes_at_end_pc() {
+        // end_pc is exclusive per JVM spec
+        let table = vec![ExceptionEntry {
+            start_pc: 0,
+            end_pc: 10,
+            handler_pc: 20,
+            catch_type: None,
+        }];
+        let mut registry = ClassRegistry::new();
+        let loader = make_simple_loader();
+        assert_eq!(
+            find_exception_handler(&table, 10, "java/lang/Exception", &mut registry, &loader),
+            None
+        );
+        assert_eq!(
+            find_exception_handler(&table, 9, "java/lang/Exception", &mut registry, &loader),
+            Some(20)
+        );
+    }
+
+    // ===========================================================================
+    // Helper function: field_slot_idx — single and hierarchical classes
+    // ===========================================================================
+
+    fn make_two_class_registry() -> ClassRegistry {
+        let mut registry = ClassRegistry::new();
+        registry.register(ClassContext {
+            class_name: "Base".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: vec![],
+            methods: vec![],
+            fields: vec![
+                FieldEntry {
+                    name: "x".to_string(),
+                    descriptor: "I".to_string(),
+                    is_static: false,
+                },
+                FieldEntry {
+                    name: "y".to_string(),
+                    descriptor: "I".to_string(),
+                    is_static: false,
+                },
+            ],
+            static_fields: vec![],
+            instance_field_count: 2,
+            bootstrap_methods: vec![],
+        });
+        registry.register(ClassContext {
+            class_name: "Child".to_string(),
+            super_class: Some("Base".to_string()),
+            interfaces: vec![],
+            constant_pool: vec![],
+            methods: vec![],
+            fields: vec![FieldEntry {
+                name: "z".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            }],
+            static_fields: vec![],
+            instance_field_count: 1,
+            bootstrap_methods: vec![],
+        });
+        registry
+    }
+
+    #[test]
+    fn field_slot_idx_finds_first_field_at_slot_0() {
+        let registry = make_two_class_registry();
+        assert_eq!(field_slot_idx(&registry, "Base", "x").unwrap(), 0);
+    }
+
+    #[test]
+    fn field_slot_idx_finds_second_field_at_slot_1() {
+        let registry = make_two_class_registry();
+        assert_eq!(field_slot_idx(&registry, "Base", "y").unwrap(), 1);
+    }
+
+    #[test]
+    fn field_slot_idx_finds_child_field_after_parent_fields() {
+        let registry = make_two_class_registry();
+        // Base has 2 fields (x at 0, y at 1); Child adds z → slot 2
+        assert_eq!(field_slot_idx(&registry, "Child", "z").unwrap(), 2);
+    }
+
+    #[test]
+    fn field_slot_idx_missing_field_raises_error() {
+        let registry = make_two_class_registry();
+        assert!(field_slot_idx(&registry, "Base", "nonexistent").is_err());
+    }
+
+    // ===========================================================================
+    // native_sb_init_string: null arg falls back to empty string
+    // ===========================================================================
+
+    #[test]
+    fn native_sb_init_string_null_arg_gives_empty_buffer() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/lang/StringBuilder".to_string(), 1);
+        let mut out: Vec<u8> = Vec::new();
+        native_sb_init_string(
+            &[
+                Slot::Reference(Some(this_ref)),
+                Slot::Reference(None), // null arg
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(
+            heap.get(this_ref).unwrap().string_value.as_deref(),
+            Some("")
+        );
+    }
+
+    // ===========================================================================
+    // native_sb_append_string: null appends "null" literal
+    // ===========================================================================
+
+    #[test]
+    fn native_sb_append_string_null_arg_appends_null_literal() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/lang/StringBuilder".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().string_value = Some("hi".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        native_sb_append_string(
+            &[Slot::Reference(Some(this_ref)), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(
+            heap.get(this_ref).unwrap().string_value.as_deref(),
+            Some("hinull")
+        );
+    }
+
+    // ===========================================================================
+    // native_sb_append_char: Slot::Int(v) arm
+    // ===========================================================================
+
+    #[test]
+    fn native_sb_append_char_appends_unicode_char() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/lang/StringBuilder".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().string_value = Some(String::new());
+        let mut out: Vec<u8> = Vec::new();
+        native_sb_append_char(
+            &[
+                Slot::Reference(Some(this_ref)),
+                Slot::Int('A' as i32), // 65
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        assert_eq!(
+            heap.get(this_ref).unwrap().string_value.as_deref(),
+            Some("A")
+        );
+    }
+
+    // ===========================================================================
+    // native_arraylist_get: index arithmetic (idx + 1)
+    // ===========================================================================
+
+    #[test]
+    fn native_arraylist_get_index_arithmetic_retrieves_correct_element() {
+        let mut heap = duke_gc::Heap::new();
+        let list_ref = heap.allocate("java/util/ArrayList".to_string(), 4);
+        let v0 = heap.allocate_string("first".to_string());
+        let v1 = heap.allocate_string("second".to_string());
+        let v2 = heap.allocate_string("third".to_string());
+        {
+            let obj = heap.get_mut(list_ref).unwrap();
+            obj.fields[0] = Slot::Int(3); // size
+            obj.fields[1] = Slot::Reference(Some(v0));
+            obj.fields[2] = Slot::Reference(Some(v1));
+            obj.fields[3] = Slot::Reference(Some(v2));
+        }
+        let mut out: Vec<u8> = Vec::new();
+        // get(1) should return fields[2] = v1 (index 1+1=2)
+        let result = native_arraylist_get(
+            &[Slot::Reference(Some(list_ref)), Slot::Int(1)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = result {
+            assert_eq!(
+                heap.get(r).unwrap().string_value.as_deref(),
+                Some("second")
+            );
+        } else {
+            panic!("expected reference, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn native_arraylist_get_index_zero_returns_first_element() {
+        let mut heap = duke_gc::Heap::new();
+        let list_ref = heap.allocate("java/util/ArrayList".to_string(), 2);
+        let v0 = heap.allocate_string("alpha".to_string());
+        {
+            let obj = heap.get_mut(list_ref).unwrap();
+            obj.fields[0] = Slot::Int(1);
+            obj.fields[1] = Slot::Reference(Some(v0));
+        }
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_arraylist_get(
+            &[Slot::Reference(Some(list_ref)), Slot::Int(0)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = result {
+            assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("alpha"));
+        } else {
+            panic!("expected reference");
+        }
+    }
+
+    // ===========================================================================
+    // native_arrays_fill_object: reference value arm
+    // ===========================================================================
+
+    #[test]
+    fn native_arrays_fill_object_fills_with_reference() {
+        let mut heap = duke_gc::Heap::new();
+        let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 3);
+        let val_ref = heap.allocate_string("x".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        native_arrays_fill_object(
+            &[
+                Slot::Reference(Some(arr_ref)),
+                Slot::Reference(Some(val_ref)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        let fields = &heap.get(arr_ref).unwrap().fields;
+        assert!(fields
+            .iter()
+            .all(|s| matches!(s, Slot::Reference(Some(r)) if *r == val_ref)));
+    }
+
+    // ===========================================================================
+    // native_arrays_copyof_int: negative length raises NegativeArraySize
+    // ===========================================================================
+
+    #[test]
+    fn native_arrays_copyof_int_negative_length_raises_nsa() {
+        let mut heap = duke_gc::Heap::new();
+        let src = heap.allocate("[I".to_string(), 3);
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_arrays_copyof_int(
+            &[Slot::Reference(Some(src)), Slot::Int(-1)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NegativeArraySize { size: -1 }));
+    }
+
+    #[test]
+    fn native_arrays_copyof_int_truncates_when_shorter() {
+        let mut heap = duke_gc::Heap::new();
+        let src = heap.allocate("[I".to_string(), 3);
+        {
+            let obj = heap.get_mut(src).unwrap();
+            obj.fields[0] = Slot::Int(10);
+            obj.fields[1] = Slot::Int(20);
+            obj.fields[2] = Slot::Int(30);
+        }
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_arrays_copyof_int(
+            &[Slot::Reference(Some(src)), Slot::Int(2)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(dst_ref)) = result {
+            let fields = &heap.get(dst_ref).unwrap().fields;
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0], Slot::Int(10));
+            assert_eq!(fields[1], Slot::Int(20));
+        } else {
+            panic!("expected reference");
+        }
+    }
+
+    // ===========================================================================
+    // native_arrays_copyof_object: negative length raises NegativeArraySize,
+    //   and extending with null Reference
+    // ===========================================================================
+
+    #[test]
+    fn native_arrays_copyof_object_negative_length_raises_nsa() {
+        let mut heap = duke_gc::Heap::new();
+        let src = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        let mut out: Vec<u8> = Vec::new();
+        let err = native_arrays_copyof_object(
+            &[Slot::Reference(Some(src)), Slot::Int(-2)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NegativeArraySize { size: -2 }));
+    }
+
+    #[test]
+    fn native_arrays_copyof_object_extends_with_null() {
+        let mut heap = duke_gc::Heap::new();
+        let v = heap.allocate_string("item".to_string());
+        let src = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        heap.get_mut(src).unwrap().fields[0] = Slot::Reference(Some(v));
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_arrays_copyof_object(
+            &[Slot::Reference(Some(src)), Slot::Int(3)],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(dst_ref)) = result {
+            let fields = &heap.get(dst_ref).unwrap().fields;
+            assert_eq!(fields.len(), 3);
+            assert!(matches!(fields[0], Slot::Reference(Some(_))));
+            assert!(matches!(fields[1], Slot::Reference(None)));
+            assert!(matches!(fields[2], Slot::Reference(None)));
+        } else {
+            panic!("expected reference");
+        }
+    }
+
+    // ===========================================================================
+    // slots_equal: null-null, null-nonnull, string equality, class equality
+    // ===========================================================================
+
+    #[test]
+    fn slots_equal_null_null_is_true() {
+        let heap = duke_gc::Heap::new();
+        assert!(slots_equal(
+            &Slot::Reference(None),
+            &Slot::Reference(None),
+            &heap
+        ));
+    }
+
+    #[test]
+    fn slots_equal_null_nonnull_is_false() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate_string("x".to_string());
+        assert!(!slots_equal(
+            &Slot::Reference(None),
+            &Slot::Reference(Some(r)),
+            &heap
+        ));
+        assert!(!slots_equal(
+            &Slot::Reference(Some(r)),
+            &Slot::Reference(None),
+            &heap
+        ));
+    }
+
+    #[test]
+    fn slots_equal_strings_compared_by_value() {
+        let mut heap = duke_gc::Heap::new();
+        let r1 = heap.allocate_string("hello".to_string());
+        let r2 = heap.allocate_string("hello".to_string()); // different ref, same value
+        let r3 = heap.allocate_string("world".to_string());
+        assert!(slots_equal(
+            &Slot::Reference(Some(r1)),
+            &Slot::Reference(Some(r2)),
+            &heap
+        ));
+        assert!(!slots_equal(
+            &Slot::Reference(Some(r1)),
+            &Slot::Reference(Some(r3)),
+            &heap
+        ));
+    }
+
+    #[test]
+    fn slots_equal_same_class_same_first_field_is_true() {
+        let mut heap = duke_gc::Heap::new();
+        let r1 = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(r1).unwrap().fields[0] = Slot::Int(42);
+        let r2 = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(r2).unwrap().fields[0] = Slot::Int(42);
+        assert!(slots_equal(
+            &Slot::Reference(Some(r1)),
+            &Slot::Reference(Some(r2)),
+            &heap
+        ));
+    }
+
+    #[test]
+    fn slots_equal_different_classes_is_false() {
+        let mut heap = duke_gc::Heap::new();
+        let r1 = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(r1).unwrap().fields[0] = Slot::Int(1);
+        let r2 = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(r2).unwrap().fields[0] = Slot::Int(1);
+        assert!(!slots_equal(
+            &Slot::Reference(Some(r1)),
+            &Slot::Reference(Some(r2)),
+            &heap
+        ));
+    }
+
+    // ===========================================================================
+    // native_hashmap_put/get/contains_key/remove/get_or_default with 2 entries
+    // (exercises the i += 2 loop arithmetic)
+    // ===========================================================================
+
+    fn make_hashmap_with_two_string_entries() -> (duke_gc::Heap, u64, u64, u64, u64, u64) {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let hm_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        native_hashmap_init(
+            &[Slot::Reference(Some(hm_ref))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        let k1 = heap.allocate_string("key1".to_string());
+        let v1 = heap.allocate_string("val1".to_string());
+        let k2 = heap.allocate_string("key2".to_string());
+        let v2 = heap.allocate_string("val2".to_string());
+        native_hashmap_put(
+            &[
+                Slot::Reference(Some(hm_ref)),
+                Slot::Reference(Some(k1)),
+                Slot::Reference(Some(v1)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        native_hashmap_put(
+            &[
+                Slot::Reference(Some(hm_ref)),
+                Slot::Reference(Some(k2)),
+                Slot::Reference(Some(v2)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        (heap, hm_ref, k1, v1, k2, v2)
+    }
+
+    #[test]
+    fn native_hashmap_get_finds_second_entry() {
+        let (mut heap, hm_ref, _k1, _v1, k2, v2) = make_hashmap_with_two_string_entries();
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_get(
+            &[Slot::Reference(Some(hm_ref)), Slot::Reference(Some(k2))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = result {
+            assert_eq!(
+                heap.get(r).unwrap().string_value,
+                heap.get(v2).unwrap().string_value
+            );
+        } else {
+            panic!("expected reference, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn native_hashmap_get_finds_first_entry() {
+        let (mut heap, hm_ref, k1, v1, _k2, _v2) = make_hashmap_with_two_string_entries();
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_get(
+            &[Slot::Reference(Some(hm_ref)), Slot::Reference(Some(k1))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = result {
+            assert_eq!(
+                heap.get(r).unwrap().string_value,
+                heap.get(v1).unwrap().string_value
+            );
+        } else {
+            panic!("expected reference, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn native_hashmap_contains_key_finds_second_entry() {
+        let (mut heap, hm_ref, _k1, _v1, k2, _v2) = make_hashmap_with_two_string_entries();
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_hashmap_contains_key(
+            &[Slot::Reference(Some(hm_ref)), Slot::Reference(Some(k2))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn native_hashmap_contains_key_absent_key_is_false() {
+        let (mut heap, hm_ref, _k1, _v1, _k2, _v2) = make_hashmap_with_two_string_entries();
+        let other_key = heap.allocate_string("absent".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let r = native_hashmap_contains_key(
+            &[
+                Slot::Reference(Some(hm_ref)),
+                Slot::Reference(Some(other_key)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn native_hashmap_remove_second_entry_decrements_size() {
+        let (mut heap, hm_ref, _k1, _v1, k2, v2) = make_hashmap_with_two_string_entries();
+        let mut out: Vec<u8> = Vec::new();
+        let old = native_hashmap_remove(
+            &[Slot::Reference(Some(hm_ref)), Slot::Reference(Some(k2))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = old {
+            assert_eq!(
+                heap.get(r).unwrap().string_value,
+                heap.get(v2).unwrap().string_value
+            );
+        } else {
+            panic!("expected reference, got {old:?}");
+        }
+        // Size should now be 1
+        let size = native_hashmap_size(
+            &[Slot::Reference(Some(hm_ref))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(size, Slot::Int(1));
+    }
+
+    #[test]
+    fn native_hashmap_remove_first_entry_leaves_second_findable() {
+        let (mut heap, hm_ref, k1, _v1, k2, v2) = make_hashmap_with_two_string_entries();
+        let mut out: Vec<u8> = Vec::new();
+        // Remove first entry
+        native_hashmap_remove(
+            &[Slot::Reference(Some(hm_ref)), Slot::Reference(Some(k1))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap();
+        // Second entry should still be findable
+        let r = native_hashmap_get(
+            &[Slot::Reference(Some(hm_ref)), Slot::Reference(Some(k2))],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(found)) = r {
+            assert_eq!(
+                heap.get(found).unwrap().string_value,
+                heap.get(v2).unwrap().string_value
+            );
+        } else {
+            panic!("expected reference after remove");
+        }
+    }
+
+    #[test]
+    fn native_hashmap_get_or_default_returns_second_entry_value() {
+        let (mut heap, hm_ref, _k1, _v1, k2, v2) = make_hashmap_with_two_string_entries();
+        let def = heap.allocate_string("default".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_get_or_default(
+            &[
+                Slot::Reference(Some(hm_ref)),
+                Slot::Reference(Some(k2)),
+                Slot::Reference(Some(def)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = result {
+            assert_ne!(
+                heap.get(r).unwrap().string_value,
+                heap.get(def).unwrap().string_value
+            );
+            assert_eq!(
+                heap.get(r).unwrap().string_value,
+                heap.get(v2).unwrap().string_value
+            );
+        } else {
+            panic!("expected reference");
+        }
+    }
+
+    #[test]
+    fn native_hashmap_get_or_default_returns_default_when_absent() {
+        let (mut heap, hm_ref, _k1, _v1, _k2, _v2) = make_hashmap_with_two_string_entries();
+        let missing_key = heap.allocate_string("missing".to_string());
+        let def = heap.allocate_string("default_val".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        let result = native_hashmap_get_or_default(
+            &[
+                Slot::Reference(Some(hm_ref)),
+                Slot::Reference(Some(missing_key)),
+                Slot::Reference(Some(def)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = result {
+            assert_eq!(r, def);
+        } else {
+            panic!("expected reference");
+        }
+    }
+
+    #[test]
+    fn native_hashmap_put_update_existing_key_returns_old_value() {
+        let (mut heap, hm_ref, k1, v1, _k2, _v2) = make_hashmap_with_two_string_entries();
+        let new_val = heap.allocate_string("new_val1".to_string());
+        let mut out: Vec<u8> = Vec::new();
+        // Update k1 → should return old value v1
+        let old = native_hashmap_put(
+            &[
+                Slot::Reference(Some(hm_ref)),
+                Slot::Reference(Some(k1)),
+                Slot::Reference(Some(new_val)),
+            ],
+            &mut heap,
+            &mut out,
+        )
+        .unwrap()
+        .unwrap();
+        if let Slot::Reference(Some(r)) = old {
+            assert_eq!(
+                heap.get(r).unwrap().string_value,
+                heap.get(v1).unwrap().string_value
+            );
+        } else {
+            panic!("expected old value reference, got {old:?}");
+        }
+    }
 }
