@@ -123,11 +123,7 @@ impl Heap {
 
     // ── Allocation ───────────────────────────────────────────────────────────
 
-    const fn make_obj(
-        class_name: String,
-        fields: Vec<Slot>,
-        string_value: Option<String>,
-    ) -> HeapObject {
+    const fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
         HeapObject {
             class_name,
             fields,
@@ -188,6 +184,9 @@ impl Heap {
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    /// Panics if a young generation reference exceeds `usize::MAX`.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -208,6 +207,9 @@ impl Heap {
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    /// Panics if a young generation reference exceeds `usize::MAX`.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -299,6 +301,9 @@ impl Heap {
     ///
     /// Call [`Heap::apply_forward`] on every live interpreter slot after this,
     /// then call [`Heap::minor_collect_finish`] to complete the collection.
+    ///
+    /// # Panics
+    /// Panics if a young generation reference exceeds `usize::MAX`.
     pub fn minor_collect_prepare(&mut self, roots: &[Slot]) {
         self.to_space = Vec::new();
         self.forward_map.clear();
@@ -378,7 +383,7 @@ impl Heap {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = r as usize;
+                        let y_idx = usize::try_from(r).unwrap();
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -399,6 +404,9 @@ impl Heap {
     /// Works both during `minor_collect_prepare` (reads from `young[].forward`)
     /// and after `minor_collect_finish` (reads from `forward_map`). No-op if
     /// the slot is not a young-gen reference or has no forwarding pointer.
+    ///
+    /// # Panics
+    /// Panics if a young generation reference exceeds `usize::MAX`.
     pub fn apply_forward(&self, slot: &mut Slot) {
         if let Some(r) = slot.as_reference()
             && r & OLD_BIT == 0
@@ -407,7 +415,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(r as usize)
+                    .get(usize::try_from(r).unwrap())
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -629,6 +637,7 @@ mod tests {
     // ── collect() compat shim ─────────────────────────────────────────────────
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn collect_reclaims_unreachable() {
         let mut heap = Heap::new();
         let r0 = heap.allocate("Keep".to_string(), 0);
@@ -653,6 +662,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn free_list_slot_reused_after_collect() {
         let mut heap = Heap::new();
         let r0 = heap.allocate("Keep".to_string(), 0);
@@ -801,6 +811,7 @@ mod tests {
     // ── Minor GC unit tests (Task 6) ───────────────────────────────────────────
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn minor_gc_copies_reachable_young_object() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("Keep".to_string(), 0);
@@ -842,6 +853,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn minor_gc_finish_swaps_to_space_into_young() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("A".to_string(), 0);
@@ -1086,6 +1098,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn collect_compat_shim_collects_full_heap() {
         let mut heap = test_heap_with_capacity(512);
         // promotion_age = 0: age >= 0 is always true, so any survivor promotes

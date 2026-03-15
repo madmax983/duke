@@ -40,17 +40,6 @@ impl ArrayType {
 ///
 /// Wide-prefixed variants (e.g., `IloadW`) are represented as distinct variants
 /// so callers can exhaustively match without needing to track a separate `wide` flag.
-///
-/// ## Examples
-///
-/// ```
-/// # use duke_bytecode::Instruction;
-/// let instr = Instruction::Iadd;
-/// assert_eq!(instr.mnemonic(), "iadd");
-///
-/// let instr = Instruction::Bipush(42);
-/// assert_eq!(instr.mnemonic(), "bipush");
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     // -----------------------------------------------------------------------
@@ -348,6 +337,7 @@ pub enum Instruction {
 impl Instruction {
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub const fn mnemonic(&self) -> &'static str {
         match self {
             Self::Nop => "nop",

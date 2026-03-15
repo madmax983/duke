@@ -229,7 +229,7 @@ impl Default for ClassRegistry {
 /// Arguments:
 /// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
 /// - `&mut Heap`: the object heap for reading/writing objects
-/// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
+/// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
 pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
 
 /// A native handler that can call back into the interpreter to invoke Java methods.
@@ -1667,7 +1667,7 @@ fn native_string_length(
     };
     let obj = heap.get(this_ref)?;
     let len = obj.string_value.as_ref().map_or(0, String::len);
-    Ok(Some(Slot::Int(len as i32)))
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap())))
 }
 
 /// Native: `String.equals(Object)` — compares string content.
@@ -5445,78 +5445,77 @@ pub fn execute_class(
                     }
                     idx = 0;
                     continue;
-                } else {
-                    // Check native registry before erroring.
-                    let handler_kind =
-                        registry
-                            .natives
-                            .get_kind(&callee_class, &callee_name, &callee_desc);
-                    match handler_kind {
-                        Some(HandlerKind::Simple(handler)) => {
-                            let arg_count = parse_arg_count(&callee_desc);
-                            let mut native_args: Vec<Slot> = (0..arg_count)
-                                .map(|_| frame.pop())
-                                .collect::<VmResult<Vec<_>>>()?;
-                            native_args.reverse();
-                            #[cfg(feature = "telemetry")]
-                            let _native_start = std::time::Instant::now();
-                            let result = handler(&native_args, heap, stdout);
-                            #[cfg(feature = "telemetry")]
-                            registry.telemetry.native_boundary.record_call(
-                                &callee_class,
-                                &callee_name,
-                                _native_start.elapsed().as_nanos() as u64,
-                                result.is_err(),
-                            );
-                            let result = result?;
-                            if let Some(val) = result {
-                                frame.push(val)?;
-                            }
-                            idx += 1;
-                            continue;
+                }
+                // Check native registry before erroring.
+                let handler_kind =
+                    registry
+                        .natives
+                        .get_kind(&callee_class, &callee_name, &callee_desc);
+                match handler_kind {
+                    Some(HandlerKind::Simple(handler)) => {
+                        let arg_count = parse_arg_count(&callee_desc);
+                        let mut native_args: Vec<Slot> = (0..arg_count)
+                            .map(|_| frame.pop())
+                            .collect::<VmResult<Vec<_>>>()?;
+                        native_args.reverse();
+                        #[cfg(feature = "telemetry")]
+                        let native_start = std::time::Instant::now();
+                        let result = handler(&native_args, heap, stdout);
+                        #[cfg(feature = "telemetry")]
+                        registry.telemetry.native_boundary.record_call(
+                            &callee_class,
+                            &callee_name,
+                                                native_start.elapsed().as_nanos() as u64,
+                            result.is_err(),
+                        );
+                        let result = result?;
+                        if let Some(val) = result {
+                            frame.push(val)?;
                         }
-                        Some(HandlerKind::Callback(handler)) => {
-                            let arg_count = parse_arg_count(&callee_desc);
-                            let mut native_args: Vec<Slot> = (0..arg_count)
-                                .map(|_| frame.pop())
-                                .collect::<VmResult<Vec<_>>>()?;
-                            native_args.reverse();
-                            #[cfg(feature = "telemetry")]
-                            let _native_start = std::time::Instant::now();
-                            let mut invoke_cb =
-                                |heap: &mut duke_gc::Heap,
-                                 output: &mut dyn std::io::Write,
-                                 class: &str,
-                                 method: &str,
-                                 desc: &str,
-                                 cb_args: Vec<Slot>|
-                                 -> VmResult<Option<Slot>> {
-                                    execute_class(
-                                        registry, loader, heap, output, class, method, desc,
-                                        &cb_args,
-                                    )
-                                };
-                            let result = handler(&native_args, heap, stdout, &mut invoke_cb);
-                            #[cfg(feature = "telemetry")]
-                            registry.telemetry.native_boundary.record_call(
-                                &callee_class,
-                                &callee_name,
-                                _native_start.elapsed().as_nanos() as u64,
-                                result.is_err(),
-                            );
-                            let result = result?;
-                            if let Some(val) = result {
-                                frame.push(val)?;
-                            }
-                            idx += 1;
-                            continue;
+                        idx += 1;
+                        continue;
+                    }
+                    Some(HandlerKind::Callback(handler)) => {
+                        let arg_count = parse_arg_count(&callee_desc);
+                        let mut native_args: Vec<Slot> = (0..arg_count)
+                            .map(|_| frame.pop())
+                            .collect::<VmResult<Vec<_>>>()?;
+                        native_args.reverse();
+                        #[cfg(feature = "telemetry")]
+                        let native_start = std::time::Instant::now();
+                        let mut invoke_cb =
+                            |heap: &mut duke_gc::Heap,
+                             output: &mut dyn std::io::Write,
+                             class: &str,
+                             method: &str,
+                             desc: &str,
+                             cb_args: Vec<Slot>|
+                             -> VmResult<Option<Slot>> {
+                                execute_class(
+                                    registry, loader, heap, output, class, method, desc,
+                                    &cb_args,
+                                )
+                            };
+                        let result = handler(&native_args, heap, stdout, &mut invoke_cb);
+                        #[cfg(feature = "telemetry")]
+                        registry.telemetry.native_boundary.record_call(
+                            &callee_class,
+                            &callee_name,
+                            native_start.elapsed().as_nanos() as u64,
+                            result.is_err(),
+                        );
+                        let result = result?;
+                        if let Some(val) = result {
+                            frame.push(val)?;
                         }
-                        None => {
-                            return Err(VmError::MethodNotFound {
-                                name: callee_name,
-                                descriptor: callee_desc,
-                            });
-                        }
+                        idx += 1;
+                        continue;
+                    }
+                    None => {
+                        return Err(VmError::MethodNotFound {
+                            name: callee_name,
+                            descriptor: callee_desc,
+                        });
                     }
                 }
             }
@@ -6435,8 +6434,8 @@ pub fn execute_class(
                     continue;
                 }
                 // Attempt to load the target class; soft-fail for unloadable.
-                let loaded = registry.ensure_loaded(&callee_class, loader)?;
-                let resolved = if loaded {
+                let _is_loaded = registry.ensure_loaded(&callee_class, loader)?;
+                let resolved = if _is_loaded {
                     resolve_method_in_hierarchy(
                         registry,
                         loader,
@@ -6447,9 +6446,7 @@ pub fn execute_class(
                 } else {
                     None
                 };
-                let (dispatch_class, callee_idx) = if let Some((cls, i)) = resolved {
-                    (cls, i)
-                } else {
+                let (dispatch_class, callee_idx) = if let Some((cls, i)) = resolved { (cls, i) } else {
                     // Check lambda dispatch before native fallback.
                     let arg_count = parse_arg_count(&callee_desc);
                     let stack_len = frame.stack_len();
@@ -6463,7 +6460,8 @@ pub fn execute_class(
                             };
 
                         if let Some(ref actual_class) = actual_class_opt
-                            && let Some(lambda_info) = registry.get_lambda(actual_class).cloned()
+                            && let Some(lambda_info) =
+                                registry.get_lambda(actual_class).cloned()
                             && callee_name == lambda_info.sam_method
                         {
                             let mut sam_args: Vec<Slot> = (0..arg_count)
@@ -6495,8 +6493,10 @@ pub fn execute_class(
                             if let Some((dispatch_class, impl_idx)) = resolved {
                                 let (callee_pc_to_idx, callee_frame) = {
                                     let ctx = registry.get(&dispatch_class)?;
-                                    let max_locals = usize::from(ctx.methods[impl_idx].max_locals);
-                                    let max_stack = usize::from(ctx.methods[impl_idx].max_stack);
+                                    let max_locals =
+                                        usize::from(ctx.methods[impl_idx].max_locals);
+                                    let max_stack =
+                                        usize::from(ctx.methods[impl_idx].max_stack);
                                     let pci =
                                         std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
@@ -6504,7 +6504,8 @@ pub fn execute_class(
                                     for (i, slot) in impl_args.into_iter().enumerate() {
                                         locals_buf[i] = slot;
                                     }
-                                    let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                    let f =
+                                        Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                     (pci, f)
                                 };
                                 call_stack.push(CallFrame {
@@ -6537,10 +6538,11 @@ pub fn execute_class(
                     }
                     // Check native registry, walking the super chain.
                     let native_handler_kind = {
-                        let mut found =
-                            registry
-                                .natives
-                                .get_kind(&callee_class, &callee_name, &callee_desc);
+                        let mut found = registry.natives.get_kind(
+                            &callee_class,
+                            &callee_name,
+                            &callee_desc,
+                        );
                         if found.is_none() {
                             // Walk super chain for native lookup (e.g. Enum.ordinal
                             // called via SimpleEnum$Color.ordinal).
@@ -6576,14 +6578,14 @@ pub fn execute_class(
                             let this_slot = frame.pop()?; // pop `this`
                             native_args.insert(0, this_slot);
                             #[cfg(feature = "telemetry")]
-                            let _native_start = std::time::Instant::now();
+                            let native_start = std::time::Instant::now();
                             let result = handler(&native_args, heap, stdout);
                             #[cfg(feature = "telemetry")]
                             {
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    _native_start.elapsed().as_nanos() as u64,
+                                    native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
                                 );
                                 if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -6613,7 +6615,7 @@ pub fn execute_class(
                             let this_slot = frame.pop()?; // pop `this`
                             native_args.insert(0, this_slot);
                             #[cfg(feature = "telemetry")]
-                            let _native_start = std::time::Instant::now();
+                            let native_start = std::time::Instant::now();
                             let mut invoke_cb =
                                 |heap: &mut duke_gc::Heap,
                                  output: &mut dyn std::io::Write,
@@ -6633,7 +6635,7 @@ pub fn execute_class(
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    _native_start.elapsed().as_nanos() as u64,
+                                    native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
                                 );
                                 if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -7485,17 +7487,17 @@ pub fn execute_class(
                         &callee_name,
                         &callee_desc,
                     );
-                    if let Some(pair) = iface_resolved {
-                        pair
-                    } else {
+                    if let Some(pair) = iface_resolved { pair } else {
                         // Check native registry — try actual class then interface class.
                         let native_kind = registry
                             .natives
                             .get_kind(&actual_class, &callee_name, &callee_desc)
                             .or_else(|| {
-                                registry
-                                    .natives
-                                    .get_kind(&callee_class, &callee_name, &callee_desc)
+                                registry.natives.get_kind(
+                                    &callee_class,
+                                    &callee_name,
+                                    &callee_desc,
+                                )
                             });
                         match native_kind {
                             Some(HandlerKind::Simple(handler)) => {
@@ -7508,14 +7510,14 @@ pub fn execute_class(
                                 let this_slot = frame.pop()?;
                                 callee_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                            let native_start = std::time::Instant::now();
                                 let result = handler(&callee_args, heap, stdout);
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        _native_start.elapsed().as_nanos() as u64,
+                                            native_start.elapsed().as_nanos() as u64,
                                         result.is_err(),
                                     );
                                     // Native interface methods skip the bytecode
@@ -7542,27 +7544,27 @@ pub fn execute_class(
                                 let this_slot = frame.pop()?;
                                 callee_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
-                                let mut invoke_cb =
-                                    |heap: &mut duke_gc::Heap,
-                                     output: &mut dyn std::io::Write,
-                                     class: &str,
-                                     method: &str,
-                                     desc: &str,
-                                     cb_args: Vec<Slot>|
-                                     -> VmResult<Option<Slot>> {
-                                        execute_class(
-                                            registry, loader, heap, output, class, method, desc,
-                                            &cb_args,
-                                        )
-                                    };
-                                let result = handler(&callee_args, heap, stdout, &mut invoke_cb);
+                            let native_start = std::time::Instant::now();
+                                let mut invoke_cb = |heap: &mut duke_gc::Heap,
+                                                     output: &mut dyn std::io::Write,
+                                                     class: &str,
+                                                     method: &str,
+                                                     desc: &str,
+                                                     cb_args: Vec<Slot>|
+                                 -> VmResult<Option<Slot>> {
+                                    execute_class(
+                                        registry, loader, heap, output, class, method, desc,
+                                        &cb_args,
+                                    )
+                                };
+                                let result =
+                                    handler(&callee_args, heap, stdout, &mut invoke_cb);
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        _native_start.elapsed().as_nanos() as u64,
+                                            native_start.elapsed().as_nanos() as u64,
                                         result.is_err(),
                                     );
                                     registry.telemetry.dispatch_resolution.record(
@@ -7621,15 +7623,17 @@ pub fn execute_class(
                                             usize::from(ctx.methods[impl_idx].max_locals);
                                         let max_stack =
                                             usize::from(ctx.methods[impl_idx].max_stack);
-                                        let pci =
-                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let pci = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].pc_to_idx,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
                                         }
-                                        let f =
-                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                        let f = Frame::from_pool_bufs(
+                                            locals_buf, stack_buf, max_stack,
+                                        );
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -7674,15 +7678,17 @@ pub fn execute_class(
                                             usize::from(ctx.methods[impl_idx].max_locals);
                                         let max_stack =
                                             usize::from(ctx.methods[impl_idx].max_stack);
-                                        let pci =
-                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let pci = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].pc_to_idx,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
                                         }
-                                        let f =
-                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                        let f = Frame::from_pool_bufs(
+                                            locals_buf, stack_buf, max_stack,
+                                        );
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -7720,13 +7726,13 @@ pub fn execute_class(
                                 match lambda_native_kind {
                                     Some(HandlerKind::Simple(handler)) => {
                                         #[cfg(feature = "telemetry")]
-                                        let _native_start = std::time::Instant::now();
+                            let native_start = std::time::Instant::now();
                                         let result = handler(&impl_args, heap, stdout);
                                         #[cfg(feature = "telemetry")]
                                         registry.telemetry.native_boundary.record_call(
                                             &lambda_info.impl_class,
                                             &lambda_info.impl_method,
-                                            _native_start.elapsed().as_nanos() as u64,
+                                            native_start.elapsed().as_nanos() as u64,
                                             result.is_err(),
                                         );
                                         let result = result?;
@@ -7738,7 +7744,7 @@ pub fn execute_class(
                                     }
                                     Some(HandlerKind::Callback(handler)) => {
                                         #[cfg(feature = "telemetry")]
-                                        let _native_start = std::time::Instant::now();
+                            let native_start = std::time::Instant::now();
                                         let mut invoke_cb =
                                             |heap: &mut duke_gc::Heap,
                                              output: &mut dyn std::io::Write,
@@ -7758,7 +7764,7 @@ pub fn execute_class(
                                         registry.telemetry.native_boundary.record_call(
                                             &lambda_info.impl_class,
                                             &lambda_info.impl_method,
-                                            _native_start.elapsed().as_nanos() as u64,
+                                            native_start.elapsed().as_nanos() as u64,
                                             result.is_err(),
                                         );
                                         let result = result?;
@@ -7932,11 +7938,27 @@ struct CallFrame {
     class_name: String,
 }
 
-/// Build a [`ClassContext`] from a parsed [`ClassFile`].
+/// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
+///
+/// ## Examples
+///
+/// ```
+/// # use duke_interpreter::build_class_context;
+/// # use duke_classfile::parse;
+/// let bytes = include_bytes!("../../../tests/fixtures/Hello.class");
+/// let cf = parse(bytes).unwrap();
+/// let ctx = build_class_context(&cf);
+/// assert_eq!(ctx.class_name, "Hello");
+/// ```
+///
+/// # Panics
+///
+/// Panics if memory allocation fails.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
     use duke_classfile::access_flags::FieldAccessFlags;
@@ -8239,16 +8261,8 @@ fn resolve_method_in_hierarchy(
 /// Resolve a constant pool Methodref to (`class_name`, `method_name`, descriptor).
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
-        Some(
-            CpEntry::Methodref {
-                class_index,
-                name_and_type_index,
-            }
-            | CpEntry::InterfaceMethodref {
-                class_index,
-                name_and_type_index,
-            },
-        ) => {
+        Some(CpEntry::Methodref { class_index, name_and_type_index } |
+CpEntry::InterfaceMethodref { class_index, name_and_type_index }) => {
             let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
@@ -8283,7 +8297,9 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
+    let params = descriptor
+        .find(')')
+        .map_or("", |i| &descriptor[1..i]);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8422,7 +8438,9 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
-    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
+    let params = descriptor
+        .find(')')
+        .map_or("", |i| &descriptor[1..i]);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8598,7 +8616,6 @@ fn native_sb_init_string(
     };
     let init_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => String::new(),
         _ => String::new(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8618,7 +8635,6 @@ fn native_sb_append_string(
     };
     let append_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => "null".to_string(),
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8701,7 +8717,7 @@ fn native_sb_append_double(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        let _ = std::fmt::Write::write_fmt(buf, format_args!("{val}"));
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8727,7 +8743,7 @@ fn native_sb_append_float(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        let _ = std::fmt::Write::write_fmt(buf, format_args!("{val}"));
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8764,7 +8780,7 @@ fn native_sb_append_char(
         _ => return Err(VmError::NullPointerException),
     };
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('\0'),
+        Some(Slot::Int(v)) => char::from_u32(v.unsigned_abs()).unwrap_or('\0'),
         _ => '\0',
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8804,7 +8820,7 @@ fn native_sb_length(
         .string_value
         .as_ref()
         .map_or(0, String::len);
-    Ok(Some(Slot::Int(len as i32)))
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap())))
 }
 
 // Character natives
@@ -8813,7 +8829,7 @@ fn native_sb_length(
 /// Helper: extract a `char` from a `Slot::Int` argument.
 fn slot_to_char(slot: &Slot) -> VmResult<char> {
     match slot {
-        Slot::Int(v) => Ok(char::from_u32(*v as u32).unwrap_or('\0')),
+        Slot::Int(v) => Ok(char::from_u32(v.unsigned_abs()).unwrap_or('\0')),
         _ => Err(VmError::TypeMismatch {
             expected: "Int (char)",
             got: "other",
@@ -8996,12 +9012,9 @@ fn native_arraylist_get(
         }
     };
     let obj = heap.get(this_ref)?;
-    match obj.fields.get(idx + 1) {
-        Some(slot) => Ok(Some(*slot)),
-        None => Err(VmError::JavaException {
-            class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
-        }),
-    }
+    obj.fields.get(idx + 1).copied().map(Some).ok_or_else(|| VmError::JavaException {
+        class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
+    })
 }
 
 /// Native: `ArrayList.size()I`
@@ -9065,7 +9078,7 @@ fn array_list_sort(
 
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => n.unsigned_abs() as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => return Ok(None),
     };
@@ -9187,6 +9200,7 @@ fn native_collections_sort(
 // ---------------------------------------------------------------------------
 
 /// Native: `ArrayListIterator.<init>` — no-op; fields set directly by `native_arraylist_iterator`.
+#[allow(clippy::unnecessary_wraps)]
 fn native_arraylist_iter_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9262,6 +9276,7 @@ fn native_arraylist_iter_next(
 // ---- Double.isNaN ----
 
 /// Native: `Double.isNaN(D)Z` — returns 1 if value is NaN.
+#[allow(clippy::unnecessary_wraps)]
 fn native_double_isnan(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9352,7 +9367,7 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => n.unsigned_abs() as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9376,7 +9391,7 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => n.unsigned_abs() as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9420,14 +9435,8 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             if ra == rb {
                 return true;
             }
-            let oa = match heap.get(*ra) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
-            let ob = match heap.get(*rb) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
+            let Ok(oa) = heap.get(*ra) else { return false };
+            let Ok(ob) = heap.get(*rb) else { return false };
             if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
             }
@@ -9829,6 +9838,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_callback_can_be_looked_up() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_cb(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -9847,6 +9857,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_simple_stays_simple() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -11091,6 +11102,7 @@ mod tests {
 
     #[test]
     fn native_registry_stores_and_retrieves() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_handler(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -14345,7 +14357,7 @@ mod tests {
         let fib = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
         assert_eq!(fib, 75025);
         // benchSum overflows i32: sum(0..499999) = 124999750000 → wraps to 445698416
-        assert_eq!(sum, 445698416_i32);
+        assert_eq!(sum, 445_698_416_i32);
     }
 
     #[cfg(feature = "telemetry")]
@@ -14856,7 +14868,7 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
+                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len()).unwrap();
                 Ok(Some(Slot::Int(len)))
             },
         );

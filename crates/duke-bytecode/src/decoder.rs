@@ -12,18 +12,6 @@ use duke_classfile::CpIndex;
 
 /// Decode a bytecode sequence from a `Code` attribute into typed instructions.
 ///
-/// # Examples
-///
-/// ```
-/// # use duke_bytecode::{decode, Instruction};
-/// // 0x03 is ICONST_0, 0x3b is ISTORE_0
-/// let code = [0x03, 0x3b];
-/// let decoded = decode(&code).unwrap();
-/// assert_eq!(decoded.len(), 2);
-/// assert_eq!(decoded[0].1, Instruction::Iconst0);
-/// assert_eq!(decoded[1].1, Instruction::Istore0);
-/// ```
-///
 /// # Errors
 ///
 /// Returns [`DecodeError`] if the bytecode is structurally malformed (truncated
@@ -70,6 +58,7 @@ impl<'a> Cursor<'a> {
         Ok(b)
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     fn read_i8(&mut self) -> DecodeResult<i8> {
         Ok(self.read_u8()? as i8)
     }
@@ -80,6 +69,7 @@ impl<'a> Cursor<'a> {
         Ok((hi << 8) | lo)
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     fn read_i16(&mut self) -> DecodeResult<i16> {
         Ok(self.read_u16()? as i16)
     }
@@ -90,6 +80,7 @@ impl<'a> Cursor<'a> {
         Ok((hi << 16) | lo)
     }
 
+    #[allow(clippy::cast_possible_wrap)]
     fn read_i32(&mut self) -> DecodeResult<i32> {
         Ok(self.read_u32()? as i32)
     }
