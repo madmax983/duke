@@ -2035,7 +2035,7 @@ fn native_println_char(
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32(u32::try_from(*v).unwrap_or(0)).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2086,7 +2086,7 @@ fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
         }
         "java/lang/Character" => {
             if let Some(Slot::Int(v)) = obj.fields.first()
-                && let Some(c) = char::from_u32(*v as u32)
+                && let Some(c) = char::from_u32(u32::try_from(*v).unwrap_or(0))
             {
                 return c.to_string();
             }
@@ -2198,7 +2198,7 @@ fn native_print_char(
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32(u32::try_from(*v).unwrap_or(0)).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2728,7 +2728,7 @@ fn native_string_value_of_char(
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32(u32::try_from(*v).unwrap_or(0)).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2974,7 +2974,7 @@ fn native_string_replace_char(
     };
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32(u32::try_from(*v).unwrap_or(0)).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
@@ -2983,7 +2983,7 @@ fn native_string_replace_char(
         }
     };
     let new_char = match args.get(2) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32(u32::try_from(*v).unwrap_or(0)).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
@@ -3686,7 +3686,7 @@ fn stringify_slot(
                 out.push_str(if *v != 0 { "true" } else { "false" });
             } else if type_hint == 'C' {
                 // JVM char: render as the Unicode character.
-                if let Some(ch) = char::from_u32(*v as u32) {
+                if let Some(ch) = char::from_u32(u32::try_from(*v).unwrap_or(0)) {
                     out.push(ch);
                 } else {
                     out.push('?');
@@ -8390,7 +8390,7 @@ fn resolve_method_handle(
     Ok((kind, class_name, method_name, descriptor))
 }
 
-/// Resolve a NameAndType CP entry to (name, descriptor).
+/// Resolve a `NameAndType` CP entry to (name, descriptor).
 fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(String, String)> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::NameAndType {
@@ -8440,8 +8440,7 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
     let params = descriptor
         .find(')')
-        .map(|i| &descriptor[1..i])
-        .unwrap_or("");
+        .map_or("", |i| &descriptor[1..i]);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8577,7 +8576,7 @@ fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> V
     Err(VmError::InvalidFieldref { index: 0 })
 }
 
-/// Index of a named static field within ctx.static_fields.
+/// Index of a named static field within `ctx.static_fields`.
 fn static_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
     ctx.fields
         .iter()
@@ -8617,7 +8616,6 @@ fn native_sb_init_string(
     };
     let init_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => String::new(),
         _ => String::new(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8637,7 +8635,6 @@ fn native_sb_append_string(
     };
     let append_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => "null".to_string(),
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8720,7 +8717,8 @@ fn native_sb_append_double(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        use std::fmt::Write as _;
+        let _ = write!(buf, "{val}");
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8746,7 +8744,8 @@ fn native_sb_append_float(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        use std::fmt::Write as _;
+        let _ = write!(buf, "{val}");
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8783,7 +8782,7 @@ fn native_sb_append_char(
         _ => return Err(VmError::NullPointerException),
     };
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('\0'),
+        Some(Slot::Int(v)) => char::from_u32(u32::try_from(*v).unwrap_or(0)).unwrap_or('\0'),
         _ => '\0',
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8823,7 +8822,7 @@ fn native_sb_length(
         .string_value
         .as_ref()
         .map_or(0, String::len);
-    Ok(Some(Slot::Int(len as i32)))
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(0))))
 }
 
 // Character natives
@@ -8832,7 +8831,7 @@ fn native_sb_length(
 /// Helper: extract a `char` from a `Slot::Int` argument.
 fn slot_to_char(slot: &Slot) -> VmResult<char> {
     match slot {
-        Slot::Int(v) => Ok(char::from_u32(*v as u32).unwrap_or('\0')),
+        Slot::Int(v) => Ok(char::from_u32(u32::try_from(*v).unwrap_or(0)).unwrap_or('\0')),
         _ => Err(VmError::TypeMismatch {
             expected: "Int (char)",
             got: "other",
@@ -9015,12 +9014,9 @@ fn native_arraylist_get(
         }
     };
     let obj = heap.get(this_ref)?;
-    match obj.fields.get(idx + 1) {
-        Some(slot) => Ok(Some(slot.clone())),
-        None => Err(VmError::JavaException {
-            class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
-        }),
-    }
+    obj.fields.get(idx + 1).map_or_else(|| Err(VmError::JavaException {
+        class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
+    }), |slot| Ok(Some(slot.clone())))
 }
 
 /// Native: `ArrayList.size()I`
@@ -9040,7 +9036,7 @@ fn native_arraylist_size(
     }
 }
 
-/// Native: `ArrayList.iterator()Iterator` — creates an ArrayListIterator.
+/// Native: `ArrayList.iterator()Iterator` — creates an `ArrayListIterator`.
 fn native_arraylist_iterator(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9084,7 +9080,7 @@ fn array_list_sort(
 
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => return Ok(None),
     };
@@ -9126,7 +9122,7 @@ fn array_list_sort(
             // Guarded by `has_pending_forwards` so the common (no-GC) path pays
             // only one bool check instead of O(n) HashMap probes.
             if heap.has_pending_forwards() {
-                for elem in elems.iter_mut() {
+                for elem in &mut elems {
                     let mut slot = Slot::Reference(Some(*elem));
                     heap.apply_forward(&mut slot);
                     if let Slot::Reference(Some(r)) = slot {
@@ -9205,13 +9201,13 @@ fn native_collections_sort(
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
 
-/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by native_arraylist_iterator.
+/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by `native_arraylist_iterator`.
 fn native_arraylist_iter_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    Ok(None)
+) -> std::option::Option<duke_runtime::Slot> {
+    None
 }
 
 /// Native: `ArrayListIterator.hasNext()Z`
@@ -9286,6 +9282,7 @@ fn native_double_isnan(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
+    #![allow(clippy::unnecessary_wraps)]
     match args.first() {
         Some(Slot::Double(v)) => Ok(Some(Slot::Int(i32::from(v.is_nan())))),
         _ => Ok(Some(Slot::Int(0))),
@@ -9371,7 +9368,7 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9395,7 +9392,7 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9430,7 +9427,7 @@ fn native_arrays_sort_int(
 // HashMap natives
 // ---------------------------------------------------------------------------
 
-/// Semantic equality for HashMap keys: compares by string_value for heap strings,
+/// Semantic equality for `HashMap` keys: compares by `string_value` for heap strings,
 /// or by the first field (e.g. intValue) for boxed numerics, or by reference identity.
 fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     match (a, b) {
@@ -9439,13 +9436,11 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             if ra == rb {
                 return true;
             }
-            let oa = match heap.get(*ra) {
-                Ok(o) => o,
-                Err(_) => return false,
+            let Ok(oa) = heap.get(*ra) else {
+                return false;
             };
-            let ob = match heap.get(*rb) {
-                Ok(o) => o,
-                Err(_) => return false,
+            let Ok(ob) = heap.get(*rb) else {
+                return false;
             };
             if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
@@ -9822,7 +9817,7 @@ fn patch_forwarded_slots(
         }
     }
     for ctx in registry.all_classes_mut() {
-        for slot in ctx.static_fields.iter_mut() {
+        for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
         }
     }
@@ -9853,8 +9848,8 @@ mod tests {
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
             _invoke: &mut InvokeFn<'_>,
-        ) -> VmResult<Option<Slot>> {
-            Ok(None)
+        ) -> std::option::Option<duke_runtime::Slot> {
+            None
         }
         let mut reg = NativeRegistry::new();
         reg.register_callback("Test", "method", "()V", dummy_cb);
@@ -9870,8 +9865,8 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
-        ) -> VmResult<Option<Slot>> {
-            Ok(None)
+        ) -> std::option::Option<duke_runtime::Slot> {
+            None
         }
         let mut reg = NativeRegistry::new();
         reg.register("Test", "method", "()V", dummy);
@@ -11114,8 +11109,8 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
-        ) -> VmResult<Option<Slot>> {
-            Ok(Some(Slot::Int(99)))
+        ) -> std::option::Option<duke_runtime::Slot> {
+            Some(Slot::Int(99))
         }
         let mut natives = NativeRegistry::new();
         natives.register("Foo", "bar", "(I)I", dummy_handler);
@@ -13752,7 +13747,7 @@ mod tests {
 
     // ---- Phase 19: Enum integration tests ----
 
-    /// Helper that loads a class, calls bootstrap_stdlib, and runs a static method.
+    /// Helper that loads a class, calls `bootstrap_stdlib`, and runs a static method.
     fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();
@@ -14820,13 +14815,13 @@ mod tests {
     /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
     ///
     ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
-    ///   // creates $$Lambda$0 with impl_class="java/lang/String",
-    ///   //   impl_method="length", impl_kind=5 (REF_invokeVirtual),
-    ///   //   captured_count=1 (the string "hello")
+    ///   // creates $$Lambda$0 with `impl_class="java/lang/String"`,
+    ///   //   `impl_method="length"`, `impl_kind=5` (`REF_invokeVirtual`),
+    ///   //   `captured_count=1` (the string "hello")
     ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
-    ///   // → lambda SAM: impl_kind==5, resolve_method_in_hierarchy returns None
+    ///   // → lambda SAM: `impl_kind==5`, `resolve_method_in_hierarchy` returns None
     ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   registry.natives.get_kind("java/lang/String", "length", "()I")
+    ///   //   `registry.natives.get_kind("java/lang/String", "length", "()I")`
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14875,8 +14870,8 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
-                Ok(Some(Slot::Int(len)))
+                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len();
+                Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(0))))
             },
         );
 
