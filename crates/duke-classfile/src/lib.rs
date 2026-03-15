@@ -735,4 +735,53 @@ mod tests {
             let _ = parse(&bytes);
         }
     }
+
+    #[test]
+    fn test_extracted_attribute_parsers() {
+        let bytes = b"\xca\xfe\xba\xbe\x00\x00\x00A\x00\n\x01\x00\x07Minimal\x07\x00\x01\x01\x00\x10java/lang/Object\x07\x00\x03\x01\x00\x0fLineNumberTable\x01\x00\x12LocalVariableTable\x01\x00\nExceptions\x01\x00\x10BootstrapMethods\x0f\x06\x00\x04\x00!\x00\x02\x00\x04\x00\x00\x00\x00\x00\x00\x00\x04\x00\x05\x00\x00\x00\x06\x00\x01\x00\x00\x00\n\x00\x06\x00\x00\x00\x0c\x00\x01\x00\x00\x00\n\x00\x01\x00\x02\x00\x00\x00\x07\x00\x00\x00\x04\x00\x01\x00\x02\x00\x08\x00\x00\x00\x08\x00\x01\x00\t\x00\x01\x00\x04";
+        let cf = parse(bytes).unwrap();
+
+        assert_eq!(cf.attributes.len(), 4);
+
+        let mut lnt_found = false;
+        let mut found_lvt = false;
+        let mut found_exc = false;
+        let mut found_bm = false;
+
+        for attr in &cf.attributes {
+            match &attr.data {
+                crate::types::AttributeData::LineNumberTable(entries) => {
+                    lnt_found = true;
+                    assert_eq!(entries.len(), 1);
+                    assert_eq!(entries[0].start_pc, 0);
+                    assert_eq!(entries[0].line_number, 10);
+                }
+                crate::types::AttributeData::LocalVariableTable(entries) => {
+                    found_lvt = true;
+                    assert_eq!(entries.len(), 1);
+                    assert_eq!(entries[0].start_pc, 0);
+                    assert_eq!(entries[0].length, 10);
+                }
+                crate::types::AttributeData::Exceptions {
+                    exception_index_table,
+                } => {
+                    found_exc = true;
+                    assert_eq!(exception_index_table.len(), 1);
+                    assert_eq!(exception_index_table[0].0, 2);
+                }
+                crate::types::AttributeData::BootstrapMethods(entries) => {
+                    found_bm = true;
+                    assert_eq!(entries.len(), 1);
+                    assert_eq!(entries[0].method_ref.0, 9);
+                    assert_eq!(entries[0].arguments.len(), 1);
+                }
+                _ => {}
+            }
+        }
+
+        assert!(lnt_found);
+        assert!(found_lvt);
+        assert!(found_exc);
+        assert!(found_bm);
+    }
 }

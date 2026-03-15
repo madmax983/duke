@@ -83,7 +83,7 @@ pub fn verify(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::match_same_arms)]
-fn stack_effect(instr: &Instruction) -> (usize, usize) {
+const fn stack_effect(instr: &Instruction) -> (usize, usize) {
     match instr {
         // Constants — push 1
         Instruction::Nop => (0, 0),
@@ -334,7 +334,7 @@ fn stack_effect(instr: &Instruction) -> (usize, usize) {
     }
 }
 
-fn is_return(instr: &Instruction) -> bool {
+const fn is_return(instr: &Instruction) -> bool {
     matches!(
         instr,
         Instruction::Return
@@ -347,7 +347,7 @@ fn is_return(instr: &Instruction) -> bool {
 }
 
 /// Check that any local variable accesses are within `max_locals`.
-fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResult<()> {
+const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResult<()> {
     let idx: Option<usize> = match instr {
         Instruction::Iload(i)
         | Instruction::Lload(i)

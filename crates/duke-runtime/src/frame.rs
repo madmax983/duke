@@ -50,6 +50,7 @@ impl Frame {
     /// - Ensuring `stack` is empty before passing it here.
     ///
     /// This is the zero-allocation fast path for method calls after pool warmup.
+    #[must_use]
     pub fn from_pool_bufs(locals: Vec<Slot>, stack: Vec<Slot>, max_stack: usize) -> Self {
         debug_assert!(stack.is_empty(), "pool stack must be empty on reuse");
         Self {
@@ -64,6 +65,7 @@ impl Frame {
     /// Clears the operand stack (retaining capacity). Locals are *not* cleared —
     /// the caller must resize and reinitialise the locals buffer before passing it
     /// to [`Frame::from_pool_bufs`] for reuse.
+    #[must_use]
     pub fn into_pool_bufs(mut self) -> (Vec<Slot>, Vec<Slot>) {
         self.stack.clear();
         (self.locals, self.stack)
@@ -153,7 +155,7 @@ impl Frame {
     pub fn load_local(&self, index: usize) -> VmResult<Slot> {
         self.locals
             .get(index)
-            .cloned()
+            .copied()
             .ok_or(VmError::LocalOutOfBounds {
                 index,
                 max_locals: self.locals.len(),
@@ -189,22 +191,25 @@ impl Frame {
     }
 
     /// Peek at the slot at a given absolute position in the operand stack (0-indexed from bottom).
+    /// # Errors
+    ///
+    /// Returns an error if index is out of bounds.
     pub fn peek_at(&self, index: usize) -> VmResult<Slot> {
         self.stack
             .get(index)
-            .cloned()
+            .copied()
             .ok_or(VmError::StackUnderflow)
     }
 
     /// Current depth of the operand stack.
     #[must_use]
-    pub fn stack_len(&self) -> usize {
+    pub const fn stack_len(&self) -> usize {
         self.stack.len()
     }
 
     /// Yields all slots in locals and operand stack — used by GC root gathering.
     pub fn slots(&self) -> impl Iterator<Item = Slot> + '_ {
-        self.locals.iter().chain(self.stack.iter()).cloned()
+        self.locals.iter().chain(self.stack.iter()).copied()
     }
 
     /// Mutable iterator over all slots (locals + stack) — used to apply GC

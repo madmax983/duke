@@ -46,7 +46,7 @@ mod tests {
             .find(|m| {
                 matches!(&cf.constant_pool[m.name_index.0 as usize], Some(CpEntry::Utf8(s)) if s == method_name)
             })
-            .unwrap_or_else(|| panic!("method '{}' not found", method_name));
+            .unwrap_or_else(|| panic!("method '{method_name}' not found"));
 
         for attr in &method.attributes {
             if let AttributeData::Code(code) = &attr.data {
