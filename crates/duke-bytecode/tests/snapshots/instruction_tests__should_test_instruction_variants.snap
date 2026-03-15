@@ -1,0 +1,217 @@
+---
+source: crates/duke-bytecode/tests/instruction_tests.rs
+expression: output
+---
+Nop - nop
+AconstNull - aconst_null
+IconstM1 - iconst_m1
+Iconst0 - iconst_0
+Iconst1 - iconst_1
+Iconst2 - iconst_2
+Iconst3 - iconst_3
+Iconst4 - iconst_4
+Iconst5 - iconst_5
+Lconst0 - lconst_0
+Lconst1 - lconst_1
+Fconst0 - fconst_0
+Fconst1 - fconst_1
+Fconst2 - fconst_2
+Dconst0 - dconst_0
+Dconst1 - dconst_1
+Bipush(42) - bipush
+Sipush(4242) - sipush
+Ldc(1) - ldc
+LdcW(CpIndex(1)) - ldc_w
+Ldc2W(CpIndex(1)) - ldc2_w
+Iload(1) - iload
+Lload(1) - lload
+Fload(1) - fload
+Dload(1) - dload
+Aload(1) - aload
+Iload0 - iload_0
+Iload1 - iload_1
+Iload2 - iload_2
+Iload3 - iload_3
+Lload0 - lload_0
+Lload1 - lload_1
+Lload2 - lload_2
+Lload3 - lload_3
+Fload0 - fload_0
+Fload1 - fload_1
+Fload2 - fload_2
+Fload3 - fload_3
+Dload0 - dload_0
+Dload1 - dload_1
+Dload2 - dload_2
+Dload3 - dload_3
+Aload0 - aload_0
+Aload1 - aload_1
+Aload2 - aload_2
+Aload3 - aload_3
+Iaload - iaload
+Laload - laload
+Faload - faload
+Daload - daload
+Aaload - aaload
+Baload - baload
+Caload - caload
+Saload - saload
+Istore(1) - istore
+Lstore(1) - lstore
+Fstore(1) - fstore
+Dstore(1) - dstore
+Astore(1) - astore
+Istore0 - istore_0
+Istore1 - istore_1
+Istore2 - istore_2
+Istore3 - istore_3
+Lstore0 - lstore_0
+Lstore1 - lstore_1
+Lstore2 - lstore_2
+Lstore3 - lstore_3
+Fstore0 - fstore_0
+Fstore1 - fstore_1
+Fstore2 - fstore_2
+Fstore3 - fstore_3
+Dstore0 - dstore_0
+Dstore1 - dstore_1
+Dstore2 - dstore_2
+Dstore3 - dstore_3
+Astore0 - astore_0
+Astore1 - astore_1
+Astore2 - astore_2
+Astore3 - astore_3
+Iastore - iastore
+Lastore - lastore
+Fastore - fastore
+Dastore - dastore
+Aastore - aastore
+Bastore - bastore
+Castore - castore
+Sastore - sastore
+Pop - pop
+Pop2 - pop2
+Dup - dup
+DupX1 - dup_x1
+DupX2 - dup_x2
+Dup2 - dup2
+Dup2X1 - dup2_x1
+Dup2X2 - dup2_x2
+Swap - swap
+Iadd - iadd
+Ladd - ladd
+Fadd - fadd
+Dadd - dadd
+Isub - isub
+Lsub - lsub
+Fsub - fsub
+Dsub - dsub
+Imul - imul
+Lmul - lmul
+Fmul - fmul
+Dmul - dmul
+Idiv - idiv
+Ldiv - ldiv
+Fdiv - fdiv
+Ddiv - ddiv
+Irem - irem
+Lrem - lrem
+Frem - frem
+Drem - drem
+Ineg - ineg
+Lneg - lneg
+Fneg - fneg
+Dneg - dneg
+Ishl - ishl
+Lshl - lshl
+Ishr - ishr
+Lshr - lshr
+Iushr - iushr
+Lushr - lushr
+Iand - iand
+Land - land
+Ior - ior
+Lor - lor
+Ixor - ixor
+Lxor - lxor
+Iinc { index: 1, value: 1 } - iinc
+I2l - i2l
+I2f - i2f
+I2d - i2d
+L2i - l2i
+L2f - l2f
+L2d - l2d
+F2i - f2i
+F2l - f2l
+F2d - f2d
+D2i - d2i
+D2l - d2l
+D2f - d2f
+I2b - i2b
+I2c - i2c
+I2s - i2s
+Lcmp - lcmp
+Fcmpl - fcmpl
+Fcmpg - fcmpg
+Dcmpl - dcmpl
+Dcmpg - dcmpg
+Ifeq(1) - ifeq
+Ifne(1) - ifne
+Iflt(1) - iflt
+Ifge(1) - ifge
+Ifgt(1) - ifgt
+Ifle(1) - ifle
+IfIcmpeq(1) - if_icmpeq
+IfIcmpne(1) - if_icmpne
+IfIcmplt(1) - if_icmplt
+IfIcmpge(1) - if_icmpge
+IfIcmpgt(1) - if_icmpgt
+IfIcmple(1) - if_icmple
+IfAcmpeq(1) - if_acmpeq
+IfAcmpne(1) - if_acmpne
+Goto(1) - goto
+Jsr(1) - jsr
+Ret(1) - ret
+Tableswitch { default: 1, low: 1, high: 2, offsets: [1, 2] } - tableswitch
+Lookupswitch { default: 1, pairs: [(1, 1), (2, 2)] } - lookupswitch
+Ireturn - ireturn
+Lreturn - lreturn
+Freturn - freturn
+Dreturn - dreturn
+Areturn - areturn
+Return - return
+Getstatic(CpIndex(1)) - getstatic
+Putstatic(CpIndex(1)) - putstatic
+Getfield(CpIndex(1)) - getfield
+Putfield(CpIndex(1)) - putfield
+Invokevirtual(CpIndex(1)) - invokevirtual
+Invokespecial(CpIndex(1)) - invokespecial
+Invokestatic(CpIndex(1)) - invokestatic
+Invokeinterface { index: CpIndex(1), count: 1 } - invokeinterface
+Invokedynamic(CpIndex(1)) - invokedynamic
+New(CpIndex(1)) - new
+Newarray(Int) - newarray
+Anewarray(CpIndex(1)) - anewarray
+Arraylength - arraylength
+Athrow - athrow
+Checkcast(CpIndex(1)) - checkcast
+Instanceof(CpIndex(1)) - instanceof
+Monitorenter - monitorenter
+Monitorexit - monitorexit
+Multianewarray { index: CpIndex(1), dimensions: 1 } - multianewarray
+Ifnull(1) - ifnull
+Ifnonnull(1) - ifnonnull
+GotoW(1) - goto_w
+JsrW(1) - jsr_w
+IloadW(1) - wide iload
+LloadW(1) - wide lload
+FloadW(1) - wide fload
+DloadW(1) - wide dload
+AloadW(1) - wide aload
+IstoreW(1) - wide istore
+LstoreW(1) - wide lstore
+FstoreW(1) - wide fstore
+DstoreW(1) - wide dstore
+AstoreW(1) - wide astore
+RetW(1) - wide ret
+IincW { index: 1, value: 1 } - wide iinc

@@ -316,3 +316,61 @@ mod tests {
         }
     }
 }
+
+#[test]
+fn decode_lookupswitch_rejects_negative_npairs() {
+    let mut code = vec![0xAB]; // lookupswitch
+    code.push(0);
+    code.push(0);
+    code.push(0); // padding
+    code.extend_from_slice(&0_i32.to_be_bytes()); // default
+    code.extend_from_slice(&(-1_i32).to_be_bytes()); // npairs = -1
+    let err = decode(&code).unwrap_err();
+    assert!(
+        matches!(err, DecodeError::InvalidLookupswitch { npairs: -1, .. }),
+        "negative npairs should be rejected: {err}"
+    );
+}
+
+#[test]
+fn decode_tableswitch_rejects_high_less_than_low() {
+    let mut code = vec![0xAA]; // tableswitch
+    code.push(0);
+    code.push(0);
+    code.push(0); // padding
+    code.extend_from_slice(&0_i32.to_be_bytes()); // default
+    code.extend_from_slice(&2_i32.to_be_bytes()); // low = 2
+    code.extend_from_slice(&1_i32.to_be_bytes()); // high = 1
+    let err = decode(&code).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            DecodeError::InvalidTableswitch {
+                low: 2,
+                high: 1,
+                ..
+            }
+        ),
+        "high < low should be rejected: {err}"
+    );
+}
+
+#[test]
+fn decode_invalid_newarray_type() {
+    let code = [0xBC, 0x03]; // newarray, type=3 (invalid)
+    let err = decode(&code).unwrap_err();
+    assert!(
+        matches!(err, DecodeError::InvalidNewarrayType { type_code: 3, .. }),
+        "invalid newarray type should be rejected: {err}"
+    );
+}
+
+#[test]
+fn decode_invalid_wide_target() {
+    let code = [0xC4, 0x00]; // wide, nop (invalid)
+    let err = decode(&code).unwrap_err();
+    assert!(
+        matches!(err, DecodeError::InvalidWideTarget { opcode: 0x00, .. }),
+        "invalid wide target should be rejected: {err}"
+    );
+}
