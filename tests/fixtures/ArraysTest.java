@@ -25,6 +25,16 @@ public class ArraysTest {
         return arr[0] * 10 + arr[5];  // 1*10 + 9 = 19
     }
 
+    static int testCopyOfObject() {
+        Object[] arr = { "a", "b", "c" };
+        Object[] copy1 = Arrays.copyOf(arr, 2);
+        Object[] copy2 = Arrays.copyOf(arr, 4);
+        if (copy1.length == 2 && copy2.length == 4 && copy2[3] == null) {
+            return 1;
+        }
+        return 0;
+    }
+
     static int testIntegerMaxValue() {
         if (Integer.MAX_VALUE == 2147483647) return 1;
         return 0;

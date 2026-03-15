@@ -40,8 +40,8 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
     jdk
 }
 
-/// Build a class loader: `BootstrapLoader` (JDK jimage + app dir) when JDK path
-/// is known, or plain `DirectoryLoader` otherwise.
+/// Build a class loader: BootstrapLoader (JDK jimage + app dir) when JDK path
+/// is known, or plain DirectoryLoader otherwise.
 fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn ClassLoader> {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
@@ -119,12 +119,12 @@ fn main() {
     };
 
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{path}': {e}");
+        eprintln!("duke: cannot read '{}': {e}", path);
         process::exit(1);
     });
 
     let class_file = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error in '{path}': {e}");
+        eprintln!("duke: parse error in '{}': {e}", path);
         process::exit(1);
     });
 
