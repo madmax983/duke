@@ -58,7 +58,6 @@ impl<'a> Cursor<'a> {
         Ok(b)
     }
 
-    #[allow(clippy::cast_possible_wrap)]
     fn read_i8(&mut self) -> DecodeResult<i8> {
         Ok(self.read_u8()? as i8)
     }
@@ -69,7 +68,6 @@ impl<'a> Cursor<'a> {
         Ok((hi << 8) | lo)
     }
 
-    #[allow(clippy::cast_possible_wrap)]
     fn read_i16(&mut self) -> DecodeResult<i16> {
         Ok(self.read_u16()? as i16)
     }
@@ -80,7 +78,6 @@ impl<'a> Cursor<'a> {
         Ok((hi << 16) | lo)
     }
 
-    #[allow(clippy::cast_possible_wrap)]
     fn read_i32(&mut self) -> DecodeResult<i32> {
         Ok(self.read_u32()? as i32)
     }

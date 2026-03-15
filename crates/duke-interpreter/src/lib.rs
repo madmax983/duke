@@ -6447,7 +6447,9 @@ pub fn execute_class(
                 } else {
                     None
                 };
-                let (dispatch_class, callee_idx) = if let Some((cls, i)) = resolved { (cls, i) } else {
+                let (dispatch_class, callee_idx) = if let Some((cls, i)) = resolved {
+                    (cls, i)
+                } else {
                     // Check lambda dispatch before native fallback.
                     let arg_count = parse_arg_count(&callee_desc);
                     let stack_len = frame.stack_len();
@@ -6461,8 +6463,7 @@ pub fn execute_class(
                             };
 
                         if let Some(ref actual_class) = actual_class_opt
-                            && let Some(lambda_info) =
-                                registry.get_lambda(actual_class).cloned()
+                            && let Some(lambda_info) = registry.get_lambda(actual_class).cloned()
                             && callee_name == lambda_info.sam_method
                         {
                             let mut sam_args: Vec<Slot> = (0..arg_count)
@@ -6494,10 +6495,8 @@ pub fn execute_class(
                             if let Some((dispatch_class, impl_idx)) = resolved {
                                 let (callee_pc_to_idx, callee_frame) = {
                                     let ctx = registry.get(&dispatch_class)?;
-                                    let max_locals =
-                                        usize::from(ctx.methods[impl_idx].max_locals);
-                                    let max_stack =
-                                        usize::from(ctx.methods[impl_idx].max_stack);
+                                    let max_locals = usize::from(ctx.methods[impl_idx].max_locals);
+                                    let max_stack = usize::from(ctx.methods[impl_idx].max_stack);
                                     let pci =
                                         std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
@@ -6505,8 +6504,7 @@ pub fn execute_class(
                                     for (i, slot) in impl_args.into_iter().enumerate() {
                                         locals_buf[i] = slot;
                                     }
-                                    let f =
-                                        Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                    let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                     (pci, f)
                                 };
                                 call_stack.push(CallFrame {
@@ -6539,11 +6537,10 @@ pub fn execute_class(
                     }
                     // Check native registry, walking the super chain.
                     let native_handler_kind = {
-                        let mut found = registry.natives.get_kind(
-                            &callee_class,
-                            &callee_name,
-                            &callee_desc,
-                        );
+                        let mut found =
+                            registry
+                                .natives
+                                .get_kind(&callee_class, &callee_name, &callee_desc);
                         if found.is_none() {
                             // Walk super chain for native lookup (e.g. Enum.ordinal
                             // called via SimpleEnum$Color.ordinal).
@@ -7488,17 +7485,17 @@ pub fn execute_class(
                         &callee_name,
                         &callee_desc,
                     );
-                    if let Some(pair) = iface_resolved { pair } else {
+                    if let Some(pair) = iface_resolved {
+                        pair
+                    } else {
                         // Check native registry — try actual class then interface class.
                         let native_kind = registry
                             .natives
                             .get_kind(&actual_class, &callee_name, &callee_desc)
                             .or_else(|| {
-                                registry.natives.get_kind(
-                                    &callee_class,
-                                    &callee_name,
-                                    &callee_desc,
-                                )
+                                registry
+                                    .natives
+                                    .get_kind(&callee_class, &callee_name, &callee_desc)
                             });
                         match native_kind {
                             Some(HandlerKind::Simple(handler)) => {
@@ -7546,20 +7543,20 @@ pub fn execute_class(
                                 callee_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut invoke_cb = |heap: &mut duke_gc::Heap,
-                                                     output: &mut dyn std::io::Write,
-                                                     class: &str,
-                                                     method: &str,
-                                                     desc: &str,
-                                                     cb_args: Vec<Slot>|
-                                 -> VmResult<Option<Slot>> {
-                                    execute_class(
-                                        registry, loader, heap, output, class, method, desc,
-                                        &cb_args,
-                                    )
-                                };
-                                let result =
-                                    handler(&callee_args, heap, stdout, &mut invoke_cb);
+                                let mut invoke_cb =
+                                    |heap: &mut duke_gc::Heap,
+                                     output: &mut dyn std::io::Write,
+                                     class: &str,
+                                     method: &str,
+                                     desc: &str,
+                                     cb_args: Vec<Slot>|
+                                     -> VmResult<Option<Slot>> {
+                                        execute_class(
+                                            registry, loader, heap, output, class, method, desc,
+                                            &cb_args,
+                                        )
+                                    };
+                                let result = handler(&callee_args, heap, stdout, &mut invoke_cb);
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
@@ -7624,17 +7621,15 @@ pub fn execute_class(
                                             usize::from(ctx.methods[impl_idx].max_locals);
                                         let max_stack =
                                             usize::from(ctx.methods[impl_idx].max_stack);
-                                        let pci = std::sync::Arc::clone(
-                                            &ctx.methods[impl_idx].pc_to_idx,
-                                        );
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
                                         }
-                                        let f = Frame::from_pool_bufs(
-                                            locals_buf, stack_buf, max_stack,
-                                        );
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -7679,17 +7674,15 @@ pub fn execute_class(
                                             usize::from(ctx.methods[impl_idx].max_locals);
                                         let max_stack =
                                             usize::from(ctx.methods[impl_idx].max_stack);
-                                        let pci = std::sync::Arc::clone(
-                                            &ctx.methods[impl_idx].pc_to_idx,
-                                        );
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
                                         }
-                                        let f = Frame::from_pool_bufs(
-                                            locals_buf, stack_buf, max_stack,
-                                        );
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -8246,8 +8239,16 @@ fn resolve_method_in_hierarchy(
 /// Resolve a constant pool Methodref to (`class_name`, `method_name`, descriptor).
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
-        Some(CpEntry::Methodref { class_index, name_and_type_index } |
-CpEntry::InterfaceMethodref { class_index, name_and_type_index }) => {
+        Some(
+            CpEntry::Methodref {
+                class_index,
+                name_and_type_index,
+            }
+            | CpEntry::InterfaceMethodref {
+                class_index,
+                name_and_type_index,
+            },
+        ) => {
             let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
@@ -8282,9 +8283,7 @@ CpEntry::InterfaceMethodref { class_index, name_and_type_index }) => {
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor
-        .find(')')
-        .map_or("", |i| &descriptor[1..i]);
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8423,9 +8422,7 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
-    let params = descriptor
-        .find(')')
-        .map_or("", |i| &descriptor[1..i]);
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
