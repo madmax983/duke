@@ -641,6 +641,7 @@ mod tests {
     // ── collect() compat shim ─────────────────────────────────────────────────
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn collect_reclaims_unreachable() {
         let mut heap = Heap::new();
         let r0 = heap.allocate("Keep".to_string(), 0);
@@ -665,6 +666,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn free_list_slot_reused_after_collect() {
         let mut heap = Heap::new();
         let r0 = heap.allocate("Keep".to_string(), 0);
@@ -813,6 +815,7 @@ mod tests {
     // ── Minor GC unit tests (Task 6) ───────────────────────────────────────────
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn minor_gc_copies_reachable_young_object() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("Keep".to_string(), 0);
@@ -854,6 +857,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn minor_gc_finish_swaps_to_space_into_young() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("A".to_string(), 0);
@@ -1098,6 +1102,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::used_underscore_binding)]
     fn collect_compat_shim_collects_full_heap() {
         let mut heap = test_heap_with_capacity(512);
         // promotion_age = 0: age >= 0 is always true, so any survivor promotes

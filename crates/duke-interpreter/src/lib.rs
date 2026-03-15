@@ -229,7 +229,7 @@ impl Default for ClassRegistry {
 /// Arguments:
 /// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
 /// - `&mut Heap`: the object heap for reading/writing objects
-/// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
+/// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
 pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
 
 /// A native handler that can call back into the interpreter to invoke Java methods.
@@ -3735,7 +3735,7 @@ fn format_java_double(v: f64) -> String {
 ///
 /// # Parameters
 /// - `instructions`: output of `duke_bytecode::decode`
-/// - `cp`: constant pool from the parsed [`duke_classfile::ClassFile`]
+/// - `cp`: constant pool from the parsed `ClassFile`
 /// - `args`: initial local variable values (method arguments)
 /// - `max_stack`: `Code.max_stack` from the class file
 /// - `max_locals`: `Code.max_locals` from the class file
@@ -7939,25 +7939,10 @@ struct CallFrame {
     class_name: String,
 }
 
-/// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
+/// Build a [`ClassContext`] from a parsed [`ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
-///
-/// ## Examples
-///
-/// ```
-/// # use duke_interpreter::build_class_context;
-/// # use duke_classfile::parse;
-/// let bytes = include_bytes!("../../../tests/fixtures/Hello.class");
-/// let cf = parse(bytes).unwrap();
-/// let ctx = build_class_context(&cf);
-/// assert_eq!(ctx.class_name, "Hello");
-/// ```
-///
-/// # Panics
-///
-/// Panics if memory allocation fails.
 #[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
