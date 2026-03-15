@@ -63,7 +63,7 @@ pub struct Heap {
     // ── Old generation ───────────────────────────────────────────────────────
     /// Old-gen object store. Index = `(r & !OLD_BIT)`.
     pub(crate) old: Vec<Option<HeapObject>>,
-    /// Free-list of raw old-gen indices (no OLD_BIT) for reuse after sweep.
+    /// Free-list of raw old-gen indices (no `OLD_BIT`) for reuse after sweep.
     old_free_list: Vec<u64>,
 
     // ── GC accounting ────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ pub struct Heap {
     young_dropped: usize,
 
     // ── Post-minor-GC forwarding map ─────────────────────────────────────────
-    /// Maps old young-gen ref → new ref (young or old-gen with OLD_BIT).
+    /// Maps old young-gen ref → new ref (young or old-gen with `OLD_BIT`).
     /// Populated during `minor_collect_prepare`, kept alive past
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
@@ -180,10 +180,13 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
-    /// Returns a reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    /// Panics if the young generation index does not fit into `usize`.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -200,10 +203,13 @@ impl Heap {
         }
     }
 
-    /// Returns a mutable reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a mutable reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    ///
+    /// # Panics
+    /// Panics if the young generation index does not fit into `usize`.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -295,6 +301,9 @@ impl Heap {
     ///
     /// Call [`Heap::apply_forward`] on every live interpreter slot after this,
     /// then call [`Heap::minor_collect_finish`] to complete the collection.
+    ///
+    /// # Panics
+    /// Panics if any collected young object reference index does not fit in `usize`.
     pub fn minor_collect_prepare(&mut self, roots: &[Slot]) {
         self.to_space = Vec::new();
         self.forward_map.clear();
@@ -374,7 +383,7 @@ impl Heap {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = r as usize;
+                        let y_idx = usize::try_from(r).unwrap();
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -395,6 +404,9 @@ impl Heap {
     /// Works both during `minor_collect_prepare` (reads from `young[].forward`)
     /// and after `minor_collect_finish` (reads from `forward_map`). No-op if
     /// the slot is not a young-gen reference or has no forwarding pointer.
+    ///
+    /// # Panics
+    /// Panics if the forwarding reference's young index does not fit into `usize`.
     pub fn apply_forward(&self, slot: &mut Slot) {
         if let Some(r) = slot.as_reference()
             && r & OLD_BIT == 0
@@ -403,7 +415,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(r as usize)
+                    .get(usize::try_from(r).unwrap())
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -800,10 +812,10 @@ mod tests {
     fn minor_gc_copies_reachable_young_object() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("Keep".to_string(), 0);
-        let _r1 = heap.allocate("Drop".to_string(), 0);
+        let r1 = heap.allocate("Drop".to_string(), 0);
         let roots = vec![Slot::Reference(Some(r0))];
         heap.minor_collect_prepare(&roots);
-        // r0 must have a forwarding pointer; _r1 must not.
+        // r0 must have a forwarding pointer; r1 must not.
         assert!(
             heap.young[usize::try_from(r0).unwrap()]
                 .as_ref()
@@ -812,7 +824,7 @@ mod tests {
                 .is_some()
         );
         assert!(
-            heap.young[usize::try_from(_r1).unwrap()]
+            heap.young[usize::try_from(r1).unwrap()]
                 .as_ref()
                 .unwrap()
                 .forward
