@@ -9281,6 +9281,7 @@ fn native_arraylist_iter_next(
 // ---- Double.isNaN ----
 
 /// Native: `Double.isNaN(D)Z` — returns 1 if value is NaN.
+#[allow(clippy::unnecessary_wraps)]
 fn native_double_isnan(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9430,7 +9431,7 @@ fn native_arrays_sort_int(
 // HashMap natives
 // ---------------------------------------------------------------------------
 
-/// Semantic equality for HashMap keys: compares by string_value for heap strings,
+/// Semantic equality for HashMap keys: compares by `string_value` for heap strings,
 /// or by the first field (e.g. intValue) for boxed numerics, or by reference identity.
 fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     match (a, b) {
@@ -9439,14 +9440,8 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             if ra == rb {
                 return true;
             }
-            let oa = match heap.get(*ra) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
-            let ob = match heap.get(*rb) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
+            let Ok(oa) = heap.get(*ra) else { return false };
+            let Ok(ob) = heap.get(*rb) else { return false };
             if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
             }
@@ -9822,7 +9817,7 @@ fn patch_forwarded_slots(
         }
     }
     for ctx in registry.all_classes_mut() {
-        for slot in ctx.static_fields.iter_mut() {
+        for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
         }
     }
@@ -13752,7 +13747,7 @@ mod tests {
 
     // ---- Phase 19: Enum integration tests ----
 
-    /// Helper that loads a class, calls bootstrap_stdlib, and runs a static method.
+    /// Helper that loads a class, calls `bootstrap_stdlib`, and runs a static method.
     fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();

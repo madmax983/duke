@@ -50,6 +50,7 @@ impl Frame {
     /// - Ensuring `stack` is empty before passing it here.
     ///
     /// This is the zero-allocation fast path for method calls after pool warmup.
+    #[must_use]
     pub fn from_pool_bufs(locals: Vec<Slot>, stack: Vec<Slot>, max_stack: usize) -> Self {
         debug_assert!(stack.is_empty(), "pool stack must be empty on reuse");
         Self {
@@ -64,6 +65,7 @@ impl Frame {
     /// Clears the operand stack (retaining capacity). Locals are *not* cleared —
     /// the caller must resize and reinitialise the locals buffer before passing it
     /// to [`Frame::from_pool_bufs`] for reuse.
+    #[must_use]
     pub fn into_pool_bufs(mut self) -> (Vec<Slot>, Vec<Slot>) {
         self.stack.clear();
         (self.locals, self.stack)
@@ -189,6 +191,10 @@ impl Frame {
     }
 
     /// Peek at the slot at a given absolute position in the operand stack (0-indexed from bottom).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmError::StackUnderflow`] if the index is out of bounds.
     pub fn peek_at(&self, index: usize) -> VmResult<Slot> {
         self.stack
             .get(index)
@@ -198,7 +204,7 @@ impl Frame {
 
     /// Current depth of the operand stack.
     #[must_use]
-    pub fn stack_len(&self) -> usize {
+    pub const fn stack_len(&self) -> usize {
         self.stack.len()
     }
 
