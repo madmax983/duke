@@ -312,18 +312,12 @@ pub struct TelemetryStore {
 #[cfg(feature = "telemetry")]
 impl TelemetryStore {
     /// Serialize the store to pretty-printed JSON.
-    ///
-    /// # Panics
-    /// Panics if JSON serialization fails.
     #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("telemetry serialization failed")
     }
 
     /// Print a human-readable top-10 summary per channel to `w`.
-    ///
-    /// # Errors
-    /// Returns a `std::io::Result` on I/O failure.
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(w, "=== Duke VM Telemetry Report ===")?;
 
@@ -367,10 +361,10 @@ impl TelemetryStore {
             self.exception_flow.events.len()
         )?;
         for ev in &self.exception_flow.events {
-            let catch = ev
-                .catch_site
-                .as_ref()
-                .map_or_else(|| "uncaught".to_string(), |(c, m, pc)| format!("{c}::{m} @{pc}"));
+            let catch = ev.catch_site.as_ref().map_or_else(
+                || "uncaught".to_string(),
+                |(c, m, pc)| format!("{c}::{m} @{pc}"),
+            );
             writeln!(
                 w,
                 "  {} thrown at {:?} caught at {}",

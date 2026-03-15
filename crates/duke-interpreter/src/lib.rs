@@ -1,5 +1,3 @@
-#![allow(clippy::pedantic, clippy::nursery, clippy::missing_panics_doc, clippy::too_many_lines, clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::cast_lossless)]
-
 //! Switch-dispatch JVM bytecode interpreter for Duke Phase 4.
 //!
 //! Executes decoded instruction streams for methods containing integer, long,
@@ -6449,7 +6447,9 @@ pub fn execute_class(
                 } else {
                     None
                 };
-                let (dispatch_class, callee_idx) = if let Some((cls, i)) = resolved { (cls, i) } else {
+                let (dispatch_class, callee_idx) = if let Some((cls, i)) = resolved {
+                    (cls, i)
+                } else {
                     // Check lambda dispatch before native fallback.
                     let arg_count = parse_arg_count(&callee_desc);
                     let stack_len = frame.stack_len();
@@ -6463,8 +6463,7 @@ pub fn execute_class(
                             };
 
                         if let Some(ref actual_class) = actual_class_opt
-                            && let Some(lambda_info) =
-                                registry.get_lambda(actual_class).cloned()
+                            && let Some(lambda_info) = registry.get_lambda(actual_class).cloned()
                             && callee_name == lambda_info.sam_method
                         {
                             let mut sam_args: Vec<Slot> = (0..arg_count)
@@ -6496,10 +6495,8 @@ pub fn execute_class(
                             if let Some((dispatch_class, impl_idx)) = resolved {
                                 let (callee_pc_to_idx, callee_frame) = {
                                     let ctx = registry.get(&dispatch_class)?;
-                                    let max_locals =
-                                        usize::from(ctx.methods[impl_idx].max_locals);
-                                    let max_stack =
-                                        usize::from(ctx.methods[impl_idx].max_stack);
+                                    let max_locals = usize::from(ctx.methods[impl_idx].max_locals);
+                                    let max_stack = usize::from(ctx.methods[impl_idx].max_stack);
                                     let pci =
                                         std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
@@ -6507,8 +6504,7 @@ pub fn execute_class(
                                     for (i, slot) in impl_args.into_iter().enumerate() {
                                         locals_buf[i] = slot;
                                     }
-                                    let f =
-                                        Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                    let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                     (pci, f)
                                 };
                                 call_stack.push(CallFrame {
@@ -6541,11 +6537,10 @@ pub fn execute_class(
                     }
                     // Check native registry, walking the super chain.
                     let native_handler_kind = {
-                        let mut found = registry.natives.get_kind(
-                            &callee_class,
-                            &callee_name,
-                            &callee_desc,
-                        );
+                        let mut found =
+                            registry
+                                .natives
+                                .get_kind(&callee_class, &callee_name, &callee_desc);
                         if found.is_none() {
                             // Walk super chain for native lookup (e.g. Enum.ordinal
                             // called via SimpleEnum$Color.ordinal).
@@ -7490,17 +7485,17 @@ pub fn execute_class(
                         &callee_name,
                         &callee_desc,
                     );
-                    if let Some(pair) = iface_resolved { pair } else {
+                    if let Some(pair) = iface_resolved {
+                        pair
+                    } else {
                         // Check native registry — try actual class then interface class.
                         let native_kind = registry
                             .natives
                             .get_kind(&actual_class, &callee_name, &callee_desc)
                             .or_else(|| {
-                                registry.natives.get_kind(
-                                    &callee_class,
-                                    &callee_name,
-                                    &callee_desc,
-                                )
+                                registry
+                                    .natives
+                                    .get_kind(&callee_class, &callee_name, &callee_desc)
                             });
                         match native_kind {
                             Some(HandlerKind::Simple(handler)) => {
@@ -7548,20 +7543,20 @@ pub fn execute_class(
                                 callee_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut invoke_cb = |heap: &mut duke_gc::Heap,
-                                                     output: &mut dyn std::io::Write,
-                                                     class: &str,
-                                                     method: &str,
-                                                     desc: &str,
-                                                     cb_args: Vec<Slot>|
-                                 -> VmResult<Option<Slot>> {
-                                    execute_class(
-                                        registry, loader, heap, output, class, method, desc,
-                                        &cb_args,
-                                    )
-                                };
-                                let result =
-                                    handler(&callee_args, heap, stdout, &mut invoke_cb);
+                                let mut invoke_cb =
+                                    |heap: &mut duke_gc::Heap,
+                                     output: &mut dyn std::io::Write,
+                                     class: &str,
+                                     method: &str,
+                                     desc: &str,
+                                     cb_args: Vec<Slot>|
+                                     -> VmResult<Option<Slot>> {
+                                        execute_class(
+                                            registry, loader, heap, output, class, method, desc,
+                                            &cb_args,
+                                        )
+                                    };
+                                let result = handler(&callee_args, heap, stdout, &mut invoke_cb);
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
@@ -7626,17 +7621,15 @@ pub fn execute_class(
                                             usize::from(ctx.methods[impl_idx].max_locals);
                                         let max_stack =
                                             usize::from(ctx.methods[impl_idx].max_stack);
-                                        let pci = std::sync::Arc::clone(
-                                            &ctx.methods[impl_idx].pc_to_idx,
-                                        );
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
                                         }
-                                        let f = Frame::from_pool_bufs(
-                                            locals_buf, stack_buf, max_stack,
-                                        );
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -7681,17 +7674,15 @@ pub fn execute_class(
                                             usize::from(ctx.methods[impl_idx].max_locals);
                                         let max_stack =
                                             usize::from(ctx.methods[impl_idx].max_stack);
-                                        let pci = std::sync::Arc::clone(
-                                            &ctx.methods[impl_idx].pc_to_idx,
-                                        );
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
                                         }
-                                        let f = Frame::from_pool_bufs(
-                                            locals_buf, stack_buf, max_stack,
-                                        );
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, f)
                                     };
                                     call_stack.push(CallFrame {
@@ -8248,8 +8239,16 @@ fn resolve_method_in_hierarchy(
 /// Resolve a constant pool Methodref to (`class_name`, `method_name`, descriptor).
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
-        Some(CpEntry::Methodref { class_index, name_and_type_index } |
-CpEntry::InterfaceMethodref { class_index, name_and_type_index }) => {
+        Some(
+            CpEntry::Methodref {
+                class_index,
+                name_and_type_index,
+            }
+            | CpEntry::InterfaceMethodref {
+                class_index,
+                name_and_type_index,
+            },
+        ) => {
             let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
@@ -8284,9 +8283,7 @@ CpEntry::InterfaceMethodref { class_index, name_and_type_index }) => {
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor
-        .find(')')
-        .map_or("", |i| &descriptor[1..i]);
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8425,9 +8422,7 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
-    let params = descriptor
-        .find(')')
-        .map_or("", |i| &descriptor[1..i]);
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -9357,7 +9352,6 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         Some(Slot::Int(n)) if *n >= 0 => *n as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
@@ -9386,7 +9380,6 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         Some(Slot::Int(n)) if *n >= 0 => *n as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
@@ -9488,11 +9481,12 @@ fn native_hashmap_put(
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    // Clone fields to release the immutable borrow before mutating.
+    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < heap.get(this_ref)?.fields.len() {
-        let field_key = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field_key, &key, heap) {
-            let old = heap.get(this_ref)?.fields[i + 1];
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            let old = fields[i + 1];
             heap.get_mut(this_ref)?.fields[i + 1] = val;
             return Ok(Some(old));
         }
@@ -9520,12 +9514,11 @@ fn native_hashmap_get(
         _ => return Err(VmError::NullPointerException),
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < heap.get(this_ref)?.fields.len() {
-        let field_key = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field_key, &key, heap) {
-            let val = heap.get(this_ref)?.fields[i + 1];
-            return Ok(Some(val));
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            return Ok(Some(fields[i + 1]));
         }
         i += 2;
     }
@@ -9543,10 +9536,10 @@ fn native_hashmap_contains_key(
         _ => return Err(VmError::NullPointerException),
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < heap.get(this_ref)?.fields.len() {
-        let field_key = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field_key, &key, heap) {
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
             return Ok(Some(Slot::Int(1)));
         }
         i += 2;
@@ -9582,11 +9575,11 @@ fn native_hashmap_remove(
         _ => return Err(VmError::NullPointerException),
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < heap.get(this_ref)?.fields.len() {
-        let field_key = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field_key, &key, heap) {
-            let old_val = heap.get(this_ref)?.fields[i + 1];
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            let old_val = fields[i + 1];
             let obj = heap.get_mut(this_ref)?;
             let last_val_idx = obj.fields.len() - 1;
             let last_key_idx = obj.fields.len() - 2;
@@ -9633,12 +9626,11 @@ fn native_hashmap_get_or_default(
     };
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
     let mut i = 1usize;
-    while i + 1 < heap.get(this_ref)?.fields.len() {
-        let field_key = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field_key, &key, heap) {
-            let val = heap.get(this_ref)?.fields[i + 1];
-            return Ok(Some(val));
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            return Ok(Some(fields[i + 1]));
         }
         i += 2;
     }
@@ -9680,13 +9672,12 @@ fn native_hashset_add(
         _ => return Err(VmError::NullPointerException),
     };
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let mut i = 1;
-    while i < heap.get(this_ref)?.fields.len() {
-        let field = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field, &element, heap) {
+    let fields = heap.get(this_ref)?.fields.clone();
+    // fields[0] = size, fields[1..] = elements
+    for field in fields.iter().skip(1) {
+        if slots_equal(field, &element, heap) {
             return Ok(Some(Slot::Int(0))); // duplicate
         }
-        i += 1;
     }
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
@@ -9708,13 +9699,11 @@ fn native_hashset_contains(
         _ => return Err(VmError::NullPointerException),
     };
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let mut i = 1;
-    while i < heap.get(this_ref)?.fields.len() {
-        let field = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field, &element, heap) {
+    let fields = heap.get(this_ref)?.fields.clone();
+    for field in fields.iter().skip(1) {
+        if slots_equal(field, &element, heap) {
             return Ok(Some(Slot::Int(1)));
         }
-        i += 1;
     }
     Ok(Some(Slot::Int(0)))
 }
@@ -9731,10 +9720,10 @@ fn native_hashset_remove(
         _ => return Err(VmError::NullPointerException),
     };
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let mut i = 1;
-    while i < heap.get(this_ref)?.fields.len() {
-        let field = heap.get(this_ref)?.fields[i];
-        if slots_equal(&field, &element, heap) {
+    let fields = heap.get(this_ref)?.fields.clone();
+    #[allow(clippy::needless_range_loop)] // i is used in obj.fields.swap(i, last_idx)
+    for i in 1..fields.len() {
+        if slots_equal(&fields[i], &element, heap) {
             let obj = heap.get_mut(this_ref)?;
             let last_idx = obj.fields.len() - 1;
             obj.fields.swap(i, last_idx);
@@ -9745,7 +9734,6 @@ fn native_hashset_remove(
             }
             return Ok(Some(Slot::Int(1)));
         }
-        i += 1;
     }
     Ok(Some(Slot::Int(0)))
 }
@@ -9849,7 +9837,6 @@ mod tests {
 
     #[test]
     fn native_registry_register_callback_can_be_looked_up() {
-        #[allow(clippy::unnecessary_wraps)]
         fn dummy_cb(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -9868,7 +9855,6 @@ mod tests {
 
     #[test]
     fn native_registry_register_simple_stays_simple() {
-        #[allow(clippy::unnecessary_wraps)]
         fn dummy(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -11113,7 +11099,6 @@ mod tests {
 
     #[test]
     fn native_registry_stores_and_retrieves() {
-        #[allow(clippy::unnecessary_wraps)]
         fn dummy_handler(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -14824,13 +14809,13 @@ mod tests {
     /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
     ///
     ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
-    ///   // creates $$Lambda$0 with `impl_class="java/lang/String"`,
-    ///   //   `impl_method="length"`, `impl_kind=5` (`REF_invokeVirtual`),
+    ///   // creates $$Lambda$0 with `impl_class="java/lang/String`",
+    ///   //   `impl_method="length`", `impl_kind=5` (`REF_invokeVirtual`),
     ///   //   `captured_count=1` (the string "hello")
     ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
     ///   // → lambda SAM: `impl_kind==5`, `resolve_method_in_hierarchy` returns None
     ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   `registry.natives.get_kind("java/lang/String", "length", "()I")`
+    ///   //   `registry.natives.get_kind("java/lang/String`", "length", "()I")
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14879,7 +14864,7 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len()).unwrap_or(0);
+                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
                 Ok(Some(Slot::Int(len)))
             },
         );

@@ -53,7 +53,7 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn Cla
                 ),
             }
         } else {
-            eprintln!("duke: warning: {} not found, falling back to directory loader", modules.display());
+            eprintln!("duke: warning: {modules:?} not found, falling back to directory loader");
         }
     }
     Box::new(DirectoryLoader::new(app_dir))
@@ -239,7 +239,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
     // When --jdk is given, also loads missing classes from the JDK jimage.
     let parent = std::path::Path::new(path)
         .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
+        .unwrap_or(std::path::Path::new("."));
     let loader = make_loader(jdk_home, parent);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
