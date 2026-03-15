@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+#![cfg(not(tarpaulin_include))]
 use duke_runtime::Slot;
 #[allow(clippy::cast_possible_wrap)]
 /// Convert a heap object to its Java display string.
