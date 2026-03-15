@@ -312,12 +312,18 @@ pub struct TelemetryStore {
 #[cfg(feature = "telemetry")]
 impl TelemetryStore {
     /// Serialize the store to pretty-printed JSON.
+    ///
+    /// # Panics
+    /// Panics if JSON serialization fails.
     #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("telemetry serialization failed")
     }
 
     /// Print a human-readable top-10 summary per channel to `w`.
+    ///
+    /// # Errors
+    /// Returns a `std::io::Result` on I/O failure.
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(w, "=== Duke VM Telemetry Report ===")?;
 

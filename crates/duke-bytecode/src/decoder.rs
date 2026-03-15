@@ -59,7 +59,7 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_i8(&mut self) -> DecodeResult<i8> {
-        Ok(self.read_u8()? as i8)
+        Ok(self.read_u8()?.cast_signed())
     }
 
     fn read_u16(&mut self) -> DecodeResult<u16> {
@@ -69,7 +69,7 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
-        Ok(self.read_u16()? as i16)
+        Ok(self.read_u16()?.cast_signed())
     }
 
     fn read_u32(&mut self) -> DecodeResult<u32> {
@@ -79,7 +79,7 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_i32(&mut self) -> DecodeResult<i32> {
-        Ok(self.read_u32()? as i32)
+        Ok(self.read_u32()?.cast_signed())
     }
 
     fn read_cp(&mut self) -> DecodeResult<CpIndex> {

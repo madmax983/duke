@@ -9065,6 +9065,8 @@ fn array_list_sort(
 
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_sign_loss)]
         Some(Slot::Int(n)) if *n >= 0 => *n as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => return Ok(None),
@@ -9352,6 +9354,7 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         Some(Slot::Int(n)) if *n >= 0 => *n as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
@@ -9380,6 +9383,7 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         Some(Slot::Int(n)) if *n >= 0 => *n as usize,
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
