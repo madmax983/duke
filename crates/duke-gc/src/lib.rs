@@ -123,7 +123,11 @@ impl Heap {
 
     // ── Allocation ───────────────────────────────────────────────────────────
 
-    const fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
+    const fn make_obj(
+        class_name: String,
+        fields: Vec<Slot>,
+        string_value: Option<String>,
+    ) -> HeapObject {
         HeapObject {
             class_name,
             fields,
