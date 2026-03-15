@@ -186,13 +186,13 @@ impl Heap {
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = usize::try_from(r & !OLD_BIT).unwrap_or(usize::MAX);
             self.old
                 .get(idx)
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -206,13 +206,13 @@ impl Heap {
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = usize::try_from(r & !OLD_BIT).unwrap_or(usize::MAX);
             self.old
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -455,7 +455,7 @@ impl Heap {
             .collect();
 
         while let Some(r) = worklist.pop() {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = usize::try_from(r & !OLD_BIT).unwrap_or(usize::MAX);
             let Some(Some(obj)) = self.old.get_mut(idx) else {
                 continue;
             };
@@ -1096,5 +1096,34 @@ mod tests {
         // After full collect: 1 live object promoted to old gen; 2 dropped.
         assert_eq!(heap.old_live_count(), 1);
         assert_eq!(heap.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod sentry_tests {
+    use super::*;
+
+    #[test]
+    fn get_invalid_large_ref() {
+        let heap = Heap::new();
+        let large_ref = u64::MAX;
+        let res = heap.get(large_ref);
+        assert!(matches!(res, Err(VmError::InvalidRef { address: u64::MAX })));
+
+        let large_ref_young = u64::MAX & !OLD_BIT;
+        let res = heap.get(large_ref_young);
+        assert!(matches!(res, Err(VmError::InvalidRef { address: _ })));
+    }
+
+    #[test]
+    fn get_mut_invalid_large_ref() {
+        let mut heap = Heap::new();
+        let large_ref = u64::MAX;
+        let res = heap.get_mut(large_ref);
+        assert!(matches!(res, Err(VmError::InvalidRef { address: u64::MAX })));
+
+        let large_ref_young = u64::MAX & !OLD_BIT;
+        let res = heap.get_mut(large_ref_young);
+        assert!(matches!(res, Err(VmError::InvalidRef { address: _ })));
     }
 }
