@@ -173,7 +173,9 @@ impl Heap {
         obj.age = 0; // reset age in old gen (not used there)
         obj.forward = None;
         if let Some(raw_idx) = self.old_free_list.pop() {
-            self.old[usize::try_from(raw_idx).unwrap()] = Some(obj);
+            #[allow(clippy::cast_possible_truncation)]
+            let idx = raw_idx as usize;
+            self.old[idx] = Some(obj);
             raw_idx | OLD_BIT
         } else {
             let raw_idx = self.old.len() as u64;
@@ -188,9 +190,6 @@ impl Heap {
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
-    ///
-    /// # Panics
-    /// Panics if a young-gen `r` cannot be converted to `usize`.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -199,7 +198,8 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            #[allow(clippy::cast_possible_truncation)]
+            let idx = r as usize;
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -211,9 +211,6 @@ impl Heap {
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
-    ///
-    /// # Panics
-    /// Panics if a young-gen `r` cannot be converted to `usize`.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -222,7 +219,8 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            #[allow(clippy::cast_possible_truncation)]
+            let idx = r as usize;
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -305,9 +303,6 @@ impl Heap {
     ///
     /// Call [`Heap::apply_forward`] on every live interpreter slot after this,
     /// then call [`Heap::minor_collect_finish`] to complete the collection.
-    ///
-    /// # Panics
-    /// Panics if a young-gen reference cannot be converted to `usize`.
     pub fn minor_collect_prepare(&mut self, roots: &[Slot]) {
         self.to_space = Vec::new();
         self.forward_map.clear();
@@ -319,7 +314,8 @@ impl Heap {
             if let Some(r) = slot.as_reference()
                 && r & OLD_BIT == 0
             {
-                worklist.push(usize::try_from(r).unwrap());
+                #[allow(clippy::cast_possible_truncation)]
+                worklist.push(r as usize);
             }
         }
 
@@ -332,7 +328,11 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| usize::try_from(r).unwrap())
+                    .map(|r| {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let idx = r as usize;
+                        idx
+                    })
                     .collect();
                 worklist.extend(young_refs);
             }
@@ -371,7 +371,11 @@ impl Heap {
                     .iter()
                     .filter_map(Slot::as_reference)
                     .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| usize::try_from(r).unwrap())
+                    .map(|r| {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let idx = r as usize;
+                        idx
+                    })
                     .collect();
                 worklist.extend(children);
             }
@@ -387,7 +391,8 @@ impl Heap {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = usize::try_from(r).unwrap_or(0);
+                        #[allow(clippy::cast_possible_truncation)]
+                        let y_idx = r as usize;
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -415,8 +420,10 @@ impl Heap {
             // Try forward_map first (valid at any phase); fall back to young[].forward
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
+                #[allow(clippy::cast_possible_truncation)]
+                let y_idx = r as usize;
                 self.young
-                    .get(usize::try_from(r).unwrap_or(0))
+                    .get(y_idx)
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
