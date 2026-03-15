@@ -5456,10 +5456,7 @@ pub fn execute_class(
                         match handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                let native_args = frame.split_off(arg_count)?;
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
@@ -5479,10 +5476,7 @@ pub fn execute_class(
                             }
                             Some(HandlerKind::Callback(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                let native_args = frame.split_off(arg_count)?;
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut invoke_cb =
@@ -6470,10 +6464,7 @@ pub fn execute_class(
                                     registry.get_lambda(actual_class).cloned()
                                 && callee_name == lambda_info.sam_method
                             {
-                                let mut sam_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                sam_args.reverse();
+                                let sam_args = frame.split_off(arg_count)?;
                                 let this_slot = frame.pop()?;
                                 let this_ref = match &this_slot {
                                     Slot::Reference(Some(r)) => *r,
@@ -6577,10 +6568,7 @@ pub fn execute_class(
                         match native_handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                let mut native_args = frame.split_off(arg_count)?;
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
@@ -6614,10 +6602,7 @@ pub fn execute_class(
                             }
                             Some(HandlerKind::Callback(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                let mut native_args = frame.split_off(arg_count)?;
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
@@ -7327,10 +7312,7 @@ pub fn execute_class(
                     // --- StringConcatFactory.makeConcatWithConstants ---
                     let arg_count = parse_arg_count(&call_desc);
                     let arg_types = parse_arg_types(&call_desc);
-                    let mut dynamic_args: Vec<Slot> = (0..arg_count)
-                        .map(|_| frame.pop())
-                        .collect::<VmResult<Vec<_>>>()?;
-                    dynamic_args.reverse();
+                    let dynamic_args = frame.split_off(arg_count)?;
 
                     // Resolve recipe (first bootstrap arg) and constants (remaining).
                     let (recipe, constants) = {
@@ -7400,10 +7382,7 @@ pub fn execute_class(
 
                     // Pop captured variables from the stack.
                     let captured_count = parse_arg_count(&call_desc);
-                    let mut captured_args: Vec<Slot> = (0..captured_count)
-                        .map(|_| frame.pop())
-                        .collect::<VmResult<Vec<_>>>()?;
-                    captured_args.reverse();
+                    let captured_args = frame.split_off(captured_count)?;
 
                     let lambda_info = LambdaInfo {
                         impl_class: impl_class.clone(),
@@ -7512,10 +7491,7 @@ pub fn execute_class(
                                 Some(HandlerKind::Simple(handler)) => {
                                     // Native path: collect args + this into a Vec<Slot>
                                     // for the handler(&[Slot], ...) signature.
-                                    let mut callee_args: Vec<Slot> = (0..arg_count)
-                                        .map(|_| frame.pop())
-                                        .collect::<VmResult<Vec<_>>>()?;
-                                    callee_args.reverse();
+                                    let mut callee_args = frame.split_off(arg_count)?;
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
@@ -7546,10 +7522,7 @@ pub fn execute_class(
                                     continue;
                                 }
                                 Some(HandlerKind::Callback(handler)) => {
-                                    let mut callee_args: Vec<Slot> = (0..arg_count)
-                                        .map(|_| frame.pop())
-                                        .collect::<VmResult<Vec<_>>>()?;
-                                    callee_args.reverse();
+                                    let mut callee_args = frame.split_off(arg_count)?;
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
@@ -7597,10 +7570,7 @@ pub fn execute_class(
                                 && callee_name == lambda_info.sam_method
                             {
                                 // Lambda path: collect args + this into a Vec<Slot>.
-                                let mut callee_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                callee_args.reverse();
+                                let mut callee_args = frame.split_off(arg_count)?;
                                 let this_slot = frame.pop()?;
                                 callee_args.insert(0, this_slot);
                                 let this_ref = match &callee_args[0] {

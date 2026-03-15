@@ -179,6 +179,20 @@ impl Frame {
         }
     }
 
+    /// Pop the top `count` slots from the operand stack into a new `Vec<Slot>`.
+    /// The resulting vector preserves the original stack order (the oldest
+    /// pushed item is first).
+    ///
+    /// # Errors
+    /// Returns [`VmError::StackUnderflow`] if the stack does not contain `count` slots.
+    pub fn split_off(&mut self, count: usize) -> VmResult<Vec<Slot>> {
+        if self.stack.len() < count {
+            return Err(VmError::StackUnderflow);
+        }
+        let at = self.stack.len() - count;
+        Ok(self.stack.split_off(at))
+    }
+
     /// Clear the operand stack (used by exception handler dispatch).
     pub fn clear_stack(&mut self) {
         self.stack.clear();
