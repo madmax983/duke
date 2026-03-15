@@ -20985,4 +20985,1477 @@ mod tests {
         let result = format_arg('X', None, &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "FF");
     }
+
+    // =========================================================================
+    // Sixth batch: execute() Ldiv/Lrem + Anewarray + all remaining array types
+    //              execute_class() Faload/Fastore + byte/char/short/ref arrays
+    //              Tableswitch, Checkcast null, Multianewarray, parse_arg_count
+    //              execute_string_concat_recipe + native_string_format
+    // =========================================================================
+
+    // ---- execute(): Ldiv/Lrem success (lines 4129, 4137: == → !=) ----
+
+    #[test]
+    fn execute_ldiv_returns_quotient() {
+        // b=1 ≠ 0; correct: 1==0=false → proceed; mutant !=: 1!=0=true → DivisionByZero
+        let r = execute(
+            &[
+                (0, Instruction::Lconst1),
+                (1, Instruction::Lconst1),
+                (2, Instruction::Ldiv),
+                (3, Instruction::Lreturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(1));
+    }
+
+    #[test]
+    fn execute_lrem_returns_remainder() {
+        // b=1 ≠ 0; correct: 1==0=false → proceed; mutant !=: 1!=0=true → DivisionByZero
+        let r = execute(
+            &[
+                (0, Instruction::Lconst1),
+                (1, Instruction::Lconst1),
+                (2, Instruction::Lrem),
+                (3, Instruction::Lreturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Long(0));
+    }
+
+    // ---- execute(): Anewarray count check (line 4498: < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_anewarray_zero_count_succeeds() {
+        // count=0: kills < → == (0==0→error) and < → <= (0<=0→error)
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let r = execute(
+            &[
+                (0, Instruction::Iconst0),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Pop),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_anewarray_one_count_succeeds() {
+        // count=1: kills < → > (1>0=true→error; correct: 1<0=false→ok)
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let r = execute(
+            &[
+                (0, Instruction::Iconst1),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Pop),
+                (6, Instruction::Iconst1),
+                (7, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_anewarray_negative_count_errors() {
+        // count=-1: correct -1<0=true→error; mutant > 0: -1>0=false→no error
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let err = execute(
+            &[
+                (0, Instruction::IconstM1),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Pop),
+                (6, Instruction::Iconst0),
+                (7, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            4,
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NegativeArraySize { .. }));
+    }
+
+    // ---- execute(): Aaload bounds (line 4663: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_aaload_valid_idx0_returns_null() {
+        // idx=0: kills < → == (0==0→error) and < → <= (0<=0→error)
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let r = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Aaload),
+                (7, Instruction::Pop),
+                (8, Instruction::Iconst1),
+                (9, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_aaload_valid_idx1_returns_null() {
+        // idx=1: kills < → > (1>0=true→error; correct: 1<0=false→ok)
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let r = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Aaload),
+                (7, Instruction::Pop),
+                (8, Instruction::Iconst1),
+                (9, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            4,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_aaload_oob_at_length_errors() {
+        // idx=2=length: kills || → && (false && true = false → no error, but panics)
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let err = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Iconst2),
+                (6, Instruction::Aaload),
+                (7, Instruction::Pop),
+                (8, Instruction::Iconst0),
+                (9, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            4,
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute(): Aastore bounds (line 4680: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_aastore_valid_idx0_stores() {
+        // idx=0: kills < → == and < → <=; stack: ref, idx=0, null
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let r = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Dup),
+                (6, Instruction::Iconst0),
+                (7, Instruction::AconstNull),
+                (8, Instruction::Aastore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_aastore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let r = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Dup),
+                (6, Instruction::Iconst1),
+                (7, Instruction::AconstNull),
+                (8, Instruction::Aastore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_aastore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&
+        use duke_classfile::types::CpIndex;
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+        ];
+        let err = execute(
+            &[
+                (0, Instruction::Iconst2),
+                (1, Instruction::Anewarray(CpIndex(1))),
+                (5, Instruction::Iconst2),
+                (6, Instruction::AconstNull),
+                (7, Instruction::Aastore),
+                (8, Instruction::Iconst0),
+                (9, Instruction::Ireturn),
+            ],
+            &cp,
+            vec![],
+            6,
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute(): Baload bounds (line 4697: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_baload_valid_idx0_returns_zero() {
+        // idx=0: kills < → == (0==0→error) and < → <= (0<=0→error)
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Byte)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Baload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_baload_valid_idx1_returns_zero() {
+        // idx=1: kills < → > (1>0=true→error; correct: 1<0=false→ok)
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Byte)),
+                (4, Instruction::Iconst1),
+                (5, Instruction::Baload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_baload_oob_at_length_errors() {
+        // idx=2=length: kills || → &&
+        let err = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Byte)),
+                (4, Instruction::Iconst2),
+                (5, Instruction::Baload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute(): Bastore bounds (line 4714: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_bastore_valid_idx0_stores() {
+        // idx=0: kills < → == and < → <=; stack: ref, ref, idx=0, val=42
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Byte)),
+                (4, Instruction::Dup),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Bipush(42i8)),
+                (8, Instruction::Bastore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_bastore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Byte)),
+                (4, Instruction::Dup),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Bipush(55i8)),
+                (8, Instruction::Bastore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_bastore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&; stack: ref, idx=2, val=0
+        let err = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Byte)),
+                (4, Instruction::Iconst2),
+                (5, Instruction::Bipush(0i8)),
+                (7, Instruction::Bastore),
+                (8, Instruction::Iconst0),
+                (9, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute(): Caload bounds (line 4731: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_caload_valid_idx0_returns_zero() {
+        // idx=0: kills < → == and < → <=
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Char)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Caload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_caload_valid_idx1_returns_zero() {
+        // idx=1: kills < → > (1>0=true→error)
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Char)),
+                (4, Instruction::Iconst1),
+                (5, Instruction::Caload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_caload_oob_at_length_errors() {
+        // idx=2=length: kills || → &&
+        let err = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Char)),
+                (4, Instruction::Iconst2),
+                (5, Instruction::Caload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute(): Castore bounds (line 4748: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_castore_valid_idx0_stores() {
+        // idx=0: kills < → == and < → <=
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Char)),
+                (4, Instruction::Dup),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Bipush(65i8)),
+                (8, Instruction::Castore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_castore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Char)),
+                (4, Instruction::Dup),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Bipush(66i8)),
+                (8, Instruction::Castore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_castore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&; stack: ref, idx=2, val=0
+        let err = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Char)),
+                (4, Instruction::Iconst2),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Castore),
+                (7, Instruction::Iconst0),
+                (8, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute(): Saload bounds (line 4765: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_saload_valid_idx0_returns_zero() {
+        // idx=0: kills < → == and < → <=
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Short)),
+                (4, Instruction::Iconst0),
+                (5, Instruction::Saload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_saload_valid_idx1_returns_zero() {
+        // idx=1: kills < → > (1>0=true→error)
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Short)),
+                (4, Instruction::Iconst1),
+                (5, Instruction::Saload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn execute_saload_oob_at_length_errors() {
+        // idx=2=length: kills || → &&
+        let err = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Short)),
+                (4, Instruction::Iconst2),
+                (5, Instruction::Saload),
+                (6, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            4,
+            0,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute(): Sastore bounds (line 4782: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn execute_sastore_valid_idx0_stores() {
+        // idx=0: kills < → == and < → <=
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Short)),
+                (4, Instruction::Dup),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Bipush(10i8)),
+                (8, Instruction::Sastore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_sastore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        let r = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Short)),
+                (4, Instruction::Dup),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Bipush(20i8)),
+                (8, Instruction::Sastore),
+                (9, Instruction::Pop),
+                (10, Instruction::Iconst1),
+                (11, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn execute_sastore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&; stack: ref, idx=2, val=0
+        let err = execute(
+            &[
+                (0, Instruction::Bipush(2i8)),
+                (2, Instruction::Newarray(ArrayType::Short)),
+                (4, Instruction::Iconst2),
+                (5, Instruction::Iconst0),
+                (6, Instruction::Sastore),
+                (7, Instruction::Iconst0),
+                (8, Instruction::Ireturn),
+            ],
+            &[None],
+            vec![],
+            6,
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // =====================================================================
+    // Sixth batch: execute_class() array bounds
+    // =====================================================================
+
+    // ---- execute_class(): Faload valid idx=1 (line 6881: < → >) ----
+
+    #[test]
+    fn ec_faload_valid_idx1_returns_value() {
+        // idx=1: kills < → > (1>0=true→error; correct: 1<0=false→ok)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Float)),
+            (2, Instruction::Iconst1),
+            (3, Instruction::Faload),
+            (4, Instruction::Pop),
+            (5, Instruction::Iconst1),
+            (6, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 4, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- execute_class(): Fastore valid idx=0, idx=1 (line 6897: < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn ec_fastore_valid_idx0_stores() {
+        // idx=0: kills < → == (0==0→error) and < → <= (0<=0→error)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Float)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Fconst0),
+            (5, Instruction::Fastore),
+            (6, Instruction::Pop),
+            (7, Instruction::Iconst1),
+            (8, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_fastore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Float)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst1),
+            (4, Instruction::Fconst0),
+            (5, Instruction::Fastore),
+            (6, Instruction::Pop),
+            (7, Instruction::Iconst1),
+            (8, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- execute_class(): Aaload/Aastore OOB (lines 6945, 6961: || → &&) ----
+
+    #[test]
+    fn ec_aaload_oob_at_length_errors() {
+        // Use int array as stand-in; Aaload clones element without type-checking
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Int)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::Aaload),
+            (4, Instruction::Pop),
+            (5, Instruction::Iconst0),
+            (6, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    #[test]
+    fn ec_aastore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&; stack: ref, idx=2, null
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Int)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::AconstNull),
+            (4, Instruction::Aastore),
+            (5, Instruction::Iconst0),
+            (6, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute_class(): Baload bounds (line 6977: || → &&, < → >, < → ==, < → <=) ----
+
+    #[test]
+    fn ec_baload_valid_idx0_returns_zero() {
+        // idx=0: kills < → == and < → <=
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Byte)),
+            (2, Instruction::Iconst0),
+            (3, Instruction::Baload),
+            (4, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 4, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_baload_valid_idx1_returns_zero() {
+        // idx=1: kills < → > (1>0=true→error)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Byte)),
+            (2, Instruction::Iconst1),
+            (3, Instruction::Baload),
+            (4, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 4, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_baload_oob_at_length_errors() {
+        // idx=2=length: kills || → &&
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Byte)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::Baload),
+            (4, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute_class(): Bastore bounds (line 6993: < → >, || → &&, < → ==, < → <=) ----
+
+    #[test]
+    fn ec_bastore_valid_idx0_stores() {
+        // idx=0: kills < → == and < → <=
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Byte)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Bipush(42i8)),
+            (6, Instruction::Bastore),
+            (7, Instruction::Pop),
+            (8, Instruction::Iconst1),
+            (9, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_bastore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Byte)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst1),
+            (4, Instruction::Bipush(55i8)),
+            (6, Instruction::Bastore),
+            (7, Instruction::Pop),
+            (8, Instruction::Iconst1),
+            (9, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_bastore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&; stack: ref, idx=2, val=0
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Byte)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::Bipush(0i8)),
+            (5, Instruction::Bastore),
+            (6, Instruction::Iconst0),
+            (7, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute_class(): Caload OOB (line 7009: || → &&) ----
+
+    #[test]
+    fn ec_caload_oob_at_length_errors() {
+        // idx=2=length: kills || → &&
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Char)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::Caload),
+            (4, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute_class(): Castore bounds (line 7025: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn ec_castore_valid_idx0_stores() {
+        // idx=0: kills < → == and < → <=
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Char)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Bipush(65i8)),
+            (6, Instruction::Castore),
+            (7, Instruction::Pop),
+            (8, Instruction::Iconst1),
+            (9, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_castore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Char)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst1),
+            (4, Instruction::Bipush(66i8)),
+            (6, Instruction::Castore),
+            (7, Instruction::Pop),
+            (8, Instruction::Iconst1),
+            (9, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_castore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&; stack: ref, idx=2, val=0
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Char)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Castore),
+            (5, Instruction::Iconst0),
+            (6, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute_class(): Saload bounds (line 7041: || → &&, < → ==, < → <=, < → >) ----
+
+    #[test]
+    fn ec_saload_valid_idx0_returns_zero() {
+        // idx=0: kills < → == and < → <=
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Short)),
+            (2, Instruction::Iconst0),
+            (3, Instruction::Saload),
+            (4, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 4, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_saload_valid_idx1_returns_zero() {
+        // idx=1: kills < → > (1>0=true→error)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Short)),
+            (2, Instruction::Iconst1),
+            (3, Instruction::Saload),
+            (4, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 4, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(0));
+    }
+
+    #[test]
+    fn ec_saload_oob_at_length_errors() {
+        // idx=2=length: kills || → &&
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Short)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::Saload),
+            (4, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute_class(): Sastore bounds (line 7057: || → &&, < → ==, < → >, < → <=) ----
+
+    #[test]
+    fn ec_sastore_valid_idx0_stores() {
+        // idx=0: kills < → == and < → <=
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Short)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Bipush(10i8)),
+            (6, Instruction::Sastore),
+            (7, Instruction::Pop),
+            (8, Instruction::Iconst1),
+            (9, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_sastore_valid_idx1_stores() {
+        // idx=1: kills < → > (1>0=true→error)
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Short)),
+            (2, Instruction::Dup),
+            (3, Instruction::Iconst1),
+            (4, Instruction::Bipush(20i8)),
+            (6, Instruction::Sastore),
+            (7, Instruction::Pop),
+            (8, Instruction::Iconst1),
+            (9, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 6, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    #[test]
+    fn ec_sastore_oob_at_length_errors() {
+        // idx=2=length: kills || → &&; stack: ref, idx=2, val=0
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Newarray(ArrayType::Short)),
+            (2, Instruction::Iconst2),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Sastore),
+            (5, Instruction::Iconst0),
+            (6, Instruction::Ireturn),
+        ];
+        let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
+        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+    }
+
+    // ---- execute_class(): Tableswitch nonzero low (line 7076: - → +) ----
+
+    #[test]
+    fn ec_tableswitch_nonzero_low_matches_key() {
+        // key=2, low=1, high=3: offsets[key-low=1]=9 → target_pc=1+9=10 → Bipush(99)
+        // Mutant - → +: offsets[(2+1)=3] → index 3 OOB panic
+        let instructions = vec![
+            (0, Instruction::Iconst2),
+            (1, Instruction::Tableswitch {
+                default: 11i32,         // 1+11=12 → default path
+                low: 1i32,
+                high: 3i32,
+                offsets: vec![11i32, 9i32, 11i32], // key=1→12, key=2→10, key=3→12
+            }),
+            (10, Instruction::Bipush(99i8)),
+            (11, Instruction::Ireturn),
+            (12, Instruction::Iconst0),
+            (13, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 4, 0, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(99));
+    }
+
+    // ---- execute_class(): Checkcast null arm deletion (line 7095) ----
+
+    #[test]
+    fn ec_checkcast_null_passes() {
+        // Kills: delete Slot::Reference(None) arm → null falls to _ → TypeMismatch
+        // Null arm exits before CP lookup, so CpIndex(0) (None entry) is safe here
+        use duke_classfile::types::CpIndex;
+        let instructions = vec![
+            (0, Instruction::AconstNull),
+            (1, Instruction::Checkcast(CpIndex(0))),
+            (5, Instruction::Iconst1),
+            (6, Instruction::Ireturn),
+        ];
+        let r = execute_class_synthetic(instructions, vec![], 4, 1, "()I")
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- execute_class(): Multianewarray negative dim (line 7863: < → ==, < → <=) ----
+
+    fn make_multianewarray_registry(dim_val: i32, negative: bool) -> (ClassRegistry, duke_loader::DirectoryLoader) {
+        use std::sync::Arc;
+        use duke_classfile::types::CpIndex;
+        let instructions = vec![
+            (0, if dim_val < 0 { Instruction::IconstM1 } else { Instruction::Iconst0 }),
+            (1, Instruction::Multianewarray { index: CpIndex(1), dimensions: 1 }),
+            (4, Instruction::Pop),
+            (5, if negative { Instruction::Iconst0 } else { Instruction::Iconst1 }),
+            (6, Instruction::Ireturn),
+        ];
+        let pc_to_idx: std::collections::HashMap<usize, usize> =
+            instructions.iter().enumerate().map(|(i, (pc, _))| (*pc, i)).collect();
+        let method = MethodEntry {
+            name: "syntest".to_string(),
+            descriptor: "()I".to_string(),
+            instructions,
+            max_stack: 4,
+            max_locals: 1,
+            exception_table: vec![],
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("[[I".to_string())),
+        ];
+        let ctx = ClassContext {
+            class_name: "SynTest".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: cp,
+            methods: vec![method],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        (registry, make_simple_loader())
+    }
+
+    #[test]
+    fn ec_multianewarray_negative_dim_errors() {
+        // dim=-1: kills < → == (-1==0=false→no error; correct: -1<0=true→error)
+        use duke_classfile::types::CpIndex;
+        use std::sync::Arc;
+        let instructions = vec![
+            (0, Instruction::IconstM1),
+            (1, Instruction::Multianewarray { index: CpIndex(1), dimensions: 1 }),
+            (4, Instruction::Pop),
+            (5, Instruction::Iconst0),
+            (6, Instruction::Ireturn),
+        ];
+        let pc_to_idx: std::collections::HashMap<usize, usize> =
+            instructions.iter().enumerate().map(|(i, (pc, _))| (*pc, i)).collect();
+        let method = MethodEntry {
+            name: "syntest".to_string(),
+            descriptor: "()I".to_string(),
+            instructions,
+            max_stack: 4,
+            max_locals: 1,
+            exception_table: vec![],
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("[[I".to_string())),
+        ];
+        let ctx = ClassContext {
+            class_name: "SynTest".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: cp,
+            methods: vec![method],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = make_simple_loader();
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        let err = execute_class(
+            &mut registry, &loader, &mut heap, &mut sink,
+            "SynTest", "syntest", "()I", &[],
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::NegativeArraySize { .. }));
+    }
+
+    #[test]
+    fn ec_multianewarray_zero_dim_succeeds() {
+        // dim=0: kills < → <= (0<=0=true→error; correct: 0<0=false→ok)
+        use duke_classfile::types::CpIndex;
+        use std::sync::Arc;
+        let instructions = vec![
+            (0, Instruction::Iconst0),
+            (1, Instruction::Multianewarray { index: CpIndex(1), dimensions: 1 }),
+            (4, Instruction::Pop),
+            (5, Instruction::Iconst1),
+            (6, Instruction::Ireturn),
+        ];
+        let pc_to_idx: std::collections::HashMap<usize, usize> =
+            instructions.iter().enumerate().map(|(i, (pc, _))| (*pc, i)).collect();
+        let method = MethodEntry {
+            name: "syntest".to_string(),
+            descriptor: "()I".to_string(),
+            instructions,
+            max_stack: 4,
+            max_locals: 1,
+            exception_table: vec![],
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let cp = vec![
+            None,
+            Some(CpEntry::Class { name_index: CpIndex(2) }),
+            Some(CpEntry::Utf8("[[I".to_string())),
+        ];
+        let ctx = ClassContext {
+            class_name: "SynTest".to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: cp,
+            methods: vec![method],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+        };
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let loader = make_simple_loader();
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        let r = execute_class(
+            &mut registry, &loader, &mut heap, &mut sink,
+            "SynTest", "syntest", "()I", &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- parse_arg_count: array arm deletion (line 8295) ----
+
+    #[test]
+    fn parse_arg_count_primitive_array_param() {
+        // ([I)V has 1 param; mutant deletes '[' arm → counts 0
+        assert_eq!(parse_arg_count("([I)V"), 1);
+    }
+
+    #[test]
+    fn parse_arg_count_object_array_param() {
+        // ([Ljava/lang/String;)V has 1 param; mutant: falls to _, count stays 0
+        assert_eq!(parse_arg_count("([Ljava/lang/String;)V"), 1);
+    }
+
+    #[test]
+    fn parse_arg_count_two_array_params() {
+        // ([I[J)V has 2 params; mutant: 0
+        assert_eq!(parse_arg_count("([I[J)V"), 2);
+    }
+
+    // ---- execute_string_concat_recipe (lines 3641, 3648, 3650) ----
+
+    #[test]
+    fn string_concat_recipe_extra_dynamic_placeholder_silently_skipped() {
+        // Recipe "\u{1}\u{1}" with 1 arg: second \u{1} → dyn_idx=1 < len=1 is false → skip
+        // Mutant < → <=: 1 <= 1 → true → dynamic_args[1] OOB panic
+        let mut heap = duke_gc::Heap::new();
+        let r = execute_string_concat_recipe(
+            "\u{1}\u{1}",
+            &[Slot::Int(42)],
+            &['I'],
+            &[],
+            &mut heap,
+        )
+        .unwrap();
+        let s = heap
+            .get(r.as_reference().unwrap())
+            .unwrap()
+            .string_value
+            .as_deref()
+            .unwrap();
+        assert_eq!(s, "42");
+    }
+
+    #[test]
+    fn string_concat_recipe_extra_constant_placeholder_silently_skipped() {
+        // Recipe "\u{2}\u{2}" with 1 constant: second \u{2} → const_idx=1 < len=1 is false → skip
+        // Mutant < → <=: 1 <= 1 → true → constants[1] OOB panic
+        let mut heap = duke_gc::Heap::new();
+        let r = execute_string_concat_recipe(
+            "\u{2}\u{2}",
+            &[],
+            &[],
+            &["hello".to_string()],
+            &mut heap,
+        )
+        .unwrap();
+        let s = heap
+            .get(r.as_reference().unwrap())
+            .unwrap()
+            .string_value
+            .as_deref()
+            .unwrap();
+        assert_eq!(s, "hello");
+    }
+
+    #[test]
+    fn string_concat_recipe_two_constants_both_appended() {
+        // Recipe "\u{2}\u{2}" with constants ["A","B"] → "AB"
+        // Mutant += → *=: const_idx stays 0 → "AA"
+        let mut heap = duke_gc::Heap::new();
+        let r = execute_string_concat_recipe(
+            "\u{2}\u{2}",
+            &[],
+            &[],
+            &["A".to_string(), "B".to_string()],
+            &mut heap,
+        )
+        .unwrap();
+        let s = heap
+            .get(r.as_reference().unwrap())
+            .unwrap()
+            .string_value
+            .as_deref()
+            .unwrap();
+        assert_eq!(s, "AB");
+    }
+
+    // ---- native_string_format (lines 2877, 2891, 2904) ----
+
+    #[test]
+    fn native_string_format_width_digit_consumed() {
+        // "%1s" with arg "hi": width digit '1' consumed → spec='s' → "hi"
+        // Mutant < → == at width loop: loop never runs → spec='1' → wrong output
+        let mut heap = duke_gc::Heap::new();
+        let fmt = heap.allocate_string("%1s".to_string());
+        let arr = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        let elem = heap.allocate_string("hi".to_string());
+        heap.get_mut(arr).unwrap().fields[0] = Slot::Reference(Some(elem));
+        let mut sink: Vec<u8> = Vec::new();
+        let r = native_string_format(
+            &[Slot::Reference(Some(fmt)), Slot::Reference(Some(arr))],
+            &mut heap,
+            &mut sink,
+        )
+        .unwrap()
+        .unwrap();
+        let result = heap
+            .get(r.as_reference().unwrap())
+            .unwrap()
+            .string_value
+            .clone()
+            .unwrap();
+        assert_eq!(result, "hi");
+    }
+
+    #[test]
+    fn native_string_format_extra_spec_gets_null_arg() {
+        // "%s%s" with 1 arg "A": second %s → null (arg_idx=1 not < arr_len=1)
+        // Mutant < → <=: arg_idx=1 <= 1 → true → fields[1] OOB panic
+        let mut heap = duke_gc::Heap::new();
+        let fmt = heap.allocate_string("%s%s".to_string());
+        let arr = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        let a = heap.allocate_string("A".to_string());
+        heap.get_mut(arr).unwrap().fields[0] = Slot::Reference(Some(a));
+        let mut sink: Vec<u8> = Vec::new();
+        let r = native_string_format(
+            &[Slot::Reference(Some(fmt)), Slot::Reference(Some(arr))],
+            &mut heap,
+            &mut sink,
+        )
+        .unwrap()
+        .unwrap();
+        let result = heap
+            .get(r.as_reference().unwrap())
+            .unwrap()
+            .string_value
+            .clone()
+            .unwrap();
+        assert_eq!(result, "Anull");
+    }
+
+    #[test]
+    fn native_string_format_arg_idx_advances_between_specs() {
+        // "%s%s" with args ["X","Y"] → "XY"; mutant += → *=: arg_idx stays 0 → "XX"
+        let mut heap = duke_gc::Heap::new();
+        let fmt = heap.allocate_string("%s%s".to_string());
+        let arr = heap.allocate("[Ljava/lang/Object;".to_string(), 2);
+        let x = heap.allocate_string("X".to_string());
+        let y = heap.allocate_string("Y".to_string());
+        heap.get_mut(arr).unwrap().fields[0] = Slot::Reference(Some(x));
+        heap.get_mut(arr).unwrap().fields[1] = Slot::Reference(Some(y));
+        let mut sink: Vec<u8> = Vec::new();
+        let r = native_string_format(
+            &[Slot::Reference(Some(fmt)), Slot::Reference(Some(arr))],
+            &mut heap,
+            &mut sink,
+        )
+        .unwrap()
+        .unwrap();
+        let result = heap
+            .get(r.as_reference().unwrap())
+            .unwrap()
+            .string_value
+            .clone()
+            .unwrap();
+        assert_eq!(result, "XY");
+    }
 }
