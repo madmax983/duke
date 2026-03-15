@@ -9447,13 +9447,11 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             if ra == rb {
                 return true;
             }
-            let oa = match heap.get(*ra) {
-                Ok(o) => o,
-                Err(_) => return false,
+            let Ok(oa) = heap.get(*ra) else {
+                return false;
             };
-            let ob = match heap.get(*rb) {
-                Ok(o) => o,
-                Err(_) => return false,
+            let Ok(ob) = heap.get(*rb) else {
+                return false;
             };
             if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
@@ -9830,7 +9828,7 @@ fn patch_forwarded_slots(
         }
     }
     for ctx in registry.all_classes_mut() {
-        for slot in ctx.static_fields.iter_mut() {
+        for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
         }
     }
@@ -9856,6 +9854,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_callback_can_be_looked_up() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_cb(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -9874,6 +9873,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_simple_stays_simple() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -11118,6 +11118,7 @@ mod tests {
 
     #[test]
     fn native_registry_stores_and_retrieves() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_handler(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -14827,14 +14828,14 @@ mod tests {
     ///
     /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
     ///
-    ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
-    ///   // creates $$Lambda$0 with impl_class="java/lang/String",
-    ///   //   impl_method="length", impl_kind=5 (REF_invokeVirtual),
-    ///   //   captured_count=1 (the string "hello")
-    ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
-    ///   // → lambda SAM: impl_kind==5, resolve_method_in_hierarchy returns None
-    ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   registry.natives.get_kind("java/lang/String", "length", "()I")
+    ///   `invokedynamic` … `get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;`
+    ///   // creates `$$Lambda$0` with `impl_class="java/lang/String"`,
+    ///   //   `impl_method="length"`, `impl_kind=5` (`REF_invokeVirtual`),
+    ///   //   `captured_count=1` (the string "hello")
+    ///   `invokeinterface LambdaCallbackTest$IntSupplier.get:()I`
+    ///   // → lambda SAM: `impl_kind==5`, `resolve_method_in_hierarchy` returns None
+    ///   //   (`String` has no bytecode methods in Duke), so falls to Site 5:
+    ///   //   `registry.natives.get_kind("java/lang/String", "length", "()I")`
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14883,7 +14884,8 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
+                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len())
+                    .unwrap_or(0);
                 Ok(Some(Slot::Int(len)))
             },
         );
