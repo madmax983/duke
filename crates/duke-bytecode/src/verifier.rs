@@ -83,7 +83,6 @@ pub fn verify(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::match_same_arms)]
-#[allow(clippy::too_many_lines)]
 const fn stack_effect(instr: &Instruction) -> (usize, usize) {
     match instr {
         // Constants — push 1

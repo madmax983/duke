@@ -71,7 +71,7 @@ pub struct OpcodeStat {
 pub struct BytecodeCostStore {
     /// Count/time per opcode name (e.g. "invokestatic", "iadd").
     pub by_opcode: HashMap<&'static str, OpcodeStat>,
-    /// Count/time per bytecode site: (class_name, method_name, pc).
+    /// Count/time per bytecode site: (`class_name`, `method_name`, `pc`).
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
     pub by_site: HashMap<(String, String, usize), OpcodeStat>,
 }
@@ -109,7 +109,7 @@ pub struct AllocationSite {
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ObjectLineageStore {
-    /// Key: (allocating_class, allocating_method, pc).
+    /// Key: (`allocating_class`, `allocating_method`, `pc`).
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
     pub sites: HashMap<(String, String, usize), AllocationSite>,
 }
@@ -166,9 +166,9 @@ impl ClassInitDagStore {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ExceptionEvent {
     pub exception_class: String,
-    /// (class_name, method_name, pc) of the throw site.
+    /// (`class_name`, `method_name`, `pc`) of the throw site.
     pub throw_site: (String, String, usize),
-    /// (class_name, method_name, handler_pc) of the catch site, or None if uncaught.
+    /// (`class_name`, `method_name`, `handler_pc`) of the catch site, or None if uncaught.
     pub catch_site: Option<(String, String, usize)>,
     /// How many times this exception object was rethrown before being caught or escaping.
     pub rethrows: u32,
@@ -234,7 +234,7 @@ pub struct DispatchStat {
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct DispatchResolutionStore {
-    /// Key: (caller_class, cp_idx).
+    /// Key: (`caller_class`, `cp_idx`).
     #[cfg_attr(
         feature = "telemetry",
         serde(serialize_with = "ser_helpers::site2_u16")
@@ -277,7 +277,7 @@ pub struct NativeStat {
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct NativeBoundaryStore {
-    /// Key: (class_name, method_name).
+    /// Key: (`class_name`, `method_name`).
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::pair_str"))]
     pub by_method: HashMap<(String, String), NativeStat>,
 }
@@ -312,11 +312,14 @@ pub struct TelemetryStore {
 #[cfg(feature = "telemetry")]
 impl TelemetryStore {
     /// Serialize the store to pretty-printed JSON.
+    #[allow(clippy::missing_panics_doc)]
+    #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("telemetry serialization failed")
     }
 
     /// Print a human-readable top-10 summary per channel to `w`.
+    #[allow(clippy::missing_errors_doc)]
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(w, "=== Duke VM Telemetry Report ===")?;
 
