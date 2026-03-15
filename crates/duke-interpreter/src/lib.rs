@@ -1604,6 +1604,62 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 }
 
+// ---------------------------------------------------------------------------
+// Native Handler Argument Helpers
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn get_arg_ref_npe(args: &[Slot], index: usize) -> VmResult<Option<u64>> {
+    match args.get(index) {
+        Some(Slot::Reference(r)) => Ok(*r),
+        _ => Err(VmError::NullPointerException),
+    }
+}
+
+#[inline]
+fn get_arg_int_type(args: &[Slot], index: usize) -> VmResult<i32> {
+    match args.get(index) {
+        Some(Slot::Int(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Int",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn get_arg_long_type(args: &[Slot], index: usize) -> VmResult<i64> {
+    match args.get(index) {
+        Some(Slot::Long(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Long",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn get_arg_float_type(args: &[Slot], index: usize) -> VmResult<f32> {
+    match args.get(index) {
+        Some(Slot::Float(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Float",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn get_arg_double_type(args: &[Slot], index: usize) -> VmResult<f64> {
+    match args.get(index) {
+        Some(Slot::Double(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Double",
+            got: "other",
+        }),
+    }
+}
+
 fn native_println_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1633,15 +1689,7 @@ fn native_println_int(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_int_type(args, 1)?;
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -1663,10 +1711,7 @@ fn native_string_length(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let obj = heap.get(this_ref)?;
     let len = obj.string_value.as_ref().map_or(0, String::len);
     Ok(Some(Slot::Int(len as i32)))
@@ -1678,10 +1723,7 @@ fn native_string_equals(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let other_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         Some(Slot::Reference(None)) => return Ok(Some(Slot::Int(0))),
@@ -1699,19 +1741,8 @@ fn native_string_char_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let index = match args.get(1) {
-        Some(Slot::Int(i)) => *i,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
+    let index = get_arg_int_type(args, 1)?;
     let obj = heap.get(this_ref)?;
     let s = obj.string_value.as_deref().unwrap_or("");
     let ch = s
@@ -1743,10 +1774,7 @@ fn native_object_tostring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap_object_to_string(heap.get(this_ref)?, this_ref);
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
@@ -1758,10 +1786,7 @@ fn native_object_clone(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let obj = heap.get(this_ref)?;
     let cloned_class = obj.class_name.clone();
     let cloned_fields = obj.fields.clone();
@@ -1795,10 +1820,7 @@ fn native_enum_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let name_slot = args.get(1).cloned().unwrap_or(Slot::Reference(None));
     let ordinal = match args.get(2) {
         Some(Slot::Int(v)) => *v,
@@ -1818,10 +1840,7 @@ fn native_enum_ordinal(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.get(1) {
         Some(Slot::Int(v)) => Ok(Some(Slot::Int(*v))),
@@ -1835,10 +1854,7 @@ fn native_enum_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.first() {
         Some(slot @ Slot::Reference(_)) => Ok(Some(slot.clone())),
@@ -1854,14 +1870,8 @@ fn native_enum_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let class_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let name_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let class_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
+    let name_ref = get_arg_ref_npe(args, 1)?.ok_or(VmError::NullPointerException)?;
     let target_name = heap.get(name_ref)?.string_value.clone().unwrap_or_default();
     let enum_class_name = heap
         .get(class_ref)?
@@ -1893,15 +1903,7 @@ fn native_string_value_of_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_int_type(args, 0)?;
     let s = val.to_string();
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
@@ -1939,15 +1941,7 @@ fn native_print_int(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_int_type(args, 1)?;
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -1961,15 +1955,7 @@ fn native_println_long(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_long_type(args, 1)?;
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -1979,15 +1965,7 @@ fn native_println_float(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_float_type(args, 1)?;
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -1997,15 +1975,7 @@ fn native_println_double(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_double_type(args, 1)?;
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -2058,6 +2028,7 @@ fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
     }
     match obj.class_name.as_str() {
         "java/lang/Integer" => {
+            #[allow(clippy::collapsible_if)]
             if let Some(Slot::Int(v)) = obj.fields.first() {
                 return v.to_string();
             }
@@ -2084,6 +2055,7 @@ fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
             };
         }
         "java/lang/Character" => {
+            #[allow(clippy::collapsible_if)]
             if let Some(Slot::Int(v)) = obj.fields.first() {
                 if let Some(c) = char::from_u32(*v as u32) {
                     return c.to_string();
@@ -2124,15 +2096,7 @@ fn native_print_long(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_long_type(args, 1)?;
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -2142,15 +2106,7 @@ fn native_print_float(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_float_type(args, 1)?;
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -2160,15 +2116,7 @@ fn native_print_double(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_double_type(args, 1)?;
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -2253,20 +2201,9 @@ fn native_string_substring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let begin = match args.get(1) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let begin = get_arg_int_type(args, 1)? as usize;
     if begin > s.len() {
         return Err(VmError::ArrayIndexOutOfBounds {
             index: begin as i32,
@@ -2285,29 +2222,10 @@ fn native_string_substring_range(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let begin = match args.get(1) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let end = match args.get(2) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let begin = get_arg_int_type(args, 1)? as usize;
+    let end = get_arg_int_type(args, 2)? as usize;
     if begin > end || end > s.len() {
         return Err(VmError::ArrayIndexOutOfBounds {
             index: end as i32,
@@ -2325,11 +2243,9 @@ fn native_string_indexof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    // Re-implemented to perfectly match previous specific match behavior:
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
@@ -2356,10 +2272,7 @@ fn native_string_contains(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2386,10 +2299,7 @@ fn native_string_isempty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     Ok(Some(Slot::Int(if s.is_empty() { 1 } else { 0 })))
 }
@@ -2450,15 +2360,9 @@ fn native_string_startswith(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let prefix_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let prefix_ref = get_arg_ref_npe(args, 1)?.ok_or(VmError::NullPointerException)?;
     let prefix = heap
         .get(prefix_ref)?
         .string_value
@@ -2473,15 +2377,9 @@ fn native_string_endswith(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let suffix_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let suffix_ref = get_arg_ref_npe(args, 1)?.ok_or(VmError::NullPointerException)?;
     let suffix = heap
         .get(suffix_ref)?
         .string_value
@@ -2496,10 +2394,7 @@ fn native_string_trim(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let trimmed = s.trim().to_string();
     let r = heap.allocate_string(trimmed);
@@ -2513,10 +2408,7 @@ fn native_string_tochararray(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let chars: Vec<char> = s.chars().collect();
     let arr_ref = heap.allocate("[C".to_string(), chars.len());
@@ -2557,15 +2449,7 @@ fn native_integer_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_int_type(args, 0)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -2577,10 +2461,7 @@ fn native_integer_intvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let val = heap.get(this_ref)?.fields[0].clone();
     Ok(Some(val))
 }
@@ -2591,15 +2472,7 @@ fn native_integer_tostring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_int_type(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -2638,15 +2511,7 @@ fn native_string_value_of_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_long_type(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -2657,15 +2522,7 @@ fn native_string_value_of_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_double_type(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -2676,15 +2533,7 @@ fn native_string_value_of_float(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = get_arg_float_type(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -2695,6 +2544,8 @@ fn native_string_value_of_boolean(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
+    // boolean is stored as Int. A specific TypeMismatch error message is used,
+    // so we implement it inline here rather than using the generic helper.
     let val = match args.first() {
         Some(Slot::Int(v)) => *v != 0,
         _ => {
@@ -2989,11 +2840,9 @@ fn native_string_replace_charsequence(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    // Use the explicit match logic to exactly preserve specific original errors
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
@@ -3035,10 +2884,7 @@ fn native_string_split(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let delim_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3071,10 +2917,7 @@ fn native_string_hashcode(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = get_arg_ref_npe(args, 0)?.ok_or(VmError::NullPointerException)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let mut h: i32 = 0;
     for ch in s.chars() {
@@ -3100,24 +2943,8 @@ fn native_math_max_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_int_type(args, 0)?;
+    let b = get_arg_int_type(args, 1)?;
     Ok(Some(Slot::Int(a.max(b))))
 }
 
@@ -3127,24 +2954,8 @@ fn native_math_min_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_int_type(args, 0)?;
+    let b = get_arg_int_type(args, 1)?;
     Ok(Some(Slot::Int(a.min(b))))
 }
 
@@ -3154,15 +2965,7 @@ fn native_math_abs_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_int_type(args, 0)?;
     Ok(Some(Slot::Int(a.wrapping_abs())))
 }
 
@@ -3174,15 +2977,7 @@ fn native_math_sqrt(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
     Ok(Some(Slot::Double(a.sqrt())))
 }
 
@@ -3192,24 +2987,8 @@ fn native_math_pow(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
+    let b = get_arg_double_type(args, 1)?;
     Ok(Some(Slot::Double(a.powf(b))))
 }
 
@@ -3219,15 +2998,7 @@ fn native_math_floor(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
     Ok(Some(Slot::Double(a.floor())))
 }
 
@@ -3237,15 +3008,7 @@ fn native_math_ceil(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
     Ok(Some(Slot::Double(a.ceil())))
 }
 
@@ -3256,15 +3019,7 @@ fn native_math_round_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
     Ok(Some(Slot::Long(a.round() as i64)))
 }
 
@@ -3274,15 +3029,7 @@ fn native_math_abs_long(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_long_type(args, 0)?;
     Ok(Some(Slot::Long(a.wrapping_abs())))
 }
 
@@ -3292,15 +3039,7 @@ fn native_math_abs_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
     Ok(Some(Slot::Double(a.abs())))
 }
 
@@ -3310,24 +3049,8 @@ fn native_math_max_long(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_long_type(args, 0)?;
+    let b = get_arg_long_type(args, 1)?;
     Ok(Some(Slot::Long(a.max(b))))
 }
 
@@ -3337,24 +3060,8 @@ fn native_math_min_long(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_long_type(args, 0)?;
+    let b = get_arg_long_type(args, 1)?;
     Ok(Some(Slot::Long(a.min(b))))
 }
 
@@ -3364,24 +3071,8 @@ fn native_math_max_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
+    let b = get_arg_double_type(args, 1)?;
     Ok(Some(Slot::Double(a.max(b))))
 }
 
@@ -3391,24 +3082,8 @@ fn native_math_min_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = get_arg_double_type(args, 0)?;
+    let b = get_arg_double_type(args, 1)?;
     Ok(Some(Slot::Double(a.min(b))))
 }
 
@@ -4911,7 +4586,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    _triggered_by: &str,
+    triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -8513,7 +8188,9 @@ fn init_object_fields(
             for field in ctx.fields.iter().filter(|f| !f.is_static) {
                 let default = default_slot_for_descriptor(&field.descriptor);
                 // Only write non-Int-zero defaults (avoids an unnecessary mut borrow).
+                #[allow(clippy::collapsible_if)]
                 if !matches!(default, Slot::Int(0)) {
+                    #[allow(clippy::collapsible_if)]
                     if let Ok(obj) = heap.get_mut(obj_ref) {
                         if slot_idx < obj.fields.len() {
                             obj.fields[slot_idx] = default;
@@ -9835,6 +9512,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn native_registry_register_callback_can_be_looked_up() {
         fn dummy_cb(
             _args: &[Slot],
@@ -14430,7 +14108,7 @@ mod tests {
         assert_eq!(result, Some(Slot::Int(99)));
         let events = &registry.telemetry.exception_flow.events;
         // Two throw events: inner throw + rethrow
-        assert!(events.len() >= 1);
+        assert!(!events.is_empty());
         assert!(events.iter().all(|e| e.catch_site.is_some()));
     }
 
