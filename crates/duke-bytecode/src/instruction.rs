@@ -337,6 +337,7 @@ pub enum Instruction {
 impl Instruction {
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub const fn mnemonic(&self) -> &'static str {
         match self {
             Self::Nop => "nop",
