@@ -2440,21 +2440,29 @@ fn native_string_compareto_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let str_val = |s: &Slot| -> VmResult<String> {
+    let ref_val = |s: &Slot| -> VmResult<u64> {
         match s {
-            Slot::Reference(Some(r)) => Ok(heap.get(*r)?.string_value.clone().unwrap_or_default()),
+            Slot::Reference(Some(r)) => Ok(*r),
             _ => Err(VmError::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => str_val(s)?,
+
+    let a_ref = match args.first() {
+        Some(s) => ref_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => str_val(s)?,
+    let b_ref = match args.get(1) {
+        Some(s) => ref_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
+
+    // Fetch objects from heap in one go to keep borrows short
+    let a_obj = heap.get(a_ref)?;
+    let b_obj = heap.get(b_ref)?;
+    let a_str = a_obj.string_value.as_deref().unwrap_or_default();
+    let b_str = b_obj.string_value.as_deref().unwrap_or_default();
+
+    Ok(Some(Slot::Int(ordering_to_int(a_str.cmp(b_str)))))
 }
 
 /// Native: `String.startsWith(String)` — check if string starts with prefix.
