@@ -5475,7 +5475,8 @@ pub fn execute_class(
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                    u64::try_from(native_start.elapsed().as_nanos())
+                                        .unwrap_or(u64::MAX),
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -5511,7 +5512,8 @@ pub fn execute_class(
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                    u64::try_from(native_start.elapsed().as_nanos())
+                                        .unwrap_or(u64::MAX),
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -6599,7 +6601,8 @@ pub fn execute_class(
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                        u64::try_from(native_start.elapsed().as_nanos())
+                                            .unwrap_or(u64::MAX),
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -6649,7 +6652,8 @@ pub fn execute_class(
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                        u64::try_from(native_start.elapsed().as_nanos())
+                                            .unwrap_or(u64::MAX),
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -7534,7 +7538,8 @@ pub fn execute_class(
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                            u64::try_from(native_start.elapsed().as_nanos())
+                                                .unwrap_or(u64::MAX),
                                             result.is_err(),
                                         );
                                         // Native interface methods skip the bytecode
@@ -7581,7 +7586,8 @@ pub fn execute_class(
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                            u64::try_from(native_start.elapsed().as_nanos())
+                                                .unwrap_or(u64::MAX),
                                             result.is_err(),
                                         );
                                         registry.telemetry.dispatch_resolution.record(
@@ -7749,7 +7755,8 @@ pub fn execute_class(
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                                u64::try_from(native_start.elapsed().as_nanos())
+                                                    .unwrap_or(u64::MAX),
                                                 result.is_err(),
                                             );
                                             let result = result?;
@@ -7781,7 +7788,8 @@ pub fn execute_class(
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
+                                                u64::try_from(native_start.elapsed().as_nanos())
+                                                    .unwrap_or(u64::MAX),
                                                 result.is_err(),
                                             );
                                             let result = result?;
