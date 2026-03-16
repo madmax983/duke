@@ -5191,6 +5191,22 @@ pub fn execute_class(
     descriptor: &str,
     args: &[Slot],
 ) -> VmResult<Option<Slot>> {
+    macro_rules! create_invoke_cb {
+        ($registry:ident, $loader:ident) => {
+            |heap: &mut duke_gc::Heap,
+             output: &mut dyn std::io::Write,
+             class: &str,
+             method: &str,
+             desc: &str,
+             cb_args: Vec<Slot>|
+             -> VmResult<Option<Slot>> {
+                execute_class(
+                    $registry, $loader, heap, output, class, method, desc, &cb_args,
+                )
+            }
+        };
+    }
+
     // Fast path: if a native handler is registered for this class/method/descriptor,
     // dispatch it directly without requiring a ClassContext in the registry.
     // This handles both Simple natives and Callback natives at the top-level call site.
@@ -5202,21 +5218,7 @@ pub fn execute_class(
             return h(args, heap, stdout);
         }
         Some(HandlerKind::Callback(h)) => {
-            // TODO: this `invoke_cb` closure body is duplicated at 5 dispatch
-            // sites. It can't be extracted into a free function because it
-            // captures `registry` and `loader` from the enclosing frame; a
-            // macro or an `InvokeContext` struct would remove the duplication.
-            let mut invoke_cb = |heap: &mut duke_gc::Heap,
-                                 output: &mut dyn std::io::Write,
-                                 class: &str,
-                                 method: &str,
-                                 desc: &str,
-                                 cb_args: Vec<Slot>|
-             -> VmResult<Option<Slot>> {
-                execute_class(
-                    registry, loader, heap, output, class, method, desc, &cb_args,
-                )
-            };
+            let mut invoke_cb = create_invoke_cb!(registry, loader);
             return h(args, heap, stdout, &mut invoke_cb);
         }
         None => {}
@@ -5492,19 +5494,7 @@ pub fn execute_class(
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut invoke_cb =
-                                    |heap: &mut duke_gc::Heap,
-                                     output: &mut dyn std::io::Write,
-                                     class: &str,
-                                     method: &str,
-                                     desc: &str,
-                                     cb_args: Vec<Slot>|
-                                     -> VmResult<Option<Slot>> {
-                                        execute_class(
-                                            registry, loader, heap, output, class, method, desc,
-                                            &cb_args,
-                                        )
-                                    };
+                                let mut invoke_cb = create_invoke_cb!(registry, loader);
                                 let result = handler(&native_args, heap, stdout, &mut invoke_cb);
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
@@ -6629,19 +6619,7 @@ pub fn execute_class(
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut invoke_cb =
-                                    |heap: &mut duke_gc::Heap,
-                                     output: &mut dyn std::io::Write,
-                                     class: &str,
-                                     method: &str,
-                                     desc: &str,
-                                     cb_args: Vec<Slot>|
-                                     -> VmResult<Option<Slot>> {
-                                        execute_class(
-                                            registry, loader, heap, output, class, method, desc,
-                                            &cb_args,
-                                        )
-                                    };
+                                let mut invoke_cb = create_invoke_cb!(registry, loader);
                                 let result = handler(&native_args, heap, stdout, &mut invoke_cb);
                                 #[cfg(feature = "telemetry")]
                                 {
@@ -7561,18 +7539,7 @@ pub fn execute_class(
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
                                     let _native_start = std::time::Instant::now();
-                                    let mut invoke_cb = |heap: &mut duke_gc::Heap,
-                                                         output: &mut dyn std::io::Write,
-                                                         class: &str,
-                                                         method: &str,
-                                                         desc: &str,
-                                                         cb_args: Vec<Slot>|
-                                     -> VmResult<Option<Slot>> {
-                                        execute_class(
-                                            registry, loader, heap, output, class, method, desc,
-                                            &cb_args,
-                                        )
-                                    };
+                                    let mut invoke_cb = create_invoke_cb!(registry, loader);
                                     let result =
                                         handler(&callee_args, heap, stdout, &mut invoke_cb);
                                     #[cfg(feature = "telemetry")]
@@ -7761,19 +7728,7 @@ pub fn execute_class(
                                         Some(HandlerKind::Callback(handler)) => {
                                             #[cfg(feature = "telemetry")]
                                             let _native_start = std::time::Instant::now();
-                                            let mut invoke_cb =
-                                                |heap: &mut duke_gc::Heap,
-                                                 output: &mut dyn std::io::Write,
-                                                 class: &str,
-                                                 method: &str,
-                                                 desc: &str,
-                                                 cb_args: Vec<Slot>|
-                                                 -> VmResult<Option<Slot>> {
-                                                    execute_class(
-                                                        registry, loader, heap, output, class,
-                                                        method, desc, &cb_args,
-                                                    )
-                                                };
+                                            let mut invoke_cb = create_invoke_cb!(registry, loader);
                                             let result =
                                                 handler(&impl_args, heap, stdout, &mut invoke_cb);
                                             #[cfg(feature = "telemetry")]
