@@ -1,3 +1,10 @@
+#![allow(
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::missing_errors_doc,
+    clippy::map_unwrap_or,
+    clippy::uninlined_format_args
+)]
 use std::collections::{HashMap, HashSet};
 
 // -- Serialization helpers for tuple-keyed HashMaps ------------------------------

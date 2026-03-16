@@ -1,4 +1,3 @@
-
-**[Avoid `clippy::len_zero` false positives in test cases]**
-**Learning:** `clippy::len_zero` complains about `assert!(events.len() >= 1)` and suggests `assert!(!events.is_empty())`. However, in tests checking for an exact count of events (like "this test threw exactly 1 exception" or "this test threw 2+ exceptions"), changing to `is_empty` obscures the semantic meaning of the test.
-**Action:** Use `#[allow(clippy::len_zero)]` on the test function rather than changing the test's strictness just to appease clippy, to maintain the correct semantic meaning and strictness.
+**Avoid Vec cloning in Native Map Lookups**
+**Learning:** Calling `fields.clone()` inside of `native_hashmap_*` and `native_hashset_*` methods cloned the entire collection backing array on every single loop/get/put just to get around a short-lived immutable borrow check before grabbing a mutable borrow (`heap.get_mut`) in order to replace or append elements.
+**Action:** Always compute `len` first, and then index into the structure using `heap.get(this_ref)?.fields[i]`. Because `heap.get`'s immutable borrow is dropped immediately after extracting the element/`Slot` value from the array inside the loop, the borrow checker is happy, and the expensive `.clone()` allocation per loop/lookup is avoided.
