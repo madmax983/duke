@@ -392,6 +392,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn pop_typed_methods_succeed_on_correct_type() {
         let mut f = Frame::new(4, 1, vec![]).unwrap();
 

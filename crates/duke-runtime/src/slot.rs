@@ -139,6 +139,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn as_methods_return_expected_type_or_mismatch_error() {
         let variants = vec![
             Slot::Int(42),

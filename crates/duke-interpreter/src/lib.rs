@@ -4920,6 +4920,7 @@ pub fn execute(
 ///
 /// Must be called before first active use of a class (new, getstatic, putstatic, invokestatic).
 /// `triggered_by` names the class that caused this init (empty string for the entry-point class).
+#[allow(clippy::used_underscore_binding, clippy::cast_possible_truncation)]
 fn ensure_initialized(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -4944,6 +4945,7 @@ fn ensure_initialized(
     if has_clinit {
         // Run <clinit> by calling it through execute_class.
         #[cfg(feature = "telemetry")]
+        #[allow(clippy::used_underscore_binding)]
         let _clinit_start = std::time::Instant::now();
         execute_class(
             registry,
@@ -5000,7 +5002,8 @@ impl FramePool {
 }
 
 #[cfg(feature = "telemetry")]
-fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
+#[allow(clippy::too_many_lines)]
+const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     use duke_bytecode::Instruction as I;
     match instr {
         I::Nop => "nop",
@@ -5179,7 +5182,8 @@ fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     clippy::single_match,
     clippy::single_match_else,
     clippy::float_cmp,
-    clippy::items_after_statements
+    clippy::items_after_statements,
+    clippy::used_underscore_binding
 )]
 pub fn execute_class(
     registry: &mut ClassRegistry,
@@ -5323,6 +5327,7 @@ pub fn execute_class(
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
         #[cfg(feature = "telemetry")]
+        #[allow(clippy::used_underscore_binding)]
         let (_telem_name, _telem_pc, _telem_start) = {
             let name = instr_name(&instr);
             let pc_val = pc;

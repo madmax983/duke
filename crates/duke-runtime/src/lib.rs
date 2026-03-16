@@ -107,6 +107,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn vm_error_display_messages() {
         let cases = vec![
             (VmError::StackOverflow, "operand stack overflow"),
@@ -156,7 +157,7 @@ mod tests {
             (VmError::NullPointerException, "null pointer dereference"),
             (
                 VmError::InvalidRef {
-                    address: 0xDEADBEEF,
+                    address: 0xDEAD_BEEF,
                 },
                 "invalid heap reference: address=3735928559",
             ),
