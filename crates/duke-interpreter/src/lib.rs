@@ -230,7 +230,7 @@ impl Default for ClassRegistry {
 /// Arguments:
 /// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
 /// - `&mut Heap`: the object heap for reading/writing objects
-/// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
+/// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
 pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
 
 /// A native handler that can call back into the interpreter to invoke Java methods.
@@ -7907,7 +7907,7 @@ struct CallFrame {
     class_name: String,
 }
 
-/// Build a [`ClassContext`] from a parsed [`ClassFile`].
+/// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.

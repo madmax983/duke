@@ -74,7 +74,7 @@ pub struct ResourceInfo {
 ///
 /// On [`open`](JImageReader::open), reads the entire file into memory and
 /// scans the locations table to build a path→resource index.  All subsequent
-/// [`find_resource`] and [`read_resource`] calls are O(1) hash lookups.
+/// [`JImageReader::find_resource`] and [`JImageReader::read_resource`] calls are O(1) hash lookups.
 pub struct JImageReader {
     data: Vec<u8>,
     resource_count: u32,
