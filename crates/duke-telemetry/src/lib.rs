@@ -365,10 +365,10 @@ impl TelemetryStore {
             self.exception_flow.events.len()
         )?;
         for ev in &self.exception_flow.events {
-            let catch = ev.catch_site.as_ref().map_or_else(
-                || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
-            );
+            let catch = ev
+                .catch_site
+                .as_ref()
+                .map_or_else(|| "uncaught".to_string(), |(c, m, pc)| format!("{c}::{m} @{pc}"));
             writeln!(
                 w,
                 "  {} thrown at {:?} caught at {}",
