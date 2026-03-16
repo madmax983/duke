@@ -1,3 +1,5 @@
+#![allow(clippy::nursery)]
+#![allow(clippy::pedantic)]
 use std::process;
 
 use duke_bytecode::decode;
@@ -40,8 +42,8 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
     jdk
 }
 
-/// Build a class loader: `BootstrapLoader` (JDK jimage + app dir) when JDK path
-/// is known, or plain `DirectoryLoader` otherwise.
+/// Build a class loader: BootstrapLoader (JDK jimage + app dir) when JDK path
+/// is known, or plain DirectoryLoader otherwise.
 fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn ClassLoader> {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
@@ -53,10 +55,7 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn Cla
                 ),
             }
         } else {
-            eprintln!(
-                "duke: warning: {} not found, falling back to directory loader",
-                modules.display()
-            );
+            eprintln!("duke: warning: {modules:?} not found, falling back to directory loader");
         }
     }
     Box::new(DirectoryLoader::new(app_dir))
@@ -122,12 +121,12 @@ fn main() {
     };
 
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{path}': {e}");
+        eprintln!("duke: cannot read '{}': {e}", path);
         process::exit(1);
     });
 
     let class_file = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error in '{path}': {e}");
+        eprintln!("duke: parse error in '{}': {e}", path);
         process::exit(1);
     });
 
@@ -142,6 +141,7 @@ fn main() {
 
 /// Emit telemetry JSON to the configured destination (stdout or file).
 #[cfg(feature = "telemetry")]
+#[allow(clippy::needless_pass_by_value)]
 fn emit_telemetry(registry: &ClassRegistry, dest: Option<TelemetryDest>) {
     let Some(dest) = dest else { return };
     let json = registry.telemetry.to_json();
@@ -156,6 +156,7 @@ fn emit_telemetry(registry: &ClassRegistry, dest: Option<TelemetryDest>) {
 }
 
 #[cfg(not(feature = "telemetry"))]
+#[allow(clippy::needless_pass_by_value)]
 fn emit_telemetry(_registry: &ClassRegistry, dest: Option<TelemetryDest>) {
     if dest.is_some() {
         eprintln!(
@@ -242,7 +243,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
     // When --jdk is given, also loads missing classes from the JDK jimage.
     let parent = std::path::Path::new(path)
         .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
+        .unwrap_or(std::path::Path::new("."));
     let loader = make_loader(jdk_home, parent);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
