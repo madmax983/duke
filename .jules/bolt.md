@@ -1,0 +1,3 @@
+**Copy for Slot**
+**Learning:** Adding the `Copy` trait to enums that wrap only primitives or IDs (like `Slot` which contains primitives and an `Option<u64>` reference ID) allows the removal of `clone()` across heavy data paths like VM stack implementations. However, a blanket search-and-replace for `.clone()` in Rust is dangerous and often catches `String` or `Vec` types, leading to complex borrow checker issues.
+**Action:** Use precise replacements for specific function calls (e.g. `frame.push(v.clone())` instead of `.clone()`) when converting a type to `Copy`. Avoid blindly dropping `.clone()` on composite types.

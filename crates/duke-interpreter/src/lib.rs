@@ -695,14 +695,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(throwable_ctx);
-    registry
-        .natives_mut()
-        .register(
-            "java/lang/Throwable",
-            "addSuppressed",
-            "(Ljava/lang/Throwable;)V",
-            native_throwable_add_suppressed,
-        );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "addSuppressed",
+        "(Ljava/lang/Throwable;)V",
+        native_throwable_add_suppressed,
+    );
 
     // java/lang/Exception extends Throwable
     let exception_ctx = ClassContext {
@@ -1764,7 +1762,7 @@ fn native_object_clone(
     };
     let obj = heap.get(this_ref)?;
     let cloned_class = obj.class_name.clone();
-    let cloned_fields = obj.fields.clone();
+    let cloned_fields = obj.fields.to_vec();
     let cloned_string = obj.string_value.clone();
     let new_ref = heap.allocate(cloned_class, 0);
     let dest = heap.get_mut(new_ref)?;
@@ -1841,7 +1839,7 @@ fn native_enum_name(
     };
     let obj = heap.get(this_ref)?;
     match obj.fields.first() {
-        Some(slot @ Slot::Reference(_)) => Ok(Some(slot.clone())),
+        Some(slot @ Slot::Reference(_)) => Ok(Some(*slot)),
         _ => Ok(Some(Slot::Reference(None))),
     }
 }
@@ -2581,7 +2579,7 @@ fn native_integer_intvalue(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let val = heap.get(this_ref)?.fields[0].clone();
+    let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
 
@@ -3467,7 +3465,7 @@ fn native_long_longvalue(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let val = heap.get(this_ref)?.fields[0].clone();
+    let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
 
@@ -3571,7 +3569,7 @@ fn native_double_doublevalue(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let val = heap.get(this_ref)?.fields[0].clone();
+    let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
 
@@ -3966,13 +3964,13 @@ pub fn execute(
             }
             Instruction::Dup => {
                 let v = frame.pop()?;
-                frame.push(v.clone())?;
+                frame.push(v)?;
                 frame.push(v)?;
             }
             Instruction::DupX1 => {
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
-                frame.push(v1.clone())?;
+                frame.push(v1)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
             }
@@ -3980,7 +3978,7 @@ pub fn execute(
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
                 let v3 = frame.pop()?;
-                frame.push(v1.clone())?;
+                frame.push(v1)?;
                 frame.push(v3)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
@@ -3988,8 +3986,8 @@ pub fn execute(
             Instruction::Dup2 => {
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
-                frame.push(v2.clone())?;
-                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
             }
@@ -3997,8 +3995,8 @@ pub fn execute(
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
                 let v3 = frame.pop()?;
-                frame.push(v2.clone())?;
-                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
                 frame.push(v3)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
@@ -4008,8 +4006,8 @@ pub fn execute(
                 let v2 = frame.pop()?;
                 let v3 = frame.pop()?;
                 let v4 = frame.pop()?;
-                frame.push(v2.clone())?;
-                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
                 frame.push(v4)?;
                 frame.push(v3)?;
                 frame.push(v2)?;
@@ -4666,7 +4664,7 @@ pub fn execute(
                         length: fields.len(),
                     });
                 }
-                let v = fields[idx_val as usize].clone();
+                let v = fields[idx_val as usize];
                 frame.push(v)?;
             }
             Instruction::Aastore => {
@@ -4911,7 +4909,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    _triggered_by: &str,
+    triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -5780,13 +5778,13 @@ pub fn execute_class(
             }
             Instruction::Dup => {
                 let v = frame.pop()?;
-                frame.push(v.clone())?;
+                frame.push(v)?;
                 frame.push(v)?;
             }
             Instruction::DupX1 => {
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
-                frame.push(v1.clone())?;
+                frame.push(v1)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
             }
@@ -5794,7 +5792,7 @@ pub fn execute_class(
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
                 let v3 = frame.pop()?;
-                frame.push(v1.clone())?;
+                frame.push(v1)?;
                 frame.push(v3)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
@@ -5802,8 +5800,8 @@ pub fn execute_class(
             Instruction::Dup2 => {
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
-                frame.push(v2.clone())?;
-                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
             }
@@ -5811,8 +5809,8 @@ pub fn execute_class(
                 let v1 = frame.pop()?;
                 let v2 = frame.pop()?;
                 let v3 = frame.pop()?;
-                frame.push(v2.clone())?;
-                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
                 frame.push(v3)?;
                 frame.push(v2)?;
                 frame.push(v1)?;
@@ -5822,8 +5820,8 @@ pub fn execute_class(
                 let v2 = frame.pop()?;
                 let v3 = frame.pop()?;
                 let v4 = frame.pop()?;
-                frame.push(v2.clone())?;
-                frame.push(v1.clone())?;
+                frame.push(v2)?;
+                frame.push(v1)?;
                 frame.push(v4)?;
                 frame.push(v3)?;
                 frame.push(v2)?;
@@ -6304,7 +6302,7 @@ pub fn execute_class(
                 let r = frame.pop_ref()?;
                 registry.ensure_loaded(&target_class, loader)?;
                 let fidx = field_slot_idx(registry, &target_class, &field_name)?;
-                let val = heap.get(r)?.fields[fidx].clone();
+                let val = heap.get(r)?.fields[fidx];
                 frame.push(val)?;
             }
             Instruction::Putfield(cp_idx) => {
@@ -6333,7 +6331,7 @@ pub fn execute_class(
                     &current_class,
                 )?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
-                let val = registry.get(&target_class)?.static_fields[sidx].clone();
+                let val = registry.get(&target_class)?.static_fields[sidx];
                 frame.push(val)?;
             }
             Instruction::Putstatic(cp_idx) => {
@@ -6470,7 +6468,7 @@ pub fn execute_class(
                                 let obj = heap.get(this_ref)?;
                                 let mut impl_args: Vec<Slot> = Vec::new();
                                 for i in 0..lambda_info.captured_count {
-                                    impl_args.push(obj.fields[i].clone());
+                                    impl_args.push(obj.fields[i]);
                                 }
                                 impl_args.extend(sam_args.iter().cloned());
 
@@ -6948,7 +6946,7 @@ pub fn execute_class(
                             length: fields.len(),
                         });
                     }
-                    fields[idx_val as usize].clone()
+                    fields[idx_val as usize]
                 };
                 frame.push(v)?;
             }
@@ -7597,7 +7595,7 @@ pub fn execute_class(
                                 let obj = heap.get(this_ref)?;
                                 let mut impl_args: Vec<Slot> = Vec::new();
                                 for i in 0..lambda_info.captured_count {
-                                    impl_args.push(obj.fields[i].clone());
+                                    impl_args.push(obj.fields[i]);
                                 }
                                 impl_args.extend(callee_args[1..].iter().cloned());
 
@@ -8940,7 +8938,7 @@ fn native_char_charvalue(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let val = heap.get(this_ref)?.fields[0].clone();
+    let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
 
@@ -9004,7 +9002,7 @@ fn native_arraylist_get(
     };
     let obj = heap.get(this_ref)?;
     match obj.fields.get(idx + 1) {
-        Some(slot) => Ok(Some(slot.clone())),
+        Some(slot) => Ok(Some(*slot)),
         None => Err(VmError::JavaException {
             class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
         }),
@@ -9254,7 +9252,7 @@ fn native_arraylist_iter_next(
     let element = {
         let list_obj = heap.get(list_ref)?;
         match list_obj.fields.get(cursor as usize + 1) {
-            Some(slot) => slot.clone(),
+            Some(slot) => *slot,
             None => {
                 return Err(VmError::JavaException {
                     class_name: "java/util/NoSuchElementException".to_string(),
@@ -9325,7 +9323,7 @@ fn native_arrays_fill_int(
     };
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
-        *slot = val.clone();
+        *slot = val;
     }
     Ok(None)
 }
@@ -9343,7 +9341,7 @@ fn native_arrays_fill_object(
     let val = args.get(1).cloned().unwrap_or(Slot::Reference(None));
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
-        *slot = val.clone();
+        *slot = val;
     }
     Ok(None)
 }
@@ -9485,7 +9483,7 @@ fn native_hashmap_put(
     let mut i = 1usize;
     while i + 1 < fields.len() {
         if slots_equal(&fields[i], &key, heap) {
-            let old = fields[i + 1].clone();
+            let old = fields[i + 1];
             heap.get_mut(this_ref)?.fields[i + 1] = val;
             return Ok(Some(old));
         }
@@ -9517,7 +9515,7 @@ fn native_hashmap_get(
     let mut i = 1usize;
     while i + 1 < fields.len() {
         if slots_equal(&fields[i], &key, heap) {
-            return Ok(Some(fields[i + 1].clone()));
+            return Ok(Some(fields[i + 1]));
         }
         i += 2;
     }
@@ -9578,7 +9576,7 @@ fn native_hashmap_remove(
     let mut i = 1usize;
     while i + 1 < fields.len() {
         if slots_equal(&fields[i], &key, heap) {
-            let old_val = fields[i + 1].clone();
+            let old_val = fields[i + 1];
             let obj = heap.get_mut(this_ref)?;
             let last_val_idx = obj.fields.len() - 1;
             let last_key_idx = obj.fields.len() - 2;
@@ -9629,7 +9627,7 @@ fn native_hashmap_get_or_default(
     let mut i = 1usize;
     while i + 1 < fields.len() {
         if slots_equal(&fields[i], &key, heap) {
-            return Ok(Some(fields[i + 1].clone()));
+            return Ok(Some(fields[i + 1]));
         }
         i += 2;
     }
@@ -14723,7 +14721,7 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let val = heap.get(r)?.fields[0].clone();
+                let val = heap.get(r)?.fields[0];
                 Ok(Some(val))
             },
         );
@@ -14852,7 +14850,7 @@ mod tests {
             "java/util/Objects",
             "requireNonNull",
             "(Ljava/lang/Object;)Ljava/lang/Object;",
-            |args, _heap, _out| Ok(Some(args[0].clone())),
+            |args, _heap, _out| Ok(Some(args[0])),
         );
 
         // Override String.length with a Callback.  This replaces the Simple
@@ -15137,7 +15135,7 @@ mod tests {
                 _ => -1,
             }
         };
-        let f = |i: usize| heap.get(list).unwrap().fields[i].clone();
+        let f = |i: usize| heap.get(list).unwrap().fields[i];
         assert_eq!(val(&heap, &f(1)), 1);
         assert_eq!(val(&heap, &f(2)), 3);
         assert_eq!(val(&heap, &f(3)), 4);
@@ -15187,7 +15185,7 @@ mod tests {
                 _ => String::new(),
             }
         };
-        let f = |i: usize| heap.get(list).unwrap().fields[i].clone();
+        let f = |i: usize| heap.get(list).unwrap().fields[i];
         assert_eq!(str_val(&heap, &f(1)), "apple");
         assert_eq!(str_val(&heap, &f(2)), "banana");
         assert_eq!(str_val(&heap, &f(3)), "cherry");
