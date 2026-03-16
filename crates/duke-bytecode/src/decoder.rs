@@ -41,11 +41,11 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    const fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
-    fn has_remaining(&self) -> bool {
+    const fn has_remaining(&self) -> bool {
         self.pos < self.data.len()
     }
 
@@ -63,8 +63,8 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u16(&mut self) -> DecodeResult<u16> {
-        let hi = self.read_u8()? as u16;
-        let lo = self.read_u8()? as u16;
+        let hi = u16::from(self.read_u8()?);
+        let lo = u16::from(self.read_u8()?);
         Ok((hi << 8) | lo)
     }
 
@@ -73,8 +73,8 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u32(&mut self) -> DecodeResult<u32> {
-        let hi = self.read_u16()? as u32;
-        let lo = self.read_u16()? as u32;
+        let hi = u32::from(self.read_u16()?);
+        let lo = u32::from(self.read_u16()?);
         Ok((hi << 16) | lo)
     }
 
@@ -87,7 +87,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Advance to the next 4-byte boundary (relative to the start of the Code array).
-    fn align4(&mut self) {
+    const fn align4(&mut self) {
         let rem = self.pos % 4;
         if rem != 0 {
             self.pos += 4 - rem;

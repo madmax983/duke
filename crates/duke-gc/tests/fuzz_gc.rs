@@ -17,9 +17,8 @@ proptest! {
         refs in proptest::collection::vec(any::<u64>(), 0..100)
     ) {
         let mut heap = Heap::new();
-        let mut obj_refs = vec![];
         for _ in 0..10 {
-            obj_refs.push(duke_runtime::Slot::Reference(Some(heap.allocate("java/lang/Object".to_string(), 1))));
+            let _ = heap.allocate("java/lang/Object".to_string(), 1);
         }
 
         let roots: Vec<_> = refs.into_iter().map(|r| duke_runtime::Slot::Reference(Some(r))).collect();
