@@ -4,6 +4,9 @@
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
 
+#![allow(clippy::pedantic)]
+#![allow(clippy::nursery)]
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 
@@ -229,7 +232,7 @@ impl Default for ClassRegistry {
 /// Arguments:
 /// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
 /// - `&mut Heap`: the object heap for reading/writing objects
-/// - `&mut dyn Write`: output sink (stdout in production, Vec<u8> in tests)
+/// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
 pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
 
 /// A native handler that can call back into the interpreter to invoke Java methods.
@@ -1780,7 +1783,7 @@ fn native_object_clone(
 /// addSuppressed only affects what getSuppressed() returns, which is not
 /// yet implemented. Suppressed exception is silently dropped.
 ///
-/// Signature: args[0] = this (Throwable), args[1] = suppressed (Throwable)
+/// Signature: `args[0]` = this (Throwable), `args[1]` = suppressed (Throwable)
 fn native_throwable_add_suppressed(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -7948,7 +7951,7 @@ struct CallFrame {
     class_name: String,
 }
 
-/// Build a [`ClassContext`] from a parsed [`ClassFile`].
+/// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
@@ -9205,7 +9208,8 @@ fn native_collections_sort(
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
 
-/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by native_arraylist_iterator.
+/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by `native_arraylist_iterator`.
+#[allow(clippy::unnecessary_wraps)]
 fn native_arraylist_iter_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9460,7 +9464,7 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     }
 }
 
-/// Native: `HashMap.<init>()V` — initialises size counter at fields[0] to 0.
+/// Native: `HashMap.<init>()V` — initialises size counter at `fields[0]` to 0.
 fn native_hashmap_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9558,7 +9562,7 @@ fn native_hashmap_contains_key(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `HashMap.size()I` — returns entry count from fields[0].
+/// Native: `HashMap.size()I` — returns entry count from `fields[0]`.
 fn native_hashmap_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9652,7 +9656,7 @@ fn native_hashmap_get_or_default(
 // HashSet natives
 // ---------------------------------------------------------------------------
 
-/// Native: `HashSet.<init>()V` — initialises size counter at fields[0] to 0.
+/// Native: `HashSet.<init>()V` — initialises size counter at `fields[0]` to 0.
 fn native_hashset_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9749,7 +9753,7 @@ fn native_hashset_remove(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `HashSet.size()I` — returns element count from fields[0].
+/// Native: `HashSet.size()I` — returns element count from `fields[0]`.
 fn native_hashset_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -13752,7 +13756,7 @@ mod tests {
 
     // ---- Phase 19: Enum integration tests ----
 
-    /// Helper that loads a class, calls bootstrap_stdlib, and runs a static method.
+    /// Helper that loads a class, calls `bootstrap_stdlib`, and runs a static method.
     fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();
@@ -14820,13 +14824,13 @@ mod tests {
     /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
     ///
     ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
-    ///   // creates $$Lambda$0 with impl_class="java/lang/String",
-    ///   //   impl_method="length", impl_kind=5 (REF_invokeVirtual),
-    ///   //   captured_count=1 (the string "hello")
+    ///   // creates $$Lambda$0 with `impl_class="java/lang/String`",
+    ///   //   `impl_method="length`", `impl_kind=5` (`REF_invokeVirtual`),
+    ///   //   `captured_count=1` (the string "hello")
     ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
-    ///   // → lambda SAM: impl_kind==5, resolve_method_in_hierarchy returns None
+    ///   // → lambda SAM: `impl_kind==5`, `resolve_method_in_hierarchy` returns None
     ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   registry.natives.get_kind("java/lang/String", "length", "()I")
+    ///   //   `registry.natives.get_kind("java/lang/String`", "length", "()I")
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14875,7 +14879,8 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
+                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len())
+                    .unwrap_or(0);
                 Ok(Some(Slot::Int(len)))
             },
         );

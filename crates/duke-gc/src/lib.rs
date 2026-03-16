@@ -63,7 +63,7 @@ pub struct Heap {
     // ── Old generation ───────────────────────────────────────────────────────
     /// Old-gen object store. Index = `(r & !OLD_BIT)`.
     pub(crate) old: Vec<Option<HeapObject>>,
-    /// Free-list of raw old-gen indices (no OLD_BIT) for reuse after sweep.
+    /// Free-list of raw old-gen indices (no `OLD_BIT`) for reuse after sweep.
     old_free_list: Vec<u64>,
 
     // ── GC accounting ────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ pub struct Heap {
     young_dropped: usize,
 
     // ── Post-minor-GC forwarding map ─────────────────────────────────────────
-    /// Maps old young-gen ref → new ref (young or old-gen with OLD_BIT).
+    /// Maps old young-gen ref → new ref (young or old-gen with `OLD_BIT`).
     /// Populated during `minor_collect_prepare`, kept alive past
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
@@ -123,7 +123,11 @@ impl Heap {
 
     // ── Allocation ───────────────────────────────────────────────────────────
 
-    const fn make_obj(class_name: String, fields: Vec<Slot>, string_value: Option<String>) -> HeapObject {
+    const fn make_obj(
+        class_name: String,
+        fields: Vec<Slot>,
+        string_value: Option<String>,
+    ) -> HeapObject {
         HeapObject {
             class_name,
             fields,
@@ -180,7 +184,7 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
-    /// Returns a reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
@@ -192,7 +196,7 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -200,7 +204,7 @@ impl Heap {
         }
     }
 
-    /// Returns a mutable reference to the object at `r`, dispatching on OLD_BIT.
+    /// Returns a mutable reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
@@ -212,7 +216,7 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -374,7 +378,7 @@ impl Heap {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = r as usize;
+                        let y_idx = usize::try_from(r).unwrap_or(usize::MAX);
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -403,7 +407,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(r as usize)
+                    .get(usize::try_from(r).unwrap_or(usize::MAX))
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -800,7 +804,7 @@ mod tests {
     fn minor_gc_copies_reachable_young_object() {
         let mut heap = test_heap_with_capacity(8);
         let r0 = heap.allocate("Keep".to_string(), 0);
-        let _r1 = heap.allocate("Drop".to_string(), 0);
+        let r1 = heap.allocate("Drop".to_string(), 0);
         let roots = vec![Slot::Reference(Some(r0))];
         heap.minor_collect_prepare(&roots);
         // r0 must have a forwarding pointer; _r1 must not.
@@ -812,7 +816,7 @@ mod tests {
                 .is_some()
         );
         assert!(
-            heap.young[usize::try_from(_r1).unwrap()]
+            heap.young[usize::try_from(r1).unwrap()]
                 .as_ref()
                 .unwrap()
                 .forward
