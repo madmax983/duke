@@ -1,0 +1,10 @@
+--- crates/duke-interpreter/src/lib.rs
++++ crates/duke-interpreter/src/lib.rs
+@@ -5312,6 +5313,7 @@
+     heap: &mut duke_gc::Heap,
+     out: &mut dyn Write,
+ ) -> VmResult<Option<Slot>> {
++    #[allow(clippy::cast_possible_truncation)]
+     loop {
+         if ctx.pc >= ctx.code.len() {
+             return Err(VmError::IllegalAccessError);

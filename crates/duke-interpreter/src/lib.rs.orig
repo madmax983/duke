@@ -4927,8 +4927,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-
-    #[allow(clippy::used_underscore_binding)] _triggered_by: &str,
+    _triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -5325,7 +5324,6 @@ pub fn execute_class(
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
         #[cfg(feature = "telemetry")]
-        #[allow(clippy::used_underscore_binding)]
         let (telem_name, telem_pc, telem_start) = {
             let name = instr_name(&instr);
             let pc_val = pc;
