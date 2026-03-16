@@ -4926,7 +4926,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    _triggered_by: &str,
+    triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
@@ -4944,7 +4944,7 @@ fn ensure_initialized(
     if has_clinit {
         // Run <clinit> by calling it through execute_class.
         #[cfg(feature = "telemetry")]
-        let _clinit_start = std::time::Instant::now();
+        let clinit_start = std::time::Instant::now();
         execute_class(
             registry,
             loader,
@@ -4958,8 +4958,8 @@ fn ensure_initialized(
         #[cfg(feature = "telemetry")]
         registry.telemetry.class_init_dag.record(
             class_name,
-            _triggered_by,
-            _clinit_start.elapsed().as_nanos() as u64,
+            triggered_by,
+            u64::try_from(clinit_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
         );
     }
     Ok(())
@@ -5000,7 +5000,8 @@ impl FramePool {
 }
 
 #[cfg(feature = "telemetry")]
-fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
+#[allow(clippy::too_many_lines)]
+const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     use duke_bytecode::Instruction as I;
     match instr {
         I::Nop => "nop",
@@ -5321,7 +5322,7 @@ pub fn execute_class(
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
         #[cfg(feature = "telemetry")]
-        let (_telem_name, _telem_pc, _telem_start) = {
+        let (telem_name, telem_pc, telem_start) = {
             let name = instr_name(&instr);
             let pc_val = pc;
             (name, pc_val, std::time::Instant::now())
@@ -5468,13 +5469,13 @@ pub fn execute_class(
                                     .collect::<VmResult<Vec<_>>>()?;
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    _native_start.elapsed().as_nanos() as u64,
+                                    u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -5491,7 +5492,7 @@ pub fn execute_class(
                                     .collect::<VmResult<Vec<_>>>()?;
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let mut invoke_cb =
                                     |heap: &mut duke_gc::Heap,
                                      output: &mut dyn std::io::Write,
@@ -5510,7 +5511,7 @@ pub fn execute_class(
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    _native_start.elapsed().as_nanos() as u64,
+                                    u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -6591,14 +6592,14 @@ pub fn execute_class(
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        _native_start.elapsed().as_nanos() as u64,
+                                        u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -6628,7 +6629,7 @@ pub fn execute_class(
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
-                                let _native_start = std::time::Instant::now();
+                                let native_start = std::time::Instant::now();
                                 let mut invoke_cb =
                                     |heap: &mut duke_gc::Heap,
                                      output: &mut dyn std::io::Write,
@@ -6648,7 +6649,7 @@ pub fn execute_class(
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        _native_start.elapsed().as_nanos() as u64,
+                                        u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -7169,7 +7170,7 @@ pub fn execute_class(
                 let exc_class_name = heap.get(exception_ref)?.class_name.clone();
 
                 #[cfg(feature = "telemetry")]
-                let _telem_exc_event_idx = registry.telemetry.exception_flow.record_throw(
+                let telem_exc_event_idx = registry.telemetry.exception_flow.record_throw(
                     &exc_class_name,
                     &current_class,
                     &current_method,
@@ -7193,7 +7194,7 @@ pub fn execute_class(
                 if let Some(handler_pc) = handler {
                     #[cfg(feature = "telemetry")]
                     registry.telemetry.exception_flow.record_catch(
-                        _telem_exc_event_idx,
+                        telem_exc_event_idx,
                         &current_class,
                         &current_method,
                         handler_pc as usize,
@@ -7269,7 +7270,7 @@ pub fn execute_class(
                             if let Some(handler_pc) = handler {
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.exception_flow.record_catch(
-                                    _telem_exc_event_idx,
+                                    telem_exc_event_idx,
                                     &current_class,
                                     &current_method,
                                     handler_pc as usize,
@@ -7526,14 +7527,14 @@ pub fn execute_class(
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
-                                    let _native_start = std::time::Instant::now();
+                                    let native_start = std::time::Instant::now();
                                     let result = handler(&callee_args, heap, stdout);
                                     #[cfg(feature = "telemetry")]
                                     {
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            _native_start.elapsed().as_nanos() as u64,
+                                            u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                             result.is_err(),
                                         );
                                         // Native interface methods skip the bytecode
@@ -7560,7 +7561,7 @@ pub fn execute_class(
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
-                                    let _native_start = std::time::Instant::now();
+                                    let native_start = std::time::Instant::now();
                                     let mut invoke_cb = |heap: &mut duke_gc::Heap,
                                                          output: &mut dyn std::io::Write,
                                                          class: &str,
@@ -7580,7 +7581,7 @@ pub fn execute_class(
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            _native_start.elapsed().as_nanos() as u64,
+                                            u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                             result.is_err(),
                                         );
                                         registry.telemetry.dispatch_resolution.record(
@@ -7742,13 +7743,13 @@ pub fn execute_class(
                                     match lambda_native_kind {
                                         Some(HandlerKind::Simple(handler)) => {
                                             #[cfg(feature = "telemetry")]
-                                            let _native_start = std::time::Instant::now();
+                                            let native_start = std::time::Instant::now();
                                             let result = handler(&impl_args, heap, stdout);
                                             #[cfg(feature = "telemetry")]
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                _native_start.elapsed().as_nanos() as u64,
+                                                u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                                 result.is_err(),
                                             );
                                             let result = result?;
@@ -7760,7 +7761,7 @@ pub fn execute_class(
                                         }
                                         Some(HandlerKind::Callback(handler)) => {
                                             #[cfg(feature = "telemetry")]
-                                            let _native_start = std::time::Instant::now();
+                                            let native_start = std::time::Instant::now();
                                             let mut invoke_cb =
                                                 |heap: &mut duke_gc::Heap,
                                                  output: &mut dyn std::io::Write,
@@ -7780,7 +7781,7 @@ pub fn execute_class(
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                _native_start.elapsed().as_nanos() as u64,
+                                                u64::try_from(native_start.elapsed().as_nanos()).unwrap_or(u64::MAX),
                                                 result.is_err(),
                                             );
                                             let result = result?;
@@ -7928,12 +7929,12 @@ pub fn execute_class(
 
         #[cfg(feature = "telemetry")]
         {
-            let elapsed = _telem_start.elapsed().as_nanos() as u64;
+            let elapsed = u64::try_from(telem_start.elapsed().as_nanos()).unwrap_or(u64::MAX);
             registry.telemetry.bytecode_cost.record(
-                _telem_name,
+                telem_name,
                 &current_class,
                 &current_method,
-                _telem_pc,
+                telem_pc,
                 elapsed,
             );
         }

@@ -13,6 +13,8 @@
 //! [`Heap::get`] and [`Heap::get_mut`] are generation-agnostic; callers never
 //! need to know which gen an object lives in.
 
+pub mod export;
+
 use std::collections::{HashMap, HashSet};
 
 use duke_runtime::{Slot, VmError, VmResult};

@@ -5,7 +5,7 @@ use duke_classfile::{
     ClassFile, parse,
     types::{AttributeData, CpEntry, CpIndex},
 };
-use duke_gc::Heap;
+use duke_gc::{Heap, export::HeapGraphExporter};
 use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
 use duke_loader::{BootstrapLoader, ClassLoader, DirectoryLoader};
 use duke_runtime::{Slot, VmError};
@@ -82,6 +82,16 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);
+
+    // Extract dot export flag
+    let mut dot_export_path = None;
+    args.retain(|arg| {
+        arg.strip_prefix("--dot-export=").is_none_or(|path| {
+            dot_export_path = Some(path.to_string());
+            false
+        })
+    });
+
     let jdk_home = extract_jdk_flag(&mut args);
 
     if args.len() < 2 {
@@ -91,6 +101,7 @@ fn main() {
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
+        eprintln!("         --dot-export=<path> export the final heap state as a DOT graph");
         eprintln!("         --jdk=<path>        JDK home for loading real JDK classes");
         eprintln!("         (also reads JAVA_HOME env var)");
         process::exit(1);
@@ -104,13 +115,13 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..], telemetry, jdk_home.as_deref());
+        exec_method(&args[2..], telemetry, dot_export_path.as_deref(), jdk_home.as_deref());
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..], telemetry, jdk_home.as_deref());
+        run_main(&args[2..], telemetry, dot_export_path.as_deref(), jdk_home.as_deref());
         return;
     }
 
@@ -190,7 +201,7 @@ fn load_and_dump(class_name: &str) {
 /// `duke exec <classfile.class> <method> [int-arg...]`
 ///
 /// Parses and executes a static method, printing the return value.
-fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
+fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, dot_export: Option<&str>, jdk_home: Option<&str>) {
     if args.len() < 2 {
         eprintln!("Usage: duke exec <classfile.class> <method> [int-arg...]");
         process::exit(1);
@@ -273,6 +284,14 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
             process::exit(1);
         }
     };
+
+    if let Some(path) = dot_export {
+        let exporter = HeapGraphExporter::new(&heap);
+        if let Err(e) = std::fs::write(path, exporter.to_dot()) {
+            eprintln!("duke: failed to write dot export to '{path}': {e}");
+        }
+    }
+
     emit_telemetry(&registry, telemetry);
     if let Some(code) = exit_code {
         process::exit(code);
@@ -286,7 +305,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
-fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
+fn run_main(args: &[String], telemetry: Option<TelemetryDest>, dot_export: Option<&str>, jdk_home: Option<&str>) {
     if args.is_empty() {
         eprintln!("Usage: duke run <classfile.class> [string-arg...]");
         process::exit(1);
@@ -346,6 +365,14 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<
             process::exit(1);
         }
     };
+
+    if let Some(path) = dot_export {
+        let exporter = HeapGraphExporter::new(&heap);
+        if let Err(e) = std::fs::write(path, exporter.to_dot()) {
+            eprintln!("duke: failed to write dot export to '{path}': {e}");
+        }
+    }
+
     emit_telemetry(&registry, telemetry);
     if let Some(code) = exit_code {
         process::exit(code);
