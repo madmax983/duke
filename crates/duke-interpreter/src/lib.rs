@@ -4956,11 +4956,14 @@ fn ensure_initialized(
             &[],
         )?;
         #[cfg(feature = "telemetry")]
-        registry.telemetry.class_init_dag.record(
-            class_name,
-            triggered_by,
-            { #[allow(clippy::cast_possible_truncation)] let res = clinit_start.elapsed().as_nanos() as u64; res },
-        );
+        registry
+            .telemetry
+            .class_init_dag
+            .record(class_name, triggered_by, {
+                #[allow(clippy::cast_possible_truncation)]
+                let res = clinit_start.elapsed().as_nanos() as u64;
+                res
+            });
     }
     Ok(())
 }
@@ -5477,7 +5480,11 @@ pub fn execute_class(
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                    {
+                                        #[allow(clippy::cast_possible_truncation)]
+                                        let res = native_start.elapsed().as_nanos() as u64;
+                                        res
+                                    },
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -5501,7 +5508,11 @@ pub fn execute_class(
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
-                                    { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                    {
+                                        #[allow(clippy::cast_possible_truncation)]
+                                        let res = native_start.elapsed().as_nanos() as u64;
+                                        res
+                                    },
                                     result.is_err(),
                                 );
                                 let result = result?;
@@ -6589,7 +6600,11 @@ pub fn execute_class(
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                        {
+                                            #[allow(clippy::cast_possible_truncation)]
+                                            let res = native_start.elapsed().as_nanos() as u64;
+                                            res
+                                        },
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -6627,7 +6642,11 @@ pub fn execute_class(
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
                                         &callee_name,
-                                        { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                        {
+                                            #[allow(clippy::cast_possible_truncation)]
+                                            let res = native_start.elapsed().as_nanos() as u64;
+                                            res
+                                        },
                                         result.is_err(),
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
@@ -7512,7 +7531,11 @@ pub fn execute_class(
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                            {
+                                                #[allow(clippy::cast_possible_truncation)]
+                                                let res = native_start.elapsed().as_nanos() as u64;
+                                                res
+                                            },
                                             result.is_err(),
                                         );
                                         // Native interface methods skip the bytecode
@@ -7548,7 +7571,11 @@ pub fn execute_class(
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
                                             &callee_name,
-                                            { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                            {
+                                                #[allow(clippy::cast_possible_truncation)]
+                                                let res = native_start.elapsed().as_nanos() as u64;
+                                                res
+                                            },
                                             result.is_err(),
                                         );
                                         registry.telemetry.dispatch_resolution.record(
@@ -7716,7 +7743,12 @@ pub fn execute_class(
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                                {
+                                                    #[allow(clippy::cast_possible_truncation)]
+                                                    let res =
+                                                        native_start.elapsed().as_nanos() as u64;
+                                                    res
+                                                },
                                                 result.is_err(),
                                             );
                                             let result = result?;
@@ -7736,7 +7768,12 @@ pub fn execute_class(
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
-                                                { #[allow(clippy::cast_possible_truncation)] let res = native_start.elapsed().as_nanos() as u64; res },
+                                                {
+                                                    #[allow(clippy::cast_possible_truncation)]
+                                                    let res =
+                                                        native_start.elapsed().as_nanos() as u64;
+                                                    res
+                                                },
                                                 result.is_err(),
                                             );
                                             let result = result?;
@@ -7884,7 +7921,11 @@ pub fn execute_class(
 
         #[cfg(feature = "telemetry")]
         {
-            let elapsed = { #[allow(clippy::cast_possible_truncation)] let res = telem_start.elapsed().as_nanos() as u64; res };
+            let elapsed = {
+                #[allow(clippy::cast_possible_truncation)]
+                let res = telem_start.elapsed().as_nanos() as u64;
+                res
+            };
             registry.telemetry.bytecode_cost.record(
                 telem_name,
                 &current_class,
