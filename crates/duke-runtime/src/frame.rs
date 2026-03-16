@@ -343,4 +343,51 @@ mod tests {
         assert_eq!(f.load_local(1).unwrap(), Slot::Int(20));
         assert_eq!(f.peek().unwrap(), &Slot::Int(30));
     }
+
+    #[test]
+    fn new_frame_too_many_args_returns_error() {
+        let result = Frame::new(4, 1, vec![Slot::Int(1), Slot::Int(2)]);
+        match result {
+            Err(VmError::LocalOutOfBounds { index, max_locals }) => {
+                assert_eq!(index, 2);
+                assert_eq!(max_locals, 1);
+            }
+            _ => panic!("Expected VmError::LocalOutOfBounds"),
+        }
+    }
+
+    #[test]
+    fn load_local_out_of_bounds_returns_error() {
+        let f = Frame::new(4, 1, vec![Slot::Int(42)]).unwrap();
+        let err = f.load_local(1).unwrap_err();
+        assert_eq!(
+            err,
+            VmError::LocalOutOfBounds {
+                index: 1,
+                max_locals: 1
+            }
+        );
+    }
+
+    #[test]
+    fn store_local_out_of_bounds_returns_error() {
+        let mut f = Frame::new(4, 1, vec![Slot::Int(42)]).unwrap();
+        let err = f.store_local(1, Slot::Int(99)).unwrap_err();
+        assert_eq!(
+            err,
+            VmError::LocalOutOfBounds {
+                index: 1,
+                max_locals: 1
+            }
+        );
+    }
+
+    #[test]
+    fn peek_at_out_of_bounds_returns_error() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+        f.push(Slot::Int(1)).unwrap();
+        assert_eq!(f.peek_at(0).unwrap(), Slot::Int(1));
+        let err = f.peek_at(1).unwrap_err();
+        assert_eq!(err, VmError::StackUnderflow);
+    }
 }
