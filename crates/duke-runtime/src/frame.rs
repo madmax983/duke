@@ -1,3 +1,8 @@
+//! JVM method execution frame.
+//!
+//! This module provides the [`Frame`] struct, which manages the local variables
+//! and operand stack for a single method invocation.
+
 use crate::{
     error::{VmError, VmResult},
     slot::Slot,
@@ -8,6 +13,17 @@ use crate::{
 /// Holds the local variable array and operand stack for one method invocation.
 /// The interpreter tracks the current instruction index externally and updates
 /// `Frame` via the push/pop/load/store methods.
+///
+/// # Examples
+///
+/// ```
+/// use duke_runtime::{Frame, Slot};
+///
+/// let mut frame = Frame::new(10, 5, vec![Slot::Int(1)]).unwrap();
+/// frame.push(Slot::Int(42)).unwrap();
+/// let value = frame.pop_int().unwrap();
+/// assert_eq!(value, 42);
+/// ```
 pub struct Frame {
     locals: Vec<Slot>,
     stack: Vec<Slot>,
@@ -25,6 +41,16 @@ impl Frame {
     /// # Errors
     ///
     /// Returns [`VmError::LocalOutOfBounds`] if `args.len() > max_locals`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let frame = Frame::new(10, 5, vec![Slot::Int(1)]).unwrap();
+    /// assert_eq!(frame.load_local(0).unwrap(), Slot::Int(1));
+    /// assert_eq!(frame.load_local(1).unwrap(), Slot::Int(0)); // zero-initialized
+    /// ```
     pub fn new(max_stack: usize, max_locals: usize, args: Vec<Slot>) -> VmResult<Self> {
         if args.len() > max_locals {
             return Err(VmError::LocalOutOfBounds {
@@ -50,6 +76,20 @@ impl Frame {
     /// - Ensuring `stack` is empty before passing it here.
     ///
     /// This is the zero-allocation fast path for method calls after pool warmup.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug builds if the provided `stack` is not empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let locals = vec![Slot::Int(0); 5];
+    /// let stack = Vec::new();
+    /// let frame = Frame::from_pool_bufs(locals, stack, 10);
+    /// ```
     #[must_use]
     pub fn from_pool_bufs(locals: Vec<Slot>, stack: Vec<Slot>, max_stack: usize) -> Self {
         debug_assert!(stack.is_empty(), "pool stack must be empty on reuse");
@@ -65,6 +105,18 @@ impl Frame {
     /// Clears the operand stack (retaining capacity). Locals are *not* cleared —
     /// the caller must resize and reinitialise the locals buffer before passing it
     /// to [`Frame::from_pool_bufs`] for reuse.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 5, vec![]).unwrap();
+    /// frame.push(Slot::Int(42)).unwrap();
+    ///
+    /// let (locals, mut stack) = frame.into_pool_bufs();
+    /// assert!(stack.is_empty()); // stack is cleared
+    /// ```
     #[must_use]
     pub fn into_pool_bufs(mut self) -> (Vec<Slot>, Vec<Slot>) {
         self.stack.clear();
@@ -76,6 +128,16 @@ impl Frame {
     /// # Errors
     ///
     /// Returns [`VmError::StackOverflow`] if the stack is already at `max_stack`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(1, 1, vec![]).unwrap();
+    /// frame.push(Slot::Int(1)).unwrap(); // ok
+    /// assert!(frame.push(Slot::Int(2)).is_err()); // overflow
+    /// ```
     pub fn push(&mut self, slot: Slot) -> VmResult<()> {
         if self.stack.len() >= self.max_stack {
             return Err(VmError::StackOverflow);
@@ -89,6 +151,17 @@ impl Frame {
     /// # Errors
     ///
     /// Returns [`VmError::StackUnderflow`] if the stack is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Int(42)).unwrap();
+    /// assert_eq!(frame.pop().unwrap(), Slot::Int(42));
+    /// assert!(frame.pop().is_err()); // underflow
+    /// ```
     pub fn pop(&mut self) -> VmResult<Slot> {
         self.stack.pop().ok_or(VmError::StackUnderflow)
     }
@@ -97,6 +170,16 @@ impl Frame {
     ///
     /// # Errors
     /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Int(42)).unwrap();
+    /// assert_eq!(frame.pop_int().unwrap(), 42);
+    /// ```
     pub fn pop_int(&mut self) -> VmResult<i32> {
         self.pop()?.as_int()
     }
@@ -105,6 +188,16 @@ impl Frame {
     ///
     /// # Errors
     /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Long(42)).unwrap();
+    /// assert_eq!(frame.pop_long().unwrap(), 42);
+    /// ```
     pub fn pop_long(&mut self) -> VmResult<i64> {
         self.pop()?.as_long()
     }
@@ -113,6 +206,16 @@ impl Frame {
     ///
     /// # Errors
     /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Float(3.14)).unwrap();
+    /// assert_eq!(frame.pop_float().unwrap(), 3.14);
+    /// ```
     pub fn pop_float(&mut self) -> VmResult<f32> {
         self.pop()?.as_float()
     }
@@ -121,6 +224,16 @@ impl Frame {
     ///
     /// # Errors
     /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Double(3.14)).unwrap();
+    /// assert_eq!(frame.pop_double().unwrap(), 3.14);
+    /// ```
     pub fn pop_double(&mut self) -> VmResult<f64> {
         self.pop()?.as_double()
     }
@@ -130,6 +243,16 @@ impl Frame {
     /// # Errors
     /// Returns [`VmError::StackUnderflow`], [`VmError::TypeMismatch`], or
     /// [`VmError::NullPointerException`] if the reference is null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Reference(Some(1))).unwrap();
+    /// assert_eq!(frame.pop_ref().unwrap(), 1);
+    /// ```
     pub fn pop_ref(&mut self) -> VmResult<u64> {
         match self.pop()? {
             Slot::Reference(Some(r)) => Ok(r),
@@ -142,6 +265,17 @@ impl Frame {
     }
 
     /// Peek at the top of the stack without consuming it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// assert_eq!(frame.peek(), None);
+    /// frame.push(Slot::Int(42)).unwrap();
+    /// assert_eq!(frame.peek(), Some(&Slot::Int(42)));
+    /// ```
     #[must_use]
     pub fn peek(&self) -> Option<&Slot> {
         self.stack.last()
@@ -152,6 +286,16 @@ impl Frame {
     /// # Errors
     ///
     /// Returns [`VmError::LocalOutOfBounds`] if `index >= max_locals`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let frame = Frame::new(10, 2, vec![Slot::Int(42)]).unwrap();
+    /// assert_eq!(frame.load_local(0).unwrap(), Slot::Int(42));
+    /// assert!(frame.load_local(5).is_err());
+    /// ```
     pub fn load_local(&self, index: usize) -> VmResult<Slot> {
         self.locals
             .get(index)
@@ -167,6 +311,16 @@ impl Frame {
     /// # Errors
     ///
     /// Returns [`VmError::LocalOutOfBounds`] if `index >= max_locals`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 2, vec![]).unwrap();
+    /// frame.store_local(0, Slot::Int(42)).unwrap();
+    /// assert_eq!(frame.load_local(0).unwrap(), Slot::Int(42));
+    /// ```
     pub fn store_local(&mut self, index: usize, slot: Slot) -> VmResult<()> {
         if let Some(s) = self.locals.get_mut(index) {
             *s = slot;
@@ -180,20 +334,55 @@ impl Frame {
     }
 
     /// Clear the operand stack (used by exception handler dispatch).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Int(42)).unwrap();
+    /// frame.clear_stack();
+    /// assert_eq!(frame.stack_depth(), 0);
+    /// ```
     pub fn clear_stack(&mut self) {
         self.stack.clear();
     }
 
     /// Current operand stack depth.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// assert_eq!(frame.stack_depth(), 0);
+    /// frame.push(Slot::Int(42)).unwrap();
+    /// assert_eq!(frame.stack_depth(), 1);
+    /// ```
     #[must_use]
     pub const fn stack_depth(&self) -> usize {
         self.stack.len()
     }
 
     /// Peek at the slot at a given absolute position in the operand stack (0-indexed from bottom).
+    ///
     /// # Errors
     ///
     /// Returns an error if index is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// frame.push(Slot::Int(10)).unwrap();
+    /// frame.push(Slot::Int(20)).unwrap();
+    /// assert_eq!(frame.peek_at(0).unwrap(), Slot::Int(10));
+    /// assert_eq!(frame.peek_at(1).unwrap(), Slot::Int(20));
+    /// ```
     pub fn peek_at(&self, index: usize) -> VmResult<Slot> {
         self.stack
             .get(index)
@@ -202,18 +391,50 @@ impl Frame {
     }
 
     /// Current depth of the operand stack.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![]).unwrap();
+    /// assert_eq!(frame.stack_len(), 0);
+    /// ```
     #[must_use]
     pub const fn stack_len(&self) -> usize {
         self.stack.len()
     }
 
     /// Yields all slots in locals and operand stack — used by GC root gathering.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![Slot::Int(1)]).unwrap();
+    /// frame.push(Slot::Int(2)).unwrap();
+    /// let all_slots: Vec<Slot> = frame.slots().collect();
+    /// assert_eq!(all_slots, vec![Slot::Int(1), Slot::Int(2)]);
+    /// ```
     pub fn slots(&self) -> impl Iterator<Item = Slot> + '_ {
         self.locals.iter().chain(self.stack.iter()).copied()
     }
 
     /// Mutable iterator over all slots (locals + stack) — used to apply GC
     /// forwarding pointers after a minor collection.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::{Frame, Slot};
+    ///
+    /// let mut frame = Frame::new(10, 1, vec![Slot::Int(1)]).unwrap();
+    /// for slot in frame.slots_mut() {
+    ///     *slot = Slot::Int(2);
+    /// }
+    /// assert_eq!(frame.load_local(0).unwrap(), Slot::Int(2));
+    /// ```
     pub fn slots_mut(&mut self) -> impl Iterator<Item = &mut Slot> {
         self.locals.iter_mut().chain(self.stack.iter_mut())
     }

@@ -1,3 +1,8 @@
+//! JVM operand stack and local variable slot definitions.
+//!
+//! This module provides the [`Slot`] enum, which represents a single piece of data
+//! on the operand stack or in a local variable array.
+
 use crate::error::{VmError, VmResult};
 
 /// A single JVM operand stack or local variable slot.
@@ -8,6 +13,19 @@ use crate::error::{VmError, VmResult};
 ///
 /// `Slot` derives `Copy` because it is small (fits in registers) and is passed by value
 /// across all frame and stack operations to avoid the overhead of cloning on hot paths.
+///
+/// # Examples
+///
+/// ```
+/// use duke_runtime::Slot;
+///
+/// let int_slot = Slot::Int(42);
+/// let long_slot = Slot::Long(100);
+/// let float_slot = Slot::Float(3.14);
+/// let double_slot = Slot::Double(2.718);
+/// let ref_slot = Slot::Reference(Some(1));
+/// let null_slot = Slot::Reference(None);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Slot {
     Int(i32),
@@ -25,6 +43,18 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Int`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::Slot;
+    ///
+    /// let s = Slot::Int(42);
+    /// assert_eq!(s.as_int().unwrap(), 42);
+    ///
+    /// let s = Slot::Long(42);
+    /// assert!(s.as_int().is_err());
+    /// ```
     pub const fn as_int(&self) -> VmResult<i32> {
         if let Self::Int(v) = self {
             Ok(*v)
@@ -40,6 +70,18 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Long`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::Slot;
+    ///
+    /// let s = Slot::Long(42);
+    /// assert_eq!(s.as_long().unwrap(), 42);
+    ///
+    /// let s = Slot::Int(42);
+    /// assert!(s.as_long().is_err());
+    /// ```
     pub const fn as_long(&self) -> VmResult<i64> {
         if let Self::Long(v) = self {
             Ok(*v)
@@ -55,6 +97,18 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Float`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::Slot;
+    ///
+    /// let s = Slot::Float(3.14);
+    /// assert_eq!(s.as_float().unwrap(), 3.14);
+    ///
+    /// let s = Slot::Int(42);
+    /// assert!(s.as_float().is_err());
+    /// ```
     pub const fn as_float(&self) -> VmResult<f32> {
         if let Self::Float(v) = self {
             Ok(*v)
@@ -70,6 +124,18 @@ impl Slot {
     ///
     /// # Errors
     /// Returns [`VmError::TypeMismatch`] if the slot is not `Double`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::Slot;
+    ///
+    /// let s = Slot::Double(3.14);
+    /// assert_eq!(s.as_double().unwrap(), 3.14);
+    ///
+    /// let s = Slot::Int(42);
+    /// assert!(s.as_double().is_err());
+    /// ```
     pub const fn as_double(&self) -> VmResult<f64> {
         if let Self::Double(v) = self {
             Ok(*v)
@@ -82,6 +148,21 @@ impl Slot {
     }
 
     /// If this slot is a non-null reference, return the heap index. Otherwise `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::Slot;
+    ///
+    /// let s = Slot::Reference(Some(1));
+    /// assert_eq!(s.as_reference(), Some(1));
+    ///
+    /// let s = Slot::Reference(None);
+    /// assert_eq!(s.as_reference(), None);
+    ///
+    /// let s = Slot::Int(42);
+    /// assert_eq!(s.as_reference(), None);
+    /// ```
     #[must_use]
     pub const fn as_reference(&self) -> Option<u64> {
         if let Self::Reference(Some(r)) = self {
@@ -91,6 +172,16 @@ impl Slot {
         }
     }
 
+    /// Get the JVM type name for this slot's contents.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_runtime::Slot;
+    ///
+    /// let s = Slot::Int(42);
+    /// assert_eq!(s.type_name(), "int");
+    /// ```
     #[must_use]
     pub const fn type_name(&self) -> &'static str {
         match self {
