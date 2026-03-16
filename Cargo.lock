@@ -243,6 +243,7 @@ name = "duke-gc"
 version = "0.1.0"
 dependencies = [
  "duke-runtime",
+ "proptest",
 ]
 
 [[package]]
