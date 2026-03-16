@@ -1,0 +1,3 @@
+**Extract Native Module from Interpreter lib.rs**
+**Tangle:** The `duke-interpreter` crate had a massive `lib.rs` file containing over 15,000 lines. The native handlers and the `NativeRegistry` were tightly coupled within the core file, making the file a giant "Blob" anti-pattern and harder to maintain.
+**Blueprint:** Extracted the definitions of `NativeRegistry`, `HandlerKind`, `NativeHandler`, and all native methods (e.g. `native_println_string`, `native_math_max`) along with `bootstrap_stdlib` into a new module `native.rs` exposed via `pub mod native;`. This breaks up the monolith and moves native method boundary logic to its own file.
