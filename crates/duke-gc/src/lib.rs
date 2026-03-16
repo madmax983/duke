@@ -190,7 +190,7 @@ impl Heap {
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     ///
     /// # Panics
-    /// Panics if the reference truncates when converting to `usize` (on 32-bit platforms).
+    /// Panics if `r` does not fit into a `usize`.
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -213,7 +213,7 @@ impl Heap {
     /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     ///
     /// # Panics
-    /// Panics if the reference truncates when converting to `usize` (on 32-bit platforms).
+    /// Panics if `r` does not fit into a `usize`.
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -307,7 +307,7 @@ impl Heap {
     /// then call [`Heap::minor_collect_finish`] to complete the collection.
     ///
     /// # Panics
-    /// Panics if root or child references truncate when converting to `usize` (on 32-bit platforms).
+    /// Panics if a young gen reference does not fit into a `usize`.
     pub fn minor_collect_prepare(&mut self, roots: &[Slot]) {
         self.to_space = Vec::new();
         self.forward_map.clear();
@@ -387,7 +387,8 @@ impl Heap {
                     if let Some(r) = slot.as_reference()
                         && r & OLD_BIT == 0
                     {
-                        let y_idx = usize::try_from(r).unwrap_or(usize::MAX);
+                        #[allow(clippy::cast_possible_truncation)]
+                        let y_idx = r as usize;
                         // Read the forwarding pointer from young gen.
                         let forward = self
                             .young
@@ -415,8 +416,10 @@ impl Heap {
             // Try forward_map first (valid at any phase); fall back to young[].forward
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
+                #[allow(clippy::cast_possible_truncation)]
+                let r_usize = r as usize;
                 self.young
-                    .get(usize::try_from(r).unwrap_or(usize::MAX))
+                    .get(r_usize)
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
