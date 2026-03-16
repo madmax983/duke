@@ -2442,21 +2442,19 @@ fn native_string_compareto_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let str_val = |s: &Slot| -> VmResult<String> {
-        match s {
-            Slot::Reference(Some(r)) => Ok(heap.get(*r)?.string_value.clone().unwrap_or_default()),
-            _ => Err(VmError::NullPointerException),
-        }
+    let a_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
     };
-    let a = match args.first() {
-        Some(s) => str_val(s)?,
-        None => return Err(VmError::NullPointerException),
+    let b_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => str_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
-    Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
+    let a_obj = heap.get(a_ref)?;
+    let b_obj = heap.get(b_ref)?;
+    let a_str = a_obj.string_value.as_deref().unwrap_or_default();
+    let b_str = b_obj.string_value.as_deref().unwrap_or_default();
+    Ok(Some(Slot::Int(ordering_to_int(a_str.cmp(b_str)))))
 }
 
 /// Native: `String.startsWith(String)` — check if string starts with prefix.
@@ -2469,17 +2467,15 @@ fn native_string_startswith(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let prefix_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let prefix = heap
-        .get(prefix_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
-    Ok(Some(Slot::Int(i32::from(s.starts_with(&prefix)))))
+    let this_obj = heap.get(this_ref)?;
+    let prefix_obj = heap.get(prefix_ref)?;
+    let s = this_obj.string_value.as_deref().unwrap_or_default();
+    let prefix = prefix_obj.string_value.as_deref().unwrap_or_default();
+    Ok(Some(Slot::Int(i32::from(s.starts_with(prefix)))))
 }
 
 /// Native: `String.endsWith(String)` — check if string ends with suffix.
@@ -2492,17 +2488,15 @@ fn native_string_endswith(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let suffix_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let suffix = heap
-        .get(suffix_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
-    Ok(Some(Slot::Int(i32::from(s.ends_with(&suffix)))))
+    let this_obj = heap.get(this_ref)?;
+    let suffix_obj = heap.get(suffix_ref)?;
+    let s = this_obj.string_value.as_deref().unwrap_or_default();
+    let suffix = suffix_obj.string_value.as_deref().unwrap_or_default();
+    Ok(Some(Slot::Int(i32::from(s.ends_with(suffix)))))
 }
 
 /// Native: `String.trim()` — remove leading and trailing whitespace.
