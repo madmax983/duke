@@ -189,7 +189,7 @@ impl JImageReader {
             // Raw deflate stream (negative window bits — no zlib header)
             let cap = usize::try_from(info.uncompressed).unwrap_or(0);
             let mut decoder = DeflateDecoder::new(raw);
-            let mut out = Vec::with_capacity(cap);
+            let mut out = Vec::with_capacity(cap.min(1024 * 1024 * 32));
             decoder
                 .read_to_end(&mut out)
                 .map_err(|_| LoadError::Decompress {
@@ -743,6 +743,19 @@ mod tests {
         assert!(
             matches!(result, Ok(ref v) if v == &[1, 2, 3, 4, 5]),
             "resource ending exactly at data boundary must succeed"
+        );
+    }
+
+    #[test]
+    fn read_resource_rejects_capacity_overflow() {
+        // Attack: Provide an uncompressed size of u64::MAX.
+        // If unpatched, Vec::with_capacity(usize::MAX) will panic with a capacity overflow.
+        // Uncompressed is max, compressed is 1 byte, so bounds check passes.
+        let reader = make_reader(vec![0xFF, 0xFF, 0, 0, 0], 2, u64::MAX);
+        let result = reader.read_resource("r");
+        assert!(
+            matches!(result, Err(LoadError::Decompress { .. })),
+            "should safely fail decompression, not panic with capacity overflow"
         );
     }
 }
