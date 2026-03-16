@@ -41,11 +41,11 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    const fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 
-    fn has_remaining(&self) -> bool {
+    const fn has_remaining(&self) -> bool {
         self.pos < self.data.len()
     }
 
@@ -59,27 +59,29 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_i8(&mut self) -> DecodeResult<i8> {
-        Ok(self.read_u8()? as i8)
+        Ok(self.read_u8()?.cast_signed())
     }
 
     fn read_u16(&mut self) -> DecodeResult<u16> {
-        let hi = self.read_u8()? as u16;
-        let lo = self.read_u8()? as u16;
-        Ok((hi << 8) | lo)
+        let b0 = self.read_u8()?;
+        let b1 = self.read_u8()?;
+        Ok(u16::from_be_bytes([b0, b1]))
     }
 
     fn read_i16(&mut self) -> DecodeResult<i16> {
-        Ok(self.read_u16()? as i16)
+        Ok(self.read_u16()?.cast_signed())
     }
 
     fn read_u32(&mut self) -> DecodeResult<u32> {
-        let hi = self.read_u16()? as u32;
-        let lo = self.read_u16()? as u32;
-        Ok((hi << 16) | lo)
+        let b0 = self.read_u8()?;
+        let b1 = self.read_u8()?;
+        let b2 = self.read_u8()?;
+        let b3 = self.read_u8()?;
+        Ok(u32::from_be_bytes([b0, b1, b2, b3]))
     }
 
     fn read_i32(&mut self) -> DecodeResult<i32> {
-        Ok(self.read_u32()? as i32)
+        Ok(self.read_u32()?.cast_signed())
     }
 
     fn read_cp(&mut self) -> DecodeResult<CpIndex> {
@@ -87,7 +89,7 @@ impl<'a> Cursor<'a> {
     }
 
     /// Advance to the next 4-byte boundary (relative to the start of the Code array).
-    fn align4(&mut self) {
+    const fn align4(&mut self) {
         let rem = self.pos % 4;
         if rem != 0 {
             self.pos += 4 - rem;

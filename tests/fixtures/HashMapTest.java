@@ -62,4 +62,29 @@ public class HashMapTest {
         Integer v2 = (Integer) map.getOrDefault("missing", Integer.valueOf(99));
         return v1.intValue() + v2.intValue();  // 106
     }
+
+    // kills 9488: fields[i+1]=val → fields[i]=val breaks get-after-overwrite
+    static int testOverwriteValue() {
+        HashMap<String, Integer> map = new HashMap<>();
+        map.put("k", Integer.valueOf(1));
+        map.put("k", Integer.valueOf(99));
+        return ((Integer) map.get("k")).intValue();  // 99
+    }
+
+    // kills 9491: i+=2 → i*=2 skips second key when searching for update
+    static int testUpdateSecondKeyValue() {
+        HashMap<String, Integer> map = new HashMap<>();
+        map.put("a", Integer.valueOf(1));
+        map.put("b", Integer.valueOf(2));
+        map.put("b", Integer.valueOf(99));
+        return ((Integer) map.get("b")).intValue();  // 99
+    }
+
+    // kills 9586: truncate(len-2) → truncate(len+2) leaves key in map after remove
+    static int testRemoveAndContains() {
+        HashMap<String, Integer> map = new HashMap<>();
+        map.put("a", Integer.valueOf(5));
+        map.remove("a");
+        return map.containsKey("a") ? 1 : 0;  // 0
+    }
 }
