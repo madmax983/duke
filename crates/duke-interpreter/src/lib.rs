@@ -4926,7 +4926,7 @@ fn ensure_initialized(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    triggered_by: &str,
+    #[allow(unused_variables)] triggered_by: &str,
 ) -> VmResult<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
