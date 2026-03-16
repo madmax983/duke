@@ -390,4 +390,82 @@ mod tests {
         let err = f.peek_at(1).unwrap_err();
         assert_eq!(err, VmError::StackUnderflow);
     }
+
+    #[test]
+    fn pop_typed_methods_succeed_on_correct_type() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+
+        f.push(Slot::Int(42)).unwrap();
+        assert_eq!(f.pop_int().unwrap(), 42);
+
+        f.push(Slot::Long(42)).unwrap();
+        assert_eq!(f.pop_long().unwrap(), 42);
+
+        f.push(Slot::Float(42.0)).unwrap();
+        assert_eq!(f.pop_float().unwrap(), 42.0);
+
+        f.push(Slot::Double(42.0)).unwrap();
+        assert_eq!(f.pop_double().unwrap(), 42.0);
+    }
+
+    #[test]
+    fn pop_typed_methods_return_type_mismatch() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+
+        f.push(Slot::Long(42)).unwrap();
+        assert_eq!(
+            f.pop_int().unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "int",
+                got: "long"
+            }
+        );
+
+        f.push(Slot::Int(42)).unwrap();
+        assert_eq!(
+            f.pop_long().unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "long",
+                got: "int"
+            }
+        );
+
+        f.push(Slot::Double(42.0)).unwrap();
+        assert_eq!(
+            f.pop_float().unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "float",
+                got: "double"
+            }
+        );
+
+        f.push(Slot::Float(42.0)).unwrap();
+        assert_eq!(
+            f.pop_double().unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "double",
+                got: "float"
+            }
+        );
+
+        f.push(Slot::Int(42)).unwrap();
+        assert_eq!(
+            f.pop_ref().unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "reference",
+                got: "int"
+            }
+        );
+    }
+
+    #[test]
+    fn pop_typed_methods_underflow() {
+        let mut f = Frame::new(4, 1, vec![]).unwrap();
+
+        assert_eq!(f.pop_int().unwrap_err(), VmError::StackUnderflow);
+        assert_eq!(f.pop_long().unwrap_err(), VmError::StackUnderflow);
+        assert_eq!(f.pop_float().unwrap_err(), VmError::StackUnderflow);
+        assert_eq!(f.pop_double().unwrap_err(), VmError::StackUnderflow);
+        assert_eq!(f.pop_ref().unwrap_err(), VmError::StackUnderflow);
+    }
 }

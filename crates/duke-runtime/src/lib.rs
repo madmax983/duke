@@ -105,4 +105,113 @@ mod tests {
         };
         assert_eq!(e.to_string(), "class not found: com/example/Missing");
     }
+
+    #[test]
+    fn vm_error_display_messages() {
+        let cases = vec![
+            (VmError::StackOverflow, "operand stack overflow"),
+            (VmError::StackUnderflow, "operand stack underflow"),
+            (
+                VmError::LocalOutOfBounds {
+                    index: 5,
+                    max_locals: 3,
+                },
+                "local variable index 5 out of bounds (max_locals=3)",
+            ),
+            (VmError::DivisionByZero, "integer division by zero"),
+            (
+                VmError::InvalidBranchTarget { pc: 42 },
+                "invalid branch target: pc=42",
+            ),
+            (
+                VmError::FellOffEnd,
+                "fell off end of bytecode without a return instruction",
+            ),
+            (
+                VmError::TypeMismatch {
+                    expected: "int",
+                    got: "long",
+                },
+                "type mismatch: expected int, got long",
+            ),
+            (
+                VmError::Unimplemented { mnemonic: "nop" },
+                "unimplemented instruction: nop",
+            ),
+            (
+                VmError::InvalidCpIndex { index: 99 },
+                "invalid constant pool index 99",
+            ),
+            (
+                VmError::MethodNotFound {
+                    name: "foo".to_string(),
+                    descriptor: "()V".to_string(),
+                },
+                "method not found: foo()V",
+            ),
+            (
+                VmError::InvalidMethodref { index: 42 },
+                "constant pool index 42 is not a valid Methodref",
+            ),
+            (VmError::NullPointerException, "null pointer dereference"),
+            (
+                VmError::InvalidRef {
+                    address: 0xDEADBEEF,
+                },
+                "invalid heap reference: address=3735928559",
+            ),
+            (
+                VmError::InvalidFieldref { index: 12 },
+                "constant pool index 12 is not a valid Fieldref",
+            ),
+            (
+                VmError::ArrayIndexOutOfBounds {
+                    index: 5,
+                    length: 3,
+                },
+                "array index 5 out of bounds for length 3",
+            ),
+            (
+                VmError::NegativeArraySize { size: -1 },
+                "negative array size: -1",
+            ),
+            (
+                VmError::JavaException {
+                    class_name: "java/lang/RuntimeException".to_string(),
+                },
+                "java exception: java/lang/RuntimeException",
+            ),
+            (
+                VmError::ClassCastException {
+                    from: "java/lang/RuntimeException".to_string(),
+                    to: "java/lang/String".to_string(),
+                },
+                "class cast exception: java/lang/RuntimeException cannot be cast to java/lang/String",
+            ),
+            (
+                VmError::ClassNotFound {
+                    name: "com/example/Missing".to_string(),
+                },
+                "class not found: com/example/Missing",
+            ),
+            (VmError::SystemExit { code: 42 }, "System.exit(42)"),
+            (
+                VmError::InstantiationError {
+                    class_name: "java/lang/Number".to_string(),
+                },
+                "InstantiationError: cannot instantiate abstract class java/lang/Number",
+            ),
+            (
+                VmError::AbstractMethodError {
+                    class_name: "java/lang/Number".to_string(),
+                    method_name: "intValue".to_string(),
+                },
+                "AbstractMethodError: java/lang/Number.intValue",
+            ),
+        ];
+
+        for (err, expected_msg) in cases {
+            assert_eq!(err.to_string(), expected_msg);
+        }
+    }
 }
