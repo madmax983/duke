@@ -209,6 +209,20 @@ mod tests {
     }
 
     #[test]
+    fn decode_lookupswitch_rejects_negative_npairs() {
+        let code = [
+            0xAB, 0x00, 0x00, 0x00, // lookupswitch + padding
+            0x00, 0x00, 0x00, 0x00, // default
+            0xFF, 0xFF, 0xFF, 0xFF, // npairs = -1
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(err, DecodeError::InvalidLookupswitch { npairs: -1, .. }),
+            "lookupswitch with negative npairs should be rejected: {err}"
+        );
+    }
+
+    #[test]
     fn decode_tableswitch_rejects_truncated_offsets() {
         // tableswitch with low=0, high=1 (needs 2 offsets) but only one offset entry.
         let code = [
@@ -229,6 +243,51 @@ mod tests {
                 }
             ),
             "invalid tableswitch should be rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_tableswitch_rejects_high_less_than_low() {
+        // tableswitch with low=10, high=5
+        let mut code = vec![0xAA, 0x00, 0x00, 0x00]; // tableswitch + padding
+        code.extend_from_slice(&1000i32.to_be_bytes()); // default
+        code.extend_from_slice(&10i32.to_be_bytes()); // low
+        code.extend_from_slice(&5i32.to_be_bytes()); // high
+
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DecodeError::InvalidTableswitch {
+                    low: 10,
+                    high: 5,
+                    ..
+                }
+            ),
+            "invalid tableswitch with high < low should be rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn decode_tableswitch_rejects_excessive_count() {
+        // tableswitch with count indicating more bytes than provided
+        let mut code = vec![0xAA, 0x00, 0x00, 0x00]; // tableswitch + padding
+        code.extend_from_slice(&1000i32.to_be_bytes()); // default
+        // A huge count using -2 billion to +2 billion
+        code.extend_from_slice(&(-2_000_000_000_i32).to_be_bytes()); // low
+        code.extend_from_slice(&2_000_000_000_i32.to_be_bytes()); // high
+
+        let err = decode(&code).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                DecodeError::InvalidTableswitch {
+                    low: -2_000_000_000,
+                    high: 2_000_000_000,
+                    ..
+                }
+            ),
+            "invalid tableswitch with excessive count should be rejected: {err}"
         );
     }
 
