@@ -35,7 +35,7 @@ pub struct FieldEntry {
 
 /// A resolved exception table entry for handler dispatch.
 ///
-/// Built from `duke_classfile::types::ExceptionTableEntry` with catch_type
+/// Built from `duke_classfile::types::ExceptionTableEntry` with `catch_type`
 /// resolved from a CP index to a class name string.
 pub struct ExceptionEntry {
     pub start_pc: u16,
@@ -61,11 +61,11 @@ pub struct ClassContext {
     pub static_fields: Vec<Slot>,
     /// Number of instance (non-static) fields — used to size heap objects at `new`.
     pub instance_field_count: usize,
-    /// BootstrapMethods entries from the class attribute (needed for invokedynamic).
+    /// `BootstrapMethods` entries from the class attribute (needed for invokedynamic).
     pub bootstrap_methods: Vec<duke_classfile::types::BootstrapMethodEntry>,
 }
 
-/// Registry of loaded classes — maps class name to its ClassContext.
+/// Registry of loaded classes — maps class name to its `ClassContext`.
 ///
 /// Used by `execute_class` for cross-class method dispatch.
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
@@ -132,16 +132,16 @@ impl ClassRegistry {
 
     /// Access the native method registry.
     #[must_use]
-    pub fn natives(&self) -> &NativeRegistry {
+    pub const fn natives(&self) -> &NativeRegistry {
         &self.natives
     }
 
     /// Access the native method registry mutably.
-    pub fn natives_mut(&mut self) -> &mut NativeRegistry {
+    pub const fn natives_mut(&mut self) -> &mut NativeRegistry {
         &mut self.natives
     }
 
-    /// Register a pre-built ClassContext.
+    /// Register a pre-built `ClassContext`.
     pub fn register(&mut self, ctx: ClassContext) {
         self.classes.insert(ctx.class_name.clone(), ctx);
     }
@@ -171,24 +171,25 @@ impl ClassRegistry {
     }
 
     /// Ensure a class is loaded. If not already present, loads it via the class
-    /// loader, parses it, builds a ClassContext, and registers it.
+    /// loader, parses it, builds a `ClassContext`, and registers it.
     ///
     /// Also recursively loads the superclass chain so that field slot offsets
     /// can be computed correctly before any object of this type is allocated.
     ///
     /// Returns `Ok(true)` if loaded, `Ok(false)` if the class could not be found
     /// (soft failure — for classes like `java/lang/Object` that we can't load yet).
+    ///
+    /// # Errors
+    /// Returns [`VmError`] if loading the superclass chain fails unexpectedly.
     pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
         if self.classes.contains_key(name) {
             return Ok(true);
         }
-        let bytes = match loader.find_class(name) {
-            Ok(b) => b,
-            Err(_) => return Ok(false),
+        let Ok(bytes) = loader.find_class(name) else {
+            return Ok(false);
         };
-        let cf = match duke_classfile::parse(&bytes) {
-            Ok(cf) => cf,
-            Err(_) => return Ok(false),
+        let Ok(cf) = duke_classfile::parse(&bytes) else {
+            return Ok(false);
         };
         let ctx = build_class_context(&cf);
         let super_class = ctx.super_class.clone();
@@ -1682,7 +1683,6 @@ fn native_string_equals(
     };
     let other_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Ok(Some(Slot::Int(0))),
         _ => return Ok(Some(Slot::Int(0))),
     };
     // Fetch objects from heap in one go to keep borrows short
@@ -1690,7 +1690,7 @@ fn native_string_equals(
     let other_obj = heap.get(other_ref)?;
     let this_str = this_obj.string_value.as_deref().unwrap_or_default();
     let other_str = other_obj.string_value.as_deref().unwrap_or_default();
-    Ok(Some(Slot::Int(if this_str == other_str { 1 } else { 0 })))
+    Ok(Some(Slot::Int(i32::from(this_str == other_str))))
 }
 
 /// Native: `String.charAt(int)` — returns char at index as int.
@@ -1732,6 +1732,7 @@ fn native_object_hashcode(
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     match args.first() {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         Some(Slot::Reference(Some(r))) => Ok(Some(Slot::Int(*r as i32))),
         _ => Err(VmError::NullPointerException),
     }
@@ -1777,10 +1778,11 @@ fn native_object_clone(
 /// `Throwable.addSuppressed(Throwable suppressed)V`
 ///
 /// No-op stub. Control flow is handled entirely by the bytecode desugaring —
-/// addSuppressed only affects what getSuppressed() returns, which is not
+/// `addSuppressed` only affects what `getSuppressed()` returns, which is not
 /// yet implemented. Suppressed exception is silently dropped.
 ///
-/// Signature: args[0] = this (Throwable), args[1] = suppressed (Throwable)
+/// Signature: `args[0]` = this (Throwable), `args[1]` = suppressed (Throwable)
+#[allow(clippy::unnecessary_wraps)]
 fn native_throwable_add_suppressed(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -1790,7 +1792,7 @@ fn native_throwable_add_suppressed(
 }
 
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
-/// args: [this_ref, name_ref, ordinal_int]
+/// args: `[this_ref, name_ref, ordinal_int]`
 fn native_enum_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2035,7 +2037,7 @@ fn native_println_char(
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2086,7 +2088,7 @@ fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
         }
         "java/lang/Character" => {
             if let Some(Slot::Int(v)) = obj.fields.first()
-                && let Some(c) = char::from_u32(*v as u32)
+                && let Some(c) = char::from_u32((*v).cast_unsigned())
             {
                 return c.to_string();
             }
@@ -2198,7 +2200,7 @@ fn native_print_char(
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2273,7 +2275,7 @@ fn native_string_substring(
         let s = obj.string_value.as_deref().unwrap_or_default();
         if begin > s.len() {
             return Err(VmError::ArrayIndexOutOfBounds {
-                index: begin as i32,
+                index: i32::try_from(begin).unwrap_or(i32::MAX),
                 length: s.len(),
             });
         }
@@ -2319,7 +2321,7 @@ fn native_string_substring_range(
         let s = obj.string_value.as_deref().unwrap_or_default();
         if begin > end || end > s.len() {
             return Err(VmError::ArrayIndexOutOfBounds {
-                index: end as i32,
+                index: i32::try_from(end).unwrap_or(i32::MAX),
                 length: s.len(),
             });
         }
@@ -2388,7 +2390,7 @@ fn native_string_contains(
     let target_obj = heap.get(target_ref)?;
     let s = this_obj.string_value.as_deref().unwrap_or_default();
     let target = target_obj.string_value.as_deref().unwrap_or_default();
-    Ok(Some(Slot::Int(if s.contains(target) { 1 } else { 0 })))
+    Ok(Some(Slot::Int(i32::from(s.contains(target)))))
 }
 
 /// Native: `String.isEmpty()` — check if string is empty.
@@ -2404,7 +2406,7 @@ fn native_string_isempty(
     };
     let obj = heap.get(this_ref)?;
     let s = obj.string_value.as_deref().unwrap_or_default();
-    Ok(Some(Slot::Int(if s.is_empty() { 1 } else { 0 })))
+    Ok(Some(Slot::Int(i32::from(s.is_empty()))))
 }
 
 // Dispatch string constants used by the callback-based sort chain.
@@ -2417,7 +2419,7 @@ const SORT_COMPARATOR_DESC: &str = "(Ljava/util/Comparator;)V";
 /// Used by all boxed-type `compareTo` natives to return a consistent,
 /// sign-correct value without relying on `Ordering`'s internal discriminant.
 #[inline]
-fn ordering_to_int(o: std::cmp::Ordering) -> i32 {
+const fn ordering_to_int(o: std::cmp::Ordering) -> i32 {
     match o {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
@@ -2477,7 +2479,7 @@ fn native_string_startswith(
         .string_value
         .clone()
         .unwrap_or_default();
-    Ok(Some(Slot::Int(if s.starts_with(&prefix) { 1 } else { 0 })))
+    Ok(Some(Slot::Int(i32::from(s.starts_with(&prefix)))))
 }
 
 /// Native: `String.endsWith(String)` — check if string ends with suffix.
@@ -2500,7 +2502,7 @@ fn native_string_endswith(
         .string_value
         .clone()
         .unwrap_or_default();
-    Ok(Some(Slot::Int(if s.ends_with(&suffix) { 1 } else { 0 })))
+    Ok(Some(Slot::Int(i32::from(s.ends_with(&suffix)))))
 }
 
 /// Native: `String.trim()` — remove leading and trailing whitespace.
@@ -2728,7 +2730,7 @@ fn native_string_value_of_char(
     _out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int(char)",
@@ -2819,19 +2821,16 @@ fn format_arg(
                         Some(Slot::Float(v)) => f64::from(*v),
                         _ => 0.0,
                     };
-                    match precision {
-                        Some(p) => Ok(format!("{:.prec$}", v, prec = p)),
-                        None => Ok(format!("{:.6}", v)),
-                    }
+                    Ok(precision.map_or_else(|| format!("{v:.6}"), |p| format!("{v:.p$}")))
                 }
                 'x' => match obj.fields.first() {
-                    Some(Slot::Int(v)) => Ok(format!("{:x}", v)),
-                    Some(Slot::Long(v)) => Ok(format!("{:x}", v)),
+                    Some(Slot::Int(v)) => Ok(format!("{v:x}")),
+                    Some(Slot::Long(v)) => Ok(format!("{v:x}")),
                     _ => Ok("0".to_string()),
                 },
                 'X' => match obj.fields.first() {
-                    Some(Slot::Int(v)) => Ok(format!("{:X}", v)),
-                    Some(Slot::Long(v)) => Ok(format!("{:X}", v)),
+                    Some(Slot::Int(v)) => Ok(format!("{v:X}")),
+                    Some(Slot::Long(v)) => Ok(format!("{v:X}")),
                     _ => Ok("0".to_string()),
                 },
                 _ => Ok(String::new()),
@@ -2875,16 +2874,17 @@ fn native_string_format(
         }
 
         // Parse optional precision: %.2f
-        let mut precision: Option<usize> = None;
-        if chars[i] == '.' {
+        let precision: Option<usize> = if chars[i] == '.' {
             i += 1;
             let mut prec_str = String::new();
             while i < chars.len() && chars[i].is_ascii_digit() {
                 prec_str.push(chars[i]);
                 i += 1;
             }
-            precision = prec_str.parse().ok();
-        }
+            prec_str.parse().ok()
+        } else {
+            None
+        };
 
         // Skip optional width digits
         while i < chars.len() && chars[i].is_ascii_digit() {
@@ -2974,7 +2974,7 @@ fn native_string_replace_char(
     };
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
@@ -2983,7 +2983,7 @@ fn native_string_replace_char(
         }
     };
     let new_char = match args.get(2) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('?'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
@@ -3097,6 +3097,7 @@ fn native_string_hashcode(
 }
 
 /// Native: `String.toString()` — identity, returns `this`.
+#[allow(clippy::unnecessary_wraps)]
 fn native_string_tostring(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -3635,7 +3636,7 @@ fn native_boolean_parseboolean(
     }
 }
 
-/// Execute a StringConcatFactory recipe: walk the recipe string, replacing
+/// Execute a `StringConcatFactory` recipe: walk the recipe string, replacing
 /// `\u{1}` placeholders with stringified dynamic args from the operand stack.
 fn execute_string_concat_recipe(
     recipe: &str,
@@ -3686,7 +3687,7 @@ fn stringify_slot(
                 out.push_str(if *v != 0 { "true" } else { "false" });
             } else if type_hint == 'C' {
                 // JVM char: render as the Unicode character.
-                if let Some(ch) = char::from_u32(*v as u32) {
+                if let Some(ch) = char::from_u32((*v).cast_unsigned()) {
                     out.push(ch);
                 } else {
                     out.push('?');
@@ -4232,6 +4233,8 @@ pub fn execute(
             Instruction::Fcmpl | Instruction::Fcmpg => {
                 let b = frame.pop_float()?;
                 let a = frame.pop_float()?;
+                // Java semantics: exact bit equality for 0 check; NaN handled separately.
+                #[allow(clippy::float_cmp)]
                 let r = if a > b {
                     1
                 } else if a < b {
@@ -4281,6 +4284,8 @@ pub fn execute(
             Instruction::Dcmpl | Instruction::Dcmpg => {
                 let b = frame.pop_double()?;
                 let a = frame.pop_double()?;
+                // Java semantics: exact bit equality for 0 check; NaN handled separately.
+                #[allow(clippy::float_cmp)]
                 let r = if a > b {
                     1
                 } else if a < b {
@@ -4348,15 +4353,15 @@ pub fn execute(
             }
             Instruction::I2b => {
                 let v = frame.pop_int()?;
-                frame.push(Slot::Int(v as i8 as i32))?;
+                frame.push(Slot::Int(i32::from(v as i8)))?;
             }
             Instruction::I2c => {
                 let v = frame.pop_int()?;
-                frame.push(Slot::Int(v as u16 as i32))?;
+                frame.push(Slot::Int(i32::from(v as u16)))?;
             }
             Instruction::I2s => {
                 let v = frame.pop_int()?;
-                frame.push(Slot::Int(v as i16 as i32))?;
+                frame.push(Slot::Int(i32::from(v as i16)))?;
             }
 
             // ----------------------------------------------------------------
@@ -4713,11 +4718,11 @@ pub fn execute(
                         length: fields.len(),
                     });
                 }
-                let v = fields[idx_val as usize].as_int()? as i8 as i32;
+                let v = i32::from(fields[idx_val as usize].as_int()? as i8);
                 frame.push(Slot::Int(v))?;
             }
             Instruction::Bastore => {
-                let val = frame.pop_int()? as i8 as i32;
+                let val = i32::from(frame.pop_int()? as i8);
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
@@ -4747,11 +4752,11 @@ pub fn execute(
                         length: fields.len(),
                     });
                 }
-                let v = fields[idx_val as usize].as_int()? as u16 as i32;
+                let v = i32::from(fields[idx_val as usize].as_int()? as u16);
                 frame.push(Slot::Int(v))?;
             }
             Instruction::Castore => {
-                let val = frame.pop_int()? as u16 as i32;
+                let val = i32::from(frame.pop_int()? as u16);
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
@@ -4781,11 +4786,11 @@ pub fn execute(
                         length: fields.len(),
                     });
                 }
-                let v = fields[idx_val as usize].as_int()? as i16 as i32;
+                let v = i32::from(fields[idx_val as usize].as_int()? as i16);
                 frame.push(Slot::Int(v))?;
             }
             Instruction::Sastore => {
-                let val = frame.pop_int()? as i16 as i32;
+                let val = i32::from(frame.pop_int()? as i16);
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
@@ -4896,10 +4901,7 @@ pub fn execute(
             }
 
             // ---- monitor (no-op, single-threaded) ----
-            Instruction::Monitorenter => {
-                let _obj = frame.pop()?;
-            }
-            Instruction::Monitorexit => {
+            Instruction::Monitorenter | Instruction::Monitorexit => {
                 let _obj = frame.pop()?;
             }
 
@@ -4933,15 +4935,11 @@ fn ensure_initialized(
     registry.mark_initialized(class_name);
 
     // Check if the class has a <clinit> method.
-    let has_clinit = {
-        match registry.get(class_name) {
-            Ok(ctx) => ctx
-                .methods
-                .iter()
-                .any(|m| m.name == "<clinit>" && m.descriptor == "()V"),
-            Err(_) => false,
-        }
-    };
+    let has_clinit = registry.get(class_name).is_ok_and(|ctx| {
+        ctx.methods
+            .iter()
+            .any(|m| m.name == "<clinit>" && m.descriptor == "()V")
+    });
 
     if has_clinit {
         // Run <clinit> by calling it through execute_class.
@@ -4979,7 +4977,7 @@ struct FramePool {
 }
 
 impl FramePool {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self { free: Vec::new() }
     }
 
@@ -5166,13 +5164,22 @@ fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
 /// # Errors
 /// Returns [`VmError`] on execution faults or if `method_name`/`descriptor`
 /// are not found in `ctx`.
+///
+/// # Panics
+/// Panics on internal invariant violations, such as a `Class` CP entry whose
+/// name index refers to a non-`Utf8` entry (indicates a malformed class file).
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
     clippy::too_many_lines,
-    clippy::too_many_arguments
+    clippy::too_many_arguments,
+    clippy::manual_let_else,
+    clippy::single_match,
+    clippy::single_match_else,
+    clippy::float_cmp,
+    clippy::items_after_statements
 )]
 pub fn execute_class(
     registry: &mut ClassRegistry,
@@ -6142,15 +6149,15 @@ pub fn execute_class(
             }
             Instruction::I2b => {
                 let v = frame.pop_int()?;
-                frame.push(Slot::Int(v as i8 as i32))?;
+                frame.push(Slot::Int(i32::from(v as i8)))?;
             }
             Instruction::I2c => {
                 let v = frame.pop_int()?;
-                frame.push(Slot::Int(v as u16 as i32))?;
+                frame.push(Slot::Int(i32::from(v as u16)))?;
             }
             Instruction::I2s => {
                 let v = frame.pop_int()?;
-                frame.push(Slot::Int(v as i16 as i32))?;
+                frame.push(Slot::Int(i32::from(v as i16)))?;
             }
             Instruction::Goto(offset) => jump!(*offset),
             Instruction::GotoW(offset) => jump!(*offset),
@@ -6438,8 +6445,8 @@ pub fn execute_class(
                     continue;
                 }
                 // Attempt to load the target class; soft-fail for unloadable.
-                let loaded = registry.ensure_loaded(&callee_class, loader)?;
-                let resolved = if loaded {
+                let class_was_loaded = registry.ensure_loaded(&callee_class, loader)?;
+                let resolved = if class_was_loaded {
                     resolve_method_in_hierarchy(
                         registry,
                         loader,
@@ -6993,12 +7000,12 @@ pub fn execute_class(
                             length: fields.len(),
                         });
                     }
-                    fields[idx_val as usize].as_int()? as i8 as i32
+                    i32::from(fields[idx_val as usize].as_int()? as i8)
                 };
                 frame.push(Slot::Int(v))?;
             }
             Instruction::Bastore => {
-                let val = frame.pop_int()? as i8 as i32;
+                let val = i32::from(frame.pop_int()? as i8);
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
                 {
@@ -7025,12 +7032,12 @@ pub fn execute_class(
                             length: fields.len(),
                         });
                     }
-                    fields[idx_val as usize].as_int()? as u16 as i32
+                    i32::from(fields[idx_val as usize].as_int()? as u16)
                 };
                 frame.push(Slot::Int(v))?;
             }
             Instruction::Castore => {
-                let val = frame.pop_int()? as u16 as i32;
+                let val = i32::from(frame.pop_int()? as u16);
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
                 {
@@ -7057,12 +7064,12 @@ pub fn execute_class(
                             length: fields.len(),
                         });
                     }
-                    fields[idx_val as usize].as_int()? as i16 as i32
+                    i32::from(fields[idx_val as usize].as_int()? as i16)
                 };
                 frame.push(Slot::Int(v))?;
             }
             Instruction::Sastore => {
-                let val = frame.pop_int()? as i16 as i32;
+                let val = i32::from(frame.pop_int()? as i16);
                 let idx_val = frame.pop_int()?;
                 let r = frame.pop_ref()?;
                 {
@@ -7336,10 +7343,10 @@ pub fn execute_class(
                     let (recipe, constants) = {
                         let ctx = registry.get(&current_class)?;
                         let cp = &ctx.constant_pool;
-                        let recipe = if !bsm_args.is_empty() {
-                            resolve_cp_string(cp, bsm_args[0].0 as usize)?
-                        } else {
+                        let recipe = if bsm_args.is_empty() {
                             String::new()
+                        } else {
+                            resolve_cp_string(cp, bsm_args[0].0 as usize)?
                         };
                         let mut consts = Vec::new();
                         for arg_idx in bsm_args.iter().skip(1) {
@@ -7908,10 +7915,7 @@ pub fn execute_class(
             }
 
             // ---- monitor (no-op, single-threaded) ----
-            Instruction::Monitorenter => {
-                let _obj = frame.pop()?;
-            }
-            Instruction::Monitorexit => {
+            Instruction::Monitorenter | Instruction::Monitorexit => {
                 let _obj = frame.pop()?;
             }
 
@@ -7952,6 +7956,8 @@ struct CallFrame {
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
+#[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
     use duke_classfile::access_flags::FieldAccessFlags;
@@ -8217,7 +8223,7 @@ fn find_exception_handler(
 }
 
 /// Walk the class hierarchy to find a method by name and descriptor.
-/// Returns (class_name_where_found, method_index) or None.
+/// Returns `(class_name_where_found, method_index)` or `None`.
 fn resolve_method_in_hierarchy(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -8242,7 +8248,7 @@ fn resolve_method_in_hierarchy(
                     return Some((current, idx));
                 }
                 match &ctx.super_class {
-                    Some(s) => current = s.clone(),
+                    Some(s) => current.clone_from(s),
                     None => return None,
                 }
             }
@@ -8251,17 +8257,19 @@ fn resolve_method_in_hierarchy(
     }
 }
 
-/// Resolve a constant pool Methodref to (class_name, method_name, descriptor).
+/// Resolve a constant pool Methodref to (`class_name`, `method_name`, `descriptor`).
 fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
-        Some(CpEntry::Methodref {
-            class_index,
-            name_and_type_index,
-        })
-        | Some(CpEntry::InterfaceMethodref {
-            class_index,
-            name_and_type_index,
-        }) => {
+        Some(
+            CpEntry::Methodref {
+                class_index,
+                name_and_type_index,
+            }
+            | CpEntry::InterfaceMethodref {
+                class_index,
+                name_and_type_index,
+            },
+        ) => {
             let class_name = match cp.get(class_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
@@ -8296,10 +8304,7 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor
-        .find(')')
-        .map(|i| &descriptor[1..i])
-        .unwrap_or("");
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8335,7 +8340,7 @@ fn parse_arg_count(descriptor: &str) -> usize {
     count
 }
 
-/// Resolve a constant pool Fieldref to (class_name, field_name, descriptor).
+/// Resolve a constant pool Fieldref to (`class_name`, `field_name`, descriptor).
 fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Fieldref {
@@ -8374,7 +8379,7 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
     }
 }
 
-/// Resolve a MethodHandle CP entry to (reference_kind, class_name, method_name, descriptor).
+/// Resolve a `MethodHandle` CP entry to (`reference_kind`, `class_name`, `method_name`, descriptor).
 fn resolve_method_handle(
     cp: &[Option<CpEntry>],
     cp_idx: usize,
@@ -8390,7 +8395,7 @@ fn resolve_method_handle(
     Ok((kind, class_name, method_name, descriptor))
 }
 
-/// Resolve a NameAndType CP entry to (name, descriptor).
+/// Resolve a `NameAndType` CP entry to (name, descriptor).
 fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(String, String)> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::NameAndType {
@@ -8438,10 +8443,7 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
-    let params = descriptor
-        .find(')')
-        .map(|i| &descriptor[1..i])
-        .unwrap_or("");
+    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8488,7 +8490,7 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
         Some('J') => Slot::Long(0),
         Some('F') => Slot::Float(0.0),
         Some('D') => Slot::Double(0.0),
-        Some('L') | Some('[') => Slot::Reference(None),
+        Some('L' | '[') => Slot::Reference(None),
         _ => Slot::Int(0), // I, Z, B, C, S
     }
 }
@@ -8577,7 +8579,7 @@ fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> V
     Err(VmError::InvalidFieldref { index: 0 })
 }
 
-/// Index of a named static field within ctx.static_fields.
+/// Index of a named static field within `ctx.static_fields`.
 fn static_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
     ctx.fields
         .iter()
@@ -8617,7 +8619,6 @@ fn native_sb_init_string(
     };
     let init_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => String::new(),
         _ => String::new(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8637,7 +8638,6 @@ fn native_sb_append_string(
     };
     let append_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) => "null".to_string(),
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8720,7 +8720,7 @@ fn native_sb_append_double(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        buf.push_str(&val.to_string());
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8746,7 +8746,7 @@ fn native_sb_append_float(
     };
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&format!("{val}"));
+        buf.push_str(&val.to_string());
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -8783,7 +8783,7 @@ fn native_sb_append_char(
         _ => return Err(VmError::NullPointerException),
     };
     let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32(*v as u32).unwrap_or('\0'),
+        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
         _ => '\0',
     };
     let obj = heap.get_mut(this_ref)?;
@@ -8823,7 +8823,7 @@ fn native_sb_length(
         .string_value
         .as_ref()
         .map_or(0, String::len);
-    Ok(Some(Slot::Int(len as i32)))
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(i32::MAX))))
 }
 
 // Character natives
@@ -8832,7 +8832,7 @@ fn native_sb_length(
 /// Helper: extract a `char` from a `Slot::Int` argument.
 fn slot_to_char(slot: &Slot) -> VmResult<char> {
     match slot {
-        Slot::Int(v) => Ok(char::from_u32(*v as u32).unwrap_or('\0')),
+        Slot::Int(v) => Ok(char::from_u32((*v).cast_unsigned()).unwrap_or('\0')),
         _ => Err(VmError::TypeMismatch {
             expected: "Int (char)",
             got: "other",
@@ -9015,12 +9015,14 @@ fn native_arraylist_get(
         }
     };
     let obj = heap.get(this_ref)?;
-    match obj.fields.get(idx + 1) {
-        Some(slot) => Ok(Some(*slot)),
-        None => Err(VmError::JavaException {
-            class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
-        }),
-    }
+    obj.fields.get(idx + 1).map_or_else(
+        || {
+            Err(VmError::JavaException {
+                class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
+            })
+        },
+        |slot| Ok(Some(*slot)),
+    )
 }
 
 /// Native: `ArrayList.size()I`
@@ -9040,7 +9042,7 @@ fn native_arraylist_size(
     }
 }
 
-/// Native: `ArrayList.iterator()Iterator` — creates an ArrayListIterator.
+/// Native: `ArrayList.iterator()Iterator` — creates an `ArrayListIterator`.
 fn native_arraylist_iterator(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -9084,7 +9086,7 @@ fn array_list_sort(
 
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => return Ok(None),
     };
@@ -9126,7 +9128,7 @@ fn array_list_sort(
             // Guarded by `has_pending_forwards` so the common (no-GC) path pays
             // only one bool check instead of O(n) HashMap probes.
             if heap.has_pending_forwards() {
-                for elem in elems.iter_mut() {
+                for elem in &mut elems {
                     let mut slot = Slot::Reference(Some(*elem));
                     heap.apply_forward(&mut slot);
                     if let Slot::Reference(Some(r)) = slot {
@@ -9205,7 +9207,8 @@ fn native_collections_sort(
 // ArrayListIterator natives
 // ---------------------------------------------------------------------------
 
-/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by native_arraylist_iterator.
+/// Native: `ArrayListIterator.<init>` — no-op; fields set directly by `native_arraylist_iterator`.
+#[allow(clippy::unnecessary_wraps)]
 fn native_arraylist_iter_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9281,6 +9284,7 @@ fn native_arraylist_iter_next(
 // ---- Double.isNaN ----
 
 /// Native: `Double.isNaN(D)Z` — returns 1 if value is NaN.
+#[allow(clippy::unnecessary_wraps)]
 fn native_double_isnan(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -9371,7 +9375,7 @@ fn native_arrays_copyof_int(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9395,7 +9399,7 @@ fn native_arrays_copyof_object(
         _ => return Err(VmError::NullPointerException),
     };
     let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => *n as usize,
+        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
         _ => 0,
     };
@@ -9430,7 +9434,7 @@ fn native_arrays_sort_int(
 // HashMap natives
 // ---------------------------------------------------------------------------
 
-/// Semantic equality for HashMap keys: compares by string_value for heap strings,
+/// Semantic equality for `HashMap` keys: compares by `string_value` for heap strings,
 /// or by the first field (e.g. intValue) for boxed numerics, or by reference identity.
 fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     match (a, b) {
@@ -9439,14 +9443,8 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             if ra == rb {
                 return true;
             }
-            let oa = match heap.get(*ra) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
-            let ob = match heap.get(*rb) {
-                Ok(o) => o,
-                Err(_) => return false,
-            };
+            let Ok(oa) = heap.get(*ra) else { return false };
+            let Ok(ob) = heap.get(*rb) else { return false };
             if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
                 return oa.string_value == ob.string_value;
             }
@@ -9822,7 +9820,7 @@ fn patch_forwarded_slots(
         }
     }
     for ctx in registry.all_classes_mut() {
-        for slot in ctx.static_fields.iter_mut() {
+        for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
         }
     }
@@ -9848,6 +9846,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_callback_can_be_looked_up() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_cb(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -9866,6 +9865,7 @@ mod tests {
 
     #[test]
     fn native_registry_register_simple_stays_simple() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -11110,6 +11110,7 @@ mod tests {
 
     #[test]
     fn native_registry_stores_and_retrieves() {
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy_handler(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -13752,7 +13753,7 @@ mod tests {
 
     // ---- Phase 19: Enum integration tests ----
 
-    /// Helper that loads a class, calls bootstrap_stdlib, and runs a static method.
+    /// Helper that loads a class, calls `bootstrap_stdlib`, and runs a static method.
     fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();
@@ -14391,7 +14392,7 @@ mod tests {
         let fib = run_bootstrap_int("BenchmarkSuite.class", "benchFib", "()I");
         assert_eq!(fib, 75025);
         // benchSum overflows i32: sum(0..499999) = 124999750000 → wraps to 445698416
-        assert_eq!(sum, 445698416_i32);
+        assert_eq!(sum, 445_698_416_i32);
     }
 
     #[cfg(feature = "telemetry")]
@@ -14847,13 +14848,13 @@ mod tests {
     /// `LambdaCallbackTest.capturedLengthViaMethodRef("hello")` compiles to:
     ///
     ///   invokedynamic … get:(Ljava/lang/String;)LLambdaCallbackTest$IntSupplier;
-    ///   // creates $$Lambda$0 with impl_class="java/lang/String",
-    ///   //   impl_method="length", impl_kind=5 (REF_invokeVirtual),
-    ///   //   captured_count=1 (the string "hello")
+    ///   // creates `$$Lambda$0` with `impl_class`="java/lang/String",
+    ///   //   `impl_method`="length", `impl_kind`=5 (`REF_invokeVirtual`),
+    ///   //   `captured_count`=1 (the string "hello")
     ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
-    ///   // → lambda SAM: impl_kind==5, resolve_method_in_hierarchy returns None
+    ///   // → lambda SAM: `impl_kind`==5, `resolve_method_in_hierarchy` returns None
     ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   registry.natives.get_kind("java/lang/String", "length", "()I")
+    ///   //   `registry.natives.get_kind`("java/lang/String", "length", "()I")
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14902,7 +14903,8 @@ mod tests {
                     Slot::Reference(Some(r)) => *r,
                     _ => return Err(VmError::NullPointerException),
                 };
-                let len = heap.get(r)?.string_value.as_deref().unwrap_or("").len() as i32;
+                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len())
+                    .unwrap_or(i32::MAX);
                 Ok(Some(Slot::Int(len)))
             },
         );
@@ -15551,7 +15553,7 @@ mod tests {
 
     #[test]
     fn class_registry_natives_returns_registry() {
-        let mut reg = ClassRegistry::new();
+        #[allow(clippy::unnecessary_wraps)]
         fn dummy(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -15559,6 +15561,7 @@ mod tests {
         ) -> VmResult<Option<Slot>> {
             Ok(Some(Slot::Int(99)))
         }
+        let mut reg = ClassRegistry::new();
         reg.natives_mut().register("C", "m", "()I", dummy);
         assert!(
             reg.natives().get_kind("C", "m", "()I").is_some(),
@@ -18888,8 +18891,9 @@ mod tests {
     // (Distinct from execute() tests; kills mutants in execute_class body.)
     // ===========================================================================
 
-    /// Run an instruction stream directly through execute_class() using a
-    /// synthetic ClassContext, killing mutants in the execute_class() switch body.
+    /// Run an instruction stream directly through `execute_class()` using a
+    /// synthetic `ClassContext`, killing mutants in the `execute_class()` switch body.
+    #[allow(clippy::needless_pass_by_value)]
     fn execute_class_synthetic(
         instructions: Vec<(usize, Instruction)>,
         args: Vec<Slot>,
@@ -22960,7 +22964,7 @@ mod tests {
         // LdcW → Pop (discards) → Iconst1 → Ireturn
         // With Utf8 arm deletion: LdcW errors → test fails → caught
         let pc_to_idx: std::collections::HashMap<usize, usize> =
-            [(0, 0), (3, 1), (4, 2), (5, 3)].iter().cloned().collect();
+            [(0, 0), (3, 1), (4, 2), (5, 3)].iter().copied().collect();
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
@@ -23023,7 +23027,7 @@ mod tests {
         // LdcW(Class) → Pop → Iconst1 → Ireturn
         // With Utf8 arm deletion in LdcW Class branch: class_info=None → ldc_push with Class entry → InvalidCpIndex
         let pc_to_idx: std::collections::HashMap<usize, usize> =
-            [(0, 0), (3, 1), (4, 2), (5, 3)].iter().cloned().collect();
+            [(0, 0), (3, 1), (4, 2), (5, 3)].iter().copied().collect();
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
@@ -23071,6 +23075,7 @@ mod tests {
 
     // ---- init_object_fields (lines 8497,8513,8516,8518,8522) ----
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn ec_new_initialises_reference_field_to_null() {
         // Class "RefBox" with: 1 static int field + 2 instance fields (int then reference).

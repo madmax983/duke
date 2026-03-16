@@ -431,7 +431,7 @@ mod tests {
         })
         .clamp(1, 8);
         let data = &val.to_be_bytes()[8 - bytes_needed..];
-        let mut v = vec![(kind << 3) | (bytes_needed as u8 - 1)];
+        let mut v = vec![(kind << 3) | (u8::try_from(bytes_needed).unwrap_or(8) - 1)];
         v.extend_from_slice(data);
         v
     }
@@ -463,7 +463,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Construct a test data array: string table followed by location entries.
-    /// Returns (data, locs_offset, locs_size, str_offset).
+    /// Returns (data, `locs_offset`, `locs_size`, `str_offset`).
     fn make_build_index_data(locs: &[u8]) -> (Vec<u8>, usize, usize, usize) {
         // String table: "\0mod\0Foo\0"
         //   idx=0: '' (empty)

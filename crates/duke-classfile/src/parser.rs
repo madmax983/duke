@@ -39,7 +39,6 @@ impl<'a> Cursor<'a> {
         self.data.len() - self.pos
     }
 
-
     fn read_u8(&mut self) -> ParseResult<u8> {
         if self.pos >= self.data.len() {
             return Err(ParseError::UnexpectedEof { offset: self.pos });
