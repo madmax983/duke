@@ -10875,6 +10875,28 @@ mod tests {
     }
 
     #[test]
+    fn test_native_double_isnan() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let res = native_double_isnan(&[Slot::Double(f64::NAN)], &mut heap, &mut out).unwrap();
+        assert_eq!(res, Some(Slot::Int(1)));
+
+        let res2 = native_double_isnan(&[Slot::Double(42.0)], &mut heap, &mut out).unwrap();
+        assert_eq!(res2, Some(Slot::Int(0)));
+
+        let res3 = native_double_isnan(&[], &mut heap, &mut out).unwrap();
+        assert_eq!(res3, Some(Slot::Int(0)));
+    }
+
+    #[test]
+    fn test_native_arraylist_iter_init() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let res = native_arraylist_iter_init(&[], &mut heap, &mut out).unwrap();
+        assert_eq!(res, None);
+    }
+
+    #[test]
     fn string_intern() {
         let result = run_class_int("StringAndTypes.class", "stringIntern", "()I", vec![]);
         assert_eq!(result, 1);
