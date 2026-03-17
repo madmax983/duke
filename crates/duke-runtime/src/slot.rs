@@ -137,4 +137,73 @@ mod tests {
         assert_eq!(Slot::Reference(Some(1)).type_name(), "reference");
         assert_eq!(Slot::ReturnAddress(0).type_name(), "returnAddress");
     }
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn as_methods_return_expected_type_or_mismatch_error() {
+        let variants = vec![
+            Slot::Int(42),
+            Slot::Long(42),
+            Slot::Float(42.0),
+            Slot::Double(42.0),
+            Slot::Reference(Some(42)),
+            Slot::ReturnAddress(42),
+        ];
+
+        for variant in variants {
+            let type_name = variant.type_name();
+
+            // as_int
+            if matches!(variant, Slot::Int(_)) {
+                assert_eq!(variant.as_int().unwrap(), 42);
+            } else {
+                assert_eq!(
+                    variant.as_int().unwrap_err(),
+                    VmError::TypeMismatch {
+                        expected: "int",
+                        got: type_name,
+                    }
+                );
+            }
+
+            // as_long
+            if matches!(variant, Slot::Long(_)) {
+                assert_eq!(variant.as_long().unwrap(), 42);
+            } else {
+                assert_eq!(
+                    variant.as_long().unwrap_err(),
+                    VmError::TypeMismatch {
+                        expected: "long",
+                        got: type_name,
+                    }
+                );
+            }
+
+            // as_float
+            if matches!(variant, Slot::Float(_)) {
+                assert_eq!(variant.as_float().unwrap(), 42.0);
+            } else {
+                assert_eq!(
+                    variant.as_float().unwrap_err(),
+                    VmError::TypeMismatch {
+                        expected: "float",
+                        got: type_name,
+                    }
+                );
+            }
+
+            // as_double
+            if matches!(variant, Slot::Double(_)) {
+                assert_eq!(variant.as_double().unwrap(), 42.0);
+            } else {
+                assert_eq!(
+                    variant.as_double().unwrap_err(),
+                    VmError::TypeMismatch {
+                        expected: "double",
+                        got: type_name,
+                    }
+                );
+            }
+        }
+    }
 }
