@@ -538,6 +538,113 @@ impl Heap {
     pub const fn free_list_len(&self) -> usize {
         self.old_free_list.len() + self.young_dropped
     }
+
+    /// Export the heap as a Mermaid graph.
+    ///
+    /// The output is a `graph TD` diagram with nodes representing objects
+    /// and directed edges representing object references in fields.
+    #[must_use]
+    pub fn to_mermaid(&self) -> String {
+        let mut out = String::new();
+        out.push_str("graph TD\n");
+
+        out.push_str("  subgraph Young Generation\n");
+        for (i, opt) in self.young.iter().enumerate() {
+            if let Some(obj) = opt {
+                out.push_str(&Self::format_mermaid_node(i as u64, obj));
+            }
+        }
+        out.push_str("  end\n");
+
+        out.push_str("  subgraph Old Generation\n");
+        for (i, opt) in self.old.iter().enumerate() {
+            if let Some(obj) = opt {
+                out.push_str(&Self::format_mermaid_node((i as u64) | OLD_BIT, obj));
+            }
+        }
+        out.push_str("  end\n");
+
+        // Edges
+        for (i, opt) in self.young.iter().enumerate() {
+            if let Some(obj) = opt {
+                Self::format_mermaid_edges(&mut out, i as u64, obj);
+            }
+        }
+        for (i, opt) in self.old.iter().enumerate() {
+            if let Some(obj) = opt {
+                Self::format_mermaid_edges(&mut out, (i as u64) | OLD_BIT, obj);
+            }
+        }
+
+        out
+    }
+
+    #[allow(clippy::cast_sign_loss)]
+    fn format_mermaid_node(r: u64, obj: &HeapObject) -> String {
+        use std::fmt::Write;
+        let mut label = obj.class_name.clone();
+        if let Some(s) = &obj.string_value {
+            let _ = write!(label, "<br/>\\\"{s}\\\"");
+        } else {
+            match obj.class_name.as_str() {
+                "java/lang/Integer" => {
+                    if let Some(Slot::Int(v)) = obj.fields.first() {
+                        let _ = write!(label, "<br/>{v}");
+                    }
+                }
+                "java/lang/Long" => {
+                    if let Some(Slot::Long(v)) = obj.fields.first() {
+                        let _ = write!(label, "<br/>{v}L");
+                    }
+                }
+                "java/lang/Float" => {
+                    if let Some(Slot::Float(v)) = obj.fields.first() {
+                        let _ = write!(label, "<br/>{v}f");
+                    }
+                }
+                "java/lang/Double" => {
+                    if let Some(Slot::Double(v)) = obj.fields.first() {
+                        let _ = write!(label, "<br/>{v}d");
+                    }
+                }
+                "java/lang/Boolean" => {
+                    if let Some(Slot::Int(v)) = obj.fields.first() {
+                        let _ = write!(
+                            label,
+                            "{}",
+                            if *v != 0 { "<br/>true" } else { "<br/>false" }
+                        );
+                    }
+                }
+                "java/lang/Character" =>
+                {
+                    #[allow(clippy::cast_sign_loss)]
+                    if let Some(Slot::Int(v)) = obj.fields.first() {
+                        #[allow(clippy::collapsible_if)]
+                        if let Some(c) = char::from_u32(*v as u32) {
+                            let _ = write!(label, "<br/>'{c}'");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let safe_label = label
+            .replace('\"', "#quot;")
+            .replace('[', "&#91;")
+            .replace(']', "&#93;");
+        format!("    obj_{r}[\"{safe_label}\"]\n")
+    }
+
+    fn format_mermaid_edges(out: &mut String, r: u64, obj: &HeapObject) {
+        use std::fmt::Write;
+        for (i, field) in obj.fields.iter().enumerate() {
+            if let Slot::Reference(Some(target)) = field {
+                let _ = writeln!(out, "  obj_{r} -->|fields[{i}]| obj_{target}");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1371,5 +1478,25 @@ mod tests {
             "old[0] must be swept: the young ref in Parent's fields must not mark it"
         );
         assert!(heap.get(parent_ref).is_ok(), "Parent must survive");
+    }
+
+    #[test]
+    fn test_to_mermaid_generates_valid_graph() {
+        let mut heap = Heap::new();
+        // Allocate a few things
+        let _r0 = heap.allocate("java/lang/Object".to_string(), 0);
+        let r1 = heap.allocate("java/lang/String".to_string(), 0);
+        heap.get_mut(r1).unwrap().string_value = Some("hello".to_string());
+        let r2 = heap.allocate("Box".to_string(), 1);
+        heap.get_mut(r2).unwrap().fields[0] = Slot::Reference(Some(r1));
+
+        let mermaid = heap.to_mermaid();
+        assert!(mermaid.starts_with("graph TD\n"));
+        assert!(mermaid.contains("subgraph Young Generation"));
+        assert!(mermaid.contains("subgraph Old Generation"));
+        assert!(mermaid.contains("obj_0[\"java/lang/Object\"]"));
+        assert!(mermaid.contains("obj_1[\"java/lang/String<br/>\\#quot;hello\\#quot;\"]"));
+        assert!(mermaid.contains("obj_2[\"Box\"]"));
+        assert!(mermaid.contains("obj_2 -->|fields[0]| obj_1"));
     }
 }

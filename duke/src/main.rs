@@ -62,6 +62,28 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn Cla
     Box::new(DirectoryLoader::new(app_dir))
 }
 
+enum MermaidDest {
+    Stdout,
+    File(String),
+}
+
+/// Strip `--mermaid-heap[=path]` from `args` and return the configured destination.
+fn extract_mermaid_heap_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
+    let mut result = None;
+    args.retain(|arg| {
+        if arg == "--mermaid-heap" {
+            result = Some(MermaidDest::Stdout);
+            false
+        } else if let Some(path) = arg.strip_prefix("--mermaid-heap=") {
+            result = Some(MermaidDest::File(path.to_string()));
+            false
+        } else {
+            true
+        }
+    });
+    result
+}
+
 /// Strip `--telemetry[=path]` from `args` and return the configured destination.
 fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     let mut result = None;
@@ -82,6 +104,7 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);
+    let mermaid_heap = extract_mermaid_heap_flag(&mut args);
     let jdk_home = extract_jdk_flag(&mut args);
 
     if args.len() < 2 {
@@ -91,6 +114,7 @@ fn main() {
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
+        eprintln!("         --mermaid-heap[=path] dump heap Mermaid graph after execution");
         eprintln!("         --jdk=<path>        JDK home for loading real JDK classes");
         eprintln!("         (also reads JAVA_HOME env var)");
         process::exit(1);
@@ -104,13 +128,13 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..], telemetry, jdk_home.as_deref());
+        exec_method(&args[2..], telemetry, mermaid_heap, jdk_home.as_deref());
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..], telemetry, jdk_home.as_deref());
+        run_main(&args[2..], telemetry, mermaid_heap, jdk_home.as_deref());
         return;
     }
 
@@ -190,7 +214,12 @@ fn load_and_dump(class_name: &str) {
 /// `duke exec <classfile.class> <method> [int-arg...]`
 ///
 /// Parses and executes a static method, printing the return value.
-fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
+fn exec_method(
+    args: &[String],
+    telemetry: Option<TelemetryDest>,
+    mermaid_heap: Option<MermaidDest>,
+    jdk_home: Option<&str>,
+) {
     if args.len() < 2 {
         eprintln!("Usage: duke exec <classfile.class> <method> [int-arg...]");
         process::exit(1);
@@ -274,6 +303,17 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
         }
     };
     emit_telemetry(&registry, telemetry);
+    if let Some(dest) = mermaid_heap {
+        let out = heap.to_mermaid();
+        match dest {
+            MermaidDest::Stdout => println!("{out}"),
+            MermaidDest::File(path) => {
+                if let Err(e) = std::fs::write(&path, &out) {
+                    eprintln!("duke: failed to write mermaid to '{path}': {e}");
+                }
+            }
+        }
+    }
     if let Some(code) = exit_code {
         process::exit(code);
     }
@@ -286,7 +326,12 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
-fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<&str>) {
+fn run_main(
+    args: &[String],
+    telemetry: Option<TelemetryDest>,
+    mermaid_heap: Option<MermaidDest>,
+    jdk_home: Option<&str>,
+) {
     if args.is_empty() {
         eprintln!("Usage: duke run <classfile.class> [string-arg...]");
         process::exit(1);
@@ -347,6 +392,17 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<
         }
     };
     emit_telemetry(&registry, telemetry);
+    if let Some(dest) = mermaid_heap {
+        let out = heap.to_mermaid();
+        match dest {
+            MermaidDest::Stdout => println!("{out}"),
+            MermaidDest::File(path) => {
+                if let Err(e) = std::fs::write(&path, &out) {
+                    eprintln!("duke: failed to write mermaid to '{path}': {e}");
+                }
+            }
+        }
+    }
     if let Some(code) = exit_code {
         process::exit(code);
     }
