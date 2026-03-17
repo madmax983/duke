@@ -114,6 +114,17 @@ impl<'a> Cursor<'a> {
 ///
 /// Returns an error if the input is truncated, has an invalid magic number,
 /// an unsupported version, or any structural inconsistency.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::parse;
+///
+/// // Create a minimal but invalid class file (wrong magic)
+/// let bytes = [0x00, 0x00, 0x00, 0x00];
+/// let result = parse(&bytes);
+/// assert!(result.is_err());
+/// ```
 pub fn parse(bytes: &[u8]) -> ParseResult<ClassFile> {
     let mut cursor = Cursor::new(bytes);
     let mut class_file = parse_class_file(&mut cursor)?;
