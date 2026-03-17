@@ -62,6 +62,31 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn Cla
     Box::new(DirectoryLoader::new(app_dir))
 }
 
+#[derive(Debug, PartialEq)]
+#[allow(dead_code)]
+enum MermaidDest {
+    Stdout,
+    File(String),
+}
+
+/// Strip `--mermaid-heap[=path]` from `args` and return the configured destination.
+#[allow(dead_code)]
+fn extract_mermaid_heap_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
+    let mut result = None;
+    args.retain(|arg| {
+        if arg == "--mermaid-heap" {
+            result = Some(MermaidDest::Stdout);
+            false
+        } else if let Some(path) = arg.strip_prefix("--mermaid-heap=") {
+            result = Some(MermaidDest::File(path.to_string()));
+            false
+        } else {
+            true
+        }
+    });
+    result
+}
+
 /// Strip `--telemetry[=path]` from `args` and return the configured destination.
 fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     let mut result = None;
@@ -555,5 +580,42 @@ fn format_cp_entry(cf: &ClassFile, entry: &CpEntry) -> String {
             let name = cp_str(cf, *name_index).unwrap_or("?");
             format!("Package         #{} // {name}", name_index.0)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MermaidDest, extract_mermaid_heap_flag};
+
+    #[test]
+    fn test_extract_mermaid_heap_flag_none() {
+        let mut args = vec!["duke".to_string(), "run".to_string()];
+        let res = extract_mermaid_heap_flag(&mut args);
+        assert_eq!(res, None);
+        assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_mermaid_heap_flag_stdout() {
+        let mut args = vec![
+            "duke".to_string(),
+            "--mermaid-heap".to_string(),
+            "run".to_string(),
+        ];
+        let res = extract_mermaid_heap_flag(&mut args);
+        assert_eq!(res, Some(MermaidDest::Stdout));
+        assert_eq!(args.len(), 2); // the flag itself is removed
+    }
+
+    #[test]
+    fn test_extract_mermaid_heap_flag_file() {
+        let mut args = vec![
+            "duke".to_string(),
+            "--mermaid-heap=output.mmd".to_string(),
+            "run".to_string(),
+        ];
+        let res = extract_mermaid_heap_flag(&mut args);
+        assert_eq!(res, Some(MermaidDest::File("output.mmd".to_string())));
+        assert_eq!(args.len(), 2); // the flag itself is removed
     }
 }
