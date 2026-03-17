@@ -436,3 +436,109 @@ const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> Veri
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::instruction::ArrayType;
+
+    #[test]
+    fn test_stack_effect_coverage() {
+        assert_eq!(stack_effect(&Instruction::Nop), (0, 0));
+        assert_eq!(stack_effect(&Instruction::Lload0), (0, 1));
+        assert_eq!(stack_effect(&Instruction::Daload), (2, 1));
+        assert_eq!(stack_effect(&Instruction::Dstore0), (1, 0));
+        assert_eq!(stack_effect(&Instruction::Lastore), (3, 0));
+        assert_eq!(stack_effect(&Instruction::Pop2), (2, 0));
+        assert_eq!(stack_effect(&Instruction::Dup2X2), (4, 6));
+        assert_eq!(stack_effect(&Instruction::Swap), (2, 2));
+        assert_eq!(stack_effect(&Instruction::Iadd), (2, 1));
+        assert_eq!(stack_effect(&Instruction::Dneg), (1, 1));
+        assert_eq!(
+            stack_effect(&Instruction::Iinc { index: 0, value: 1 }),
+            (0, 0)
+        );
+        assert_eq!(stack_effect(&Instruction::I2l), (1, 1));
+        assert_eq!(stack_effect(&Instruction::Lcmp), (2, 1));
+        assert_eq!(stack_effect(&Instruction::Ifeq(0)), (1, 0));
+        assert_eq!(stack_effect(&Instruction::IfIcmpne(0)), (2, 0));
+        assert_eq!(stack_effect(&Instruction::Goto(0)), (0, 0));
+        assert_eq!(stack_effect(&Instruction::Jsr(0)), (0, 1));
+        assert_eq!(stack_effect(&Instruction::Ret(0)), (0, 0));
+        assert_eq!(stack_effect(&Instruction::Return), (0, 0));
+        assert_eq!(stack_effect(&Instruction::Ireturn), (1, 0));
+        assert_eq!(
+            stack_effect(&Instruction::Getstatic(duke_classfile::CpIndex(1))),
+            (0, 1)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Putstatic(duke_classfile::CpIndex(1))),
+            (1, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Getfield(duke_classfile::CpIndex(1))),
+            (1, 1)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Putfield(duke_classfile::CpIndex(1))),
+            (2, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Invokevirtual(duke_classfile::CpIndex(1))),
+            (1, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Invokestatic(duke_classfile::CpIndex(1))),
+            (0, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::New(duke_classfile::CpIndex(1))),
+            (0, 1)
+        );
+        assert_eq!(stack_effect(&Instruction::Newarray(ArrayType::Int)), (1, 1));
+        assert_eq!(
+            stack_effect(&Instruction::Multianewarray {
+                index: duke_classfile::CpIndex(1),
+                dimensions: 2
+            }),
+            (2, 1)
+        );
+        assert_eq!(stack_effect(&Instruction::Arraylength), (1, 1));
+        assert_eq!(stack_effect(&Instruction::Athrow), (1, 0));
+        assert_eq!(
+            stack_effect(&Instruction::Checkcast(duke_classfile::CpIndex(1))),
+            (1, 1)
+        );
+        assert_eq!(stack_effect(&Instruction::Monitorenter), (1, 0));
+    }
+
+    #[test]
+    fn test_verifier_athrow_resets_stack() {
+        let instructions = vec![
+            (0, Instruction::Iconst0),
+            (1, Instruction::Iconst0),
+            (2, Instruction::Athrow),
+            (3, Instruction::Return), // stack is 0 here after athrow
+        ];
+        // Athrow pops 1 but then stack is reset to 0
+        let res = verify(&instructions, 2, 0);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_verifier_local_oob() {
+        let instructions = vec![(0, Instruction::Iload(5)), (2, Instruction::Return)];
+        let res = verify(&instructions, 1, 5); // max locals is 5, index 5 is out of bounds
+        assert!(matches!(
+            res,
+            Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+        ));
+
+        let instructions_store = vec![(0, Instruction::IstoreW(10)), (3, Instruction::Return)];
+        let res = verify(&instructions_store, 1, 10);
+        assert!(matches!(
+            res,
+            Err(VerifyError::LocalOutOfBounds { index: 10, .. })
+        ));
+    }
+}

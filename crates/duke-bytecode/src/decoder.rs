@@ -447,3 +447,89 @@ fn decode_wide(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
     };
     Ok(instr)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decoder_truncated_operands() {
+        // Sipush needs 2 bytes, only 1 provided
+        let code = [op::SIPUSH, 0x01];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(err, DecodeError::UnexpectedEof { pc: 2 }));
+    }
+
+    #[test]
+    fn test_decoder_unknown_opcode() {
+        let code = [0xFF];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::UnknownOpcode {
+                pc: 0,
+                opcode: 0xFF
+            }
+        ));
+    }
+
+    #[test]
+    fn test_decoder_invalid_wide_prefix() {
+        // Wide followed by an invalid opcode (e.g. NOP)
+        let code = [op::WIDE, op::NOP];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidWideTarget {
+                pc: 0,
+                opcode: op::NOP
+            }
+        ));
+    }
+
+    #[test]
+    fn test_decoder_bad_array_type() {
+        let code = [op::NEWARRAY, 0xFF]; // 0xFF is not a valid ArrayType code
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidNewarrayType {
+                pc: 0,
+                type_code: 0xFF
+            }
+        ));
+    }
+
+    #[test]
+    fn test_decoder_invalid_tableswitch() {
+        // high < low
+        // tableswitch, padding(3), default(4), low(4), high(4)
+        let code = [
+            op::TABLESWITCH,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0, // default
+            0,
+            0,
+            0,
+            5, // low = 5
+            0,
+            0,
+            0,
+            1, // high = 1
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidTableswitch {
+                pc: 0,
+                low: 5,
+                high: 1
+            }
+        ));
+    }
+}
