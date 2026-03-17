@@ -58,13 +58,14 @@ impl Frame {
                 max_locals,
             });
         }
-        let mut locals = vec![Slot::Int(0); max_locals];
-        for (i, arg) in args.into_iter().enumerate() {
-            locals[i] = arg;
-        }
+        // ⚡ Bolt: Re-use the existing `args` vector for `locals` to avoid an allocation
+        // and explicit copy loop. `resize` extends it with zeroes if needed.
+        let mut locals = args;
+        locals.resize(max_locals, Slot::Int(0));
         Ok(Self {
             locals,
-            stack: Vec::new(),
+            // ⚡ Bolt: Pre-allocate `stack` capacity to avoid reallocations during execution.
+            stack: Vec::with_capacity(max_stack),
             max_stack,
         })
     }
