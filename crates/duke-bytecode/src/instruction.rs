@@ -556,3 +556,90 @@ impl Instruction {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_array_type_from_u8() {
+        assert_eq!(ArrayType::from_u8(4), Some(ArrayType::Boolean));
+        assert_eq!(ArrayType::from_u8(5), Some(ArrayType::Char));
+        assert_eq!(ArrayType::from_u8(6), Some(ArrayType::Float));
+        assert_eq!(ArrayType::from_u8(7), Some(ArrayType::Double));
+        assert_eq!(ArrayType::from_u8(8), Some(ArrayType::Byte));
+        assert_eq!(ArrayType::from_u8(9), Some(ArrayType::Short));
+        assert_eq!(ArrayType::from_u8(10), Some(ArrayType::Int));
+        assert_eq!(ArrayType::from_u8(11), Some(ArrayType::Long));
+        assert_eq!(ArrayType::from_u8(0), None);
+        assert_eq!(ArrayType::from_u8(12), None);
+    }
+
+    #[test]
+    fn test_instruction_mnemonics() {
+        // Just spot check a few major ones to ensure we don't crash
+        // and that they're populated. Table driven approach.
+        let cases = vec![
+            (Instruction::Nop, "nop"),
+            (Instruction::AconstNull, "aconst_null"),
+            (Instruction::IconstM1, "iconst_m1"),
+            (Instruction::Bipush(10), "bipush"),
+            (Instruction::Sipush(10), "sipush"),
+            (Instruction::Ldc(1), "ldc"),
+            (Instruction::Iload(1), "iload"),
+            (Instruction::Iload0, "iload_0"),
+            (Instruction::Laload, "laload"),
+            (Instruction::Istore(1), "istore"),
+            (Instruction::Istore0, "istore_0"),
+            (Instruction::Iastore, "iastore"),
+            (Instruction::Pop, "pop"),
+            (Instruction::Dup, "dup"),
+            (Instruction::Iadd, "iadd"),
+            (Instruction::Iinc { index: 1, value: 1 }, "iinc"),
+            (Instruction::I2l, "i2l"),
+            (Instruction::Lcmp, "lcmp"),
+            (Instruction::Ifeq(10), "ifeq"),
+            (Instruction::IfIcmpeq(10), "if_icmpeq"),
+            (Instruction::Goto(10), "goto"),
+            (
+                Instruction::Tableswitch {
+                    default: 0,
+                    low: 0,
+                    high: 0,
+                    offsets: vec![],
+                },
+                "tableswitch",
+            ),
+            (
+                Instruction::Lookupswitch {
+                    default: 0,
+                    pairs: vec![],
+                },
+                "lookupswitch",
+            ),
+            (Instruction::Ireturn, "ireturn"),
+            (Instruction::Return, "return"),
+            (Instruction::Getstatic(CpIndex(1)), "getstatic"),
+            (
+                Instruction::Invokeinterface {
+                    index: CpIndex(1),
+                    count: 1,
+                },
+                "invokeinterface",
+            ),
+            (Instruction::Newarray(ArrayType::Int), "newarray"),
+            (
+                Instruction::Multianewarray {
+                    index: CpIndex(1),
+                    dimensions: 1,
+                },
+                "multianewarray",
+            ),
+            (Instruction::IloadW(1), "wide iload"),
+        ];
+
+        for (instr, expected) in cases {
+            assert_eq!(instr.mnemonic(), expected);
+        }
+    }
+}
