@@ -21,6 +21,22 @@ impl BootstrapLoader {
     /// # Errors
     ///
     /// Returns [`LoadError`] if the jimage file cannot be opened.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, BootstrapLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// // In practice, `modules_path` points to a real JDK 21 `lib/modules` file.
+    /// // If the file is missing or invalid, it returns a LoadError.
+    /// let result = BootstrapLoader::new(
+    ///     &PathBuf::from("/invalid/path/to/lib/modules"),
+    ///     vec!["my_classes", "other_classes"]
+    /// );
+    ///
+    /// assert!(result.is_err());
+    /// ```
     pub fn new(modules_path: &Path, classpath_dirs: Vec<impl AsRef<Path>>) -> LoadResult<Self> {
         let jimage = JImageReader::open(modules_path)?;
         let classpath = classpath_dirs

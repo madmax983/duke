@@ -11,6 +11,23 @@ pub struct DirectoryLoader {
 }
 
 impl DirectoryLoader {
+    /// Creates a new `DirectoryLoader` rooted at the given directory.
+    ///
+    /// The loader will resolve internal class names (like `java/lang/Object`)
+    /// by searching for `{root}/java/lang/Object.class`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("my_classes"));
+    ///
+    /// // This will look for "my_classes/com/example/Main.class"
+    /// let _result = loader.find_class("com/example/Main");
+    /// ```
+    #[must_use]
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
