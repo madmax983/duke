@@ -1499,4 +1499,62 @@ mod tests {
         assert!(mermaid.contains("obj_2[\"Box\"]"));
         assert!(mermaid.contains("obj_2 -->|fields[0]| obj_1"));
     }
+
+    #[test]
+    #[allow(clippy::cast_possible_wrap)]
+    fn test_to_mermaid_primitive_wrappers() {
+        let mut heap = Heap::new();
+
+        let r_int = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(r_int).unwrap().fields[0] = Slot::Int(42);
+
+        let r_long = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(r_long).unwrap().fields[0] = Slot::Long(42);
+
+        let r_float = heap.allocate("java/lang/Float".to_string(), 1);
+        heap.get_mut(r_float).unwrap().fields[0] = Slot::Float(1.5);
+
+        let r_double = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(r_double).unwrap().fields[0] = Slot::Double(1.5);
+
+        let r_bool_t = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(r_bool_t).unwrap().fields[0] = Slot::Int(1);
+
+        let r_bool_f = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(r_bool_f).unwrap().fields[0] = Slot::Int(0);
+
+        let r_char = heap.allocate("java/lang/Character".to_string(), 1);
+        heap.get_mut(r_char).unwrap().fields[0] = Slot::Int('A' as u32 as i32);
+
+        let mermaid = heap.to_mermaid();
+
+        assert!(mermaid.contains("obj_0[\"java/lang/Integer<br/>42\"]"));
+        assert!(mermaid.contains("obj_1[\"java/lang/Long<br/>42L\"]"));
+        assert!(mermaid.contains("obj_2[\"java/lang/Float<br/>1.5f\"]"));
+        assert!(mermaid.contains("obj_3[\"java/lang/Double<br/>1.5d\"]"));
+        assert!(mermaid.contains("obj_4[\"java/lang/Boolean<br/>true\"]"));
+        assert!(mermaid.contains("obj_5[\"java/lang/Boolean<br/>false\"]"));
+        assert!(mermaid.contains("obj_6[\"java/lang/Character<br/>'A'\"]"));
+    }
+
+    #[test]
+    fn test_to_mermaid_old_gen() {
+        let mut heap = Heap::new();
+        // push an object into old gen manually
+        let obj = HeapObject {
+            class_name: "OldGuy".to_string(),
+            fields: vec![],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        };
+        heap.old.push(Some(obj));
+
+        let mermaid = heap.to_mermaid();
+        // Since OLD_BIT is 1 << 63, the old gen ref will be exactly that.
+        let r = OLD_BIT;
+        let expected = format!("obj_{r}[\"OldGuy\"]");
+        assert!(mermaid.contains(&expected));
+    }
 }
