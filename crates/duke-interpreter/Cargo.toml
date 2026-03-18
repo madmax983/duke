@@ -14,6 +14,7 @@ duke-telemetry = { path = "../duke-telemetry", optional = true }
 
 [features]
 telemetry = ["dep:duke-telemetry", "duke-telemetry/telemetry"]
+http = []
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

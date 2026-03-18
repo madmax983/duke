@@ -13,6 +13,9 @@ use duke_classfile::types::CpEntry;
 use duke_loader::ClassLoader;
 use duke_runtime::{Frame, Slot, VmError, VmResult};
 
+#[cfg(feature = "http")]
+mod http;
+
 /// A decoded method ready for execution.
 pub struct MethodEntry {
     pub name: String,
@@ -1601,6 +1604,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/List;)V",
         native_collections_sort,
     );
+
+    #[cfg(feature = "http")]
+    {
+        http::register(registry);
+    }
 }
 
 fn native_println_string(
