@@ -5306,7 +5306,9 @@ pub fn execute_class(
                         pc_to_idx = caller.pc_to_idx;
                         idx = caller.resume_idx;
                         current_class = caller.class_name;
-                        instructions = std::sync::Arc::clone(&registry.get(&current_class)?.methods[method_idx].instructions);
+                        instructions = std::sync::Arc::clone(
+                            &registry.get(&current_class)?.methods[method_idx].instructions,
+                        );
                         #[cfg(feature = "telemetry")]
                         {
                             current_method = registry
@@ -5379,7 +5381,9 @@ pub fn execute_class(
                     method_idx = callee_idx;
                     pc_to_idx = callee_pc_to_idx;
                     current_class = callee_class;
-                    instructions = std::sync::Arc::clone(&registry.get(&current_class)?.methods[method_idx].instructions);
+                    instructions = std::sync::Arc::clone(
+                        &registry.get(&current_class)?.methods[method_idx].instructions,
+                    );
                     #[cfg(feature = "telemetry")]
                     {
                         current_method = registry
@@ -5452,7 +5456,9 @@ pub fn execute_class(
                         method_idx = callee_idx;
                         pc_to_idx = callee_pc_to_idx;
                         current_class = callee_class;
-                        instructions = std::sync::Arc::clone(&registry.get(&current_class)?.methods[method_idx].instructions);
+                        instructions = std::sync::Arc::clone(
+                            &registry.get(&current_class)?.methods[method_idx].instructions,
+                        );
                         #[cfg(feature = "telemetry")]
                         {
                             current_method = registry
@@ -6422,7 +6428,9 @@ pub fn execute_class(
                     method_idx = callee_idx;
                     pc_to_idx = callee_pc_to_idx;
                     current_class = dispatch_class;
-                    instructions = std::sync::Arc::clone(&registry.get(&current_class)?.methods[method_idx].instructions);
+                    instructions = std::sync::Arc::clone(
+                        &registry.get(&current_class)?.methods[method_idx].instructions,
+                    );
                     #[cfg(feature = "telemetry")]
                     {
                         current_method = registry
@@ -6516,16 +6524,6 @@ pub fn execute_class(
                                         let pci =
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
-
-
-
-
-                                        if impl_args.len() > max_locals {
-                                            return Err(VmError::LocalOutOfBounds {
-                                                index: impl_args.len(),
-                                                max_locals,
-                                            });
-                                        }
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         for (i, slot) in impl_args.into_iter().enumerate() {
                                             locals_buf[i] = slot;
@@ -6545,6 +6543,10 @@ pub fn execute_class(
                                     method_idx = impl_idx;
                                     pc_to_idx = callee_pc_to_idx;
                                     current_class = dispatch_class;
+                                    instructions = std::sync::Arc::clone(
+                                        &registry.get(&current_class)?.methods[method_idx]
+                                            .instructions,
+                                    );
                                     #[cfg(feature = "telemetry")]
                                     {
                                         current_method = registry
@@ -6730,7 +6732,9 @@ pub fn execute_class(
                 method_idx = callee_idx;
                 pc_to_idx = callee_pc_to_idx;
                 current_class = dispatch_class;
-                instructions = std::sync::Arc::clone(&registry.get(&current_class)?.methods[method_idx].instructions);
+                instructions = std::sync::Arc::clone(
+                    &registry.get(&current_class)?.methods[method_idx].instructions,
+                );
                 #[cfg(feature = "telemetry")]
                 {
                     current_method = registry
@@ -7227,7 +7231,9 @@ pub fn execute_class(
                             method_idx = caller.method_idx;
                             pc_to_idx = caller.pc_to_idx;
                             current_class = caller.class_name;
-                            instructions = std::sync::Arc::clone(&registry.get(&current_class)?.methods[method_idx].instructions);
+                            instructions = std::sync::Arc::clone(
+                                &registry.get(&current_class)?.methods[method_idx].instructions,
+                            );
                             #[cfg(feature = "telemetry")]
                             {
                                 current_method = registry
@@ -7655,6 +7661,10 @@ pub fn execute_class(
                                         method_idx = impl_idx;
                                         pc_to_idx = callee_pc_to_idx;
                                         current_class = dispatch_class;
+                                        instructions = std::sync::Arc::clone(
+                                            &registry.get(&current_class)?.methods[method_idx]
+                                                .instructions,
+                                        );
                                         #[cfg(feature = "telemetry")]
                                         {
                                             current_method = registry
@@ -7710,6 +7720,10 @@ pub fn execute_class(
                                         method_idx = impl_idx;
                                         pc_to_idx = callee_pc_to_idx;
                                         current_class = dispatch_class;
+                                        instructions = std::sync::Arc::clone(
+                                            &registry.get(&current_class)?.methods[method_idx]
+                                                .instructions,
+                                        );
                                         #[cfg(feature = "telemetry")]
                                         {
                                             current_method = registry
@@ -7823,7 +7837,9 @@ pub fn execute_class(
                 method_idx = callee_idx;
                 pc_to_idx = callee_pc_to_idx;
                 current_class = dispatch_class;
-                instructions = std::sync::Arc::clone(&registry.get(&current_class)?.methods[method_idx].instructions);
+                instructions = std::sync::Arc::clone(
+                    &registry.get(&current_class)?.methods[method_idx].instructions,
+                );
                 #[cfg(feature = "telemetry")]
                 {
                     current_method = registry
@@ -22949,12 +22965,15 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
-            instructions: std::sync::Arc::from(vec![
-                (0, Instruction::LdcW(CpIndex(1))),
-                (3, Instruction::Pop),
-                (4, Instruction::Iconst1),
-                (5, Instruction::Ireturn),
-            ].into_boxed_slice()),
+            instructions: std::sync::Arc::from(
+                vec![
+                    (0, Instruction::LdcW(CpIndex(1))),
+                    (3, Instruction::Pop),
+                    (4, Instruction::Iconst1),
+                    (5, Instruction::Ireturn),
+                ]
+                .into_boxed_slice(),
+            ),
             max_stack: 4,
             max_locals: 0,
             exception_table: vec![],
@@ -23012,12 +23031,15 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
-            instructions: std::sync::Arc::from(vec![
-                (0, Instruction::LdcW(CpIndex(1))),
-                (3, Instruction::Pop),
-                (4, Instruction::Iconst1),
-                (5, Instruction::Ireturn),
-            ].into_boxed_slice()),
+            instructions: std::sync::Arc::from(
+                vec![
+                    (0, Instruction::LdcW(CpIndex(1))),
+                    (3, Instruction::Pop),
+                    (4, Instruction::Iconst1),
+                    (5, Instruction::Ireturn),
+                ]
+                .into_boxed_slice(),
+            ),
             max_stack: 4,
             max_locals: 0,
             exception_table: vec![],
