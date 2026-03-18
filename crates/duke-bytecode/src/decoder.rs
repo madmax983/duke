@@ -989,4 +989,72 @@ mod tests {
             }
         ));
     }
+
+    #[test]
+    fn test_decoder_tableswitch_too_many_entries() {
+        // count = high - low + 1 = 10 - 0 + 1 = 11, but only 4 bytes of offsets provided.
+        let code = [
+            op::TABLESWITCH,
+            0,
+            0,
+            0, // padding
+            0,
+            0,
+            0,
+            0, // default
+            0,
+            0,
+            0,
+            0, // low = 0
+            0,
+            0,
+            0,
+            10, // high = 10
+            0,
+            0,
+            0,
+            0, // 1 entry provided, need 11
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidTableswitch {
+                pc: 0,
+                low: 0,
+                high: 10
+            }
+        ));
+    }
+
+    #[test]
+    fn test_decoder_lookupswitch_too_many_pairs() {
+        // npairs = 10, but only 8 bytes of pairs provided.
+        let code = [
+            op::LOOKUPSWITCH,
+            0,
+            0,
+            0, // padding
+            0,
+            0,
+            0,
+            0, // default
+            0,
+            0,
+            0,
+            10, // npairs = 10
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0, // 1 pair provided, need 10
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidLookupswitch { pc: 0, npairs: 10 }
+        ));
+    }
 }
