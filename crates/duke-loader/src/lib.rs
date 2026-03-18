@@ -165,3 +165,6 @@ mod tests {
         assert_eq!(cf.major_version, 65);
     }
 }
+
+#[cfg(test)]
+mod proptest_open;

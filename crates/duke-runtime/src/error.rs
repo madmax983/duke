@@ -1,6 +1,18 @@
 use thiserror::Error;
 
 /// Runtime errors that can occur during JVM bytecode execution.
+///
+/// # Examples
+///
+/// ```
+/// use duke_runtime::VmError;
+///
+/// let err = VmError::NullPointerException;
+/// assert_eq!(err.to_string(), "null pointer dereference");
+///
+/// let err = VmError::DivisionByZero;
+/// assert_eq!(err.to_string(), "integer division by zero");
+/// ```
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum VmError {
     #[error("operand stack overflow")]
@@ -77,4 +89,21 @@ pub enum VmError {
 }
 
 /// Convenience alias for `Result<T, VmError>`.
+///
+/// # Examples
+///
+/// ```
+/// use duke_runtime::{VmError, VmResult};
+///
+/// fn might_fail(fail: bool) -> VmResult<i32> {
+///     if fail {
+///         Err(VmError::StackUnderflow)
+///     } else {
+///         Ok(42)
+///     }
+/// }
+///
+/// assert!(might_fail(true).is_err());
+/// assert_eq!(might_fail(false).unwrap(), 42);
+/// ```
 pub type VmResult<T> = Result<T, VmError>;

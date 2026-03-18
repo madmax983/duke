@@ -177,24 +177,21 @@ fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
 
     // interfaces
     let interfaces_count = c.read_u16()?;
-    let mut interfaces = Vec::with_capacity(interfaces_count as usize);
-    for _ in 0..interfaces_count {
-        interfaces.push(c.read_cp_index()?);
-    }
+    let interfaces: Vec<_> = (0..interfaces_count)
+        .map(|_| c.read_cp_index())
+        .collect::<ParseResult<_>>()?;
 
     // fields
     let fields_count = c.read_u16()?;
-    let mut fields = Vec::with_capacity(fields_count as usize);
-    for _ in 0..fields_count {
-        fields.push(parse_field(c, cp_len)?);
-    }
+    let fields: Vec<_> = (0..fields_count)
+        .map(|_| parse_field(c, cp_len))
+        .collect::<ParseResult<_>>()?;
 
     // methods
     let methods_count = c.read_u16()?;
-    let mut methods = Vec::with_capacity(methods_count as usize);
-    for _ in 0..methods_count {
-        methods.push(parse_method(c, cp_len)?);
-    }
+    let methods: Vec<_> = (0..methods_count)
+        .map(|_| parse_method(c, cp_len))
+        .collect::<ParseResult<_>>()?;
 
     // class-level attributes
     let attributes = parse_attributes(c, cp_len)?;
@@ -352,10 +349,9 @@ fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<MethodInfo> {
 
 fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<Vec<AttributeInfo>> {
     let count = c.read_u16()?;
-    let mut attrs = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        attrs.push(parse_attribute(c, cp_len)?);
-    }
+    let attrs: Vec<_> = (0..count)
+        .map(|_| parse_attribute(c, cp_len))
+        .collect::<ParseResult<_>>()?;
     Ok(attrs)
 }
 
@@ -420,54 +416,55 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
         "Code" => AttributeData::Code(parse_code_attribute(&mut c)?),
         "LineNumberTable" => {
             let len = c.read_u16()?;
-            let mut entries = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                entries.push(LineNumberEntry {
-                    start_pc: c.read_u16()?,
-                    line_number: c.read_u16()?,
-                });
-            }
+            let entries: Vec<_> = (0..len)
+                .map(|_| {
+                    Ok(LineNumberEntry {
+                        start_pc: c.read_u16()?,
+                        line_number: c.read_u16()?,
+                    })
+                })
+                .collect::<ParseResult<_>>()?;
             AttributeData::LineNumberTable(entries)
         }
         "LocalVariableTable" => {
             let len = c.read_u16()?;
-            let mut entries = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                entries.push(LocalVariableEntry {
-                    start_pc: c.read_u16()?,
-                    length: c.read_u16()?,
-                    name_index: c.read_cp_index()?,
-                    descriptor_index: c.read_cp_index()?,
-                    index: c.read_u16()?,
-                });
-            }
+            let entries: Vec<_> = (0..len)
+                .map(|_| {
+                    Ok(LocalVariableEntry {
+                        start_pc: c.read_u16()?,
+                        length: c.read_u16()?,
+                        name_index: c.read_cp_index()?,
+                        descriptor_index: c.read_cp_index()?,
+                        index: c.read_u16()?,
+                    })
+                })
+                .collect::<ParseResult<_>>()?;
             AttributeData::LocalVariableTable(entries)
         }
         "Exceptions" => {
             let num = c.read_u16()?;
-            let mut table = Vec::with_capacity(num as usize);
-            for _ in 0..num {
-                table.push(c.read_cp_index()?);
-            }
+            let table: Vec<_> = (0..num)
+                .map(|_| c.read_cp_index())
+                .collect::<ParseResult<_>>()?;
             AttributeData::Exceptions {
                 exception_index_table: table,
             }
         }
         "BootstrapMethods" => {
             let num = c.read_u16()?;
-            let mut entries = Vec::with_capacity(num as usize);
-            for _ in 0..num {
-                let method_ref = c.read_cp_index()?;
-                let num_args = c.read_u16()?;
-                let mut arguments = Vec::with_capacity(num_args as usize);
-                for _ in 0..num_args {
-                    arguments.push(c.read_cp_index()?);
-                }
-                entries.push(BootstrapMethodEntry {
-                    method_ref,
-                    arguments,
-                });
-            }
+            let entries: Vec<_> = (0..num)
+                .map(|_| {
+                    let method_ref = c.read_cp_index()?;
+                    let num_args = c.read_u16()?;
+                    let arguments: Vec<_> = (0..num_args)
+                        .map(|_| c.read_cp_index())
+                        .collect::<ParseResult<_>>()?;
+                    Ok(BootstrapMethodEntry {
+                        method_ref,
+                        arguments,
+                    })
+                })
+                .collect::<ParseResult<_>>()?;
             AttributeData::BootstrapMethods(entries)
         }
         _ => AttributeData::Raw(raw.to_vec()),
@@ -482,29 +479,31 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
     let code = c.read_bytes(code_len)?.to_vec();
 
     let ex_count = c.read_u16()?;
-    let mut exception_table = Vec::with_capacity(ex_count as usize);
-    for _ in 0..ex_count {
-        exception_table.push(ExceptionTableEntry {
-            start_pc: c.read_u16()?,
-            end_pc: c.read_u16()?,
-            handler_pc: c.read_u16()?,
-            catch_type: c.read_cp_index()?,
-        });
-    }
+    let exception_table: Vec<_> = (0..ex_count)
+        .map(|_| {
+            Ok(ExceptionTableEntry {
+                start_pc: c.read_u16()?,
+                end_pc: c.read_u16()?,
+                handler_pc: c.read_u16()?,
+                catch_type: c.read_cp_index()?,
+            })
+        })
+        .collect::<ParseResult<_>>()?;
 
     // Code sub-attributes (LineNumberTable etc.) — stored as Raw for now;
     // resolve_attributes will decode them.
     let attr_count = c.read_u16()?;
-    let mut attributes = Vec::with_capacity(attr_count as usize);
-    for _ in 0..attr_count {
-        let name_index = c.read_cp_index()?;
-        let attr_len = c.read_u32()? as usize;
-        let raw = c.read_bytes(attr_len)?.to_vec();
-        attributes.push(AttributeInfo {
-            name_index,
-            data: AttributeData::Raw(raw),
-        });
-    }
+    let attributes: Vec<_> = (0..attr_count)
+        .map(|_| {
+            let name_index = c.read_cp_index()?;
+            let attr_len = c.read_u32()? as usize;
+            let raw = c.read_bytes(attr_len)?.to_vec();
+            Ok(AttributeInfo {
+                name_index,
+                data: AttributeData::Raw(raw),
+            })
+        })
+        .collect::<ParseResult<_>>()?;
 
     Ok(CodeAttribute {
         max_stack,

@@ -68,6 +68,16 @@ pub struct ClassContext {
 /// Registry of loaded classes — maps class name to its `ClassContext`.
 ///
 /// Used by `execute_class` for cross-class method dispatch.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::ClassRegistry;
+///
+/// let registry = ClassRegistry::new();
+/// assert!(!registry.contains("java/lang/Object"));
+/// ```
+///
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
 #[derive(Debug, Clone)]
 struct LambdaInfo {
@@ -95,6 +105,16 @@ pub struct ClassRegistry {
 }
 
 impl ClassRegistry {
+    /// Creates a new empty class registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// assert!(!registry.contains("MyClass"));
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -131,12 +151,30 @@ impl ClassRegistry {
     }
 
     /// Access the native method registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let registry = ClassRegistry::new();
+    /// assert!(registry.natives().get("java/lang/System", "exit", "(I)V").is_none());
+    /// ```
     #[must_use]
     pub const fn natives(&self) -> &NativeRegistry {
         &self.natives
     }
 
     /// Access the native method registry mutably.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// // registry.natives_mut().register(...)
+    /// ```
     pub const fn natives_mut(&mut self) -> &mut NativeRegistry {
         &mut self.natives
     }
@@ -273,6 +311,15 @@ pub enum HandlerKind {
 /// Registry of native method implementations.
 ///
 /// Maps `"class_name\x00method_name\x00descriptor"` to a handler kind.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::NativeRegistry;
+///
+/// let mut natives = NativeRegistry::new();
+/// assert!(natives.get("java/lang/System", "exit", "(I)V").is_none());
+/// ```
 pub struct NativeRegistry {
     handlers: HashMap<String, HandlerKind>,
 }
@@ -293,6 +340,15 @@ fn make_key(class: &str, method: &str, desc: &str) -> String {
 }
 
 impl NativeRegistry {
+    /// Creates a new empty native registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::NativeRegistry;
+    ///
+    /// let natives = NativeRegistry::new();
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -8301,7 +8357,10 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
+    let params = descriptor
+        .strip_prefix('(')
+        .and_then(|s| s.split_once(')'))
+        .map_or("", |(p, _)| p);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8440,7 +8499,10 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
-    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
+    let params = descriptor
+        .strip_prefix('(')
+        .and_then(|s| s.split_once(')'))
+        .map_or("", |(p, _)| p);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -18024,6 +18086,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_arg_count_malformed() {
+        assert_eq!(parse_arg_count("invalid"), 0);
+        assert_eq!(parse_arg_count("("), 0);
+        assert_eq!(parse_arg_count(")"), 0);
+        assert_eq!(parse_arg_count("(I"), 0);
+    }
+
+    #[test]
     fn parse_arg_types_primitives() {
         assert_eq!(parse_arg_types("(I)V"), vec!['I']);
         assert_eq!(parse_arg_types("(IZB)V"), vec!['I', 'Z', 'B']);
@@ -18039,6 +18109,14 @@ mod tests {
             parse_arg_types("(ILjava/lang/String;[I)V"),
             vec!['I', 'L', '[']
         );
+    }
+
+    #[test]
+    fn parse_arg_types_malformed() {
+        assert_eq!(parse_arg_types("invalid"), vec![]);
+        assert_eq!(parse_arg_types("("), vec![]);
+        assert_eq!(parse_arg_types(")"), vec![]);
+        assert_eq!(parse_arg_types("(I"), vec![]);
     }
 
     // ===========================================================================
@@ -22690,6 +22768,22 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(r, Slot::Int(1));
+    }
+
+    // ---- parse_arg_count/parse_arg_types fuzzing ----
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn fuzz_parse_arg_count(ref s in "\\PC*") {
+            let _ = parse_arg_count(s);
+        }
+
+        #[test]
+        fn fuzz_parse_arg_types(ref s in "\\PC*") {
+            let _ = parse_arg_types(s);
+        }
     }
 
     // ---- parse_arg_count: array arm deletion (line 8295) ----

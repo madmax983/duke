@@ -27,6 +27,21 @@ const DEFAULT_YOUNG_CAPACITY: usize = 512;
 const DEFAULT_PROMOTION_AGE: u8 = 4;
 
 /// A single heap-allocated Java object.
+///
+/// # Examples
+///
+/// ```
+/// use duke_gc::HeapObject;
+/// use duke_runtime::Slot;
+///
+/// // Usually created via `Heap::allocate`
+/// let mut heap = duke_gc::Heap::new();
+/// let obj_ref = heap.allocate("java/lang/Object".to_string(), 1);
+///
+/// let obj = heap.get_mut(obj_ref).unwrap();
+/// obj.fields[0] = Slot::Int(42);
+/// assert_eq!(obj.class_name, "java/lang/Object");
+/// ```
 #[derive(Debug, Clone)]
 pub struct HeapObject {
     pub class_name: String,
@@ -50,6 +65,21 @@ pub struct HeapObject {
 ///
 /// Young-gen refs: `r & OLD_BIT == 0`  → index into `young`
 /// Old-gen refs:   `r & OLD_BIT != 0`  → index `(r & !OLD_BIT)` into `old`
+///
+/// # Examples
+///
+/// ```
+/// use duke_gc::Heap;
+/// use duke_runtime::Slot;
+///
+/// let mut heap = Heap::new();
+/// let obj_ref = heap.allocate("MyClass".to_string(), 2);
+///
+/// let obj = heap.get_mut(obj_ref).unwrap();
+/// obj.fields[0] = Slot::Int(42);
+///
+/// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
+/// ```
 #[derive(Debug, Default)]
 pub struct Heap {
     // ── Young generation ────────────────────────────────────────────────────
@@ -102,6 +132,15 @@ pub struct Heap {
 }
 
 impl Heap {
+    /// Creates a new heap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    /// let heap = Heap::new();
+    /// assert!(heap.is_empty());
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -139,6 +178,16 @@ impl Heap {
     }
 
     /// Allocate a new object in the young generation. Returns a young-gen reference.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let r = heap.allocate("java/lang/Object".to_string(), 0);
+    /// assert_eq!(heap.get(r).unwrap().class_name, "java/lang/Object");
+    /// ```
     pub fn allocate(&mut self, class_name: String, field_count: usize) -> u64 {
         self.alloc_since_gc += 1;
         self.live_count += 1;
@@ -150,6 +199,16 @@ impl Heap {
     }
 
     /// Allocate a new String object in the young generation. Returns a young-gen reference.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let r = heap.allocate_string("Hello".to_string());
+    /// assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("Hello"));
+    /// ```
     pub fn allocate_string(&mut self, value: String) -> u64 {
         self.alloc_since_gc += 1;
         self.live_count += 1;
@@ -184,6 +243,16 @@ impl Heap {
     /// # Panics
     /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
     /// cannot happen on 64-bit targets since heap indices are always small.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let obj_ref = heap.allocate("MyClass".to_string(), 0);
+    /// assert_eq!(heap.get(obj_ref).unwrap().class_name, "MyClass");
+    /// ```
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -208,6 +277,17 @@ impl Heap {
     /// # Panics
     /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
     /// cannot happen on 64-bit targets since heap indices are always small.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    /// use duke_runtime::Slot;
+    ///
+    /// let mut heap = Heap::new();
+    /// let obj_ref = heap.allocate("MyClass".to_string(), 1);
+    /// heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(123);
+    /// ```
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
@@ -227,11 +307,32 @@ impl Heap {
     // ── Heap stats ───────────────────────────────────────────────────────────
 
     /// Returns the total number of live objects across both generations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// assert_eq!(heap.len(), 0);
+    /// heap.allocate("MyClass".to_string(), 0);
+    /// assert_eq!(heap.len(), 1);
+    /// ```
     #[must_use]
     pub const fn len(&self) -> usize {
         self.live_count
     }
 
+    /// Returns whether the heap is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let heap = Heap::new();
+    /// assert!(heap.is_empty());
+    /// ```
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.live_count == 0
@@ -284,6 +385,18 @@ impl Heap {
     ///
     /// # Errors
     /// Returns [`VmError::InvalidRef`] if `obj_ref` is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    /// use duke_runtime::Slot;
+    ///
+    /// let mut heap = Heap::new();
+    /// let obj_ref = heap.allocate("Box".to_string(), 1);
+    /// heap.write_field(obj_ref, 0, Slot::Int(42)).unwrap();
+    /// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
+    /// ```
     pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> VmResult<()> {
         if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
             self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
