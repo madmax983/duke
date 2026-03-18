@@ -9,7 +9,7 @@ use std::collections::HashSet;
 #[cfg(feature = "telemetry")]
 mod ser_helpers {
     #[cfg(feature = "telemetry")]
-use std::collections::HashMap;
+    use std::collections::HashMap;
 
     use serde::Serialize;
 
