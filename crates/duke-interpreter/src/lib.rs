@@ -8267,8 +8267,7 @@ fn parse_arg_count(descriptor: &str) -> usize {
     let params = descriptor
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
-        .map(|(p, _)| p)
-        .unwrap_or("");
+        .map_or("", |(p, _)| p);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8410,8 +8409,7 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
     let params = descriptor
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
-        .map(|(p, _)| p)
-        .unwrap_or("");
+        .map_or("", |(p, _)| p);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
