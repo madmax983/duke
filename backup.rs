@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 // -- Serialization helpers for tuple-keyed HashMaps ------------------------------
 // serde_json requires map keys to be strings. These helpers format tuple keys
@@ -71,35 +70,30 @@ pub struct OpcodeStat {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct BytecodeCostStore {
     /// Count/time per opcode name (e.g. "invokestatic", "iadd").
-    #[cfg(feature = "telemetry")]
     pub by_opcode: HashMap<&'static str, OpcodeStat>,
     /// Count/time per bytecode site: (`class_name`, `method_name`, pc).
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
-    #[cfg(feature = "telemetry")]
     pub by_site: HashMap<(String, String, usize), OpcodeStat>,
 }
 
 impl BytecodeCostStore {
     pub fn record(
         &mut self,
-        #[allow(unused_variables)] name: &'static str,
-        #[allow(unused_variables)] class: &str,
-        #[allow(unused_variables)] method: &str,
-        #[allow(unused_variables)] pc: usize,
-        #[allow(unused_variables)] elapsed_ns: u64,
+        name: &'static str,
+        class: &str,
+        method: &str,
+        pc: usize,
+        elapsed_ns: u64,
     ) {
-        #[cfg(feature = "telemetry")]
-        {
-            let op = self.by_opcode.entry(name).or_default();
-            op.count += 1;
-            op.total_ns += elapsed_ns;
-            let site = self
-                .by_site
-                .entry((class.to_string(), method.to_string(), pc))
-                .or_default();
-            site.count += 1;
-            site.total_ns += elapsed_ns;
-        }
+        let op = self.by_opcode.entry(name).or_default();
+        op.count += 1;
+        op.total_ns += elapsed_ns;
+        let site = self
+            .by_site
+            .entry((class.to_string(), method.to_string(), pc))
+            .or_default();
+        site.count += 1;
+        site.total_ns += elapsed_ns;
     }
 }
 
@@ -117,29 +111,25 @@ pub struct AllocationSite {
 pub struct ObjectLineageStore {
     /// Key: (`allocating_class`, `allocating_method`, pc).
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
-    #[cfg(feature = "telemetry")]
     pub sites: HashMap<(String, String, usize), AllocationSite>,
 }
 
 impl ObjectLineageStore {
     pub fn record(
         &mut self,
-        #[allow(unused_variables)] allocating_class: &str,
-        #[allow(unused_variables)] method: &str,
-        #[allow(unused_variables)] pc: usize,
-        #[allow(unused_variables)] class_allocated: &str,
+        allocating_class: &str,
+        method: &str,
+        pc: usize,
+        class_allocated: &str,
     ) {
-        #[cfg(feature = "telemetry")]
-        {
-            let site = self
-                .sites
-                .entry((allocating_class.to_string(), method.to_string(), pc))
-                .or_insert_with(|| AllocationSite {
-                    class_allocated: class_allocated.to_string(),
-                    count: 0,
-                });
-            site.count += 1;
-        }
+        let site = self
+            .sites
+            .entry((allocating_class.to_string(), method.to_string(), pc))
+            .or_insert_with(|| AllocationSite {
+                class_allocated: class_allocated.to_string(),
+                count: 0,
+            });
+        site.count += 1;
     }
 }
 
@@ -157,25 +147,16 @@ pub struct ClinitEvent {
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ClassInitDagStore {
-    #[cfg(feature = "telemetry")]
     pub events: Vec<ClinitEvent>,
 }
 
 impl ClassInitDagStore {
-    pub fn record(
-        &mut self,
-        #[allow(unused_variables)] class: &str,
-        #[allow(unused_variables)] triggered_by: &str,
-        #[allow(unused_variables)] duration_ns: u64,
-    ) {
-        #[cfg(feature = "telemetry")]
-        {
-            self.events.push(ClinitEvent {
-                class: class.to_string(),
-                triggered_by: triggered_by.to_string(),
-                duration_ns,
-            });
-        }
+    pub fn record(&mut self, class: &str, triggered_by: &str, duration_ns: u64) {
+        self.events.push(ClinitEvent {
+            class: class.to_string(),
+            triggered_by: triggered_by.to_string(),
+            duration_ns,
+        });
     }
 }
 
@@ -196,7 +177,6 @@ pub struct ExceptionEvent {
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ExceptionFlowStore {
-    #[cfg(feature = "telemetry")]
     pub events: Vec<ExceptionEvent>,
 }
 
@@ -204,43 +184,33 @@ impl ExceptionFlowStore {
     /// Record a new throw. Returns the index of this event for subsequent `record_catch`.
     pub fn record_throw(
         &mut self,
-        #[allow(unused_variables)] exception_class: &str,
-        #[allow(unused_variables)] throw_class: &str,
-        #[allow(unused_variables)] throw_method: &str,
-        #[allow(unused_variables)] throw_pc: usize,
+        exception_class: &str,
+        throw_class: &str,
+        throw_method: &str,
+        throw_pc: usize,
     ) -> usize {
-        #[cfg(feature = "telemetry")]
-        {
-            self.events.push(ExceptionEvent {
-                exception_class: exception_class.to_string(),
-                throw_site: (throw_class.to_string(), throw_method.to_string(), throw_pc),
-                catch_site: None,
-                rethrows: 0,
-            });
-            self.events.len() - 1
-        }
-        #[cfg(not(feature = "telemetry"))]
-        {
-            0
-        }
+        self.events.push(ExceptionEvent {
+            exception_class: exception_class.to_string(),
+            throw_site: (throw_class.to_string(), throw_method.to_string(), throw_pc),
+            catch_site: None,
+            rethrows: 0,
+        });
+        self.events.len() - 1
     }
 
     pub fn record_catch(
         &mut self,
-        #[allow(unused_variables)] event_idx: usize,
-        #[allow(unused_variables)] catch_class: &str,
-        #[allow(unused_variables)] catch_method: &str,
-        #[allow(unused_variables)] handler_pc: usize,
+        event_idx: usize,
+        catch_class: &str,
+        catch_method: &str,
+        handler_pc: usize,
     ) {
-        #[cfg(feature = "telemetry")]
-        {
-            if let Some(ev) = self.events.get_mut(event_idx) {
-                ev.catch_site = Some((
-                    catch_class.to_string(),
-                    catch_method.to_string(),
-                    handler_pc,
-                ));
-            }
+        if let Some(ev) = self.events.get_mut(event_idx) {
+            ev.catch_site = Some((
+                catch_class.to_string(),
+                catch_method.to_string(),
+                handler_pc,
+            ));
         }
     }
 }
@@ -269,31 +239,27 @@ pub struct DispatchResolutionStore {
         feature = "telemetry",
         serde(serialize_with = "ser_helpers::site2_u16")
     )]
-    #[cfg(feature = "telemetry")]
     pub by_site: HashMap<(String, u16), DispatchStat>,
 }
 
 impl DispatchResolutionStore {
     pub fn record(
         &mut self,
-        #[allow(unused_variables)] caller_class: &str,
-        #[allow(unused_variables)] cp_idx: u16,
-        #[allow(unused_variables)] resolved_class: &str,
-        #[allow(unused_variables)] hierarchy_walk: bool,
+        caller_class: &str,
+        cp_idx: u16,
+        resolved_class: &str,
+        hierarchy_walk: bool,
     ) {
-        #[cfg(feature = "telemetry")]
-        {
-            let stat = self
-                .by_site
-                .entry((caller_class.to_string(), cp_idx))
-                .or_default();
-            stat.calls += 1;
-            if !stat.unique_targets.contains(resolved_class) {
-                stat.unique_targets.insert(resolved_class.to_string());
-            }
-            if hierarchy_walk {
-                stat.hierarchy_walks += 1;
-            }
+        let stat = self
+            .by_site
+            .entry((caller_class.to_string(), cp_idx))
+            .or_default();
+        stat.calls += 1;
+        if !stat.unique_targets.contains(resolved_class) {
+            stat.unique_targets.insert(resolved_class.to_string());
+        }
+        if hierarchy_walk {
+            stat.hierarchy_walks += 1;
         }
     }
 }
@@ -313,29 +279,19 @@ pub struct NativeStat {
 pub struct NativeBoundaryStore {
     /// Key: (`class_name`, `method_name`).
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::pair_str"))]
-    #[cfg(feature = "telemetry")]
     pub by_method: HashMap<(String, String), NativeStat>,
 }
 
 impl NativeBoundaryStore {
-    pub fn record_call(
-        &mut self,
-        #[allow(unused_variables)] class: &str,
-        #[allow(unused_variables)] method: &str,
-        #[allow(unused_variables)] elapsed_ns: u64,
-        #[allow(unused_variables)] is_err: bool,
-    ) {
-        #[cfg(feature = "telemetry")]
-        {
-            let stat = self
-                .by_method
-                .entry((class.to_string(), method.to_string()))
-                .or_default();
-            stat.calls += 1;
-            stat.total_ns += elapsed_ns;
-            if is_err {
-                stat.errors += 1;
-            }
+    pub fn record_call(&mut self, class: &str, method: &str, elapsed_ns: u64, is_err: bool) {
+        let stat = self
+            .by_method
+            .entry((class.to_string(), method.to_string()))
+            .or_default();
+        stat.calls += 1;
+        stat.total_ns += elapsed_ns;
+        if is_err {
+            stat.errors += 1;
         }
     }
 }
@@ -455,7 +411,6 @@ impl TelemetryStore {
 }
 
 #[cfg(test)]
-#[cfg(feature = "telemetry")]
 mod tests {
     use super::*;
 

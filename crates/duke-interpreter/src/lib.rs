@@ -100,7 +100,6 @@ pub struct ClassRegistry {
     lambdas: HashMap<String, LambdaInfo>,
     /// Monotonic counter for generating unique lambda class names.
     lambda_counter: u64,
-    #[cfg(feature = "telemetry")]
     pub telemetry: duke_telemetry::TelemetryStore,
 }
 
@@ -123,7 +122,6 @@ impl ClassRegistry {
             initialized: HashSet::new(),
             lambdas: HashMap::new(),
             lambda_counter: 0,
-            #[cfg(feature = "telemetry")]
             telemetry: duke_telemetry::TelemetryStore::default(),
         }
     }
@@ -5000,7 +4998,6 @@ fn ensure_initialized(
 
     if has_clinit {
         // Run <clinit> by calling it through execute_class.
-        #[cfg(feature = "telemetry")]
         #[allow(clippy::used_underscore_binding)]
         let _clinit_start = std::time::Instant::now();
         execute_class(
@@ -5013,7 +5010,6 @@ fn ensure_initialized(
             "()V",
             &[],
         )?;
-        #[cfg(feature = "telemetry")]
         registry.telemetry.class_init_dag.record(
             class_name,
             _triggered_by,
@@ -5057,7 +5053,6 @@ impl FramePool {
     }
 }
 
-#[cfg(feature = "telemetry")]
 #[allow(clippy::too_many_lines)]
 const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     use duke_bytecode::Instruction as I;
@@ -5300,7 +5295,6 @@ pub fn execute_class(
     ensure_initialized(registry, loader, heap, stdout, class_name, "")?;
 
     let mut current_class = class_name.to_string();
-    #[cfg(feature = "telemetry")]
     let mut current_method = method_name.to_string();
     let mut call_stack: Vec<CallFrame> = Vec::new();
     let mut frame_pool = FramePool::new();
@@ -5365,7 +5359,6 @@ pub fn execute_class(
                         instructions = std::sync::Arc::clone(
                             &registry.get(&current_class)?.methods[method_idx].instructions,
                         );
-                        #[cfg(feature = "telemetry")]
                         {
                             current_method = registry
                                 .get(&current_class)
@@ -5389,7 +5382,6 @@ pub fn execute_class(
         // Telemetry: capture opcode name and start time before dispatch.
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
-        #[cfg(feature = "telemetry")]
         #[allow(clippy::used_underscore_binding)]
         let (_telem_name, _telem_pc, _telem_start) = {
             let name = instr_name(&instr);
@@ -5440,7 +5432,6 @@ pub fn execute_class(
                     instructions = std::sync::Arc::clone(
                         &registry.get(&current_class)?.methods[method_idx].instructions,
                     );
-                    #[cfg(feature = "telemetry")]
                     {
                         current_method = registry
                             .get(&current_class)
@@ -5515,7 +5506,6 @@ pub fn execute_class(
                         instructions = std::sync::Arc::clone(
                             &registry.get(&current_class)?.methods[method_idx].instructions,
                         );
-                        #[cfg(feature = "telemetry")]
                         {
                             current_method = registry
                                 .get(&current_class)
@@ -5543,10 +5533,8 @@ pub fn execute_class(
                                     .map(|_| frame.pop())
                                     .collect::<VmResult<Vec<_>>>()?;
                                 native_args.reverse();
-                                #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
-                                #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
@@ -5566,11 +5554,9 @@ pub fn execute_class(
                                     .map(|_| frame.pop())
                                     .collect::<VmResult<Vec<_>>>()?;
                                 native_args.reverse();
-                                #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut invoke_cb = create_invoke_cb!(registry, loader);
                                 let result = handler(&native_args, heap, stdout, &mut invoke_cb);
-                                #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
                                     &callee_name,
@@ -6359,7 +6345,6 @@ pub fn execute_class(
                     }
                     count
                 };
-                #[cfg(feature = "telemetry")]
                 registry.telemetry.object_lineage.record(
                     &current_class,
                     &current_method,
@@ -6487,7 +6472,6 @@ pub fn execute_class(
                     instructions = std::sync::Arc::clone(
                         &registry.get(&current_class)?.methods[method_idx].instructions,
                     );
-                    #[cfg(feature = "telemetry")]
                     {
                         current_method = registry
                             .get(&current_class)
@@ -6603,7 +6587,6 @@ pub fn execute_class(
                                         &registry.get(&current_class)?.methods[method_idx]
                                             .instructions,
                                     );
-                                    #[cfg(feature = "telemetry")]
                                     {
                                         current_method = registry
                                             .get(&current_class)
@@ -6661,10 +6644,8 @@ pub fn execute_class(
                                 native_args.reverse();
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
-                                #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
-                                #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
@@ -6698,11 +6679,9 @@ pub fn execute_class(
                                 native_args.reverse();
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
-                                #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut invoke_cb = create_invoke_cb!(registry, loader);
                                 let result = handler(&native_args, heap, stdout, &mut invoke_cb);
-                                #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
                                         &callee_class,
@@ -6747,7 +6726,6 @@ pub fn execute_class(
                         .or_default()
                         .insert(cp_idx.0, (dispatch_class.clone(), callee_idx, arg_count));
                 }
-                #[cfg(feature = "telemetry")]
                 if matches!(instr, Instruction::Invokevirtual(_)) {
                     registry.telemetry.dispatch_resolution.record(
                         &current_class,
@@ -6791,7 +6769,6 @@ pub fn execute_class(
                 instructions = std::sync::Arc::clone(
                     &registry.get(&current_class)?.methods[method_idx].instructions,
                 );
-                #[cfg(feature = "telemetry")]
                 {
                     current_method = registry
                         .get(&current_class)
@@ -7230,7 +7207,6 @@ pub fn execute_class(
                 let exception_ref = frame.pop_ref()?;
                 let exc_class_name = heap.get(exception_ref)?.class_name.clone();
 
-                #[cfg(feature = "telemetry")]
                 let _telem_exc_event_idx = registry.telemetry.exception_flow.record_throw(
                     &exc_class_name,
                     &current_class,
@@ -7253,7 +7229,6 @@ pub fn execute_class(
                 let handler =
                     find_exception_handler(&exc_table, pc, &exc_class_name, registry, loader);
                 if let Some(handler_pc) = handler {
-                    #[cfg(feature = "telemetry")]
                     registry.telemetry.exception_flow.record_catch(
                         _telem_exc_event_idx,
                         &current_class,
@@ -7290,7 +7265,6 @@ pub fn execute_class(
                             instructions = std::sync::Arc::clone(
                                 &registry.get(&current_class)?.methods[method_idx].instructions,
                             );
-                            #[cfg(feature = "telemetry")]
                             {
                                 current_method = registry
                                     .get(&current_class)
@@ -7332,7 +7306,6 @@ pub fn execute_class(
                             );
 
                             if let Some(handler_pc) = handler {
-                                #[cfg(feature = "telemetry")]
                                 registry.telemetry.exception_flow.record_catch(
                                     _telem_exc_event_idx,
                                     &current_class,
@@ -7590,10 +7563,8 @@ pub fn execute_class(
                                     callee_args.reverse();
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
-                                    #[cfg(feature = "telemetry")]
                                     let _native_start = std::time::Instant::now();
                                     let result = handler(&callee_args, heap, stdout);
-                                    #[cfg(feature = "telemetry")]
                                     {
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
@@ -7624,12 +7595,10 @@ pub fn execute_class(
                                     callee_args.reverse();
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
-                                    #[cfg(feature = "telemetry")]
                                     let _native_start = std::time::Instant::now();
                                     let mut invoke_cb = create_invoke_cb!(registry, loader);
                                     let result =
                                         handler(&callee_args, heap, stdout, &mut invoke_cb);
-                                    #[cfg(feature = "telemetry")]
                                     {
                                         registry.telemetry.native_boundary.record_call(
                                             &callee_class,
@@ -7721,7 +7690,6 @@ pub fn execute_class(
                                             &registry.get(&current_class)?.methods[method_idx]
                                                 .instructions,
                                         );
-                                        #[cfg(feature = "telemetry")]
                                         {
                                             current_method = registry
                                                 .get(&current_class)
@@ -7780,7 +7748,6 @@ pub fn execute_class(
                                             &registry.get(&current_class)?.methods[method_idx]
                                                 .instructions,
                                         );
-                                        #[cfg(feature = "telemetry")]
                                         {
                                             current_method = registry
                                                 .get(&current_class)
@@ -7803,10 +7770,8 @@ pub fn execute_class(
                                     );
                                     match lambda_native_kind {
                                         Some(HandlerKind::Simple(handler)) => {
-                                            #[cfg(feature = "telemetry")]
                                             let _native_start = std::time::Instant::now();
                                             let result = handler(&impl_args, heap, stdout);
-                                            #[cfg(feature = "telemetry")]
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
@@ -7821,12 +7786,10 @@ pub fn execute_class(
                                             continue;
                                         }
                                         Some(HandlerKind::Callback(handler)) => {
-                                            #[cfg(feature = "telemetry")]
                                             let _native_start = std::time::Instant::now();
                                             let mut invoke_cb = create_invoke_cb!(registry, loader);
                                             let result =
                                                 handler(&impl_args, heap, stdout, &mut invoke_cb);
-                                            #[cfg(feature = "telemetry")]
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
                                                 &lambda_info.impl_method,
@@ -7854,7 +7817,6 @@ pub fn execute_class(
                 };
 
                 // Bytecode execution path — Pattern B: pop directly into locals_buf.
-                #[cfg(feature = "telemetry")]
                 registry.telemetry.dispatch_resolution.record(
                     &current_class,
                     cp_idx.0,
@@ -7896,7 +7858,6 @@ pub fn execute_class(
                 instructions = std::sync::Arc::clone(
                     &registry.get(&current_class)?.methods[method_idx].instructions,
                 );
-                #[cfg(feature = "telemetry")]
                 {
                     current_method = registry
                         .get(&current_class)
@@ -7979,7 +7940,6 @@ pub fn execute_class(
             }
         }
 
-        #[cfg(feature = "telemetry")]
         {
             let elapsed = _telem_start.elapsed().as_nanos() as u64;
             registry.telemetry.bytecode_cost.record(
