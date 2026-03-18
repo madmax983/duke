@@ -68,6 +68,16 @@ pub struct ClassContext {
 /// Registry of loaded classes — maps class name to its `ClassContext`.
 ///
 /// Used by `execute_class` for cross-class method dispatch.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::ClassRegistry;
+///
+/// let registry = ClassRegistry::new();
+/// assert!(!registry.contains("java/lang/Object"));
+/// ```
+///
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
 #[derive(Debug, Clone)]
 struct LambdaInfo {
@@ -95,6 +105,16 @@ pub struct ClassRegistry {
 }
 
 impl ClassRegistry {
+    /// Creates a new empty class registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// assert!(!registry.contains("MyClass"));
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -131,12 +151,30 @@ impl ClassRegistry {
     }
 
     /// Access the native method registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let registry = ClassRegistry::new();
+    /// assert!(registry.natives().get("java/lang/System", "exit", "(I)V").is_none());
+    /// ```
     #[must_use]
     pub const fn natives(&self) -> &NativeRegistry {
         &self.natives
     }
 
     /// Access the native method registry mutably.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// // registry.natives_mut().register(...)
+    /// ```
     pub const fn natives_mut(&mut self) -> &mut NativeRegistry {
         &mut self.natives
     }
@@ -273,6 +311,15 @@ pub enum HandlerKind {
 /// Registry of native method implementations.
 ///
 /// Maps `"class_name\x00method_name\x00descriptor"` to a handler kind.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::NativeRegistry;
+///
+/// let mut natives = NativeRegistry::new();
+/// assert!(natives.get("java/lang/System", "exit", "(I)V").is_none());
+/// ```
 pub struct NativeRegistry {
     handlers: HashMap<String, HandlerKind>,
 }
@@ -293,6 +340,15 @@ fn make_key(class: &str, method: &str, desc: &str) -> String {
 }
 
 impl NativeRegistry {
+    /// Creates a new empty native registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::NativeRegistry;
+    ///
+    /// let natives = NativeRegistry::new();
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self {
