@@ -256,6 +256,7 @@ dependencies = [
  "duke-loader",
  "duke-runtime",
  "duke-telemetry",
+ "proptest",
 ]
 
 [[package]]
