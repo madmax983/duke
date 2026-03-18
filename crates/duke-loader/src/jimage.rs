@@ -94,6 +94,20 @@ impl JImageReader {
     ///
     /// Returns [`LoadError::Io`] if the file cannot be read, or
     /// [`LoadError::JImageFormat`] if the file is not a valid jimage.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    /// use duke_loader::JImageReader;
+    ///
+    /// // Example of opening a potentially non-existent JDK `lib/modules` file.
+    /// // In production, this path comes from the `JAVA_HOME` environment variable.
+    /// let result = JImageReader::open(Path::new("/usr/lib/jvm/java-21-openjdk/lib/modules"));
+    ///
+    /// // It will gracefully return an Io error if the file is not found.
+    /// assert!(result.is_err());
+    /// ```
     pub fn open(path: &Path) -> LoadResult<Self> {
         let data = std::fs::read(path).map_err(|e| LoadError::Io {
             path: path.display().to_string(),
