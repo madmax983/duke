@@ -1,0 +1,4 @@
+📖 Chapter: The `duke-runtime` and `duke-loader` error modules.
+🔦 Insight: Explained the runtime execution state concepts (Frame, Slot) at the module level. Clarified exactly what each variant of `LoadError` means and when it might be encountered by a user.
+🧪 Example: N/A for these specific changes (error enum variants and module docs).
+🖼️ Preview: N/A
