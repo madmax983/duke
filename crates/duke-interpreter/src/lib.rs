@@ -17993,6 +17993,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_arg_count_malformed() {
+        assert_eq!(parse_arg_count("invalid"), 0);
+        assert_eq!(parse_arg_count("("), 0);
+        assert_eq!(parse_arg_count(")"), 0);
+        assert_eq!(parse_arg_count("(I"), 0);
+    }
+
+    #[test]
     fn parse_arg_types_primitives() {
         assert_eq!(parse_arg_types("(I)V"), vec!['I']);
         assert_eq!(parse_arg_types("(IZB)V"), vec!['I', 'Z', 'B']);
@@ -18008,6 +18016,14 @@ mod tests {
             parse_arg_types("(ILjava/lang/String;[I)V"),
             vec!['I', 'L', '[']
         );
+    }
+
+    #[test]
+    fn parse_arg_types_malformed() {
+        assert_eq!(parse_arg_types("invalid"), vec![]);
+        assert_eq!(parse_arg_types("("), vec![]);
+        assert_eq!(parse_arg_types(")"), vec![]);
+        assert_eq!(parse_arg_types("(I"), vec![]);
     }
 
     // ===========================================================================
