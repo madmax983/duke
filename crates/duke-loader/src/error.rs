@@ -17,11 +17,11 @@ pub enum LoadError {
         source: std::io::Error,
     },
 
-    /// The JImage (`modules`) container format is invalid or corrupted.
+    /// The `JImage` (`modules`) container format is invalid or corrupted.
     #[error("jimage format error: {msg}")]
     JImageFormat { msg: String },
 
-    /// A resource inside the JImage container failed to decompress.
+    /// A resource inside the `JImage` container failed to decompress.
     #[error("jimage decompression error for '{name}'")]
     Decompress { name: String },
 }

@@ -1,9 +1,9 @@
 //! `duke-runtime` — Execution state primitives for the Duke JVM.
 //!
 //! This crate provides the foundational data structures required for JVM execution:
-//! - [`Frame`]: The execution state for a single method invocation (operand stack, local variables).
-//! - [`Slot`]: The unit of data storage in the JVM (representing variables like `int`, `float`, or references).
-//! - [`VmError`]: The canonical error type for runtime failures (e.g., `StackOverflow`, `NullPointerException`).
+//! - [`crate::frame::Frame`]: The execution state for a single method invocation (operand stack, local variables).
+//! - [`crate::slot::Slot`]: The unit of data storage in the JVM (representing variables like `int`, `float`, or references).
+//! - [`crate::error::VmError`]: The canonical error type for runtime failures (e.g., `StackOverflow`, `NullPointerException`).
 //!
 //! These types are entirely decoupled from the actual bytecode instruction set, ensuring that
 //! memory and execution state semantics are strictly isolated from the decoding and interpretation logic.
