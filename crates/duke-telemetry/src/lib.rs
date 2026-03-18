@@ -82,7 +82,7 @@ pub struct BytecodeCostStore {
 }
 
 impl BytecodeCostStore {
-    pub fn record(
+    pub const fn record(
         &mut self,
         #[allow(unused_variables)] name: &'static str,
         #[allow(unused_variables)] class: &str,
@@ -124,7 +124,7 @@ pub struct ObjectLineageStore {
 }
 
 impl ObjectLineageStore {
-    pub fn record(
+    pub const fn record(
         &mut self,
         #[allow(unused_variables)] allocating_class: &str,
         #[allow(unused_variables)] method: &str,
@@ -164,7 +164,7 @@ pub struct ClassInitDagStore {
 }
 
 impl ClassInitDagStore {
-    pub fn record(
+    pub const fn record(
         &mut self,
         #[allow(unused_variables)] class: &str,
         #[allow(unused_variables)] triggered_by: &str,
@@ -204,7 +204,7 @@ pub struct ExceptionFlowStore {
 
 impl ExceptionFlowStore {
     /// Record a new throw. Returns the index of this event for subsequent `record_catch`.
-    pub fn record_throw(
+    pub const fn record_throw(
         &mut self,
         #[allow(unused_variables)] exception_class: &str,
         #[allow(unused_variables)] throw_class: &str,
@@ -227,7 +227,7 @@ impl ExceptionFlowStore {
         }
     }
 
-    pub fn record_catch(
+    pub const fn record_catch(
         &mut self,
         #[allow(unused_variables)] event_idx: usize,
         #[allow(unused_variables)] catch_class: &str,
@@ -276,7 +276,7 @@ pub struct DispatchResolutionStore {
 }
 
 impl DispatchResolutionStore {
-    pub fn record(
+    pub const fn record(
         &mut self,
         #[allow(unused_variables)] caller_class: &str,
         #[allow(unused_variables)] cp_idx: u16,
@@ -320,7 +320,7 @@ pub struct NativeBoundaryStore {
 }
 
 impl NativeBoundaryStore {
-    pub fn record_call(
+    pub const fn record_call(
         &mut self,
         #[allow(unused_variables)] class: &str,
         #[allow(unused_variables)] method: &str,
