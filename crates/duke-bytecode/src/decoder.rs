@@ -19,7 +19,10 @@ use duke_classfile::CpIndex;
 /// Never panics.
 pub fn decode(code: &[u8]) -> DecodeResult<Vec<(usize, Instruction)>> {
     let mut cursor = Cursor::new(code);
-    let mut instructions = Vec::new();
+    // ⚡ Bolt: Pre-allocate capacity for the decoded instructions vector to avoid
+    // multiple reallocations during parsing. A heuristic of 3 bytes per instruction
+    // provides a good balance between memory overhead and allocation avoidance.
+    let mut instructions = Vec::with_capacity(code.len() / 3);
 
     while cursor.has_remaining() {
         let pc = cursor.pos;
