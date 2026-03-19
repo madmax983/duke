@@ -9588,11 +9588,9 @@ fn native_hashmap_get(
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
 
-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
-        Ok(Some(fields[i + 1]))
-    } else {
-        Ok(Some(Slot::Reference(None)))
-    }
+    Ok(Some(
+        find_hashmap_entry_index(&fields, &key, heap).map_or(Slot::Reference(None), |i| fields[i + 1]),
+    ))
 }
 
 /// Native: `HashMap.containsKey(Object)Z` — returns 1 if key present, 0 otherwise.
@@ -9694,11 +9692,9 @@ fn native_hashmap_get_or_default(
     let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
 
-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
-        Ok(Some(fields[i + 1]))
-    } else {
-        Ok(Some(default))
-    }
+    Ok(Some(
+        find_hashmap_entry_index(&fields, &key, heap).map_or(default, |i| fields[i + 1]),
+    ))
 }
 
 // ---------------------------------------------------------------------------
