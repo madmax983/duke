@@ -1,3 +1,40 @@
+//! Duke VM Telemetry subsystem.
+//!
+//! This module provides the [`TelemetryStore`] and its constituent channels for
+//! recording and analyzing the runtime behavior of the Duke Java Virtual Machine.
+//!
+//! Telemetry is divided into six independent channels, each focusing on a different
+//! aspect of VM execution:
+//!
+//! - **Bytecode Cost** ([`BytecodeCostStore`]): Tracks execution frequency and cumulative
+//!   time spent in each JVM opcode, both globally and per-call-site.
+//! - **Object Lineage** ([`ObjectLineageStore`]): Records which methods are allocating
+//!   which classes, providing insight into memory pressure hot-spots.
+//! - **Class Initialization** ([`ClassInitDagStore`]): Builds a Directed Acyclic Graph (DAG)
+//!   of `<clinit>` executions, tracking triggers and durations to diagnose slow startup.
+//! - **Exception Flow** ([`ExceptionFlowStore`]): Traces the lifecycle of thrown exceptions,
+//!   including their throw sites, catch sites, and the number of times they were rethrown.
+//! - **Dispatch Resolution** ([`DispatchResolutionStore`]): Analyzes `invokevirtual` and
+//!   `invokeinterface` calls to track receiver polymorphism (megamorphic call sites) and
+//!   superclass hierarchy walk overhead.
+//! - **Native Boundary** ([`NativeBoundaryStore`]): Measures the frequency, duration, and
+//!   error rates of transitions into JNI or intrinsic native methods.
+//!
+//! # Examples
+//!
+//! ```
+//! use duke_telemetry::TelemetryStore;
+//!
+//! let mut store = TelemetryStore::default();
+//!
+//! // Record a hypothetical allocation of java/lang/String
+//! store.object_lineage.record("com/example/Main", "run", 42, "java/lang/String");
+//!
+//! // Serialize the entire telemetry dataset to JSON for external analysis
+//! #[cfg(feature = "telemetry")]
+//! let json = store.to_json();
+//! ```
+
 use std::collections::{HashMap, HashSet};
 
 // -- Serialization helpers for tuple-keyed HashMaps ------------------------------
@@ -59,13 +96,50 @@ mod ser_helpers {
 
 // -- bytecode_cost ---------------------------------------------------------------
 
+/// Accumulates frequency and duration for bytecode execution.
+///
+/// Keeps a running total of how many times a particular execution site or opcode
+/// was visited, and the total wall-clock time spent inside that instruction.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::OpcodeStat;
+///
+/// let mut stat = OpcodeStat::default();
+/// stat.count += 1;
+/// stat.total_ns += 1000;
+/// assert_eq!(stat.count, 1);
+/// assert_eq!(stat.total_ns, 1000);
+/// ```
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct OpcodeStat {
+    /// Number of times this opcode or instruction was executed.
     pub count: u64,
+    /// Total duration spent executing this opcode or instruction, in nanoseconds.
     pub total_ns: u64,
 }
 
+/// Tracks execution frequency and duration per-opcode and per-bytecode site.
+///
+/// This store helps identify computationally expensive JVM instructions
+/// and hot spots in specific methods by aggregating statistics globally
+/// (by opcode name) and locally (by class, method, and instruction index).
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::BytecodeCostStore;
+///
+/// let mut store = BytecodeCostStore::default();
+///
+/// store.record("iadd", "com/example/Math", "add", 42, 100);
+/// store.record("iadd", "com/example/Math", "add", 42, 200);
+///
+/// assert_eq!(store.by_opcode["iadd"].count, 2);
+/// assert_eq!(store.by_opcode["iadd"].total_ns, 300);
+/// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct BytecodeCostStore {
@@ -77,6 +151,13 @@ pub struct BytecodeCostStore {
 }
 
 impl BytecodeCostStore {
+    /// Record the execution of a single bytecode instruction.
+    ///
+    /// - `name`: The mnemonic of the instruction (e.g. "aload_0", "invokeinterface").
+    /// - `class`: The JVM name of the class currently executing.
+    /// - `method`: The name of the method currently executing.
+    /// - `pc`: The program counter (instruction index) within the method.
+    /// - `elapsed_ns`: How long the instruction took to execute, in nanoseconds.
     pub fn record(
         &mut self,
         name: &'static str,
@@ -99,22 +180,63 @@ impl BytecodeCostStore {
 
 // -- object_lineage --------------------------------------------------------------
 
+/// Details of a single allocation site and what it allocated.
+///
+/// Keeps track of the most recently allocated class at this site and the total
+/// number of objects it created.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::AllocationSite;
+///
+/// let site = AllocationSite {
+///     class_allocated: "java/lang/String".to_string(),
+///     count: 42,
+/// };
+/// assert_eq!(site.count, 42);
+/// ```
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct AllocationSite {
+    /// The JVM class name of the allocated object.
     pub class_allocated: String,
+    /// Number of times objects of `class_allocated` were instantiated at this site.
     pub count: u64,
 }
 
+/// Tracks where objects are allocated, by method and instruction offset.
+///
+/// Records the allocating class and method alongside the PC offset of the `new` instruction,
+/// to trace the origin of high allocation rates back to the source code.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::ObjectLineageStore;
+///
+/// let mut store = ObjectLineageStore::default();
+/// store.record("com/example/Main", "run", 10, "java/lang/String");
+///
+/// let site = &store.sites[&("com/example/Main".to_string(), "run".to_string(), 10)];
+/// assert_eq!(site.count, 1);
+/// assert_eq!(site.class_allocated, "java/lang/String");
+/// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ObjectLineageStore {
-    /// Key: (`allocating_class`, `allocating_method`, pc).
+    /// Mapping from (`allocating_class`, `allocating_method`, pc) to allocation statistics.
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
     pub sites: HashMap<(String, String, usize), AllocationSite>,
 }
 
 impl ObjectLineageStore {
+    /// Record a single object allocation event.
+    ///
+    /// - `allocating_class`: The class executing the `new` instruction.
+    /// - `method`: The method executing the `new` instruction.
+    /// - `pc`: Program counter of the allocation site.
+    /// - `class_allocated`: The class name of the instantiated object.
     pub fn record(
         &mut self,
         allocating_class: &str,
@@ -135,22 +257,63 @@ impl ObjectLineageStore {
 
 // -- class_init_dag --------------------------------------------------------------
 
+/// A single class initialization (`<clinit>`) event in the VM.
+///
+/// Records the class name, what triggered its initialization, and how long
+/// the initialization took to execute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::ClinitEvent;
+///
+/// let event = ClinitEvent {
+///     class: "java/lang/String".to_string(),
+///     triggered_by: "java/lang/System".to_string(),
+///     duration_ns: 1000,
+/// };
+/// assert_eq!(event.duration_ns, 1000);
+/// ```
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ClinitEvent {
+    /// The class whose `<clinit>` method was executed.
     pub class: String,
     /// Class that caused this `<clinit>` to fire, or empty string for entry point.
     pub triggered_by: String,
+    /// Wall-clock time spent in the `<clinit>` block, in nanoseconds.
     pub duration_ns: u64,
 }
 
+/// A linear log of all `<clinit>` executions, tracking their dependencies.
+///
+/// Captures the directed acyclic graph (DAG) of class initializations, allowing
+/// analysis of slow startup times due to heavy static initializers and dependency chains.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::ClassInitDagStore;
+///
+/// let mut store = ClassInitDagStore::default();
+/// store.record("java/lang/String", "java/lang/System", 500);
+///
+/// assert_eq!(store.events.len(), 1);
+/// assert_eq!(store.events[0].class, "java/lang/String");
+/// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ClassInitDagStore {
+    /// Ordered list of initialization events.
     pub events: Vec<ClinitEvent>,
 }
 
 impl ClassInitDagStore {
+    /// Record the execution of a class `<clinit>` method.
+    ///
+    /// - `class`: The JVM name of the class that was initialized.
+    /// - `triggered_by`: The name of the class whose execution triggered this initialization.
+    /// - `duration_ns`: Total time spent executing the `<clinit>` method.
     pub fn record(&mut self, class: &str, triggered_by: &str, duration_ns: u64) {
         self.events.push(ClinitEvent {
             class: class.to_string(),
@@ -162,9 +325,28 @@ impl ClassInitDagStore {
 
 // -- exception_flow --------------------------------------------------------------
 
+/// Lifecycle event for an exception thrown by the VM.
+///
+/// Records the class of the exception, where it was thrown, and where it was
+/// eventually caught (if at all). Also tracks the number of times it was re-thrown.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::ExceptionEvent;
+///
+/// let event = ExceptionEvent {
+///     exception_class: "java/lang/RuntimeException".to_string(),
+///     throw_site: ("com/example/Main".to_string(), "run".to_string(), 10),
+///     catch_site: Some(("com/example/Main".to_string(), "run".to_string(), 20)),
+///     rethrows: 0,
+/// };
+/// assert_eq!(event.exception_class, "java/lang/RuntimeException");
+/// ```
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ExceptionEvent {
+    /// The class name of the thrown exception object.
     pub exception_class: String,
     /// (`class_name`, `method_name`, pc) of the throw site.
     pub throw_site: (String, String, usize),
@@ -174,14 +356,36 @@ pub struct ExceptionEvent {
     pub rethrows: u32,
 }
 
+/// A linear log of all thrown exceptions and their catch sites.
+///
+/// Tracks the paths taken by thrown exceptions through the VM's call stack,
+/// providing insight into the error handling overhead of the application.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::ExceptionFlowStore;
+///
+/// let mut store = ExceptionFlowStore::default();
+/// let idx = store.record_throw("java/lang/NullPointerException", "com/example/Main", "run", 5);
+/// store.record_catch(idx, "com/example/Main", "run", 15);
+///
+/// assert_eq!(store.events[0].catch_site.as_ref().unwrap().2, 15);
+/// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ExceptionFlowStore {
+    /// Ordered list of exception lifecycle events.
     pub events: Vec<ExceptionEvent>,
 }
 
 impl ExceptionFlowStore {
-    /// Record a new throw. Returns the index of this event for subsequent `record_catch`.
+    /// Record a new throw. Returns the index of this event for subsequent [`record_catch`](ExceptionFlowStore::record_catch).
+    ///
+    /// - `exception_class`: The type of the thrown exception.
+    /// - `throw_class`: The class executing the `athrow` instruction.
+    /// - `throw_method`: The method executing the `athrow` instruction.
+    /// - `throw_pc`: Program counter of the `athrow` instruction.
     pub fn record_throw(
         &mut self,
         exception_class: &str,
@@ -198,6 +402,12 @@ impl ExceptionFlowStore {
         self.events.len() - 1
     }
 
+    /// Record a catch event for a previously thrown exception.
+    ///
+    /// - `event_idx`: The index of the exception event returned by [`record_throw`](ExceptionFlowStore::record_throw).
+    /// - `catch_class`: The class where the exception handler matched.
+    /// - `catch_method`: The method where the exception handler matched.
+    /// - `handler_pc`: The starting program counter of the exception handler block.
     pub fn record_catch(
         &mut self,
         event_idx: usize,
@@ -217,9 +427,25 @@ impl ExceptionFlowStore {
 
 // -- dispatch_resolution ---------------------------------------------------------
 
+/// Telemetry regarding a single virtual or interface dispatch site.
+///
+/// Tracks the total number of calls, the distinct receiver classes seen (polymorphism),
+/// and the overhead of finding the appropriate method implementation within the class hierarchy.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::DispatchStat;
+///
+/// let mut stat = DispatchStat::default();
+/// stat.calls = 100;
+/// stat.hierarchy_walks = 50;
+/// assert_eq!(stat.calls, 100);
+/// ```
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct DispatchStat {
+    /// Total number of method dispatches recorded at this call site.
     pub calls: u64,
     /// Distinct runtime receiver classes seen at this call site.
     #[cfg_attr(
@@ -231,10 +457,28 @@ pub struct DispatchStat {
     pub hierarchy_walks: u64,
 }
 
+/// Statistics on dynamic method resolution (`invokevirtual` and `invokeinterface`).
+///
+/// Tracks polymorphism and dispatch overhead at every dynamic call site in the VM
+/// to help identify opportunities for inline caching or other optimizations.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::DispatchResolutionStore;
+///
+/// let mut store = DispatchResolutionStore::default();
+/// store.record("com/example/Main", 15, "java/lang/String", true);
+///
+/// let stat = &store.by_site[&("com/example/Main".to_string(), 15)];
+/// assert_eq!(stat.calls, 1);
+/// assert!(stat.unique_targets.contains("java/lang/String"));
+/// assert_eq!(stat.hierarchy_walks, 1);
+/// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct DispatchResolutionStore {
-    /// Key: (`caller_class`, `cp_idx`).
+    /// Mapping from (`caller_class`, `cp_idx`) to dispatch statistics.
     #[cfg_attr(
         feature = "telemetry",
         serde(serialize_with = "ser_helpers::site2_u16")
@@ -243,6 +487,13 @@ pub struct DispatchResolutionStore {
 }
 
 impl DispatchResolutionStore {
+    /// Record the resolution of a virtual or interface method call.
+    ///
+    /// - `caller_class`: The class containing the `invoke*` instruction.
+    /// - `cp_idx`: The constant pool index referenced by the instruction.
+    /// - `resolved_class`: The actual runtime class of the receiver object.
+    /// - `hierarchy_walk`: True if the method implementation was found by walking
+    ///   up the superclass chain; false if it was found directly on `resolved_class`.
     pub fn record(
         &mut self,
         caller_class: &str,
@@ -266,23 +517,65 @@ impl DispatchResolutionStore {
 
 // -- native_boundary -------------------------------------------------------------
 
+/// Statistics for a specific native method implementation.
+///
+/// Records the number of times the native method was called, the total wall-clock time
+/// spent executing the native code, and how often it returned an error to the VM.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::NativeStat;
+///
+/// let mut stat = NativeStat::default();
+/// stat.calls = 50;
+/// stat.errors = 2;
+/// stat.total_ns = 5000;
+/// assert_eq!(stat.errors, 2);
+/// ```
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct NativeStat {
+    /// Total number of invocations of the native method.
     pub calls: u64,
+    /// Number of times the native method execution resulted in an error or exception.
     pub errors: u64,
+    /// Total duration spent executing the native method, in nanoseconds.
     pub total_ns: u64,
 }
 
+/// Tracks the cost and reliability of transitioning from JVM execution to native code.
+///
+/// Groups native method execution statistics by their defining class and method names.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::NativeBoundaryStore;
+///
+/// let mut store = NativeBoundaryStore::default();
+/// store.record_call("java/lang/System", "arraycopy", 250, false);
+///
+/// let stat = &store.by_method[&("java/lang/System".to_string(), "arraycopy".to_string())];
+/// assert_eq!(stat.calls, 1);
+/// assert_eq!(stat.total_ns, 250);
+/// assert_eq!(stat.errors, 0);
+/// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct NativeBoundaryStore {
-    /// Key: (`class_name`, `method_name`).
+    /// Mapping from (`class_name`, `method_name`) to execution statistics.
     #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::pair_str"))]
     pub by_method: HashMap<(String, String), NativeStat>,
 }
 
 impl NativeBoundaryStore {
+    /// Record a single execution of a native method.
+    ///
+    /// - `class`: The class on which the native method is defined.
+    /// - `method`: The name of the native method.
+    /// - `elapsed_ns`: How long the native execution took, in nanoseconds.
+    /// - `is_err`: True if the method failed (e.g., returned a `VmError` or threw an exception).
     pub fn record_call(&mut self, class: &str, method: &str, elapsed_ns: u64, is_err: bool) {
         let stat = self
             .by_method
@@ -298,14 +591,34 @@ impl NativeBoundaryStore {
 
 // -- TelemetryStore --------------------------------------------------------------
 
+/// The root telemetry store.
+///
+/// Combines the six core telemetry channels into a single object, allowing
+/// the VM to pass it around, update it during execution, and serialize
+/// it into a unified report at shutdown.
+///
+/// # Examples
+///
+/// ```
+/// use duke_telemetry::TelemetryStore;
+///
+/// let store = TelemetryStore::default();
+/// assert_eq!(store.class_init_dag.events.len(), 0);
+/// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct TelemetryStore {
+    /// Metrics on bytecode execution costs.
     pub bytecode_cost: BytecodeCostStore,
+    /// Memory profiling and allocation site tracing.
     pub object_lineage: ObjectLineageStore,
+    /// Dependencies and durations of `<clinit>` executions.
     pub class_init_dag: ClassInitDagStore,
+    /// Tracing for thrown exceptions and their catch blocks.
     pub exception_flow: ExceptionFlowStore,
+    /// Analysis of virtual method calls and polymorphism overhead.
     pub dispatch_resolution: DispatchResolutionStore,
+    /// Metrics on crossing the JNI/native boundary.
     pub native_boundary: NativeBoundaryStore,
 }
 
@@ -316,6 +629,16 @@ impl TelemetryStore {
     /// # Panics
     ///
     /// Panics if telemetry serialization fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::TelemetryStore;
+    ///
+    /// let store = TelemetryStore::default();
+    /// #[cfg(feature = "telemetry")]
+    /// let json = store.to_json();
+    /// ```
     #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("telemetry serialization failed")
@@ -323,9 +646,23 @@ impl TelemetryStore {
 
     /// Print a human-readable top-10 summary per channel to `w`.
     ///
+    /// Useful for displaying brief telemetry summaries to `stdout` or `stderr`
+    /// at the end of a VM run.
+    ///
     /// # Errors
     ///
     /// Returns an error if writing to `w` fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::TelemetryStore;
+    ///
+    /// let store = TelemetryStore::default();
+    /// let mut buf = Vec::new();
+    /// #[cfg(feature = "telemetry")]
+    /// store.print_report(&mut buf).unwrap();
+    /// ```
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(w, "=== Duke VM Telemetry Report ===")?;
 
