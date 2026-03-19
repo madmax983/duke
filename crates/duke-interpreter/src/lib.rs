@@ -4,6 +4,12 @@
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
 
+pub mod context;
+pub mod registry;
+
+pub use context::*;
+pub use registry::*;
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 
@@ -13,264 +19,12 @@ use duke_classfile::types::CpEntry;
 use duke_loader::ClassLoader;
 use duke_runtime::{Frame, Slot, VmError, VmResult};
 
-/// A decoded method ready for execution.
-pub struct MethodEntry {
-    pub name: String,
-    pub descriptor: String,
-    pub instructions: std::sync::Arc<[(usize, Instruction)]>,
-    pub max_stack: u16,
-    pub max_locals: u16,
-    pub exception_table: Vec<ExceptionEntry>,
-    /// Precomputed PC → instruction-index map, shared cheaply via Arc.
-    pub pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
-}
-
-/// A field declaration extracted from a parsed class.
-pub struct FieldEntry {
-    pub name: String,
-    pub descriptor: String,
-    /// True if declared `static`.
-    pub is_static: bool,
-}
-
-/// A resolved exception table entry for handler dispatch.
-///
-/// Built from `duke_classfile::types::ExceptionTableEntry` with `catch_type`
-/// resolved from a CP index to a class name string.
-pub struct ExceptionEntry {
-    pub start_pc: u16,
-    pub end_pc: u16,
-    pub handler_pc: u16,
-    /// `None` for catch-all (finally). `Some(class_name)` for typed catches.
-    pub catch_type: Option<String>,
-}
-
-/// A parsed class with all methods decoded — the unit of execution for Phase 5+.
-pub struct ClassContext {
-    /// Internal JVM class name (e.g. `"Point"`).
-    pub class_name: String,
-    /// Superclass name (`None` for `java/lang/Object`).
-    pub super_class: Option<String>,
-    /// Directly implemented interfaces (used by checkcast / instanceof).
-    pub interfaces: Vec<String>,
-    pub constant_pool: Vec<Option<CpEntry>>,
-    pub methods: Vec<MethodEntry>,
-    /// All field declarations (static and instance), in class file order.
-    pub fields: Vec<FieldEntry>,
-    /// Values of static fields, indexed by position among static-only fields.
-    pub static_fields: Vec<Slot>,
-    /// Number of instance (non-static) fields — used to size heap objects at `new`.
-    pub instance_field_count: usize,
-    /// `BootstrapMethods` entries from the class attribute (needed for invokedynamic).
-    pub bootstrap_methods: Vec<duke_classfile::types::BootstrapMethodEntry>,
-}
-
 /// Registry of loaded classes — maps class name to its `ClassContext`.
 ///
 /// Used by `execute_class` for cross-class method dispatch.
 ///
 /// # Examples
 ///
-/// ```
-/// use duke_interpreter::ClassRegistry;
-///
-/// let registry = ClassRegistry::new();
-/// assert!(!registry.contains("java/lang/Object"));
-/// ```
-///
-/// Metadata for a lambda proxy object created by `LambdaMetafactory`.
-#[derive(Debug, Clone)]
-struct LambdaInfo {
-    impl_class: String,
-    impl_method: String,
-    impl_desc: String,
-    impl_kind: u8,
-    sam_method: String,
-    #[allow(dead_code)]
-    sam_desc: String,
-    captured_count: usize,
-}
-
-pub struct ClassRegistry {
-    classes: HashMap<String, ClassContext>,
-    natives: NativeRegistry,
-    /// Tracks which classes have had their `<clinit>` run.
-    initialized: HashSet<String>,
-    /// Lambda proxy class name → metadata.
-    lambdas: HashMap<String, LambdaInfo>,
-    /// Monotonic counter for generating unique lambda class names.
-    lambda_counter: u64,
-    #[cfg(feature = "telemetry")]
-    pub telemetry: duke_telemetry::TelemetryStore,
-}
-
-impl ClassRegistry {
-    /// Creates a new empty class registry.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use duke_interpreter::ClassRegistry;
-    ///
-    /// let mut registry = ClassRegistry::new();
-    /// assert!(!registry.contains("MyClass"));
-    /// ```
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            classes: HashMap::new(),
-            natives: NativeRegistry::new(),
-            initialized: HashSet::new(),
-            lambdas: HashMap::new(),
-            lambda_counter: 0,
-            #[cfg(feature = "telemetry")]
-            telemetry: duke_telemetry::TelemetryStore::default(),
-        }
-    }
-
-    fn register_lambda(&mut self, info: LambdaInfo) -> String {
-        let name = format!("$$Lambda${}", self.lambda_counter);
-        self.lambda_counter += 1;
-        self.lambdas.insert(name.clone(), info);
-        name
-    }
-
-    fn get_lambda(&self, class_name: &str) -> Option<&LambdaInfo> {
-        self.lambdas.get(class_name)
-    }
-
-    /// Check if a class has been initialized (clinit has run).
-    #[must_use]
-    pub fn is_initialized(&self, name: &str) -> bool {
-        self.initialized.contains(name)
-    }
-
-    /// Mark a class as initialized.
-    pub fn mark_initialized(&mut self, name: &str) {
-        self.initialized.insert(name.to_string());
-    }
-
-    /// Access the native method registry.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use duke_interpreter::ClassRegistry;
-    ///
-    /// let registry = ClassRegistry::new();
-    /// assert!(registry.natives().get("java/lang/System", "exit", "(I)V").is_none());
-    /// ```
-    #[must_use]
-    pub const fn natives(&self) -> &NativeRegistry {
-        &self.natives
-    }
-
-    /// Access the native method registry mutably.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use duke_interpreter::ClassRegistry;
-    ///
-    /// let mut registry = ClassRegistry::new();
-    /// // registry.natives_mut().register(...)
-    /// ```
-    pub const fn natives_mut(&mut self) -> &mut NativeRegistry {
-        &mut self.natives
-    }
-
-    /// Register a pre-built `ClassContext`.
-    pub fn register(&mut self, ctx: ClassContext) {
-        self.classes.insert(ctx.class_name.clone(), ctx);
-    }
-
-    /// Get a reference to a loaded class.
-    ///
-    /// # Errors
-    /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
-    pub fn get(&self, name: &str) -> VmResult<&ClassContext> {
-        self.classes
-            .get(name)
-            .ok_or_else(|| VmError::ClassNotFound {
-                name: name.to_string(),
-            })
-    }
-
-    /// Get a mutable reference to a loaded class.
-    ///
-    /// # Errors
-    /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
-    pub fn get_mut(&mut self, name: &str) -> VmResult<&mut ClassContext> {
-        self.classes
-            .get_mut(name)
-            .ok_or_else(|| VmError::ClassNotFound {
-                name: name.to_string(),
-            })
-    }
-
-    /// Ensure a class is loaded. If not already present, loads it via the class
-    /// loader, parses it, builds a `ClassContext`, and registers it.
-    ///
-    /// Also recursively loads the superclass chain so that field slot offsets
-    /// can be computed correctly before any object of this type is allocated.
-    ///
-    /// Returns `Ok(true)` if loaded, `Ok(false)` if the class could not be found
-    /// (soft failure — for classes like `java/lang/Object` that we can't load yet).
-    ///
-    /// # Errors
-    /// Returns [`VmError`] if loading the superclass chain fails unexpectedly.
-    pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
-        if self.classes.contains_key(name) {
-            return Ok(true);
-        }
-        let Ok(bytes) = loader.find_class(name) else {
-            return Ok(false);
-        };
-        let Ok(cf) = duke_classfile::parse(&bytes) else {
-            return Ok(false);
-        };
-        let ctx = build_class_context(&cf);
-        let super_class = ctx.super_class.clone();
-        self.classes.insert(name.to_string(), ctx);
-        // Recursively load the superclass so ancestor field counts are known.
-        if let Some(sc) = super_class {
-            self.ensure_loaded(&sc, loader)?;
-        }
-        Ok(true)
-    }
-
-    /// Check if a class is loaded.
-    #[must_use]
-    pub fn contains(&self, name: &str) -> bool {
-        self.classes.contains_key(name)
-    }
-
-    /// Iterate all registered class contexts — used by GC root gathering.
-    pub fn all_classes(&self) -> impl Iterator<Item = &ClassContext> {
-        self.classes.values()
-    }
-
-    /// Mutably iterate all registered class contexts — used to patch static
-    /// field slots after a minor GC collection.
-    pub fn all_classes_mut(&mut self) -> impl Iterator<Item = &mut ClassContext> {
-        self.classes.values_mut()
-    }
-}
-
-impl Default for ClassRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Signature for native method implementations.
-///
-/// Arguments:
-/// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
-/// - `&mut Heap`: the object heap for reading/writing objects
-/// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
-pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
-
 /// A native handler that can call back into the interpreter to invoke Java methods.
 ///
 /// The `invoke` closure takes `heap` and `output` as *parameters* (not captured),
@@ -289,128 +43,6 @@ pub type CallbackNativeHandler = fn(
         Vec<Slot>,
     ) -> VmResult<Option<Slot>>,
 ) -> VmResult<Option<Slot>>;
-
-/// The `invoke` closure type passed into [`CallbackNativeHandler`] implementations.
-///
-/// Defined separately so function signatures that accept this parameter avoid the
-/// `clippy::type_complexity` lint.
-///
-/// `pub` so that external crates can write their own [`CallbackNativeHandler`]
-/// implementations.  If external registration is not needed, consider
-/// narrowing to `pub(crate)`.
-pub type InvokeFn<'a> = dyn FnMut(&mut duke_gc::Heap, &mut dyn Write, &str, &str, &str, Vec<Slot>) -> VmResult<Option<Slot>>
-    + 'a;
-
-/// Stored in `NativeRegistry` — all existing handlers stay `Simple`.
-#[derive(Copy, Clone, Debug)]
-pub enum HandlerKind {
-    Simple(NativeHandler),
-    Callback(CallbackNativeHandler),
-}
-
-/// Registry of native method implementations.
-///
-/// Maps `"class_name\x00method_name\x00descriptor"` to a handler kind.
-///
-/// # Examples
-///
-/// ```
-/// use duke_interpreter::NativeRegistry;
-///
-/// let mut natives = NativeRegistry::new();
-/// assert!(natives.get("java/lang/System", "exit", "(I)V").is_none());
-/// ```
-pub struct NativeRegistry {
-    handlers: HashMap<String, HandlerKind>,
-}
-
-/// Build the lookup key for a native method: `"class\x00method\x00desc"`.
-///
-/// Using NUL as separator avoids ambiguity (JVM identifiers cannot contain NUL)
-/// and reduces the three allocations previously required per lookup to one.
-#[inline]
-fn make_key(class: &str, method: &str, desc: &str) -> String {
-    let mut key = String::with_capacity(class.len() + method.len() + desc.len() + 2);
-    key.push_str(class);
-    key.push('\x00');
-    key.push_str(method);
-    key.push('\x00');
-    key.push_str(desc);
-    key
-}
-
-impl NativeRegistry {
-    /// Creates a new empty native registry.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use duke_interpreter::NativeRegistry;
-    ///
-    /// let natives = NativeRegistry::new();
-    /// ```
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            handlers: HashMap::new(),
-        }
-    }
-
-    fn insert_handler(&mut self, class: &str, method: &str, descriptor: &str, kind: HandlerKind) {
-        self.handlers
-            .insert(make_key(class, method, descriptor), kind);
-    }
-
-    /// Register a native method handler.
-    pub fn register(
-        &mut self,
-        class: &str,
-        method: &str,
-        descriptor: &str,
-        handler: NativeHandler,
-    ) {
-        self.insert_handler(class, method, descriptor, HandlerKind::Simple(handler));
-    }
-
-    /// Register a native method handler that can call back into the interpreter.
-    pub fn register_callback(
-        &mut self,
-        class: &str,
-        method: &str,
-        descriptor: &str,
-        handler: CallbackNativeHandler,
-    ) {
-        self.insert_handler(class, method, descriptor, HandlerKind::Callback(handler));
-    }
-
-    /// Look up a native handler for the given class/method/descriptor.
-    ///
-    /// Returns `Some` only for `Simple` handlers. Use [`get_kind`] to handle
-    /// `Callback` variants.
-    ///
-    /// [`get_kind`]: NativeRegistry::get_kind
-    #[must_use]
-    pub fn get(&self, class: &str, method: &str, descriptor: &str) -> Option<NativeHandler> {
-        match self.handlers.get(&make_key(class, method, descriptor))? {
-            HandlerKind::Simple(h) => Some(*h),
-            HandlerKind::Callback(_) => None,
-        }
-    }
-
-    /// Look up any handler kind for the given class/method/descriptor.
-    #[must_use]
-    pub fn get_kind(&self, class: &str, method: &str, descriptor: &str) -> Option<HandlerKind> {
-        self.handlers
-            .get(&make_key(class, method, descriptor))
-            .copied()
-    }
-}
-
-impl Default for NativeRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Bootstrap minimal JDK standard library classes for native method support.
 ///
@@ -5271,7 +4903,7 @@ pub fn execute_class(
     // dispatch it directly without requiring a ClassContext in the registry.
     // This handles both Simple natives and Callback natives at the top-level call site.
     match registry
-        .natives
+        .natives_mut()
         .get_kind(class_name, method_name, descriptor)
     {
         Some(HandlerKind::Simple(h)) => {
@@ -5534,7 +5166,7 @@ pub fn execute_class(
                         // Check native registry before erroring.
                         let handler_kind =
                             registry
-                                .natives
+                                .natives_mut()
                                 .get_kind(&callee_class, &callee_name, &callee_desc);
                         match handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
@@ -6622,7 +6254,7 @@ pub fn execute_class(
                         }
                         // Check native registry, walking the super chain.
                         let native_handler_kind = {
-                            let mut found = registry.natives.get_kind(
+                            let mut found = registry.natives_mut().get_kind(
                                 &callee_class,
                                 &callee_name,
                                 &callee_desc,
@@ -6642,7 +6274,7 @@ pub fn execute_class(
                                 let mut sc = start;
                                 while let Some(ref s) = sc {
                                     if let Some(h) =
-                                        registry.natives.get_kind(s, &callee_name, &callee_desc)
+                                        registry.natives_mut().get_kind(s, &callee_name, &callee_desc)
                                     {
                                         found = Some(h);
                                         break;
@@ -7571,10 +7203,10 @@ pub fn execute_class(
                         None => {
                             // Check native registry — try actual class then interface class.
                             let native_kind = registry
-                                .natives
+                                .natives_mut()
                                 .get_kind(&actual_class, &callee_name, &callee_desc)
                                 .or_else(|| {
-                                    registry.natives.get_kind(
+                                    registry.natives_mut().get_kind(
                                         &callee_class,
                                         &callee_name,
                                         &callee_desc,
@@ -7796,7 +7428,7 @@ pub fn execute_class(
                                         continue;
                                     }
                                     // Try native fallback for virtual/interface
-                                    let lambda_native_kind = registry.natives.get_kind(
+                                    let lambda_native_kind = registry.natives_mut().get_kind(
                                         &lambda_info.impl_class,
                                         &lambda_info.impl_method,
                                         &lambda_info.impl_desc,
@@ -14666,13 +14298,13 @@ mod tests {
 
         // Simple helper native: returns 42.
         registry
-            .natives
+            .natives_mut()
             .register("duke/test/Helper", "answer", "()I", |_args, _heap, _out| {
                 Ok(Some(Slot::Int(42)))
             });
 
         // Callback native: invokes the helper and returns its result.
-        registry.natives.register_callback(
+        registry.natives_mut().register_callback(
             "duke/test/Caller",
             "call",
             "()I",
@@ -14739,7 +14371,7 @@ mod tests {
         // "java/lang/Integer"/"parseInt".
         // Because we overwrite the key the Simple handler is gone — we compute
         // the parse directly inside the callback instead.
-        registry.natives.register_callback(
+        registry.natives_mut().register_callback(
             "java/lang/Integer",
             "parseInt",
             "(Ljava/lang/String;)I",
@@ -14805,7 +14437,7 @@ mod tests {
 
         // Override Integer.intValue with a Callback.
         // The Integer heap object stores the boxed int in fields[0].
-        registry.natives.register_callback(
+        registry.natives_mut().register_callback(
             "java/lang/Integer",
             "intValue",
             "()I",
@@ -14867,7 +14499,7 @@ mod tests {
 
         // Override ArrayListIterator.hasNext with a Callback that records
         // invocation and immediately signals "no more elements" (returns false).
-        registry.natives.register_callback(
+        registry.natives_mut().register_callback(
             "duke/util/ArrayListIterator",
             "hasNext",
             "()Z",
@@ -14913,7 +14545,7 @@ mod tests {
     ///   invokeinterface LambdaCallbackTest$IntSupplier.get:()I
     ///   // → lambda SAM: `impl_kind`==5, `resolve_method_in_hierarchy` returns None
     ///   //   (String has no bytecode methods in Duke), so falls to Site 5:
-    ///   //   `registry.natives.get_kind`("java/lang/String", "length", "()I")
+    ///   //   `registry.natives_mut().get_kind`("java/lang/String", "length", "()I")
     ///
     /// We override `String.length` with a Callback handler to prove the arm fires.
     #[test]
@@ -14941,7 +14573,7 @@ mod tests {
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
         });
-        registry.natives.register(
+        registry.natives_mut().register(
             "java/util/Objects",
             "requireNonNull",
             "(Ljava/lang/Object;)Ljava/lang/Object;",
@@ -14951,7 +14583,7 @@ mod tests {
         // Override String.length with a Callback.  This replaces the Simple
         // handler that bootstrap_stdlib registered, so the lambda SAM fallback
         // (Site 5) must route through the Callback arm to fire at all.
-        registry.natives.register_callback(
+        registry.natives_mut().register_callback(
             "java/lang/String",
             "length",
             "()I",
@@ -15623,7 +15255,7 @@ mod tests {
         let mut reg = ClassRegistry::new();
         reg.natives_mut().register("C", "m", "()I", dummy);
         assert!(
-            reg.natives().get_kind("C", "m", "()I").is_some(),
+            reg.natives_mut().get_kind("C", "m", "()I").is_some(),
             "natives() getter must expose registered handler"
         );
     }
