@@ -20,29 +20,24 @@ impl Heap {
         // Process Young Generation
         for (i, slot) in self.young.iter().enumerate() {
             if let Some(obj) = slot {
-                let node_id = format!("Y{}", i);
-                let label = if let Some(s) = &obj.string_value {
-                    format!(
+                let node_id = format!("Y{i}");
+                let label = obj.string_value.as_ref().map_or_else(|| format!("{} (Age: {})", obj.class_name, obj.age), |s| format!(
                         "{} (Age: {}) \\\"{}\"",
                         obj.class_name,
                         obj.age,
                         s.replace('"', "\\\"")
-                    )
-                } else {
-                    format!("{} (Age: {})", obj.class_name, obj.age)
-                };
-                young_nodes.push(format!("        class {}[\"{}\"]", node_id, label));
+                    ));
+                young_nodes.push(format!("        class {node_id}[\"{label}\"]"));
 
                 for (field_idx, field_slot) in obj.fields.iter().enumerate() {
                     if let Slot::Reference(Some(r)) = field_slot {
                         let target_id = if r & OLD_BIT != 0 {
                             format!("O{}", r & !OLD_BIT)
                         } else {
-                            format!("Y{}", r)
+                            format!("Y{r}")
                         };
                         relationships.push(format!(
-                            "    {} --> {} : field\\[{}\\]",
-                            node_id, target_id, field_idx
+                            "    {node_id} --> {target_id} : field\\[{field_idx}\\]",
                         ));
                     }
                 }
@@ -52,24 +47,23 @@ impl Heap {
         // Process Old Generation
         for (i, slot) in self.old.iter().enumerate() {
             if let Some(obj) = slot {
-                let node_id = format!("O{}", i);
-                let label = if let Some(s) = &obj.string_value {
-                    format!("{} \\\"{}\"", obj.class_name, s.replace('"', "\\\""))
-                } else {
-                    obj.class_name.to_string()
-                };
-                old_nodes.push(format!("        class {}[\"{}\"]", node_id, label));
+                let node_id = format!("O{i}");
+                let label = obj.string_value.as_ref().map_or_else(|| obj.class_name.clone(), |s| format!(
+                    "{} \\\"{}\"",
+                    obj.class_name,
+                    s.replace('"', "\\\"")
+                ));
+                old_nodes.push(format!("        class {node_id}[\"{label}\"]"));
 
                 for (field_idx, field_slot) in obj.fields.iter().enumerate() {
                     if let Slot::Reference(Some(r)) = field_slot {
                         let target_id = if r & OLD_BIT != 0 {
                             format!("O{}", r & !OLD_BIT)
                         } else {
-                            format!("Y{}", r)
+                            format!("Y{r}")
                         };
                         relationships.push(format!(
-                            "    {} --> {} : field\\[{}\\]",
-                            node_id, target_id, field_idx
+                            "    {node_id} --> {target_id} : field\\[{field_idx}\\]",
                         ));
                     }
                 }
@@ -79,7 +73,7 @@ impl Heap {
         if !young_nodes.is_empty() {
             writeln!(&mut mermaid, "    namespace YoungGen {{").unwrap();
             for node in young_nodes {
-                writeln!(&mut mermaid, "{}", node).unwrap();
+                writeln!(&mut mermaid, "{node}").unwrap();
             }
             writeln!(&mut mermaid, "    }}").unwrap();
         }
@@ -87,13 +81,13 @@ impl Heap {
         if !old_nodes.is_empty() {
             writeln!(&mut mermaid, "    namespace OldGen {{").unwrap();
             for node in old_nodes {
-                writeln!(&mut mermaid, "{}", node).unwrap();
+                writeln!(&mut mermaid, "{node}").unwrap();
             }
             writeln!(&mut mermaid, "    }}").unwrap();
         }
 
         for rel in relationships {
-            writeln!(&mut mermaid, "{}", rel).unwrap();
+            writeln!(&mut mermaid, "{rel}").unwrap();
         }
 
         mermaid
