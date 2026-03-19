@@ -14,6 +14,7 @@
 //! need to know which gen an object lives in.
 
 use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
 
 use duke_runtime::{Slot, VmError, VmResult};
 
@@ -59,6 +60,12 @@ pub struct HeapObject {
     /// `Some(new_ref)` means this object was already copied; `None` means not yet copied.
     #[allow(dead_code)] // used by minor_collect_prepare / apply_forward
     pub(crate) forward: Option<u64>,
+}
+
+#[derive(Debug)]
+pub enum HostFileHandle {
+    Reader(std::fs::File),
+    Writer(std::fs::File),
 }
 
 /// The generational object heap.
@@ -129,6 +136,9 @@ pub struct Heap {
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
     forward_map: HashMap<u64, u64>,
+    /// Host OS file handles keyed by small integer ids stored in Java objects.
+    host_files: HashMap<i32, HostFileHandle>,
+    next_host_file_id: i32,
 }
 
 impl Heap {
@@ -157,6 +167,8 @@ impl Heap {
             live_count: 0,
             young_dropped: 0,
             forward_map: HashMap::new(),
+            host_files: HashMap::new(),
+            next_host_file_id: 1,
         }
     }
 
@@ -217,6 +229,75 @@ impl Heap {
         self.young.push(Some(obj));
         self.young_top += 1;
         idx
+    }
+
+    pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
+        let file = std::fs::File::open(path).map_err(|err| match err.kind() {
+            std::io::ErrorKind::NotFound => VmError::JavaException {
+                class_name: "java/io/FileNotFoundException".to_string(),
+            },
+            _ => VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            },
+        })?;
+        let id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        self.host_files.insert(id, HostFileHandle::Reader(file));
+        Ok(id)
+    }
+
+    pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
+        let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        })?;
+        let id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        self.host_files.insert(id, HostFileHandle::Writer(file));
+        Ok(id)
+    }
+
+    pub fn read_host_file_byte(&mut self, id: i32) -> VmResult<i32> {
+        let Some(handle) = self.host_files.get_mut(&id) else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        };
+        let HostFileHandle::Reader(file) = handle else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        };
+        let mut buf = [0_u8; 1];
+        match file.read(&mut buf) {
+            Ok(0) => Ok(-1),
+            Ok(_) => Ok(i32::from(buf[0])),
+            Err(_) => Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            }),
+        }
+    }
+
+    pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> VmResult<()> {
+        let Some(handle) = self.host_files.get_mut(&id) else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        };
+        let HostFileHandle::Writer(file) = handle else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        };
+        file.write_all(&[(value & 0xFF) as u8])
+            .map_err(|_| VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            })
+    }
+
+    pub fn close_host_file(&mut self, id: i32) {
+        if id > 0 {
+            self.host_files.remove(&id);
+        }
     }
 
     /// Promote a young-gen object to old gen. Returns `raw_old_idx | OLD_BIT`.
