@@ -339,3 +339,20 @@ impl Default for NativeRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_class_registry_default() {
+        let registry = ClassRegistry::default();
+        assert!(!registry.contains("java/lang/Object"));
+    }
+
+    #[test]
+    fn test_native_registry_default() {
+        let natives = NativeRegistry::default();
+        assert!(natives.get("java/lang/System", "exit", "(I)V").is_none());
+    }
+}
