@@ -45,7 +45,9 @@ const DEFAULT_PROMOTION_AGE: u8 = 4;
 /// ```
 #[derive(Debug, Clone)]
 pub struct HeapObject {
+    /// The runtime class name of this object (e.g. `"java/lang/String"`).
     pub class_name: String,
+    /// Storage for all instance fields of this object.
     pub fields: Vec<Slot>,
     /// String content for `java/lang/String` objects. `None` for non-string objects.
     pub string_value: Option<String>,
@@ -63,8 +65,11 @@ pub struct HeapObject {
 }
 
 #[derive(Debug)]
+/// A handle to a native file managed by the VM on behalf of Java I/O classes.
 pub enum HostFileHandle {
+    /// A file opened for reading.
     Reader(std::fs::File),
+    /// A file opened for writing.
     Writer(std::fs::File),
 }
 
@@ -311,6 +316,9 @@ impl Heap {
             })
     }
 
+    /// Closes a host file handle previously opened via the registry.
+    ///
+    /// Silently ignores invalid or already-closed file descriptors.
     pub fn close_host_file(&mut self, id: i32) {
         if id > 0 {
             self.host_files.remove(&id);
