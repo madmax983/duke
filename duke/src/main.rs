@@ -6,8 +6,10 @@ use duke_classfile::{
     types::{AttributeData, CpEntry, CpIndex},
 };
 use duke_gc::Heap;
-use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
-use duke_loader::{BootstrapLoader, ClassLoader, DirectoryLoader};
+use duke_interpreter::{
+    ClassRegistry, bootstrap_stdlib, build_class_context, execute_class_to_completion,
+};
+use duke_loader::{BootstrapLoader, ClassLoader, DirectoryLoader, LoadResult};
 use duke_runtime::{Slot, VmError};
 
 /// Where to write telemetry JSON after execution.
@@ -42,12 +44,23 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
 
 /// Build a class loader: `BootstrapLoader` (JDK jimage + app dir) when JDK path
 /// is known, or plain `DirectoryLoader` otherwise.
-fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn ClassLoader> {
+struct CliLoader(Box<dyn ClassLoader + Send + Sync>);
+
+impl ClassLoader for CliLoader {
+    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+        self.0.find_class(name)
+    }
+}
+
+fn make_loader(
+    jdk_home: Option<&str>,
+    app_dir: &std::path::Path,
+) -> CliLoader {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
         if modules.exists() {
             match BootstrapLoader::new(&modules, vec![app_dir]) {
-                Ok(bl) => return Box::new(bl),
+                Ok(bl) => return CliLoader(Box::new(bl)),
                 Err(e) => eprintln!(
                     "duke: warning: cannot open JDK modules ({e}), falling back to directory loader"
                 ),
@@ -59,7 +72,7 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> Box<dyn Cla
             );
         }
     }
-    Box::new(DirectoryLoader::new(app_dir))
+    CliLoader(Box::new(DirectoryLoader::new(app_dir)))
 }
 
 #[derive(Debug, PartialEq)]
@@ -274,9 +287,9 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
     bootstrap_stdlib(&mut registry, &mut heap);
 
     let mut stdout = std::io::stdout();
-    let exit_code = match execute_class(
+    let exit_code = match execute_class_to_completion(
         &mut registry,
-        loader.as_ref(),
+        loader,
         &mut heap,
         &mut stdout,
         &entry_class,
@@ -354,9 +367,9 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<
     let main_args = vec![Slot::Reference(Some(arr_ref))];
 
     let mut stdout = std::io::stdout();
-    let exit_code = match execute_class(
+    let exit_code = match execute_class_to_completion(
         &mut registry,
-        loader.as_ref(),
+        loader,
         &mut heap,
         &mut stdout,
         &entry_class,

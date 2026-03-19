@@ -28,3 +28,10 @@ Success = A Java program running on Duke can successfully spawn at least 10 conc
 - `java.util.concurrent` advanced utilities (e.g., Thread Pools, Executors).
 - Thread interruption (`Thread.interrupt()`).
 - Daemon threads (`Thread.setDaemon()`).
+
+## Implementation Status (2026-03-19)
+- Implemented Phase 28 thread lifecycle support with synthetic `java/lang/Thread` and `java/lang/Runnable` bootstrap classes plus native `start`, `join`, and `sleep` handling.
+- Duke now routes threaded entrypoints through `execute_class_to_completion()`, which keeps the VM alive until spawned worker threads finish.
+- Execution uses host OS threads, but bytecode evaluation still runs under one shared interpreter critical section, so this phase provides lifecycle correctness rather than parallel bytecode throughput.
+- `monitorenter` and `monitorexit` remain no-ops, and allocation-triggered GC is suppressed while worker threads are live.
+- Still out of scope: daemon threads, interruption, `wait`/`notify`, and full monitor semantics.

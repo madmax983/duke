@@ -19,6 +19,32 @@ pub(crate) struct LambdaInfo {
     pub captured_count: usize,
 }
 
+/// Threading side-channel requested by a native handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeThreadAction {
+    Start { thread_ref: u64 },
+    Sleep(std::time::Duration),
+    Join { thread_id: i32 },
+}
+
+/// Per-invocation control state for native handlers.
+#[derive(Debug, Default)]
+pub struct NativeControl {
+    pending_thread_action: Option<NativeThreadAction>,
+}
+
+impl NativeControl {
+    /// Request a thread-related action from the interpreter loop.
+    pub fn request(&mut self, action: NativeThreadAction) {
+        self.pending_thread_action = Some(action);
+    }
+
+    /// Take the pending thread-related action, if any.
+    pub fn take(&mut self) -> Option<NativeThreadAction> {
+        self.pending_thread_action.take()
+    }
+}
+
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
     natives: NativeRegistry,
@@ -197,7 +223,9 @@ impl Default for ClassRegistry {
 /// - `&[Slot]`: method arguments (including `this` in slot 0 for instance methods)
 /// - `&mut Heap`: the object heap for reading/writing objects
 /// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
-pub type NativeHandler = fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write) -> VmResult<Option<Slot>>;
+/// - `&mut NativeControl`: side channel for blocking/thread actions
+pub type NativeHandler =
+    fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write, &mut NativeControl) -> VmResult<Option<Slot>>;
 
 /// A native handler that can call back into the interpreter to invoke Java methods.
 ///
@@ -208,6 +236,7 @@ pub type CallbackNativeHandler = fn(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
+    control: &mut NativeControl,
     invoke: &mut dyn FnMut(
         &mut duke_gc::Heap,
         &mut dyn Write,
