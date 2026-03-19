@@ -16,3 +16,7 @@
 **[Extracting Repeated Code]
 **Learning:** Found identical `while i + 1 < fields.len()` loops used to iterate over key-value pairs in HashMap natives, and similar logic in HashSet.
 **Action:** Extracted these loops into simple helper functions `find_hashmap_entry_index` and `find_hashset_entry_index` which return `Option<usize>`, simplifying five separate native functions and removing `mut i` boilerplate.
+
+**[Extracting Macro Patterns]
+**Learning:** Found repetitive native functions for printing various data types (`native_print_int`, `native_println_int`, etc.) with identical structures. Extracting them with a `macro_rules!` reduces the boilerplate dramatically, effectively replacing 12 similar functions with 1 macro and a set of invocations.
+**Action:** Use `macro_rules!` for highly duplicated boilerplate implementations in native functions that differ only by types and small macro variations like `write!` vs `writeln!`.

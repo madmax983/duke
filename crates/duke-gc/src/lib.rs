@@ -231,6 +231,7 @@ impl Heap {
         idx
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::open(path).map_err(|err| match err.kind() {
             std::io::ErrorKind::NotFound => VmError::JavaException {
@@ -246,6 +247,7 @@ impl Heap {
         Ok(id)
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
             class_name: "java/io/IOException".to_string(),
@@ -256,6 +258,7 @@ impl Heap {
         Ok(id)
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn read_host_file_byte(&mut self, id: i32) -> VmResult<i32> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {
@@ -277,6 +280,7 @@ impl Heap {
         }
     }
 
+    #[allow(clippy::missing_errors_doc, clippy::cast_sign_loss)]
     pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> VmResult<()> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {

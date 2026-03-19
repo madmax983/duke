@@ -1458,23 +1458,78 @@ fn native_println_string(
     Ok(None)
 }
 
-fn native_println_int(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
+macro_rules! define_print_fn {
+    ($name:ident, $macro:ident, $slot_type:ident, $type_name:expr) => {
+        fn $name(
+            args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            out: &mut dyn Write,
+        ) -> VmResult<Option<Slot>> {
+            let val = match args.get(1) {
+                Some(Slot::$slot_type(v)) => *v,
+                _ => {
+                    return Err(VmError::TypeMismatch {
+                        expected: $type_name,
+                        got: "other",
+                    });
+                }
+            };
+            $macro!(out, "{val}").ok();
+            Ok(None)
         }
     };
-    writeln!(out, "{val}").ok();
-    Ok(None)
+    ($name:ident, $macro:ident, boolean) => {
+        fn $name(
+            args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            out: &mut dyn Write,
+        ) -> VmResult<Option<Slot>> {
+            let val = match args.get(1) {
+                Some(Slot::Int(v)) => *v != 0,
+                _ => {
+                    return Err(VmError::TypeMismatch {
+                        expected: "Int(boolean)",
+                        got: "other",
+                    });
+                }
+            };
+            $macro!(out, "{val}").ok();
+            Ok(None)
+        }
+    };
+    ($name:ident, $macro:ident, char) => {
+        fn $name(
+            args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            out: &mut dyn Write,
+        ) -> VmResult<Option<Slot>> {
+            let val = match args.get(1) {
+                Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
+                _ => {
+                    return Err(VmError::TypeMismatch {
+                        expected: "Int(char)",
+                        got: "other",
+                    });
+                }
+            };
+            $macro!(out, "{val}").ok();
+            Ok(None)
+        }
+    };
 }
+
+define_print_fn!(native_println_int, writeln, Int, "Int");
+define_print_fn!(native_print_int, write, Int, "Int");
+define_print_fn!(native_println_long, writeln, Long, "Long");
+define_print_fn!(native_print_long, write, Long, "Long");
+define_print_fn!(native_println_float, writeln, Float, "Float");
+define_print_fn!(native_print_float, write, Float, "Float");
+define_print_fn!(native_println_double, writeln, Double, "Double");
+define_print_fn!(native_print_double, write, Double, "Double");
+define_print_fn!(native_println_boolean, writeln, boolean);
+define_print_fn!(native_print_boolean, write, boolean);
+define_print_fn!(native_println_char, writeln, char);
+define_print_fn!(native_print_char, write, char);
 
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
 fn native_println_void(
@@ -2031,119 +2086,9 @@ fn native_print_string(
     Ok(None)
 }
 
-/// Native: `PrintStream.print(int)` — no newline.
-#[allow(clippy::unnecessary_wraps)]
-fn native_print_int(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
-}
-
 // ---------------------------------------------------------------------------
 // println overloads (long, float, double, boolean, char, object)
 // ---------------------------------------------------------------------------
-
-fn native_println_long(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_println_float(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_println_double(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_println_boolean(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(boolean)",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_println_char(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(char)",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
-}
 
 #[allow(clippy::cast_possible_wrap)]
 /// Convert a heap object to its Java display string.
@@ -2217,96 +2162,6 @@ fn native_println_object(
 // ---------------------------------------------------------------------------
 // print overloads (long, float, double, boolean, char, object)
 // ---------------------------------------------------------------------------
-
-fn native_print_long(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_print_float(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_print_double(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_print_boolean(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(boolean)",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
-}
-
-fn native_print_char(
-    args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    out: &mut dyn Write,
-) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(char)",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
-}
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 fn native_print_object(
