@@ -231,6 +231,10 @@ impl Heap {
         idx
     }
 
+    /// Opens a host input file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` (specifically `FileNotFoundException` or `IOException`) if the file cannot be opened.
     pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::open(path).map_err(|err| match err.kind() {
             std::io::ErrorKind::NotFound => VmError::JavaException {
@@ -246,6 +250,10 @@ impl Heap {
         Ok(id)
     }
 
+    /// Opens a host output file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` (specifically `IOException`) if the file cannot be created.
     pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
             class_name: "java/io/IOException".to_string(),
@@ -256,6 +264,10 @@ impl Heap {
         Ok(id)
     }
 
+    /// Reads a single byte from a host file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` (specifically `IOException`) if the file descriptor is invalid or reading fails.
     pub fn read_host_file_byte(&mut self, id: i32) -> VmResult<i32> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {
@@ -277,6 +289,10 @@ impl Heap {
         }
     }
 
+    /// Writes a single byte to a host file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` (specifically `IOException`) if the file descriptor is invalid or writing fails.
     pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> VmResult<()> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {
@@ -288,6 +304,7 @@ impl Heap {
                 class_name: "java/io/IOException".to_string(),
             });
         };
+        #[allow(clippy::cast_sign_loss)]
         file.write_all(&[(value & 0xFF) as u8])
             .map_err(|_| VmError::JavaException {
                 class_name: "java/io/IOException".to_string(),
