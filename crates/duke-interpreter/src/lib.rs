@@ -5164,10 +5164,11 @@ pub fn execute_class(
                     }
                     None => {
                         // Check native registry before erroring.
-                        let handler_kind =
-                            registry
-                                .natives_mut()
-                                .get_kind(&callee_class, &callee_name, &callee_desc);
+                        let handler_kind = registry.natives_mut().get_kind(
+                            &callee_class,
+                            &callee_name,
+                            &callee_desc,
+                        );
                         match handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
@@ -6273,9 +6274,11 @@ pub fn execute_class(
                                 };
                                 let mut sc = start;
                                 while let Some(ref s) = sc {
-                                    if let Some(h) =
-                                        registry.natives_mut().get_kind(s, &callee_name, &callee_desc)
-                                    {
+                                    if let Some(h) = registry.natives_mut().get_kind(
+                                        s,
+                                        &callee_name,
+                                        &callee_desc,
+                                    ) {
                                         found = Some(h);
                                         break;
                                     }
@@ -14297,11 +14300,12 @@ mod tests {
         bootstrap_stdlib(&mut registry, &mut heap);
 
         // Simple helper native: returns 42.
-        registry
-            .natives_mut()
-            .register("duke/test/Helper", "answer", "()I", |_args, _heap, _out| {
-                Ok(Some(Slot::Int(42)))
-            });
+        registry.natives_mut().register(
+            "duke/test/Helper",
+            "answer",
+            "()I",
+            |_args, _heap, _out| Ok(Some(Slot::Int(42))),
+        );
 
         // Callback native: invokes the helper and returns its result.
         registry.natives_mut().register_callback(
