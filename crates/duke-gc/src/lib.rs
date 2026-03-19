@@ -231,6 +231,10 @@ impl Heap {
         idx
     }
 
+    /// Opens an input file on the host OS.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file does not exist or an IO error occurs.
     pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::open(path).map_err(|err| match err.kind() {
             std::io::ErrorKind::NotFound => VmError::JavaException {
@@ -246,6 +250,10 @@ impl Heap {
         Ok(id)
     }
 
+    /// Opens an output file on the host OS.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file cannot be created.
     pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
             class_name: "java/io/IOException".to_string(),
@@ -256,6 +264,10 @@ impl Heap {
         Ok(id)
     }
 
+    /// Reads a single byte from a host file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
     pub fn read_host_file_byte(&mut self, id: i32) -> VmResult<i32> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {
@@ -277,6 +289,11 @@ impl Heap {
         }
     }
 
+    /// Writes a single byte to a host file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> VmResult<()> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {
