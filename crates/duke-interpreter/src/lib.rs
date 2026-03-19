@@ -468,6 +468,149 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         .natives_mut()
         .register("java/io/PrintStream", "println", "()V", native_println_void);
 
+    let file_ctx = ClassContext {
+        class_name: "java/io/File".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "path".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(file_ctx);
+    registry.natives_mut().register(
+        "java/io/File",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_file_init,
+    );
+    registry
+        .natives_mut()
+        .register("java/io/File", "exists", "()Z", native_file_exists);
+    registry
+        .natives_mut()
+        .register("java/io/File", "isFile", "()Z", native_file_is_file);
+    registry.natives_mut().register(
+        "java/io/File",
+        "isDirectory",
+        "()Z",
+        native_file_is_directory,
+    );
+
+    let io_exception_ctx = ClassContext {
+        class_name: "java/io/IOException".to_string(),
+        super_class: Some("java/lang/Exception".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(io_exception_ctx);
+
+    let file_not_found_ctx = ClassContext {
+        class_name: "java/io/FileNotFoundException".to_string(),
+        super_class: Some("java/io/IOException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(file_not_found_ctx);
+
+    let file_input_stream_ctx = ClassContext {
+        class_name: "java/io/FileInputStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(file_input_stream_ctx);
+    registry.natives_mut().register(
+        "java/io/FileInputStream",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_file_input_stream_init,
+    );
+    registry.natives_mut().register(
+        "java/io/FileInputStream",
+        "read",
+        "()I",
+        native_file_input_stream_read,
+    );
+    registry.natives_mut().register(
+        "java/io/FileInputStream",
+        "read",
+        "([B)I",
+        native_file_input_stream_read_bytes,
+    );
+    registry.natives_mut().register(
+        "java/io/FileInputStream",
+        "close",
+        "()V",
+        native_file_input_stream_close,
+    );
+
+    let file_output_stream_ctx = ClassContext {
+        class_name: "java/io/FileOutputStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(file_output_stream_ctx);
+    registry.natives_mut().register(
+        "java/io/FileOutputStream",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_file_output_stream_init,
+    );
+    registry.natives_mut().register(
+        "java/io/FileOutputStream",
+        "write",
+        "(I)V",
+        native_file_output_stream_write,
+    );
+    registry.natives_mut().register(
+        "java/io/FileOutputStream",
+        "write",
+        "([B)V",
+        native_file_output_stream_write_bytes,
+    );
+    registry.natives_mut().register(
+        "java/io/FileOutputStream",
+        "close",
+        "()V",
+        native_file_output_stream_close,
+    );
+
     // Register java/lang/String ClassContext (empty — instance methods are native).
     let string_ctx = ClassContext {
         class_name: "java/lang/String".to_string(),
@@ -1708,6 +1851,271 @@ fn native_println_void(
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
     writeln!(out).ok();
+    Ok(None)
+}
+
+fn path_from_string_slot(
+    args: &[Slot],
+    idx: usize,
+    heap: &duke_gc::Heap,
+) -> VmResult<std::path::PathBuf> {
+    let path_ref = match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path = heap
+        .get(path_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)?;
+    Ok(std::path::PathBuf::from(path))
+}
+
+fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<std::path::PathBuf> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path_ref = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path = heap
+        .get(path_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)?;
+    Ok(std::path::PathBuf::from(path))
+}
+
+fn native_file_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let file_obj = heap.get_mut(this_ref)?;
+    let Some(path_field) = file_obj.fields.first_mut() else {
+        return Err(VmError::InvalidRef { address: this_ref });
+    };
+    *path_field = path_slot;
+    Ok(None)
+}
+
+fn native_file_exists(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let path = file_path_from_this(args, heap)?;
+    Ok(Some(Slot::Int(i32::from(path.exists()))))
+}
+
+fn native_file_is_file(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let path = file_path_from_this(args, heap)?;
+    Ok(Some(Slot::Int(i32::from(path.is_file()))))
+}
+
+fn native_file_is_directory(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let path = file_path_from_this(args, heap)?;
+    Ok(Some(Slot::Int(i32::from(path.is_dir()))))
+}
+
+fn file_stream_id_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i32> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) if *id > 0 => Ok(*id),
+        _ => Err(VmError::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        }),
+    }
+}
+
+fn native_file_input_stream_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path = path_from_string_slot(args, 1, heap)?;
+    let file_id = heap.open_host_input_file(&path)?;
+    let stream_obj = heap.get_mut(this_ref)?;
+    let Some(fd_field) = stream_obj.fields.first_mut() else {
+        return Err(VmError::InvalidRef { address: this_ref });
+    };
+    *fd_field = Slot::Int(file_id);
+    Ok(None)
+}
+
+fn native_file_input_stream_read(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let file_id = file_stream_id_from_this(args, heap)?;
+    Ok(Some(Slot::Int(heap.read_host_file_byte(file_id)?)))
+}
+
+fn native_file_input_stream_read_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let file_id = file_stream_id_from_this(args, heap)?;
+    let array_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let len = heap.get(array_ref)?.fields.len();
+    if len == 0 {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    let mut count = 0_usize;
+    for idx in 0..len {
+        let next = heap.read_host_file_byte(file_id)?;
+        if next < 0 {
+            break;
+        }
+        heap.get_mut(array_ref)?.fields[idx] = Slot::Int(next);
+        count += 1;
+    }
+
+    if count == 0 {
+        Ok(Some(Slot::Int(-1)))
+    } else {
+        Ok(Some(Slot::Int(i32::try_from(count).unwrap_or(i32::MAX))))
+    }
+}
+
+fn native_file_input_stream_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let file_id = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        }
+    };
+    heap.close_host_file(file_id);
+    let stream_obj = heap.get_mut(this_ref)?;
+    let Some(fd_field) = stream_obj.fields.first_mut() else {
+        return Err(VmError::InvalidRef { address: this_ref });
+    };
+    *fd_field = Slot::Int(0);
+    Ok(None)
+}
+
+fn native_file_output_stream_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path = path_from_string_slot(args, 1, heap)?;
+    let file_id = heap.open_host_output_file(&path)?;
+    let stream_obj = heap.get_mut(this_ref)?;
+    let Some(fd_field) = stream_obj.fields.first_mut() else {
+        return Err(VmError::InvalidRef { address: this_ref });
+    };
+    *fd_field = Slot::Int(file_id);
+    Ok(None)
+}
+
+fn native_file_output_stream_write(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let file_id = file_stream_id_from_this(args, heap)?;
+    let value = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    heap.write_host_file_byte(file_id, value)?;
+    Ok(None)
+}
+
+fn native_file_output_stream_write_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let file_id = file_stream_id_from_this(args, heap)?;
+    let array_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let bytes = heap.get(array_ref)?.fields.clone();
+    for byte in bytes {
+        let Slot::Int(value) = byte else {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        };
+        heap.write_host_file_byte(file_id, value)?;
+    }
+    Ok(None)
+}
+
+fn native_file_output_stream_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let file_id = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        }
+    };
+    heap.close_host_file(file_id);
+    let stream_obj = heap.get_mut(this_ref)?;
+    let Some(fd_field) = stream_obj.fields.first_mut() else {
+        return Err(VmError::InvalidRef { address: this_ref });
+    };
+    *fd_field = Slot::Int(0);
     Ok(None)
 }
 
@@ -5386,6 +5794,139 @@ pub fn execute_class(
             }};
         }
 
+        macro_rules! propagate_java_exception {
+            ($exc_class_name:expr, $exception_ref:expr, $throw_pc:expr) => {{
+                let exc_class_name = $exc_class_name;
+                let exception_ref = $exception_ref;
+
+                #[cfg(feature = "telemetry")]
+                let _telem_exc_event_idx = registry.telemetry.exception_flow.record_throw(
+                    &exc_class_name,
+                    &current_class,
+                    &current_method,
+                    $throw_pc,
+                );
+
+                // Clone the exception table to release the borrow on registry,
+                // so find_exception_handler can use &mut registry for hierarchy checks.
+                let exc_table = registry.get(&current_class)?.methods[method_idx]
+                    .exception_table
+                    .iter()
+                    .map(|e| ExceptionEntry {
+                        start_pc: e.start_pc,
+                        end_pc: e.end_pc,
+                        handler_pc: e.handler_pc,
+                        catch_type: e.catch_type.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                let handler = find_exception_handler(
+                    &exc_table,
+                    $throw_pc,
+                    &exc_class_name,
+                    registry,
+                    loader,
+                );
+                if let Some(handler_pc) = handler {
+                    #[cfg(feature = "telemetry")]
+                    registry.telemetry.exception_flow.record_catch(
+                        _telem_exc_event_idx,
+                        &current_class,
+                        &current_method,
+                        handler_pc as usize,
+                    );
+                    frame.clear_stack();
+                    frame.push(Slot::Reference(Some(exception_ref)))?;
+                    idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
+                        VmError::InvalidBranchTarget {
+                            pc: handler_pc as usize,
+                        },
+                    )?;
+                    continue;
+                }
+
+                loop {
+                    match call_stack.pop() {
+                        None => {
+                            return Err(VmError::JavaException {
+                                class_name: exc_class_name,
+                            });
+                        }
+                        Some(caller) => {
+                            // Recycle callee frame buffers before overwriting `frame` —
+                            // mirrors the do_return! pattern to avoid a pool leak.
+                            let old = std::mem::replace(&mut frame, caller.frame);
+                            let (l, s) = old.into_pool_bufs();
+                            frame_pool.release(l, s);
+                            method_idx = caller.method_idx;
+                            pc_to_idx = caller.pc_to_idx;
+                            current_class = caller.class_name;
+                            instructions = std::sync::Arc::clone(
+                                &registry.get(&current_class)?.methods[method_idx].instructions,
+                            );
+                            #[cfg(feature = "telemetry")]
+                            {
+                                current_method = registry
+                                    .get(&current_class)
+                                    .map(|c| {
+                                        c.methods
+                                            .get(method_idx)
+                                            .map(|m| m.name.clone())
+                                            .unwrap_or_default()
+                                    })
+                                    .unwrap_or_default();
+                            }
+
+                            let (caller_exc_table, caller_pc) = {
+                                let ctx = registry.get(&current_class)?;
+                                let cpc = if caller.resume_idx > 0 {
+                                    ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
+                                } else {
+                                    0
+                                };
+                                let tbl = ctx.methods[method_idx]
+                                    .exception_table
+                                    .iter()
+                                    .map(|e| ExceptionEntry {
+                                        start_pc: e.start_pc,
+                                        end_pc: e.end_pc,
+                                        handler_pc: e.handler_pc,
+                                        catch_type: e.catch_type.clone(),
+                                    })
+                                    .collect::<Vec<_>>();
+                                (tbl, cpc)
+                            };
+                            let handler = find_exception_handler(
+                                &caller_exc_table,
+                                caller_pc,
+                                &exc_class_name,
+                                registry,
+                                loader,
+                            );
+
+                            if let Some(handler_pc) = handler {
+                                #[cfg(feature = "telemetry")]
+                                registry.telemetry.exception_flow.record_catch(
+                                    _telem_exc_event_idx,
+                                    &current_class,
+                                    &current_method,
+                                    handler_pc as usize,
+                                );
+                                frame.clear_stack();
+                                frame.push(Slot::Reference(Some(exception_ref)))?;
+                                idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
+                                    VmError::InvalidBranchTarget {
+                                        pc: handler_pc as usize,
+                                    },
+                                )?;
+                                break;
+                            }
+                        }
+                    }
+                }
+                continue;
+            }};
+        }
+
         // Telemetry: capture opcode name and start time before dispatch.
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
@@ -5553,7 +6094,19 @@ pub fn execute_class(
                                     _native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
                                 );
-                                let result = result?;
+                                let result = match result {
+                                    Ok(result) => result,
+                                    Err(VmError::JavaException { class_name }) => {
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
+                                    Err(err) => return Err(err),
+                                };
                                 if let Some(val) = result {
                                     frame.push(val)?;
                                 }
@@ -5577,7 +6130,19 @@ pub fn execute_class(
                                     _native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
                                 );
-                                let result = result?;
+                                let result = match result {
+                                    Ok(result) => result,
+                                    Err(VmError::JavaException { class_name }) => {
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
+                                    Err(err) => return Err(err),
+                                };
                                 if let Some(val) = result {
                                     frame.push(val)?;
                                 }
@@ -6339,26 +6904,7 @@ pub fn execute_class(
                 )?;
                 // Walk the super chain to sum all instance field counts
                 // (e.g. Enum has 2 fields inherited by every enum subclass).
-                let field_count = {
-                    let mut count = registry
-                        .get(&target_class)
-                        .map(|c| c.instance_field_count)
-                        .unwrap_or(0);
-                    let mut sc = registry
-                        .get(&target_class)
-                        .ok()
-                        .and_then(|c| c.super_class.clone());
-                    while let Some(ref s) = sc {
-                        match registry.get(s) {
-                            Ok(sctx) => {
-                                count += sctx.instance_field_count;
-                                sc = sctx.super_class.clone();
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                    count
-                };
+                let field_count = total_instance_field_count(registry, &target_class);
                 #[cfg(feature = "telemetry")]
                 registry.telemetry.object_lineage.record(
                     &current_class,
@@ -6683,7 +7229,19 @@ pub fn execute_class(
                                         );
                                     }
                                 }
-                                let result = result?;
+                                let result = match result {
+                                    Ok(result) => result,
+                                    Err(VmError::JavaException { class_name }) => {
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
+                                    Err(err) => return Err(err),
+                                };
                                 if let Some(val) = result {
                                     frame.push(val)?;
                                 }
@@ -6719,7 +7277,19 @@ pub fn execute_class(
                                         );
                                     }
                                 }
-                                let result = result?;
+                                let result = match result {
+                                    Ok(result) => result,
+                                    Err(VmError::JavaException { class_name }) => {
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
+                                    Err(err) => return Err(err),
+                                };
                                 if let Some(val) = result {
                                     frame.push(val)?;
                                 }
@@ -7229,130 +7799,7 @@ pub fn execute_class(
             Instruction::Athrow => {
                 let exception_ref = frame.pop_ref()?;
                 let exc_class_name = heap.get(exception_ref)?.class_name.clone();
-
-                #[cfg(feature = "telemetry")]
-                let _telem_exc_event_idx = registry.telemetry.exception_flow.record_throw(
-                    &exc_class_name,
-                    &current_class,
-                    &current_method,
-                    pc,
-                );
-
-                // Clone the exception table to release the borrow on registry,
-                // so find_exception_handler can use &mut registry for hierarchy checks.
-                let exc_table = registry.get(&current_class)?.methods[method_idx]
-                    .exception_table
-                    .iter()
-                    .map(|e| ExceptionEntry {
-                        start_pc: e.start_pc,
-                        end_pc: e.end_pc,
-                        handler_pc: e.handler_pc,
-                        catch_type: e.catch_type.clone(),
-                    })
-                    .collect::<Vec<_>>();
-                let handler =
-                    find_exception_handler(&exc_table, pc, &exc_class_name, registry, loader);
-                if let Some(handler_pc) = handler {
-                    #[cfg(feature = "telemetry")]
-                    registry.telemetry.exception_flow.record_catch(
-                        _telem_exc_event_idx,
-                        &current_class,
-                        &current_method,
-                        handler_pc as usize,
-                    );
-                    frame.clear_stack();
-                    frame.push(Slot::Reference(Some(exception_ref)))?;
-                    idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
-                        VmError::InvalidBranchTarget {
-                            pc: handler_pc as usize,
-                        },
-                    )?;
-                    continue;
-                }
-
-                // No handler in current method — unwind call stack.
-                loop {
-                    match call_stack.pop() {
-                        None => {
-                            return Err(VmError::JavaException {
-                                class_name: exc_class_name,
-                            });
-                        }
-                        Some(caller) => {
-                            // Recycle callee frame buffers before overwriting `frame` —
-                            // mirrors the do_return! pattern to avoid a pool leak.
-                            let old = std::mem::replace(&mut frame, caller.frame);
-                            let (l, s) = old.into_pool_bufs();
-                            frame_pool.release(l, s);
-                            method_idx = caller.method_idx;
-                            pc_to_idx = caller.pc_to_idx;
-                            current_class = caller.class_name;
-                            instructions = std::sync::Arc::clone(
-                                &registry.get(&current_class)?.methods[method_idx].instructions,
-                            );
-                            #[cfg(feature = "telemetry")]
-                            {
-                                current_method = registry
-                                    .get(&current_class)
-                                    .map(|c| {
-                                        c.methods
-                                            .get(method_idx)
-                                            .map(|m| m.name.clone())
-                                            .unwrap_or_default()
-                                    })
-                                    .unwrap_or_default();
-                            }
-
-                            // Clone exception table and compute caller_pc before hierarchy check.
-                            let (caller_exc_table, caller_pc) = {
-                                let ctx = registry.get(&current_class)?;
-                                let cpc = if caller.resume_idx > 0 {
-                                    ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
-                                } else {
-                                    0
-                                };
-                                let tbl = ctx.methods[method_idx]
-                                    .exception_table
-                                    .iter()
-                                    .map(|e| ExceptionEntry {
-                                        start_pc: e.start_pc,
-                                        end_pc: e.end_pc,
-                                        handler_pc: e.handler_pc,
-                                        catch_type: e.catch_type.clone(),
-                                    })
-                                    .collect::<Vec<_>>();
-                                (tbl, cpc)
-                            };
-                            let handler = find_exception_handler(
-                                &caller_exc_table,
-                                caller_pc,
-                                &exc_class_name,
-                                registry,
-                                loader,
-                            );
-
-                            if let Some(handler_pc) = handler {
-                                #[cfg(feature = "telemetry")]
-                                registry.telemetry.exception_flow.record_catch(
-                                    _telem_exc_event_idx,
-                                    &current_class,
-                                    &current_method,
-                                    handler_pc as usize,
-                                );
-                                frame.clear_stack();
-                                frame.push(Slot::Reference(Some(exception_ref)))?;
-                                idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
-                                    VmError::InvalidBranchTarget {
-                                        pc: handler_pc as usize,
-                                    },
-                                )?;
-                                break;
-                            }
-                            // No handler here either — keep unwinding.
-                        }
-                    }
-                }
-                continue;
+                propagate_java_exception!(exc_class_name, exception_ref, pc);
             }
 
             // ----------------------------------------------------------------
@@ -7610,7 +8057,23 @@ pub fn execute_class(
                                             false,
                                         );
                                     }
-                                    let result = result?;
+                                    let result = match result {
+                                        Ok(result) => result,
+                                        Err(VmError::JavaException { class_name }) => {
+                                            let exception_ref = materialize_java_exception_object(
+                                                registry,
+                                                loader,
+                                                heap,
+                                                &class_name,
+                                            )?;
+                                            propagate_java_exception!(
+                                                class_name,
+                                                exception_ref,
+                                                pc
+                                            );
+                                        }
+                                        Err(err) => return Err(err),
+                                    };
                                     if let Some(val) = result {
                                         frame.push(val)?;
                                     }
@@ -7644,7 +8107,23 @@ pub fn execute_class(
                                             false,
                                         );
                                     }
-                                    let result = result?;
+                                    let result = match result {
+                                        Ok(result) => result,
+                                        Err(VmError::JavaException { class_name }) => {
+                                            let exception_ref = materialize_java_exception_object(
+                                                registry,
+                                                loader,
+                                                heap,
+                                                &class_name,
+                                            )?;
+                                            propagate_java_exception!(
+                                                class_name,
+                                                exception_ref,
+                                                pc
+                                            );
+                                        }
+                                        Err(err) => return Err(err),
+                                    };
                                     if let Some(val) = result {
                                         frame.push(val)?;
                                     }
@@ -7813,7 +8292,24 @@ pub fn execute_class(
                                                 _native_start.elapsed().as_nanos() as u64,
                                                 result.is_err(),
                                             );
-                                            let result = result?;
+                                            let result = match result {
+                                                Ok(result) => result,
+                                                Err(VmError::JavaException { class_name }) => {
+                                                    let exception_ref =
+                                                        materialize_java_exception_object(
+                                                            registry,
+                                                            loader,
+                                                            heap,
+                                                            &class_name,
+                                                        )?;
+                                                    propagate_java_exception!(
+                                                        class_name,
+                                                        exception_ref,
+                                                        pc
+                                                    );
+                                                }
+                                                Err(err) => return Err(err),
+                                            };
                                             if let Some(val) = result {
                                                 frame.push(val)?;
                                             }
@@ -7833,7 +8329,24 @@ pub fn execute_class(
                                                 _native_start.elapsed().as_nanos() as u64,
                                                 result.is_err(),
                                             );
-                                            let result = result?;
+                                            let result = match result {
+                                                Ok(result) => result,
+                                                Err(VmError::JavaException { class_name }) => {
+                                                    let exception_ref =
+                                                        materialize_java_exception_object(
+                                                            registry,
+                                                            loader,
+                                                            heap,
+                                                            &class_name,
+                                                        )?;
+                                                    propagate_java_exception!(
+                                                        class_name,
+                                                        exception_ref,
+                                                        pc
+                                                    );
+                                                }
+                                                Err(err) => return Err(err),
+                                            };
                                             if let Some(val) = result {
                                                 frame.push(val)?;
                                             }
@@ -8554,11 +9067,55 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
     }
 }
 
+/// reference-typed fields (`L…;` / `[…`), which must be `Reference(None)`.
+/// Sum a class's instance fields across its full superclass chain.
+fn total_instance_field_count(registry: &ClassRegistry, class_name: &str) -> usize {
+    let mut count = registry
+        .get(class_name)
+        .map(|c| c.instance_field_count)
+        .unwrap_or(0);
+    let mut sc = registry
+        .get(class_name)
+        .ok()
+        .and_then(|c| c.super_class.clone());
+    while let Some(ref s) = sc {
+        match registry.get(s) {
+            Ok(sctx) => {
+                count += sctx.instance_field_count;
+                sc = sctx.super_class.clone();
+            }
+            Err(_) => break,
+        }
+    }
+    count
+}
+
+/// Allocate a heap exception object for a native-thrown Java exception.
+///
+/// Native handlers currently surface Java exceptions as class names. Catch
+/// blocks need an object reference on the operand stack, so we materialize a
+/// minimal heap object of that class before routing through exception-table
+/// dispatch.
+fn materialize_java_exception_object(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+) -> VmResult<u64> {
+    registry.ensure_loaded(class_name, loader)?;
+    let exc_ref = heap.allocate(
+        class_name.to_string(),
+        total_instance_field_count(registry, class_name),
+    );
+    init_object_fields(registry, heap, exc_ref, class_name);
+    Ok(exc_ref)
+}
+
 /// After allocating an object on the heap, initialize each field slot to the
 /// JVM-spec default for its descriptor.
 ///
 /// `heap.allocate` sets all slots to `Slot::Int(0)`, which is wrong for
-/// reference-typed fields (`L…;` / `[…`), which must be `Reference(None)`.
+/// reference-typed fields (`L...;` / `[...]`), which must be `Reference(None)`.
 /// This function walks the full class hierarchy (Object-first) and writes the
 /// correct default into every slot that differs from `Int(0)`.
 fn init_object_fields(
@@ -13839,6 +14396,59 @@ mod tests {
         }
     }
 
+    fn run_bootstrap_with_string_args(
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: &[String],
+    ) -> VmResult<Option<Slot>> {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let arg_slots: Vec<Slot> = args
+            .iter()
+            .map(|arg| Slot::Reference(Some(heap.allocate_string(arg.clone()))))
+            .collect();
+        let mut out: Vec<u8> = Vec::new();
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &arg_slots,
+        )
+    }
+
+    struct TempCleanup(std::path::PathBuf);
+
+    impl Drop for TempCleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn make_temp_root(prefix: &str) -> (std::path::PathBuf, TempCleanup) {
+        let unique = format!(
+            "{prefix}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock is before UNIX_EPOCH")
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&root).expect("create temp root");
+        let cleanup = TempCleanup(root.clone());
+        (root, cleanup)
+    }
+
     #[cfg(feature = "telemetry")]
     fn run_fixture(
         class_name: &str,
@@ -15584,6 +16194,209 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("TryWithResources.class", "nestedClosed", "()I"),
             2
+        );
+    }
+
+    // ---- Phase 28: File I/O metadata ----
+
+    #[test]
+    fn file_io_metadata_reports_file_and_directory_kinds() {
+        let (root, _cleanup) = make_temp_root("duke-file-io");
+
+        let file_path = root.join("sample.txt");
+        let dir_path = root.join("nested");
+        let missing_path = root.join("missing.txt");
+        std::fs::write(&file_path, b"abc").expect("write temp file");
+        std::fs::create_dir_all(&dir_path).expect("create temp dir");
+
+        let result = run_bootstrap_with_string_args(
+            "FileIoTest.class",
+            "inspectKinds",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                file_path.to_string_lossy().into_owned(),
+                dir_path.to_string_lossy().into_owned(),
+                missing_path.to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected File metadata support; current Duke failed with {result:?}"
+        );
+        let Some(Slot::Int(mask)) = result.unwrap() else {
+            panic!("expected int bitmask result");
+        };
+        assert_ne!(mask & 1, 0, "existing file should report exists()");
+        assert_ne!(mask & 2, 0, "existing file should report isFile()");
+        assert_eq!(mask & 4, 0, "existing file should not report isDirectory()");
+        assert_ne!(mask & 8, 0, "existing directory should report exists()");
+        assert_eq!(
+            mask & 16,
+            0,
+            "existing directory should not report isFile()"
+        );
+        assert_ne!(
+            mask & 32,
+            0,
+            "existing directory should report isDirectory()"
+        );
+        assert_eq!(mask & 64, 0, "missing path should not report exists()");
+        assert_eq!(mask & 128, 0, "missing path should not report isFile()");
+        assert_eq!(
+            mask & 256,
+            0,
+            "missing path should not report isDirectory()"
+        );
+    }
+
+    #[test]
+    fn file_io_reads_all_bytes_and_sums_them() {
+        let (root, _cleanup) = make_temp_root("duke-file-io-read");
+        let input_path = root.join("bytes.bin");
+        std::fs::write(&input_path, [1_u8, 2, 3, 4]).expect("write input file");
+
+        let result = run_bootstrap_with_string_args(
+            "FileIoTest.class",
+            "readAllAndSum",
+            "(Ljava/lang/String;)I",
+            &[input_path.to_string_lossy().into_owned()],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected FileInputStream read support; current Duke failed with {result:?}"
+        );
+        assert_eq!(
+            result.unwrap(),
+            Some(Slot::Int(10)),
+            "readAllAndSum should return the sum of all input bytes"
+        );
+    }
+
+    #[test]
+    fn file_io_copies_bytes_via_try_with_resources() {
+        let (root, _cleanup) = make_temp_root("duke-file-io-copy");
+        let input_path = root.join("input.bin");
+        let output_path = root.join("output.bin");
+        let input_bytes = [9_u8, 8, 7, 6];
+        std::fs::write(&input_path, input_bytes).expect("write input file");
+
+        let result = run_bootstrap_with_string_args(
+            "FileIoTest.class",
+            "copyAndCount",
+            "(Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                input_path.to_string_lossy().into_owned(),
+                output_path.to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected FileOutputStream write support; current Duke failed with {result:?}"
+        );
+        assert_eq!(
+            result.unwrap(),
+            Some(Slot::Int(4)),
+            "copyAndCount should report the number of copied bytes"
+        );
+        assert_eq!(
+            std::fs::read(&output_path).expect("read output file"),
+            input_bytes,
+            "copied output bytes should match the input bytes"
+        );
+    }
+
+    #[test]
+    fn file_io_copies_bytes_with_block_read_and_write() {
+        let (root, _cleanup) = make_temp_root("duke-file-io-buffer");
+        let input_path = root.join("input.bin");
+        let output_path = root.join("output.bin");
+        let input_bytes = [5_u8, 4, 3, 2];
+        std::fs::write(&input_path, input_bytes).expect("write input file");
+
+        let result = run_bootstrap_with_string_args(
+            "FileIoTest.class",
+            "copyWithBuffer",
+            "(Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                input_path.to_string_lossy().into_owned(),
+                output_path.to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected block File I/O support; current Duke failed with {result:?}"
+        );
+        assert_eq!(
+            result.unwrap(),
+            Some(Slot::Int(4)),
+            "copyWithBuffer should report the number of buffered bytes"
+        );
+        assert_eq!(
+            std::fs::read(&output_path).expect("read output file"),
+            input_bytes,
+            "block copy output bytes should match the input bytes"
+        );
+    }
+
+    #[test]
+    fn file_io_missing_input_raises_file_not_found() {
+        let (root, _cleanup) = make_temp_root("duke-file-io-missing");
+        let missing_path = root.join("missing.bin");
+
+        let result = run_bootstrap_with_string_args(
+            "FileIoTest.class",
+            "missingFile",
+            "(Ljava/lang/String;)I",
+            &[missing_path.to_string_lossy().into_owned()],
+        );
+
+        assert_eq!(
+            result.unwrap(),
+            Some(Slot::Int(1)),
+            "missingFile should catch FileNotFoundException"
+        );
+    }
+
+    #[test]
+    fn file_io_read_after_close_raises_io_exception() {
+        let (root, _cleanup) = make_temp_root("duke-file-io-read-close");
+        let input_path = root.join("input.bin");
+        std::fs::write(&input_path, [1_u8, 2, 3]).expect("write input file");
+
+        let result = run_bootstrap_with_string_args(
+            "FileIoTest.class",
+            "readAfterClose",
+            "(Ljava/lang/String;)I",
+            &[input_path.to_string_lossy().into_owned()],
+        );
+
+        assert_eq!(
+            result.unwrap(),
+            Some(Slot::Int(1)),
+            "readAfterClose should catch IOException"
+        );
+    }
+
+    #[test]
+    fn file_io_write_after_close_raises_io_exception() {
+        let (root, _cleanup) = make_temp_root("duke-file-io-write-close");
+        let output_path = root.join("output.bin");
+
+        let result = run_bootstrap_with_string_args(
+            "FileIoTest.class",
+            "writeAfterClose",
+            "(Ljava/lang/String;)I",
+            &[output_path.to_string_lossy().into_owned()],
+        );
+
+        assert_eq!(
+            result.unwrap(),
+            Some(Slot::Int(1)),
+            "writeAfterClose should catch IOException"
         );
     }
 
