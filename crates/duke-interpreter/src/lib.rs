@@ -14064,6 +14064,37 @@ mod tests {
         )
     }
 
+    fn run_bootstrap_with_output(
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+    ) -> VmResult<(Option<Slot>, Vec<String>)> {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )?;
+        let lines = String::from_utf8(out)
+            .expect("captured output is utf8")
+            .lines()
+            .map(std::string::ToString::to_string)
+            .collect();
+        Ok((result, lines))
+    }
+
     struct TempCleanup(std::path::PathBuf);
 
     impl Drop for TempCleanup {
@@ -16037,6 +16068,95 @@ mod tests {
             Some(Slot::Int(1)),
             "writeAfterClose should catch IOException"
         );
+    }
+
+    // ---- Phase 28: Threading ----
+
+    #[test]
+    fn threading_spawn_and_join_ten_workers() {
+        let start = std::time::Instant::now();
+        let result = run_bootstrap_with_output("ThreadingTest.class", "spawnAndJoinTen", "()I");
+        let elapsed = start.elapsed();
+
+        assert!(
+            result.is_ok(),
+            "expected basic Thread/Runnable support; current Duke failed with {result:?}"
+        );
+        let (value, mut lines) = result.unwrap();
+        lines.sort();
+        assert_eq!(value, Some(Slot::Int(10)), "spawnAndJoinTen should return 10");
+        assert_eq!(lines.len(), 20, "ten workers should print two lines each");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(40),
+            "spawnAndJoinTen should observe real sleep time; elapsed={elapsed:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(450),
+            "spawnAndJoinTen should complete faster than serialized sleeps; elapsed={elapsed:?}"
+        );
+        for expected in 0..10 {
+            assert!(
+                lines.iter().any(|line| line == &expected.to_string()),
+                "missing worker start line for {expected}: {lines:?}"
+            );
+            assert!(
+                lines.iter().any(|line| line == &(expected + 100).to_string()),
+                "missing worker finish line for {}: {lines:?}",
+                expected + 100
+            );
+            assert!(
+                !lines.iter().any(|line| line == &(-1000 - expected).to_string()),
+                "worker {expected} reported a sleep failure: {lines:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn threading_subclass_run_method_wins_over_base_thread() {
+        let result = run_bootstrap_with_output("ThreadingTest.class", "subclassRunWins", "()I");
+
+        assert!(
+            result.is_ok(),
+            "expected Thread subclass support; current Duke failed with {result:?}"
+        );
+        let (value, lines) = result.unwrap();
+        assert_eq!(value, Some(Slot::Int(1)), "subclassRunWins should return 1");
+        assert!(
+            lines.iter().any(|line| line == "205"),
+            "expected subclass run() output to contain 205, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn threading_fire_and_forget_still_waits_for_workers_before_returning() {
+        let result = run_bootstrap_with_output(
+            "ThreadingTest.class",
+            "fireAndForgetStillFinishes",
+            "()I",
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected Duke to keep the VM alive for worker threads; current Duke failed with {result:?}"
+        );
+        let (value, mut lines) = result.unwrap();
+        lines.sort();
+        assert_eq!(
+            value,
+            Some(Slot::Int(3)),
+            "fireAndForgetStillFinishes should return 3"
+        );
+        assert_eq!(
+            lines.len(),
+            6,
+            "three workers should still finish before the VM returns"
+        );
+        for expected in [0, 1, 2, 100, 101, 102] {
+            assert!(
+                lines.iter().any(|line| line == &expected.to_string()),
+                "missing expected worker output {expected}: {lines:?}"
+            );
+        }
     }
 
     // ---------------------------------------------------------------------------
