@@ -7238,8 +7238,14 @@ pub fn execute_class(
                     pc,
                 );
 
-                let handler =
-                    find_exception_handler(&current_class, method_idx, pc, &exc_class_name, registry, loader)?;
+                let handler = find_exception_handler(
+                    &current_class,
+                    method_idx,
+                    pc,
+                    &exc_class_name,
+                    registry,
+                    loader,
+                )?;
                 if let Some(handler_pc) = handler {
                     #[cfg(feature = "telemetry")]
                     registry.telemetry.exception_flow.record_catch(
@@ -8238,7 +8244,9 @@ fn find_exception_handler(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
 ) -> VmResult<Option<u16>> {
-    let tbl_len = registry.get(method_class)?.methods[method_idx].exception_table.len();
+    let tbl_len = registry.get(method_class)?.methods[method_idx]
+        .exception_table
+        .len();
     for i in 0..tbl_len {
         let entry = &registry.get(method_class)?.methods[method_idx].exception_table[i];
         let in_range = pc >= entry.start_pc as usize && pc < entry.end_pc as usize;
@@ -8247,12 +8255,12 @@ fn find_exception_handler(
         }
         let catch_type = entry.catch_type.clone();
 
-        let type_matches = match &catch_type {
-            None => true, // catch-all (finally)
-            Some(ct) => is_assignable_from(registry, loader, class_name, ct),
-        };
+        let type_matches = catch_type.as_ref().is_none_or(|ct| {
+            is_assignable_from(registry, loader, class_name, ct)
+        });
         if type_matches {
-            let handler_pc = registry.get(method_class)?.methods[method_idx].exception_table[i].handler_pc;
+            let handler_pc =
+                registry.get(method_class)?.methods[method_idx].exception_table[i].handler_pc;
             return Ok(Some(handler_pc));
         }
     }
@@ -18302,7 +18310,15 @@ mod tests {
         registry.register(ctx);
         let loader = make_simple_loader();
         assert_eq!(
-            find_exception_handler("TestClass", 0, 5, "java/lang/Exception", &mut registry, &loader).unwrap(),
+            find_exception_handler(
+                "TestClass",
+                0,
+                5,
+                "java/lang/Exception",
+                &mut registry,
+                &loader
+            )
+            .unwrap(),
             Some(20)
         );
     }
@@ -18343,11 +18359,27 @@ mod tests {
         registry.register(ctx);
         let loader = make_simple_loader();
         assert_eq!(
-            find_exception_handler("TestClass", 0, 10, "java/lang/Exception", &mut registry, &loader).unwrap(),
+            find_exception_handler(
+                "TestClass",
+                0,
+                10,
+                "java/lang/Exception",
+                &mut registry,
+                &loader
+            )
+            .unwrap(),
             None
         );
         assert_eq!(
-            find_exception_handler("TestClass", 0, 9, "java/lang/Exception", &mut registry, &loader).unwrap(),
+            find_exception_handler(
+                "TestClass",
+                0,
+                9,
+                "java/lang/Exception",
+                &mut registry,
+                &loader
+            )
+            .unwrap(),
             Some(20)
         );
     }
