@@ -9589,7 +9589,8 @@ fn native_hashmap_get(
     let fields = heap.get(this_ref)?.fields.clone();
 
     Ok(Some(
-        find_hashmap_entry_index(&fields, &key, heap).map_or(Slot::Reference(None), |i| fields[i + 1]),
+        find_hashmap_entry_index(&fields, &key, heap)
+            .map_or(Slot::Reference(None), |i| fields[i + 1]),
     ))
 }
 
