@@ -1,0 +1,26 @@
+}
+
+/// Search a method's exception table for a handler matching the given pc and exception class.
+///
+/// Uses hierarchy-aware type checking: a `catch(Exception)` will match a thrown
+/// `RuntimeException` because `RuntimeException` is a subclass of `Exception`.
+fn find_exception_handler(
+    exception_table: &[ExceptionEntry],
+    pc: usize,
+    class_name: &str,
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+) -> Option<u16> {
+    exception_table.iter().find_map(|entry| {
+        let in_range = pc >= entry.start_pc as usize && pc < entry.end_pc as usize;
+        #[allow(clippy::option_if_let_else)] // match is clearer with &mut registry
+        let type_matches = match &entry.catch_type {
+            None => true, // catch-all (finally)
+            Some(ct) => is_assignable_from(registry, loader, class_name, ct),
+        };
+        if in_range && type_matches {
+            Some(entry.handler_pc)
+        } else {
+            None
+        }
+    })
