@@ -7238,14 +7238,20 @@ pub fn execute_class(
                     pc,
                 );
 
-                let handler = find_exception_handler(
-                    &current_class,
-                    method_idx,
-                    pc,
-                    &exc_class_name,
-                    registry,
-                    loader,
-                )?;
+                // Clone the exception table to release the borrow on registry,
+                // so find_exception_handler can use &mut registry for hierarchy checks.
+                let exc_table = registry.get(&current_class)?.methods[method_idx]
+                    .exception_table
+                    .iter()
+                    .map(|e| ExceptionEntry {
+                        start_pc: e.start_pc,
+                        end_pc: e.end_pc,
+                        handler_pc: e.handler_pc,
+                        catch_type: e.catch_type.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                let handler =
+                    find_exception_handler(&exc_table, pc, &exc_class_name, registry, loader);
                 if let Some(handler_pc) = handler {
                     #[cfg(feature = "telemetry")]
                     registry.telemetry.exception_flow.record_catch(
@@ -7297,22 +7303,33 @@ pub fn execute_class(
                                     .unwrap_or_default();
                             }
 
-                            let caller_pc = {
+                            // Clone exception table and compute caller_pc before hierarchy check.
+                            let (caller_exc_table, caller_pc) = {
                                 let ctx = registry.get(&current_class)?;
-                                if caller.resume_idx > 0 {
+                                let cpc = if caller.resume_idx > 0 {
                                     ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
                                 } else {
                                     0
-                                }
+                                };
+                                let tbl = ctx.methods[method_idx]
+                                    .exception_table
+                                    .iter()
+                                    .map(|e| ExceptionEntry {
+                                        start_pc: e.start_pc,
+                                        end_pc: e.end_pc,
+                                        handler_pc: e.handler_pc,
+                                        catch_type: e.catch_type.clone(),
+                                    })
+                                    .collect::<Vec<_>>();
+                                (tbl, cpc)
                             };
                             let handler = find_exception_handler(
-                                &current_class,
-                                method_idx,
+                                &caller_exc_table,
                                 caller_pc,
                                 &exc_class_name,
                                 registry,
                                 loader,
-                            )?;
+                            );
 
                             if let Some(handler_pc) = handler {
                                 #[cfg(feature = "telemetry")]
@@ -8237,34 +8254,25 @@ fn is_assignable_from(
 /// Uses hierarchy-aware type checking: a `catch(Exception)` will match a thrown
 /// `RuntimeException` because `RuntimeException` is a subclass of `Exception`.
 fn find_exception_handler(
-    method_class: &str,
-    method_idx: usize,
+    exception_table: &[ExceptionEntry],
     pc: usize,
     class_name: &str,
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
-) -> VmResult<Option<u16>> {
-    let tbl_len = registry.get(method_class)?.methods[method_idx]
-        .exception_table
-        .len();
-    for i in 0..tbl_len {
-        let entry = &registry.get(method_class)?.methods[method_idx].exception_table[i];
+) -> Option<u16> {
+    exception_table.iter().find_map(|entry| {
         let in_range = pc >= entry.start_pc as usize && pc < entry.end_pc as usize;
-        if !in_range {
-            continue;
+        #[allow(clippy::option_if_let_else)] // match is clearer with &mut registry
+        let type_matches = match &entry.catch_type {
+            None => true, // catch-all (finally)
+            Some(ct) => is_assignable_from(registry, loader, class_name, ct),
+        };
+        if in_range && type_matches {
+            Some(entry.handler_pc)
+        } else {
+            None
         }
-        let catch_type = entry.catch_type.clone();
-
-        let type_matches = catch_type.as_ref().is_none_or(|ct| {
-            is_assignable_from(registry, loader, class_name, ct)
-        });
-        if type_matches {
-            let handler_pc =
-                registry.get(method_class)?.methods[method_idx].exception_table[i].handler_pc;
-            return Ok(Some(handler_pc));
-        }
-    }
-    Ok(None)
+    })
 }
 
 /// Walk the class hierarchy to find a method by name and descriptor.
@@ -18283,42 +18291,10 @@ mod tests {
             handler_pc: 20,
             catch_type: None, // catch-all
         }];
-
-        let method = MethodEntry {
-            name: "test".to_string(),
-            descriptor: "()V".to_string(),
-            instructions: std::sync::Arc::from(vec![].into_boxed_slice()),
-            max_stack: 0,
-            max_locals: 0,
-            exception_table: table,
-            pc_to_idx: std::sync::Arc::new(std::collections::HashMap::new()),
-        };
-
-        let ctx = ClassContext {
-            class_name: "TestClass".to_string(),
-            super_class: None,
-            interfaces: vec![],
-            constant_pool: vec![],
-            methods: vec![method],
-            fields: vec![],
-            static_fields: vec![],
-            instance_field_count: 0,
-            bootstrap_methods: vec![],
-        };
-
         let mut registry = ClassRegistry::new();
-        registry.register(ctx);
         let loader = make_simple_loader();
         assert_eq!(
-            find_exception_handler(
-                "TestClass",
-                0,
-                5,
-                "java/lang/Exception",
-                &mut registry,
-                &loader
-            )
-            .unwrap(),
+            find_exception_handler(&table, 5, "java/lang/Exception", &mut registry, &loader),
             Some(20)
         );
     }
@@ -18332,54 +18308,14 @@ mod tests {
             handler_pc: 20,
             catch_type: None,
         }];
-
-        let method = MethodEntry {
-            name: "test".to_string(),
-            descriptor: "()V".to_string(),
-            instructions: std::sync::Arc::from(vec![].into_boxed_slice()),
-            max_stack: 0,
-            max_locals: 0,
-            exception_table: table,
-            pc_to_idx: std::sync::Arc::new(std::collections::HashMap::new()),
-        };
-
-        let ctx = ClassContext {
-            class_name: "TestClass".to_string(),
-            super_class: None,
-            interfaces: vec![],
-            constant_pool: vec![],
-            methods: vec![method],
-            fields: vec![],
-            static_fields: vec![],
-            instance_field_count: 0,
-            bootstrap_methods: vec![],
-        };
-
         let mut registry = ClassRegistry::new();
-        registry.register(ctx);
         let loader = make_simple_loader();
         assert_eq!(
-            find_exception_handler(
-                "TestClass",
-                0,
-                10,
-                "java/lang/Exception",
-                &mut registry,
-                &loader
-            )
-            .unwrap(),
+            find_exception_handler(&table, 10, "java/lang/Exception", &mut registry, &loader),
             None
         );
         assert_eq!(
-            find_exception_handler(
-                "TestClass",
-                0,
-                9,
-                "java/lang/Exception",
-                &mut registry,
-                &loader
-            )
-            .unwrap(),
+            find_exception_handler(&table, 9, "java/lang/Exception", &mut registry, &loader),
             Some(20)
         );
     }
