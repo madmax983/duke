@@ -6,6 +6,7 @@ use crate::{ClassLoader, LoadError, LoadResult};
 ///
 /// Given `find_class("java/lang/Object")`, looks for
 /// `{root}/java/lang/Object.class`.
+#[derive(Debug)]
 pub struct DirectoryLoader {
     root: PathBuf,
 }
