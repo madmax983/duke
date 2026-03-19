@@ -153,7 +153,7 @@ pub struct BytecodeCostStore {
 impl BytecodeCostStore {
     /// Record the execution of a single bytecode instruction.
     ///
-    /// - `name`: The mnemonic of the instruction (e.g. "aload_0", "invokeinterface").
+    /// - `name`: The mnemonic of the instruction (e.g. "`aload_0`", "`invokeinterface`").
     /// - `class`: The JVM name of the class currently executing.
     /// - `method`: The name of the method currently executing.
     /// - `pc`: The program counter (instruction index) within the method.
