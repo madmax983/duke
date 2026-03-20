@@ -6838,12 +6838,11 @@ pub fn execute_class(
                         match native_handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args = vec![Slot::Int(0); arg_count];
-                                for i in (0..arg_count).rev() {
+                                let mut native_args = vec![Slot::Int(0); arg_count + 1];
+                                for i in (1..=arg_count).rev() {
                                     native_args[i] = frame.pop()?;
                                 }
-                                let this_slot = frame.pop()?; // pop `this`
-                                native_args.insert(0, this_slot);
+                                native_args[0] = frame.pop()?; // pop `this`
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let result = handler(&native_args, heap, stdout);
@@ -6887,12 +6886,11 @@ pub fn execute_class(
                             }
                             Some(HandlerKind::Callback(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args = vec![Slot::Int(0); arg_count];
-                                for i in (0..arg_count).rev() {
+                                let mut native_args = vec![Slot::Int(0); arg_count + 1];
+                                for i in (1..=arg_count).rev() {
                                     native_args[i] = frame.pop()?;
                                 }
-                                let this_slot = frame.pop()?; // pop `this`
-                                native_args.insert(0, this_slot);
+                                native_args[0] = frame.pop()?; // pop `this`
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut invoke_cb = create_invoke_cb!(registry, loader);
