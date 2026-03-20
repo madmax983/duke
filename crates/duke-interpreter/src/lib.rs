@@ -6574,10 +6574,14 @@ fn run_execution(
                         match handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                let mut native_args = vec![Slot::Int(0); arg_count];
+
+                                for i in (0..arg_count).rev() {
+                                    native_args[i] = frame.pop()?;
+                                }
+
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut native_control = NativeControl::default();
@@ -6612,10 +6616,13 @@ fn run_execution(
                             }
                             Some(HandlerKind::Callback(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                let mut native_args = vec![Slot::Int(0); arg_count];
+
+                                for i in (0..arg_count).rev() {
+                                    native_args[i] = frame.pop()?;
+                                }
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut invoke_cb = create_invoke_cb!(registry, loader);
@@ -7564,10 +7571,13 @@ fn run_execution(
                                     registry.get_lambda(actual_class).cloned()
                                 && callee_name == lambda_info.sam_method
                             {
-                                let mut sam_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                sam_args.reverse();
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                let mut sam_args = vec![Slot::Int(0); arg_count];
+
+                                for i in (0..arg_count).rev() {
+                                    sam_args[i] = frame.pop()?;
+                                }
                                 let this_slot = frame.pop()?;
                                 let this_ref = match &this_slot {
                                     Slot::Reference(Some(r)) => *r,
@@ -7711,10 +7721,14 @@ fn run_execution(
                         match native_handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                let mut native_args = vec![Slot::Int(0); arg_count];
+
+                                for i in (0..arg_count).rev() {
+                                    native_args[i] = frame.pop()?;
+                                }
+
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
@@ -7763,10 +7777,13 @@ fn run_execution(
                             }
                             Some(HandlerKind::Callback(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                native_args.reverse();
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                let mut native_args = vec![Slot::Int(0); arg_count];
+
+                                for i in (0..arg_count).rev() {
+                                    native_args[i] = frame.pop()?;
+                                }
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
@@ -8357,10 +8374,13 @@ fn run_execution(
                     // --- StringConcatFactory.makeConcatWithConstants ---
                     let arg_count = parse_arg_count(&call_desc);
                     let arg_types = parse_arg_types(&call_desc);
-                    let mut dynamic_args: Vec<Slot> = (0..arg_count)
-                        .map(|_| frame.pop())
-                        .collect::<VmResult<Vec<_>>>()?;
-                    dynamic_args.reverse();
+                    // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                    let mut dynamic_args = vec![Slot::Int(0); arg_count];
+
+                    for i in (0..arg_count).rev() {
+                        dynamic_args[i] = frame.pop()?;
+                    }
 
                     // Resolve recipe (first bootstrap arg) and constants (remaining).
                     let (recipe, constants) = {
@@ -8430,10 +8450,13 @@ fn run_execution(
 
                     // Pop captured variables from the stack.
                     let captured_count = parse_arg_count(&call_desc);
-                    let mut captured_args: Vec<Slot> = (0..captured_count)
-                        .map(|_| frame.pop())
-                        .collect::<VmResult<Vec<_>>>()?;
-                    captured_args.reverse();
+                    // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                    let mut captured_args = vec![Slot::Int(0); captured_count];
+
+                    for i in (0..captured_count).rev() {
+                        captured_args[i] = frame.pop()?;
+                    }
 
                     let lambda_info = LambdaInfo {
                         impl_class: impl_class.clone(),
@@ -8542,10 +8565,14 @@ fn run_execution(
                                 Some(HandlerKind::Simple(handler)) => {
                                     // Native path: collect args + this into a Vec<Slot>
                                     // for the handler(&[Slot], ...) signature.
-                                    let mut callee_args: Vec<Slot> = (0..arg_count)
-                                        .map(|_| frame.pop())
-                                        .collect::<VmResult<Vec<_>>>()?;
-                                    callee_args.reverse();
+                                    // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                    let mut callee_args = vec![Slot::Int(0); arg_count];
+
+                                    for i in (0..arg_count).rev() {
+                                        callee_args[i] = frame.pop()?;
+                                    }
+
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
@@ -8595,10 +8622,13 @@ fn run_execution(
                                     continue;
                                 }
                                 Some(HandlerKind::Callback(handler)) => {
-                                    let mut callee_args: Vec<Slot> = (0..arg_count)
-                                        .map(|_| frame.pop())
-                                        .collect::<VmResult<Vec<_>>>()?;
-                                    callee_args.reverse();
+                                    // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                    let mut callee_args = vec![Slot::Int(0); arg_count];
+
+                                    for i in (0..arg_count).rev() {
+                                        callee_args[i] = frame.pop()?;
+                                    }
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
@@ -8658,10 +8688,13 @@ fn run_execution(
                                 && callee_name == lambda_info.sam_method
                             {
                                 // Lambda path: collect args + this into a Vec<Slot>.
-                                let mut callee_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
-                                callee_args.reverse();
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                let mut callee_args = vec![Slot::Int(0); arg_count];
+
+                                for i in (0..arg_count).rev() {
+                                    callee_args[i] = frame.pop()?;
+                                }
                                 let this_slot = frame.pop()?;
                                 callee_args.insert(0, this_slot);
                                 let this_ref = match &callee_args[0] {
