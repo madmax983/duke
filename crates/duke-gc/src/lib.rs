@@ -380,9 +380,8 @@ impl Heap {
             });
         }
         // Temporarily remove the listener to satisfy the borrow checker, then reinsert.
-        let listener = match self.host_files.remove(&id) {
-            Some(HostFileHandle::TcpListener(l)) => l,
-            _ => unreachable!(),
+        let Some(HostFileHandle::TcpListener(listener)) = self.host_files.remove(&id) else {
+            unreachable!()
         };
         let result = listener.accept();
         self.host_files
