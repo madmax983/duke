@@ -2184,7 +2184,7 @@ fn native_socket_init(
     Ok(None)
 }
 
-/// Native: `Socket.getInputStream()` — allocates a SocketInputStream wrapping fdRead.
+/// Native: `Socket.getInputStream()` — allocates a `SocketInputStream` wrapping `fdRead`.
 fn native_socket_get_input_stream(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2208,7 +2208,7 @@ fn native_socket_get_input_stream(
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
-/// Native: `Socket.getOutputStream()` — allocates a SocketOutputStream wrapping fdWrite.
+/// Native: `Socket.getOutputStream()` — allocates a `SocketOutputStream` wrapping `fdWrite`.
 fn native_socket_get_output_stream(
     args: &[Slot],
     heap: &mut duke_gc::Heap,

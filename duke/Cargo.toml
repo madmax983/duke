@@ -18,3 +18,6 @@ duke-interpreter = { path = "../crates/duke-interpreter", features = [] }
 
 [features]
 telemetry = ["duke-interpreter/telemetry"]
+
+[lints]
+workspace = true

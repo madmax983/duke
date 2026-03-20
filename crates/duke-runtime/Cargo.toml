@@ -6,3 +6,6 @@ description = "Duke JVM - Runtime data types (Slot, Frame, VmError)"
 
 [dependencies]
 thiserror.workspace = true
+
+[lints]
+workspace = true
