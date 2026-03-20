@@ -9160,11 +9160,7 @@ fn wait_for_all_java_threads(
         }
     }
 
-    if let Some(err) = first_error {
-        Err(err)
-    } else {
-        Ok(())
-    }
+    first_error.map_or(Ok(()), Err)
 }
 
 fn handle_thread_action(
