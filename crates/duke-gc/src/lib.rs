@@ -177,6 +177,83 @@ impl Heap {
         }
     }
 
+    /// Generate a Mermaid.js graph of the heap layout.
+    ///
+    /// The graph represents all live objects in the young and old generations,
+    /// and the references between them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    /// let mut heap = Heap::new();
+    /// let r1 = heap.allocate("java/lang/Object".to_string(), 0);
+    /// let mmd = heap.to_mermaid();
+    /// assert!(mmd.contains("flowchart TD"));
+    /// assert!(mmd.contains("java/lang/Object"));
+    /// ```
+    #[must_use]
+    pub fn to_mermaid(&self) -> String {
+        let mut out = String::new();
+        out.push_str("flowchart TD\n");
+
+        out.push_str("    subgraph Young Generation\n");
+        for (i, opt_obj) in self.young.iter().enumerate() {
+            if let Some(obj) = opt_obj {
+                let id = format!("Y_{i}");
+                let label = if let Some(s) = &obj.string_value {
+                    format!("{}\\n\\\"{}\\\"", obj.class_name, s.replace("\"", "\\\""))
+                } else {
+                    obj.class_name.clone()
+                };
+                out.push_str(&format!("        {id}[Y {label}]\n"));
+
+                for (field_idx, field) in obj.fields.iter().enumerate() {
+                    if let Slot::Reference(Some(target)) = field {
+                        let target_id = if target & OLD_BIT != 0 {
+                            format!("O_{}", target & !OLD_BIT)
+                        } else {
+                            format!("Y_{target}")
+                        };
+                        out.push_str(&format!(
+                            "        {id} -- field {field_idx} --> {target_id}\n"
+                        ));
+                    }
+                }
+            }
+        }
+        out.push_str("    end\n");
+
+        out.push_str("    subgraph Old Generation\n");
+        for (i, opt_obj) in self.old.iter().enumerate() {
+            if let Some(obj) = opt_obj {
+                let id = format!("O_{i}");
+                let label = if let Some(s) = &obj.string_value {
+                    format!("{}\\n\\\"{}\\\"", obj.class_name, s.replace("\"", "\\\""))
+                } else {
+                    obj.class_name.clone()
+                };
+                out.push_str(&format!("        {id}[O {label}]\n"));
+
+                for (field_idx, field) in obj.fields.iter().enumerate() {
+                    if let Slot::Reference(Some(target)) = field {
+                        let target_id = if target & OLD_BIT != 0 {
+                            format!("O_{}", target & !OLD_BIT)
+                        } else {
+                            format!("Y_{target}")
+                        };
+                        out.push_str(&format!(
+                            "        {id} -- field {field_idx} --> {target_id}\n"
+                        ));
+                    }
+                }
+            }
+        }
+        out.push_str("    end\n");
+
+        out
+    }
+
     // ── Allocation ───────────────────────────────────────────────────────────
 
     const fn make_obj(
@@ -1590,5 +1667,36 @@ mod tests {
             "old[0] must be swept: the young ref in Parent's fields must not mark it"
         );
         assert!(heap.get(parent_ref).is_ok(), "Parent must survive");
+    }
+
+    // ── to_mermaid ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn to_mermaid_generates_graph_with_young_and_old_objects_and_references() {
+        let mut heap = Heap::new();
+        let r1 = heap.allocate("java/lang/Object".to_string(), 1);
+        let r2 = heap.allocate_string("Hello".to_string());
+        heap.write_field(r1, 0, Slot::Reference(Some(r2))).unwrap();
+
+        // Push to old directly to simulate old gen object
+        heap.old.push(Some(HeapObject {
+            class_name: "java/lang/Thread".to_string(),
+            fields: vec![Slot::Reference(Some(r1))],
+            string_value: None,
+            marked: false,
+            age: 0,
+            forward: None,
+        }));
+
+        let mmd = heap.to_mermaid();
+
+        assert!(mmd.contains("flowchart TD"));
+        assert!(mmd.contains("subgraph Young Generation"));
+        assert!(mmd.contains("subgraph Old Generation"));
+        assert!(mmd.contains("Y_0[Y java/lang/Object]"));
+        assert!(mmd.contains("Y_1[Y java/lang/String\\n\\\"Hello\\\"]"));
+        assert!(mmd.contains("O_0[O java/lang/Thread]"));
+        assert!(mmd.contains("Y_0 -- field 0 --> Y_1"));
+        assert!(mmd.contains("O_0 -- field 0 --> Y_0"));
     }
 }
