@@ -71,6 +71,12 @@ pub enum HostFileHandle {
     Reader(std::fs::File),
     /// A file opened for writing.
     Writer(std::fs::File),
+    /// A TCP server socket waiting for incoming connections.
+    TcpListener(std::net::TcpListener),
+    /// The read half of an accepted or connected TCP socket.
+    SocketReader(std::net::TcpStream),
+    /// The write half of an accepted or connected TCP socket.
+    SocketWriter(std::net::TcpStream),
 }
 
 /// The generational object heap.
@@ -279,17 +285,21 @@ impl Heap {
                 class_name: "java/io/IOException".to_string(),
             });
         };
-        let HostFileHandle::Reader(file) = handle else {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
-            });
+        let reader: &mut dyn Read = match handle {
+            HostFileHandle::Reader(f) => f,
+            HostFileHandle::SocketReader(s) => s,
+            _ => {
+                return Err(VmError::JavaException {
+                    class_name: "java/io/IOException".into(),
+                });
+            }
         };
         let mut buf = [0_u8; 1];
-        match file.read(&mut buf) {
+        match reader.read(&mut buf) {
             Ok(0) => Ok(-1),
             Ok(_) => Ok(i32::from(buf[0])),
             Err(_) => Err(VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
+                class_name: "java/io/IOException".into(),
             }),
         }
     }
@@ -305,14 +315,19 @@ impl Heap {
                 class_name: "java/io/IOException".to_string(),
             });
         };
-        let HostFileHandle::Writer(file) = handle else {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
-            });
+        let writer: &mut dyn Write = match handle {
+            HostFileHandle::Writer(f) => f,
+            HostFileHandle::SocketWriter(s) => s,
+            _ => {
+                return Err(VmError::JavaException {
+                    class_name: "java/io/IOException".into(),
+                });
+            }
         };
-        file.write_all(&[(value & 0xFF) as u8])
+        writer
+            .write_all(&[(value & 0xFF) as u8])
             .map_err(|_| VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
+                class_name: "java/io/IOException".into(),
             })
     }
 
@@ -322,6 +337,119 @@ impl Heap {
     pub fn close_host_file(&mut self, id: i32) {
         if id > 0 {
             self.host_files.remove(&id);
+        }
+    }
+
+    /// Binds a TCP listener to the given address string (e.g. `"0.0.0.0:8080"`).
+    ///
+    /// # Errors
+    /// Returns `BindException` if the address is already in use, `SocketException` for other errors.
+    pub fn bind_server_socket(&mut self, addr: &str) -> VmResult<i32> {
+        let listener = std::net::TcpListener::bind(addr).map_err(|err| match err.kind() {
+            std::io::ErrorKind::AddrInUse => VmError::JavaException {
+                class_name: "java/net/BindException".into(),
+            },
+            _ => VmError::JavaException {
+                class_name: "java/net/SocketException".into(),
+            },
+        })?;
+        let id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        self.host_files
+            .insert(id, HostFileHandle::TcpListener(listener));
+        Ok(id)
+    }
+
+    /// Accepts one incoming connection on the given listener id.
+    /// Returns `(reader_id, writer_id)` — two independent OS handles to the same socket.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the id is invalid or the accept fails.
+    ///
+    /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
+    /// programs opening billions of handles would alias at `i32::MAX`. This is a
+    /// known limitation shared with the file I/O implementation.
+    pub fn accept_connection(&mut self, id: i32) -> VmResult<(i32, i32)> {
+        // Validate that the handle exists and is a TcpListener.
+        if !matches!(
+            self.host_files.get(&id),
+            Some(HostFileHandle::TcpListener(_))
+        ) {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+        // Temporarily remove the listener to satisfy the borrow checker, then reinsert.
+        let Some(HostFileHandle::TcpListener(listener)) = self.host_files.remove(&id) else {
+            unreachable!()
+        };
+        let result = listener.accept();
+        self.host_files
+            .insert(id, HostFileHandle::TcpListener(listener));
+        let (stream, _addr) = result.map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        })?;
+        let writer = stream.try_clone().map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        })?;
+        let reader_id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        let writer_id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        self.host_files
+            .insert(reader_id, HostFileHandle::SocketReader(stream));
+        self.host_files
+            .insert(writer_id, HostFileHandle::SocketWriter(writer));
+        Ok((reader_id, writer_id))
+    }
+
+    /// Connects a TCP socket to the given address string (e.g. `"127.0.0.1:8080"`).
+    /// Returns `(reader_id, writer_id)` — two independent OS handles to the same socket.
+    ///
+    /// # Errors
+    /// Returns `ConnectException` if connection is refused, `SocketException` for other errors.
+    ///
+    /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
+    /// programs opening billions of handles would alias at `i32::MAX`. This is a
+    /// known limitation shared with the file I/O implementation.
+    pub fn connect_socket(&mut self, addr: &str) -> VmResult<(i32, i32)> {
+        let stream = std::net::TcpStream::connect(addr).map_err(|err| match err.kind() {
+            std::io::ErrorKind::ConnectionRefused => VmError::JavaException {
+                class_name: "java/net/ConnectException".into(),
+            },
+            _ => VmError::JavaException {
+                class_name: "java/net/SocketException".into(),
+            },
+        })?;
+        let writer = stream.try_clone().map_err(|_| VmError::JavaException {
+            class_name: "java/net/SocketException".into(),
+        })?;
+        let reader_id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        let writer_id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        self.host_files
+            .insert(reader_id, HostFileHandle::SocketReader(stream));
+        self.host_files
+            .insert(writer_id, HostFileHandle::SocketWriter(writer));
+        Ok((reader_id, writer_id))
+    }
+
+    /// Returns the local port of a bound server socket.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the id is invalid.
+    pub fn server_socket_local_port(&self, id: i32) -> VmResult<i32> {
+        match self.host_files.get(&id) {
+            Some(HostFileHandle::TcpListener(l)) => l
+                .local_addr()
+                .map(|addr| i32::from(addr.port()))
+                .map_err(|_| VmError::JavaException {
+                    class_name: "java/io/IOException".into(),
+                }),
+            _ => Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            }),
         }
     }
 
@@ -1590,5 +1718,119 @@ mod tests {
             "old[0] must be swept: the young ref in Parent's fields must not mark it"
         );
         assert!(heap.get(parent_ref).is_ok(), "Parent must survive");
+    }
+
+    // ── TCP socket tests (Task 1) ──────────────────────────────────────────────
+
+    #[test]
+    fn bind_server_socket_returns_valid_id() {
+        let mut heap = Heap::new();
+        let id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
+        assert!(id > 0);
+    }
+
+    #[test]
+    fn bind_server_socket_addr_in_use() {
+        let mut heap = Heap::new();
+        let id = heap
+            .bind_server_socket("127.0.0.1:0")
+            .expect("first bind failed");
+        let port = heap.server_socket_local_port(id).expect("port failed");
+        let err = heap
+            .bind_server_socket(&format!("127.0.0.1:{port}"))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            duke_runtime::VmError::JavaException { ref class_name }
+            if class_name == "java/net/BindException"
+        ));
+    }
+
+    #[test]
+    fn connect_socket_refused() {
+        // On Windows, WSAECONNREFUSED may not map to ErrorKind::ConnectionRefused in all
+        // Rust versions. Accept either ConnectException or SocketException so the test
+        // passes on all platforms while still verifying no panic occurs.
+        // Bind to get a port, then drop the listener so nothing listens.
+        let mut heap = Heap::new();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let err = heap
+            .connect_socket(&format!("127.0.0.1:{port}"))
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            duke_runtime::VmError::JavaException { ref class_name }
+            if class_name == "java/net/ConnectException"
+                || class_name == "java/net/SocketException"
+        ));
+    }
+
+    #[test]
+    fn server_socket_local_port() {
+        let mut heap = Heap::new();
+        let id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
+        let port = heap.server_socket_local_port(id).expect("port failed");
+        assert!(port > 0);
+    }
+
+    #[test]
+    fn accept_and_read_roundtrip() {
+        let mut heap = Heap::new();
+        let server_id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
+        let port = heap
+            .server_socket_local_port(server_id)
+            .expect("port failed");
+        let handle = std::thread::spawn(move || {
+            let mut stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+            std::io::Write::write_all(&mut stream, &[42]).unwrap();
+        });
+        let (reader_id, _writer_id) = heap.accept_connection(server_id).expect("accept failed");
+        let byte = heap.read_host_file_byte(reader_id).expect("read failed");
+        assert_eq!(byte, 42);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn connect_and_write_roundtrip() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 1];
+            std::io::Read::read_exact(&mut stream, &mut buf).unwrap();
+            assert_eq!(buf[0], 99);
+        });
+        let mut heap = Heap::new();
+        let (_reader_id, writer_id) = heap
+            .connect_socket(&format!("127.0.0.1:{port}"))
+            .expect("connect failed");
+        heap.write_host_file_byte(writer_id, 99)
+            .expect("write failed");
+        // Drop the writer so the listener's read_exact completes.
+        heap.close_host_file(writer_id);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn close_then_read_returns_io_exception() {
+        let mut heap = Heap::new();
+        let server_id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
+        let port = heap
+            .server_socket_local_port(server_id)
+            .expect("port failed");
+        let handle = std::thread::spawn(move || {
+            let _stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+        });
+        let (reader_id, _writer_id) = heap.accept_connection(server_id).expect("accept failed");
+        handle.join().unwrap();
+        heap.close_host_file(reader_id);
+        let err = heap.read_host_file_byte(reader_id).unwrap_err();
+        assert!(matches!(
+            err,
+            duke_runtime::VmError::JavaException { ref class_name }
+            if class_name == "java/io/IOException"
+        ));
     }
 }

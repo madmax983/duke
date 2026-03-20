@@ -150,9 +150,74 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(file_not_found_ctx);
 
+    let socket_exception_ctx = ClassContext {
+        class_name: "java/net/SocketException".to_string(),
+        super_class: Some("java/io/IOException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(socket_exception_ctx);
+
+    let bind_exception_ctx = ClassContext {
+        class_name: "java/net/BindException".to_string(),
+        super_class: Some("java/net/SocketException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(bind_exception_ctx);
+
+    let connect_exception_ctx = ClassContext {
+        class_name: "java/net/ConnectException".to_string(),
+        super_class: Some("java/net/SocketException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(connect_exception_ctx);
+
+    let input_stream_ctx = ClassContext {
+        class_name: "java/io/InputStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(input_stream_ctx);
+
+    let output_stream_ctx = ClassContext {
+        class_name: "java/io/OutputStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(output_stream_ctx);
+
     let file_input_stream_ctx = ClassContext {
         class_name: "java/io/FileInputStream".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        super_class: Some("java/io/InputStream".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![FieldEntry {
@@ -193,7 +258,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 
     let file_output_stream_ctx = ClassContext {
         class_name: "java/io/FileOutputStream".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        super_class: Some("java/io/OutputStream".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![FieldEntry {
@@ -227,6 +292,169 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/io/FileOutputStream",
+        "close",
+        "()V",
+        native_file_output_stream_close,
+    );
+
+    let server_socket_ctx = ClassContext {
+        class_name: "java/net/ServerSocket".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "fd".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "port".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(server_socket_ctx);
+    registry.natives_mut().register(
+        "java/net/ServerSocket",
+        "<init>",
+        "(I)V",
+        native_server_socket_init,
+    );
+    registry.natives_mut().register(
+        "java/net/ServerSocket",
+        "accept",
+        "()Ljava/net/Socket;",
+        native_server_socket_accept,
+    );
+    registry.natives_mut().register(
+        "java/net/ServerSocket",
+        "getLocalPort",
+        "()I",
+        native_server_socket_get_local_port,
+    );
+    registry.natives_mut().register(
+        "java/net/ServerSocket",
+        "close",
+        "()V",
+        native_server_socket_close,
+    );
+
+    let socket_ctx = ClassContext {
+        class_name: "java/net/Socket".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "fdRead".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "fdWrite".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(socket_ctx);
+    registry.natives_mut().register(
+        "java/net/Socket",
+        "<init>",
+        "(Ljava/lang/String;I)V",
+        native_socket_init,
+    );
+    registry.natives_mut().register(
+        "java/net/Socket",
+        "getInputStream",
+        "()Ljava/io/InputStream;",
+        native_socket_get_input_stream,
+    );
+    registry.natives_mut().register(
+        "java/net/Socket",
+        "getOutputStream",
+        "()Ljava/io/OutputStream;",
+        native_socket_get_output_stream,
+    );
+    registry
+        .natives_mut()
+        .register("java/net/Socket", "close", "()V", native_socket_close);
+
+    let socket_input_stream_ctx = ClassContext {
+        class_name: "duke/net/SocketInputStream".to_string(),
+        super_class: Some("java/io/InputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(socket_input_stream_ctx);
+    registry.natives_mut().register(
+        "duke/net/SocketInputStream",
+        "read",
+        "()I",
+        native_file_input_stream_read,
+    );
+    registry.natives_mut().register(
+        "duke/net/SocketInputStream",
+        "read",
+        "([B)I",
+        native_file_input_stream_read_bytes,
+    );
+    registry.natives_mut().register(
+        "duke/net/SocketInputStream",
+        "close",
+        "()V",
+        native_file_input_stream_close,
+    );
+
+    let socket_output_stream_ctx = ClassContext {
+        class_name: "duke/net/SocketOutputStream".to_string(),
+        super_class: Some("java/io/OutputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(socket_output_stream_ctx);
+    registry.natives_mut().register(
+        "duke/net/SocketOutputStream",
+        "write",
+        "(I)V",
+        native_file_output_stream_write,
+    );
+    registry.natives_mut().register(
+        "duke/net/SocketOutputStream",
+        "write",
+        "([B)V",
+        native_file_output_stream_write_bytes,
+    );
+    registry.natives_mut().register(
+        "duke/net/SocketOutputStream",
         "close",
         "()V",
         native_file_output_stream_close,
@@ -1807,6 +2035,235 @@ fn native_file_output_stream_close(
         return Err(VmError::InvalidRef { address: this_ref });
     };
     *fd_field = Slot::Int(0);
+    Ok(None)
+}
+
+// ── Networking natives ────────────────────────────────────────────────────
+
+/// Native: `ServerSocket.<init>(int port)` — binds to 0.0.0.0:{port}.
+fn native_server_socket_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let port = match args.get(1) {
+        Some(Slot::Int(p)) => *p,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let addr = format!("0.0.0.0:{port}");
+    let server_id = heap.bind_server_socket(&addr)?;
+    let actual_port = heap.server_socket_local_port(server_id)?;
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.len() < 2 {
+        return Err(VmError::InvalidRef { address: this_ref });
+    }
+    obj.fields[0] = Slot::Int(server_id);
+    obj.fields[1] = Slot::Int(actual_port);
+    Ok(None)
+}
+
+/// Native: `ServerSocket.accept()` — blocks until a client connects, returns a Socket.
+fn native_server_socket_accept(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let server_fd = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) if *id > 0 => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    let (reader_id, writer_id) = heap.accept_connection(server_fd)?;
+    // Allocate a new Socket object with fdRead=reader_id, fdWrite=writer_id
+    let socket_ref = heap.allocate("java/net/Socket".to_string(), 2);
+    heap.get_mut(socket_ref)?.fields[0] = Slot::Int(reader_id);
+    heap.get_mut(socket_ref)?.fields[1] = Slot::Int(writer_id);
+    Ok(Some(Slot::Reference(Some(socket_ref))))
+}
+
+/// Native: `ServerSocket.getLocalPort()` — returns the bound port.
+fn native_server_socket_get_local_port(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(port)) => Ok(Some(Slot::Int(*port))),
+        _ => Err(VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        }),
+    }
+}
+
+/// Native: `ServerSocket.close()` — closes the OS listener and zeros the fd field.
+fn native_server_socket_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) if *id > 0 => *id,
+        Some(Slot::Int(_)) => return Ok(None), // already closed — idempotent
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    heap.close_host_file(fd);
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields[0] = Slot::Int(0);
+    obj.fields[1] = Slot::Int(0); // also zero cached port so getLocalPort() returns 0 after close
+    Ok(None)
+}
+
+/// Native: `Socket.<init>(String host, int port)` — connects to host:port.
+fn native_socket_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let host = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap
+            .get(*r)?
+            .string_value
+            .clone()
+            .ok_or(VmError::NullPointerException)?,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let port = match args.get(2) {
+        Some(Slot::Int(p)) => *p,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        }
+    };
+    let addr = format!("{host}:{port}");
+    let (reader_id, writer_id) = heap.connect_socket(&addr)?;
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.len() < 2 {
+        return Err(VmError::InvalidRef { address: this_ref });
+    }
+    obj.fields[0] = Slot::Int(reader_id);
+    obj.fields[1] = Slot::Int(writer_id);
+    Ok(None)
+}
+
+/// Native: `Socket.getInputStream()` — allocates a `SocketInputStream` wrapping `fdRead`.
+fn native_socket_get_input_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd_read = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) if *id > 0 => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    let stream_ref = heap.allocate("duke/net/SocketInputStream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(fd_read);
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+/// Native: `Socket.getOutputStream()` — allocates a `SocketOutputStream` wrapping `fdWrite`.
+fn native_socket_get_output_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd_write = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(id)) if *id > 0 => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    let stream_ref = heap.allocate("duke/net/SocketOutputStream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(fd_write);
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+/// Native: `Socket.close()` — closes both OS handles (fdRead and fdWrite).
+fn native_socket_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd_read = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    let fd_write = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(id)) => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    heap.close_host_file(fd_read);
+    heap.close_host_file(fd_write);
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields[0] = Slot::Int(0);
+    obj.fields[1] = Slot::Int(0);
     Ok(None)
 }
 
@@ -7174,11 +7631,56 @@ fn run_execution(
                         }
                         // Check native registry, walking the super chain.
                         let native_handler_kind = {
-                            let mut found = registry.natives_mut().get_kind(
-                                &callee_class,
-                                &callee_name,
-                                &callee_desc,
-                            );
+                            // For invokevirtual: first try the actual runtime class of
+                            // `this` so that subclass natives (e.g. duke/net/SocketInputStream
+                            // registered under read:()I) are found even when the call-site
+                            // declares the abstract base (java/io/InputStream).
+                            let virtual_start: Option<String> =
+                                if matches!(instr, Instruction::Invokevirtual(_)) {
+                                    let arg_count = parse_arg_count(&callee_desc);
+                                    let stack_len = frame.stack_len();
+                                    if stack_len > arg_count {
+                                        let this_pos = stack_len - arg_count - 1;
+                                        if let Ok(Slot::Reference(Some(r))) =
+                                            frame.peek_at(this_pos)
+                                        {
+                                            heap.get(r).ok().map(|o| o.class_name.clone())
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+
+                            let mut found = None;
+
+                            // Walk from runtime class first (invokevirtual virtual dispatch).
+                            if let Some(ref runtime_class) = virtual_start {
+                                let mut sc: Option<String> = Some(runtime_class.clone());
+                                while let Some(ref s) = sc {
+                                    if let Some(h) = registry.natives_mut().get_kind(
+                                        s,
+                                        &callee_name,
+                                        &callee_desc,
+                                    ) {
+                                        found = Some(h);
+                                        break;
+                                    }
+                                    sc = registry.get(s).ok().and_then(|c| c.super_class.clone());
+                                }
+                            }
+
+                            // Fall back to declared (callee_class) super chain.
+                            if found.is_none() {
+                                found = registry.natives_mut().get_kind(
+                                    &callee_class,
+                                    &callee_name,
+                                    &callee_desc,
+                                );
+                            }
                             if found.is_none() {
                                 // Walk super chain for native lookup (e.g. Enum.ordinal
                                 // called via SimpleEnum$Color.ordinal).
@@ -24771,5 +25273,134 @@ mod tests {
             matches!(err, VmError::NegativeArraySize { .. }),
             "expected NegativeArraySize, got {err:?}"
         );
+    }
+
+    // ---- Phase 29: Networking helpers and integration tests ----
+
+    fn run_bootstrap_with_slots(
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+        args: &[Slot],
+    ) -> VmResult<Option<Slot>> {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            args,
+        )
+    }
+
+    #[test]
+    fn net_bind_and_get_port() {
+        let port = run_bootstrap_int("NetworkingTest.class", "bindAndGetPort", "()I");
+        assert!(port > 0, "expected positive port, got {port}");
+    }
+
+    #[test]
+    fn net_connect_refused() {
+        // Bind then immediately drop so nothing listens on that port
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // Brief sleep ensures the OS releases the port before Java tries to connect.
+        // No TIME_WAIT applies (listener was never accepted-on), but the sleep guards
+        // against any OS-specific teardown delay.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let result = run_bootstrap_with_slots(
+            "NetworkingTest.class",
+            "connectRefused",
+            "(I)I",
+            &[Slot::Int(i32::from(port))],
+        )
+        .expect("connectRefused failed");
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn net_accept_and_read() {
+        use std::io::Read;
+        // Rust is the server — no drop, no rebind race
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 1];
+            stream.read_exact(&mut buf).unwrap();
+            assert_eq!(buf[0], 42);
+        });
+        // Java is the client, writes byte 42
+        let result = run_bootstrap_with_slots(
+            "NetworkingTest.class",
+            "connectAndWriteByte",
+            "(II)I",
+            &[Slot::Int(i32::from(port)), Slot::Int(42)],
+        )
+        .expect("connectAndWriteByte failed");
+        handle.join().unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn net_connect_and_write() {
+        // Rust side: listen; Java side: connect and write byte 99
+        use std::io::Read;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 1];
+            stream.read_exact(&mut buf).unwrap();
+            assert_eq!(buf[0], 99);
+        });
+
+        let result = run_bootstrap_with_slots(
+            "NetworkingTest.class",
+            "connectAndWriteByte",
+            "(II)I",
+            &[Slot::Int(i32::from(port)), Slot::Int(99)],
+        )
+        .expect("connectAndWriteByte failed");
+        handle.join().unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn net_echo_roundtrip() {
+        use std::io::{Read, Write};
+        // Rust is the echo server — keeps listener alive, no race
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // Echo each byte individually so Java's write-then-read loop doesn't deadlock
+            let mut buf = [0u8; 1];
+            for _ in 0..3 {
+                stream.read_exact(&mut buf).unwrap();
+                stream.write_all(&buf).unwrap();
+            }
+        });
+        // Java is the client — connects, writes [1,2,3], reads them back
+        let result = run_bootstrap_with_slots(
+            "NetworkingTest.class",
+            "connectAndEchoCheck",
+            "(II)I",
+            &[Slot::Int(i32::from(port)), Slot::Int(3)],
+        )
+        .expect("connectAndEchoCheck failed");
+        handle.join().unwrap();
+        assert_eq!(result, Some(Slot::Int(3)));
     }
 }
