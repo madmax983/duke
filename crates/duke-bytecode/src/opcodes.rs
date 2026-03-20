@@ -6,7 +6,7 @@
 /// §6.5 nop
 pub const NOP: u8 = 0x00;
 
-/// §6.5 aconst_null
+/// §6.5 `aconst_null`
 pub const ACONST_NULL: u8 = 0x01;
 
 /// §6.5 `iconst_<i>`
@@ -35,7 +35,7 @@ pub const DCONST_1: u8 = 0x0F;
 pub const BIPUSH: u8 = 0x10;
 pub const SIPUSH: u8 = 0x11;
 
-/// §6.5 ldc, ldc_w, ldc2_w
+/// §6.5 ldc, `ldc_w`, `ldc2_w`
 pub const LDC: u8 = 0x12;
 pub const LDC_W: u8 = 0x13;
 pub const LDC2_W: u8 = 0x14;

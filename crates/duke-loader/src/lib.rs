@@ -5,7 +5,7 @@
 //! - [`bootstrap`] — The system bootstrap classloader.
 //! - [`directory`] — Loads classes from standard directories (e.g. `tests/fixtures`).
 //! - [`error`] — Errors encountered during class loading.
-//! - [`jimage`] — Reads JDK `modules` files (JImage format).
+//! - [`jimage`] — Reads JDK `modules` files (`JImage` format).
 
 pub mod bootstrap;
 pub mod directory;
