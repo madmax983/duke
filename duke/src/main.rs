@@ -57,10 +57,7 @@ impl ClassLoader for CliLoader {
     }
 }
 
-fn make_loader(
-    jdk_home: Option<&str>,
-    app_dir: &std::path::Path,
-) -> CliLoader {
+fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> CliLoader {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
         if modules.exists() {

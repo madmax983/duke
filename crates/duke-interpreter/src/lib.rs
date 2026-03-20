@@ -5462,6 +5462,7 @@ fn finish_native_call(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_execution_state(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -6050,18 +6051,11 @@ fn run_execution(
                 }
                 // Slow path: full CP resolution + method search.
                 let (callee_class, callee_name, callee_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&callee_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &callee_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &callee_class, current_class)?;
                 let callee_idx = {
                     let ctx = registry.get(&callee_class)?;
                     ctx.methods
@@ -6255,7 +6249,7 @@ fn run_execution(
             Instruction::Ldc(raw_idx) => {
                 let cp_idx = usize::from(*raw_idx);
                 let string_info = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     if let Some(CpEntry::String { string_index }) =
                         ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
                     {
@@ -6281,7 +6275,7 @@ fn run_execution(
                 } else {
                     // Check for Class constant
                     let class_info = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         if let Some(CpEntry::Class { name_index }) =
                             ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
                         {
@@ -6310,7 +6304,7 @@ fn run_execution(
                         };
                         frame.push(Slot::Reference(Some(r)))?;
                     } else {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         ldc_push(frame, &ctx.constant_pool, cp_idx)?;
                     }
                 }
@@ -6318,7 +6312,7 @@ fn run_execution(
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
                 let idx_val = usize::from(cp_idx.0);
                 let string_info = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     if let Some(CpEntry::String { string_index }) =
                         ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
                     {
@@ -6344,7 +6338,7 @@ fn run_execution(
                 } else {
                     // Check for Class constant
                     let class_info = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         if let Some(CpEntry::Class { name_index }) =
                             ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
                         {
@@ -6373,7 +6367,7 @@ fn run_execution(
                         };
                         frame.push(Slot::Reference(Some(r)))?;
                     } else {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         ldc_push(frame, &ctx.constant_pool, idx_val)?;
                     }
                 }
@@ -6944,25 +6938,18 @@ fn run_execution(
             // ---- Object allocation ----
             Instruction::New(cp_idx) => {
                 let target_class = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &target_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
                 // Walk the super chain to sum all instance field counts
                 // (e.g. Enum has 2 fields inherited by every enum subclass).
                 let field_count = total_instance_field_count(registry, &target_class);
                 #[cfg(feature = "telemetry")]
                 registry.telemetry.object_lineage.record(
-                    &current_class,
-                    &current_method,
+                    current_class,
+                    current_method,
                     pc,
                     &target_class,
                 );
@@ -6973,7 +6960,7 @@ fn run_execution(
                 init_object_fields(registry, heap, r, &target_class);
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
                     patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
@@ -6982,7 +6969,7 @@ fn run_execution(
             // ---- Field access ----
             Instruction::Getfield(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let r = frame.pop_ref()?;
@@ -6993,7 +6980,7 @@ fn run_execution(
             }
             Instruction::Putfield(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let val = frame.pop()?;
@@ -7004,37 +6991,23 @@ fn run_execution(
             }
             Instruction::Getstatic(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &target_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 let val = registry.get(&target_class)?.static_fields[sidx];
                 frame.push(val)?;
             }
             Instruction::Putstatic(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let val = frame.pop()?;
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &target_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 registry.get_mut(&target_class)?.static_fields[sidx] = val;
             }
@@ -7093,7 +7066,7 @@ fn run_execution(
                     continue;
                 }
                 let (callee_class, callee_name, callee_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 // <clinit> (static initialiser) is not supported yet — skip silently.
@@ -7259,7 +7232,7 @@ fn run_execution(
                                         // Native methods do not perform a bytecode hierarchy
                                         // walk — hierarchy_walk is always false here.
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &callee_class,
                                             false,
@@ -7315,7 +7288,7 @@ fn run_execution(
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &callee_class,
                                             false,
@@ -7366,7 +7339,7 @@ fn run_execution(
                 #[cfg(feature = "telemetry")]
                 if matches!(instr, Instruction::Invokevirtual(_)) {
                     registry.telemetry.dispatch_resolution.record(
-                        &current_class,
+                        current_class,
                         cp_idx.0,
                         &dispatch_class,
                         dispatch_class != callee_class,
@@ -7462,14 +7435,14 @@ fn run_execution(
                 }
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
                     patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
             }
             Instruction::Anewarray(cp_idx) => {
                 let element_type = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let array_type = format!("[L{element_type};");
@@ -7485,7 +7458,7 @@ fn run_execution(
                 }
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
                     patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
@@ -7785,7 +7758,7 @@ fn run_execution(
                     }
                     Slot::Reference(Some(r)) => {
                         let target = {
-                            let ctx = registry.get(&current_class)?;
+                            let ctx = registry.get(current_class)?;
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
@@ -7814,7 +7787,7 @@ fn run_execution(
                     }
                     Slot::Reference(Some(r)) => {
                         let target = {
-                            let ctx = registry.get(&current_class)?;
+                            let ctx = registry.get(current_class)?;
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
@@ -7847,7 +7820,7 @@ fn run_execution(
 
                 // 1. Resolve InvokeDynamic CP entry.
                 let (bsm_idx, call_name, call_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     let cp = &ctx.constant_pool;
                     match cp.get(cp_idx_val).and_then(|e| e.as_ref()) {
                         Some(CpEntry::InvokeDynamic {
@@ -7864,7 +7837,7 @@ fn run_execution(
 
                 // 2. Look up the bootstrap method entry.
                 let (bsm_class, bsm_args) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     let bsm_entry = ctx
                         .bootstrap_methods
                         .get(bsm_idx)
@@ -7889,7 +7862,7 @@ fn run_execution(
 
                     // Resolve recipe (first bootstrap arg) and constants (remaining).
                     let (recipe, constants) = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         let cp = &ctx.constant_pool;
                         let recipe = if bsm_args.is_empty() {
                             String::new()
@@ -7918,7 +7891,7 @@ fn run_execution(
                     // Bootstrap args: [MethodType erased, MethodHandle impl, MethodType specialized]
 
                     let (impl_kind, impl_class, impl_method, impl_desc) = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         let cp = &ctx.constant_pool;
                         if bsm_args.len() < 3 {
                             return Err(VmError::Unimplemented {
@@ -7932,7 +7905,7 @@ fn run_execution(
 
                     // Resolve erased SAM descriptor from bootstrap arg 0.
                     let sam_desc = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         let cp = &ctx.constant_pool;
                         match cp.get(bsm_args[0].0 as usize).and_then(|e| e.as_ref()) {
                             Some(CpEntry::MethodType { descriptor_index }) => {
@@ -7980,7 +7953,7 @@ fn run_execution(
 
                     frame.push(Slot::Reference(Some(r)))?;
                     if gc_allowed && heap.should_gc() {
-                        let roots = gather_roots(&frame, &call_stack, registry);
+                        let roots = gather_roots(frame, call_stack, registry);
                         heap.collect(&roots);
                         patch_forwarded_slots(frame, call_stack, registry, heap);
                     }
@@ -8005,7 +7978,7 @@ fn run_execution(
                 count: _,
             } => {
                 let (callee_class, callee_name, callee_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 if callee_name == "<clinit>" {
@@ -8089,7 +8062,7 @@ fn run_execution(
                                         // Native interface methods skip the bytecode
                                         // hierarchy walk — hierarchy_walk is always false here.
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &actual_class,
                                             false,
@@ -8146,7 +8119,7 @@ fn run_execution(
                                             result.is_err(),
                                         );
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &actual_class,
                                             false,
@@ -8413,7 +8386,7 @@ fn run_execution(
                 // Bytecode execution path — Pattern B: pop directly into locals_buf.
                 #[cfg(feature = "telemetry")]
                 registry.telemetry.dispatch_resolution.record(
-                    &current_class,
+                    current_class,
                     cp_idx.0,
                     &dispatch_class,
                     dispatch_class != actual_class,
@@ -8467,7 +8440,7 @@ fn run_execution(
                 dimensions,
             } => {
                 let element_type = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
 
@@ -8508,7 +8481,7 @@ fn run_execution(
                 let r = alloc_multi(heap, &dims, 0, &element_type);
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
                     patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
@@ -8531,8 +8504,8 @@ fn run_execution(
             let elapsed = _telem_start.elapsed().as_nanos() as u64;
             registry.telemetry.bytecode_cost.record(
                 _telem_name,
-                &current_class,
-                &current_method,
+                current_class,
+                current_method,
                 _telem_pc,
                 elapsed,
             );
@@ -8774,6 +8747,7 @@ fn spawn_java_thread(
 
 /// Execute a Java entrypoint and keep the VM alive until any spawned worker
 /// threads have either finished or been joined.
+#[allow(clippy::too_many_arguments)]
 pub fn execute_class_to_completion<L>(
     registry: &mut ClassRegistry,
     loader: L,
@@ -8806,7 +8780,7 @@ where
     }
 
     let mut vm = CompletionVm {
-        registry: std::mem::replace(registry, ClassRegistry::new()),
+        registry: std::mem::take(registry),
         heap: std::mem::replace(heap, duke_gc::Heap::new()),
         output: Vec::new(),
         live_workers: 0,
