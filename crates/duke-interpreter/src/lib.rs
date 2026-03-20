@@ -8,6 +8,7 @@
 pub mod context;
 /// Repositories for loaded classes and registered native methods.
 pub mod registry;
+mod threading;
 
 pub use context::*;
 pub use registry::*;
@@ -32,20 +33,6 @@ use duke_runtime::{Frame, Slot, VmError, VmResult};
 /// The `invoke` closure takes `heap` and `output` as *parameters* (not captured),
 /// using the "loan" pattern: the handler passes its borrows through each call and
 /// gets them back when the call returns. Sequential reborrows — no unsafe required.
-pub type CallbackNativeHandler = fn(
-    args: &[Slot],
-    heap: &mut duke_gc::Heap,
-    output: &mut dyn Write,
-    invoke: &mut dyn FnMut(
-        &mut duke_gc::Heap,
-        &mut dyn Write,
-        &str, // class name
-        &str, // method name
-        &str, // descriptor
-        Vec<Slot>,
-    ) -> VmResult<Option<Slot>>,
-) -> VmResult<Option<Slot>>;
-
 /// Bootstrap minimal JDK standard library classes for native method support.
 ///
 /// Creates synthetic `java/lang/System` and `java/io/PrintStream` classes and
@@ -515,6 +502,61 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(class_ctx);
+
+    let runnable_ctx = ClassContext {
+        class_name: "java/lang/Runnable".to_string(),
+        super_class: None,
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(runnable_ctx);
+
+    let thread_ctx = ClassContext {
+        class_name: "java/lang/Thread".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "target".to_string(),
+                descriptor: "Ljava/lang/Runnable;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "threadId".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(thread_ctx);
+    registry
+        .natives_mut()
+        .register("java/lang/Thread", "<init>", "()V", native_thread_init);
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "<init>",
+        "(Ljava/lang/Runnable;)V",
+        native_thread_init_runnable,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Thread", "start", "()V", native_thread_start);
+    registry
+        .natives_mut()
+        .register("java/lang/Thread", "join", "()V", native_thread_join);
+    registry
+        .natives_mut()
+        .register("java/lang/Thread", "sleep", "(J)V", native_thread_sleep);
 
     // java/lang/Throwable extends Object
     let throwable_ctx = ClassContext {
@@ -1440,6 +1482,7 @@ fn native_println_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let string_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1464,6 +1507,7 @@ fn native_println_int(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Int(v)) => *v,
@@ -1483,6 +1527,7 @@ fn native_println_void(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     writeln!(out).ok();
     Ok(None)
@@ -1526,6 +1571,7 @@ fn native_file_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1544,6 +1590,7 @@ fn native_file_exists(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let path = file_path_from_this(args, heap)?;
     Ok(Some(Slot::Int(i32::from(path.exists()))))
@@ -1553,6 +1600,7 @@ fn native_file_is_file(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let path = file_path_from_this(args, heap)?;
     Ok(Some(Slot::Int(i32::from(path.is_file()))))
@@ -1562,6 +1610,7 @@ fn native_file_is_directory(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let path = file_path_from_this(args, heap)?;
     Ok(Some(Slot::Int(i32::from(path.is_dir()))))
@@ -1584,6 +1633,7 @@ fn native_file_input_stream_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1603,6 +1653,7 @@ fn native_file_input_stream_read(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     Ok(Some(Slot::Int(heap.read_host_file_byte(file_id)?)))
@@ -1612,6 +1663,7 @@ fn native_file_input_stream_read_bytes(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let array_ref = match args.get(1) {
@@ -1644,6 +1696,7 @@ fn native_file_input_stream_close(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1670,6 +1723,7 @@ fn native_file_output_stream_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1689,6 +1743,7 @@ fn native_file_output_stream_write(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let value = match args.get(1) {
@@ -1708,6 +1763,7 @@ fn native_file_output_stream_write_bytes(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let array_ref = match args.get(1) {
@@ -1731,6 +1787,7 @@ fn native_file_output_stream_close(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1759,6 +1816,7 @@ fn native_string_length(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1774,6 +1832,7 @@ fn native_string_equals(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1797,6 +1856,7 @@ fn native_string_char_at(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1828,6 +1888,7 @@ fn native_object_hashcode(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     match args.first() {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -1842,6 +1903,7 @@ fn native_object_tostring(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1857,6 +1919,7 @@ fn native_object_clone(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1885,6 +1948,7 @@ fn native_throwable_add_suppressed(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _stdout: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     Ok(None)
 }
@@ -1895,6 +1959,7 @@ fn native_enum_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1918,6 +1983,7 @@ fn native_enum_ordinal(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1935,6 +2001,7 @@ fn native_enum_name(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1954,6 +2021,7 @@ fn native_enum_valueof(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let class_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -1993,6 +2061,7 @@ fn native_string_value_of_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -2013,6 +2082,7 @@ fn native_print_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let string_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2039,6 +2109,7 @@ fn native_print_int(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Int(v)) => *v,
@@ -2061,6 +2132,7 @@ fn native_println_long(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Long(v)) => *v,
@@ -2079,6 +2151,7 @@ fn native_println_float(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Float(v)) => *v,
@@ -2097,6 +2170,7 @@ fn native_println_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Double(v)) => *v,
@@ -2115,6 +2189,7 @@ fn native_println_boolean(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Int(v)) => *v != 0,
@@ -2133,6 +2208,7 @@ fn native_println_char(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
@@ -2200,6 +2276,7 @@ fn native_println_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
@@ -2224,6 +2301,7 @@ fn native_print_long(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Long(v)) => *v,
@@ -2242,6 +2320,7 @@ fn native_print_float(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Float(v)) => *v,
@@ -2260,6 +2339,7 @@ fn native_print_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Double(v)) => *v,
@@ -2278,6 +2358,7 @@ fn native_print_boolean(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Int(v)) => *v != 0,
@@ -2296,6 +2377,7 @@ fn native_print_char(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.get(1) {
         Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
@@ -2315,6 +2397,7 @@ fn native_print_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
@@ -2339,6 +2422,7 @@ fn native_system_exit(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let code = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -2347,12 +2431,107 @@ fn native_system_exit(
     Err(VmError::SystemExit { code })
 }
 
+const THREAD_TARGET_SLOT: usize = 0;
+const THREAD_ID_SLOT: usize = 1;
+
+fn native_thread_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let this = heap.get_mut(this_ref)?;
+    this.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
+    this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    Ok(None)
+}
+
+fn native_thread_init_runnable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let this = heap.get_mut(this_ref)?;
+    this.fields[THREAD_TARGET_SLOT] = target;
+    this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    Ok(None)
+}
+
+fn native_thread_start(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let thread_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    control.request(NativeThreadAction::Start { thread_ref });
+    Ok(None)
+}
+
+fn native_thread_join(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let thread_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let thread = heap.get(thread_ref)?;
+    let Some(Slot::Int(thread_id)) = thread.fields.get(THREAD_ID_SLOT) else {
+        return Ok(None);
+    };
+    if *thread_id >= 0 {
+        control.request(NativeThreadAction::Join {
+            thread_id: *thread_id,
+        });
+    }
+    Ok(None)
+}
+
+fn native_thread_sleep(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let millis = match args.first() {
+        Some(Slot::Long(value)) => *value,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "long",
+                got: "other",
+            });
+        }
+    };
+    let millis = u64::try_from(millis.max(0)).unwrap_or(0);
+    control.request(NativeThreadAction::Sleep(std::time::Duration::from_millis(
+        millis,
+    )));
+    Ok(None)
+}
+
 /// Native: `String.substring(int)` — substring from begin to end.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn native_string_substring(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2390,6 +2569,7 @@ fn native_string_substring_range(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2435,6 +2615,7 @@ fn native_string_indexof(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2467,6 +2648,7 @@ fn native_string_contains(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2497,6 +2679,7 @@ fn native_string_isempty(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2530,8 +2713,9 @@ fn native_string_compareto(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
+    control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    native_string_compareto_object(args, heap, out)
+    native_string_compareto_object(args, heap, out, control)
 }
 
 /// Native: `String.compareTo(Object)` — lexicographic comparison via Object descriptor.
@@ -2539,6 +2723,7 @@ fn native_string_compareto_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let str_val = |s: &Slot| -> VmResult<String> {
         match s {
@@ -2562,6 +2747,7 @@ fn native_string_startswith(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2585,6 +2771,7 @@ fn native_string_endswith(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2608,6 +2795,7 @@ fn native_string_trim(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2625,6 +2813,7 @@ fn native_string_tochararray(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2646,6 +2835,7 @@ fn native_integer_parseint(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let str_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2669,6 +2859,7 @@ fn native_integer_valueof(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -2689,6 +2880,7 @@ fn native_integer_intvalue(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2703,6 +2895,7 @@ fn native_integer_tostring_static(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -2722,6 +2915,7 @@ fn native_integer_compareto(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let int_val = |s: &Slot| -> VmResult<i32> {
         match s {
@@ -2750,6 +2944,7 @@ fn native_string_value_of_long(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Long(v)) => *v,
@@ -2769,6 +2964,7 @@ fn native_string_value_of_double(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -2788,6 +2984,7 @@ fn native_string_value_of_float(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Float(v)) => *v,
@@ -2807,6 +3004,7 @@ fn native_string_value_of_boolean(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => *v != 0,
@@ -2826,6 +3024,7 @@ fn native_string_value_of_char(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
@@ -2845,6 +3044,7 @@ fn native_string_value_of_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
@@ -2870,6 +3070,7 @@ fn native_string_concat(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -2943,6 +3144,7 @@ fn native_string_format(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let fmt_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3034,6 +3236,7 @@ fn native_string_touppercase(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3049,6 +3252,7 @@ fn native_string_tolowercase(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3065,6 +3269,7 @@ fn native_string_replace_char(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3099,6 +3304,7 @@ fn native_string_replace_charsequence(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3145,6 +3351,7 @@ fn native_string_split(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3181,6 +3388,7 @@ fn native_string_hashcode(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3200,6 +3408,7 @@ fn native_string_tostring(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
 }
@@ -3211,6 +3420,7 @@ fn native_math_max_int(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -3238,6 +3448,7 @@ fn native_math_min_int(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -3265,6 +3476,7 @@ fn native_math_abs_int(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -3285,6 +3497,7 @@ fn native_math_sqrt(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3303,6 +3516,7 @@ fn native_math_pow(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3330,6 +3544,7 @@ fn native_math_floor(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3348,6 +3563,7 @@ fn native_math_ceil(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3367,6 +3583,7 @@ fn native_math_round_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3385,6 +3602,7 @@ fn native_math_abs_long(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Long(v)) => *v,
@@ -3403,6 +3621,7 @@ fn native_math_abs_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3421,6 +3640,7 @@ fn native_math_max_long(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Long(v)) => *v,
@@ -3448,6 +3668,7 @@ fn native_math_min_long(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Long(v)) => *v,
@@ -3475,6 +3696,7 @@ fn native_math_max_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3502,6 +3724,7 @@ fn native_math_min_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3531,6 +3754,7 @@ fn native_long_parselong(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let str_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3554,6 +3778,7 @@ fn native_long_valueof(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Long(v)) => *v,
@@ -3574,6 +3799,7 @@ fn native_long_longvalue(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3588,6 +3814,7 @@ fn native_long_tostring_static(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Long(v)) => *v,
@@ -3607,6 +3834,7 @@ fn native_long_compareto(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let long_val = |s: &Slot| -> VmResult<i64> {
         match s {
@@ -3635,6 +3863,7 @@ fn native_double_parsedouble(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let str_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3658,6 +3887,7 @@ fn native_double_valueof(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Double(v)) => *v,
@@ -3678,6 +3908,7 @@ fn native_double_doublevalue(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3694,6 +3925,7 @@ fn native_float_parsefloat(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let str_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3719,6 +3951,7 @@ fn native_boolean_parseboolean(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
@@ -5099,6 +5332,162 @@ impl FramePool {
     }
 }
 
+struct ExecutionState {
+    current_class: String,
+    method_idx: usize,
+    pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    instructions: std::sync::Arc<[(usize, Instruction)]>,
+    frame: Frame,
+    call_stack: Vec<CallFrame>,
+    frame_pool: FramePool,
+    dispatch_cache: HashMap<String, HashMap<u16, (String, usize, usize)>>,
+    idx: usize,
+    string_intern: HashMap<usize, u64>,
+    #[cfg(feature = "telemetry")]
+    current_method: String,
+}
+
+impl ExecutionState {
+    fn new(
+        registry: &ClassRegistry,
+        class_name: &str,
+        _method_name: &str,
+        entry_idx: usize,
+        args: &[Slot],
+    ) -> VmResult<Self> {
+        let current_class = class_name.to_string();
+        let pc_to_idx = {
+            let ctx = registry.get(&current_class)?;
+            std::sync::Arc::clone(&ctx.methods[entry_idx].pc_to_idx)
+        };
+        let frame = {
+            let ctx = registry.get(&current_class)?;
+            Frame::new(
+                usize::from(ctx.methods[entry_idx].max_stack),
+                usize::from(ctx.methods[entry_idx].max_locals),
+                args.to_vec(),
+            )?
+        };
+        let instructions = {
+            let ctx = registry.get(&current_class)?;
+            std::sync::Arc::clone(&ctx.methods[entry_idx].instructions)
+        };
+
+        Ok(Self {
+            current_class,
+            method_idx: entry_idx,
+            pc_to_idx,
+            instructions,
+            frame,
+            call_stack: Vec::new(),
+            frame_pool: FramePool::new(),
+            dispatch_cache: HashMap::new(),
+            idx: 0,
+            string_intern: HashMap::new(),
+            #[cfg(feature = "telemetry")]
+            current_method: _method_name.to_string(),
+        })
+    }
+}
+
+#[cfg(feature = "telemetry")]
+fn refresh_current_method_name(
+    current_method: &mut String,
+    registry: &ClassRegistry,
+    current_class: &str,
+    method_idx: usize,
+) {
+    *current_method = registry
+        .get(current_class)
+        .map(|c| {
+            c.methods
+                .get(method_idx)
+                .map(|m| m.name.clone())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+}
+
+#[allow(clippy::too_many_arguments)]
+fn activate_method_state(
+    frame: &mut Frame,
+    method_idx: &mut usize,
+    pc_to_idx: &mut std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    instructions: &mut std::sync::Arc<[(usize, Instruction)]>,
+    current_class: &mut String,
+    call_stack: &mut Vec<CallFrame>,
+    registry: &ClassRegistry,
+    callee_class: String,
+    callee_idx: usize,
+    callee_pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    callee_frame: Frame,
+    resume_idx: usize,
+    #[cfg(feature = "telemetry")] current_method: &mut String,
+) -> VmResult<()> {
+    call_stack.push(CallFrame {
+        frame: std::mem::replace(frame, callee_frame),
+        method_idx: *method_idx,
+        pc_to_idx: std::sync::Arc::clone(pc_to_idx),
+        resume_idx,
+        class_name: current_class.clone(),
+    });
+    *method_idx = callee_idx;
+    *pc_to_idx = callee_pc_to_idx;
+    *current_class = callee_class;
+    *instructions =
+        std::sync::Arc::clone(&registry.get(current_class)?.methods[*method_idx].instructions);
+    #[cfg(feature = "telemetry")]
+    refresh_current_method_name(current_method, registry, current_class, *method_idx);
+    Ok(())
+}
+
+enum ExecutionOutcome {
+    Returned(Option<Slot>),
+    ThreadAction(NativeThreadAction),
+}
+
+fn finish_native_call(
+    native_control: &mut NativeControl,
+    frame: &mut Frame,
+    idx: &mut usize,
+    result: Option<Slot>,
+) -> VmResult<Option<ExecutionOutcome>> {
+    if let Some(val) = result {
+        frame.push(val)?;
+    }
+    *idx += 1;
+    if let Some(action) = native_control.take() {
+        return Ok(Some(ExecutionOutcome::ThreadAction(action)));
+    }
+    Ok(None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_execution_state(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    class_name: &str,
+    method_name: &str,
+    descriptor: &str,
+    args: &[Slot],
+) -> VmResult<ExecutionState> {
+    let entry_idx = {
+        let ctx = registry.get(class_name)?;
+        ctx.methods
+            .iter()
+            .position(|m| m.name == method_name && m.descriptor == descriptor)
+            .ok_or_else(|| VmError::MethodNotFound {
+                name: method_name.to_string(),
+                descriptor: descriptor.to_string(),
+            })?
+    };
+
+    ensure_initialized(registry, loader, heap, stdout, class_name, "")?;
+    ExecutionState::new(registry, class_name, method_name, entry_idx, args)
+}
+
 #[cfg(feature = "telemetry")]
 #[allow(clippy::too_many_lines)]
 const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
@@ -5317,63 +5706,103 @@ pub fn execute_class(
         .get_kind(class_name, method_name, descriptor)
     {
         Some(HandlerKind::Simple(h)) => {
-            return h(args, heap, stdout);
+            let mut native_control = NativeControl::default();
+            let result = h(args, heap, stdout, &mut native_control)?;
+            if native_control.take().is_some() {
+                return Err(VmError::Unimplemented {
+                    mnemonic: "thread action requires execute_class_to_completion",
+                });
+            }
+            return Ok(result);
         }
         Some(HandlerKind::Callback(h)) => {
             let mut invoke_cb = create_invoke_cb!(registry, loader);
-            return h(args, heap, stdout, &mut invoke_cb);
+            let mut native_control = NativeControl::default();
+            let result = h(args, heap, stdout, &mut native_control, &mut invoke_cb)?;
+            if native_control.take().is_some() {
+                return Err(VmError::Unimplemented {
+                    mnemonic: "thread action requires execute_class_to_completion",
+                });
+            }
+            return Ok(result);
         }
         None => {}
     }
 
-    // Find entry method.
-    let entry_idx = {
-        let ctx = registry.get(class_name)?;
-        ctx.methods
-            .iter()
-            .position(|m| m.name == method_name && m.descriptor == descriptor)
-            .ok_or_else(|| VmError::MethodNotFound {
-                name: method_name.to_string(),
-                descriptor: descriptor.to_string(),
-            })?
-    };
+    let mut state = prepare_execution_state(
+        registry,
+        loader,
+        heap,
+        stdout,
+        class_name,
+        method_name,
+        descriptor,
+        args,
+    )?;
+    match run_execution(&mut state, registry, loader, heap, stdout, true)? {
+        ExecutionOutcome::Returned(result) => Ok(result),
+        ExecutionOutcome::ThreadAction(_) => Err(VmError::Unimplemented {
+            mnemonic: "thread action requires execute_class_to_completion",
+        }),
+    }
+}
 
-    // Ensure the entry class has been initialized (<clinit> run).
-    ensure_initialized(registry, loader, heap, stdout, class_name, "")?;
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::manual_let_else,
+    clippy::single_match,
+    clippy::single_match_else,
+    clippy::float_cmp,
+    clippy::items_after_statements,
+    clippy::used_underscore_binding
+)]
+fn run_execution(
+    state: &mut ExecutionState,
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    gc_allowed: bool,
+) -> VmResult<ExecutionOutcome> {
+    let ExecutionState {
+        current_class,
+        method_idx,
+        pc_to_idx,
+        instructions,
+        frame,
+        call_stack,
+        frame_pool,
+        dispatch_cache,
+        idx,
+        string_intern,
+        #[cfg(feature = "telemetry")]
+        current_method,
+    } = state;
 
-    let mut current_class = class_name.to_string();
-    #[cfg(feature = "telemetry")]
-    let mut current_method = method_name.to_string();
-    let mut call_stack: Vec<CallFrame> = Vec::new();
-    let mut frame_pool = FramePool::new();
-    // Dispatch cache: caller_class_name -> cp_idx -> (callee_class_name, method_idx, arg_count).
-    // Nested map lets the outer lookup borrow current_class as &str (no clone on cache hits).
-    // Eliminates repeated CP 3-level walk + linear method search for repeat static/special call sites.
-    let mut dispatch_cache: HashMap<String, HashMap<u16, (String, usize, usize)>> = HashMap::new();
-    let mut method_idx = entry_idx;
-    let mut pc_to_idx = {
-        let ctx = registry.get(&current_class)?;
-        std::sync::Arc::clone(&ctx.methods[method_idx].pc_to_idx)
-    };
-    let mut frame = {
-        let ctx = registry.get(&current_class)?;
-        Frame::new(
-            usize::from(ctx.methods[method_idx].max_stack),
-            usize::from(ctx.methods[method_idx].max_locals),
-            args.to_vec(),
-        )?
-    };
-    let mut idx: usize = 0;
-    let mut string_intern: HashMap<usize, u64> = HashMap::new();
-
-    let mut instructions = {
-        let ctx = registry.get(&current_class)?;
-        std::sync::Arc::clone(&ctx.methods[method_idx].instructions)
-    };
+    macro_rules! create_invoke_cb {
+        ($registry:ident, $loader:ident) => {
+            |heap: &mut duke_gc::Heap,
+             output: &mut dyn std::io::Write,
+             class: &str,
+             method: &str,
+             desc: &str,
+             cb_args: Vec<Slot>|
+             -> VmResult<Option<Slot>> {
+                execute_class(
+                    $registry, $loader, heap, output, class, method, desc, &cb_args,
+                )
+            }
+        };
+    }
 
     loop {
         let (pc, instr) = {
-            let Some(&(pc, ref instr)) = instructions.get(idx) else {
+            let Some(&(pc, ref instr)) = instructions.get(*idx) else {
                 return Err(VmError::FellOffEnd);
             };
             (pc, instr.clone())
@@ -5382,7 +5811,7 @@ pub fn execute_class(
         macro_rules! jump {
             ($offset:expr) => {{
                 let target = (pc as i64).wrapping_add(i64::from($offset)) as usize;
-                idx = *pc_to_idx
+                *idx = *pc_to_idx
                     .get(&target)
                     .ok_or(VmError::InvalidBranchTarget { pc: target })?;
                 continue;
@@ -5393,27 +5822,27 @@ pub fn execute_class(
         macro_rules! do_return {
             ($val:expr) => {{
                 match call_stack.pop() {
-                    None => return Ok($val),
+                    None => return Ok(ExecutionOutcome::Returned($val)),
                     Some(caller) => {
                         let ret_val = $val;
                         // Recycle callee frame buffers before overwriting `frame`.
-                        let old = std::mem::replace(&mut frame, caller.frame);
+                        let old = std::mem::replace(frame, caller.frame);
                         let (l, s) = old.into_pool_bufs();
                         frame_pool.release(l, s);
-                        method_idx = caller.method_idx;
-                        pc_to_idx = caller.pc_to_idx;
-                        idx = caller.resume_idx;
-                        current_class = caller.class_name;
-                        instructions = std::sync::Arc::clone(
-                            &registry.get(&current_class)?.methods[method_idx].instructions,
+                        *method_idx = caller.method_idx;
+                        *pc_to_idx = caller.pc_to_idx;
+                        *idx = caller.resume_idx;
+                        *current_class = caller.class_name;
+                        *instructions = std::sync::Arc::clone(
+                            &registry.get(&current_class)?.methods[*method_idx].instructions,
                         );
                         #[cfg(feature = "telemetry")]
                         {
-                            current_method = registry
+                            *current_method = registry
                                 .get(&current_class)
                                 .map(|c| {
                                     c.methods
-                                        .get(method_idx)
+                                        .get(*method_idx)
                                         .map(|m| m.name.clone())
                                         .unwrap_or_default()
                                 })
@@ -5443,7 +5872,7 @@ pub fn execute_class(
 
                 // Clone the exception table to release the borrow on registry,
                 // so find_exception_handler can use &mut registry for hierarchy checks.
-                let exc_table = registry.get(&current_class)?.methods[method_idx]
+                let exc_table = registry.get(&current_class)?.methods[*method_idx]
                     .exception_table
                     .iter()
                     .map(|e| ExceptionEntry {
@@ -5470,7 +5899,7 @@ pub fn execute_class(
                     );
                     frame.clear_stack();
                     frame.push(Slot::Reference(Some(exception_ref)))?;
-                    idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
+                    *idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
                         VmError::InvalidBranchTarget {
                             pc: handler_pc as usize,
                         },
@@ -5488,22 +5917,22 @@ pub fn execute_class(
                         Some(caller) => {
                             // Recycle callee frame buffers before overwriting `frame` —
                             // mirrors the do_return! pattern to avoid a pool leak.
-                            let old = std::mem::replace(&mut frame, caller.frame);
+                            let old = std::mem::replace(frame, caller.frame);
                             let (l, s) = old.into_pool_bufs();
                             frame_pool.release(l, s);
-                            method_idx = caller.method_idx;
-                            pc_to_idx = caller.pc_to_idx;
-                            current_class = caller.class_name;
-                            instructions = std::sync::Arc::clone(
-                                &registry.get(&current_class)?.methods[method_idx].instructions,
+                            *method_idx = caller.method_idx;
+                            *pc_to_idx = caller.pc_to_idx;
+                            *current_class = caller.class_name;
+                            *instructions = std::sync::Arc::clone(
+                                &registry.get(&current_class)?.methods[*method_idx].instructions,
                             );
                             #[cfg(feature = "telemetry")]
                             {
-                                current_method = registry
+                                *current_method = registry
                                     .get(&current_class)
                                     .map(|c| {
                                         c.methods
-                                            .get(method_idx)
+                                            .get(*method_idx)
                                             .map(|m| m.name.clone())
                                             .unwrap_or_default()
                                     })
@@ -5513,11 +5942,11 @@ pub fn execute_class(
                             let (caller_exc_table, caller_pc) = {
                                 let ctx = registry.get(&current_class)?;
                                 let cpc = if caller.resume_idx > 0 {
-                                    ctx.methods[method_idx].instructions[caller.resume_idx - 1].0
+                                    ctx.methods[*method_idx].instructions[caller.resume_idx - 1].0
                                 } else {
                                     0
                                 };
-                                let tbl = ctx.methods[method_idx]
+                                let tbl = ctx.methods[*method_idx]
                                     .exception_table
                                     .iter()
                                     .map(|e| ExceptionEntry {
@@ -5547,7 +5976,7 @@ pub fn execute_class(
                                 );
                                 frame.clear_stack();
                                 frame.push(Slot::Reference(Some(exception_ref)))?;
-                                idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
+                                *idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
                                     VmError::InvalidBranchTarget {
                                         pc: handler_pc as usize,
                                     },
@@ -5601,49 +6030,32 @@ pub fn execute_class(
                     };
                     let callee_class = cached_cls.clone();
                     let callee_idx = cached_idx;
-                    call_stack.push(CallFrame {
+                    activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
-                        resume_idx: idx + 1,
-                        class_name: current_class.clone(),
-                    });
-                    frame = callee_frame;
-                    method_idx = callee_idx;
-                    pc_to_idx = callee_pc_to_idx;
-                    current_class = callee_class;
-                    instructions = std::sync::Arc::clone(
-                        &registry.get(&current_class)?.methods[method_idx].instructions,
-                    );
-                    #[cfg(feature = "telemetry")]
-                    {
-                        current_method = registry
-                            .get(&current_class)
-                            .map(|c| {
-                                c.methods
-                                    .get(method_idx)
-                                    .map(|m| m.name.clone())
-                                    .unwrap_or_default()
-                            })
-                            .unwrap_or_default();
-                    }
-                    idx = 0;
+                        instructions,
+                        current_class,
+                        call_stack,
+                        registry,
+                        callee_class,
+                        callee_idx,
+                        callee_pc_to_idx,
+                        callee_frame,
+                        *idx + 1,
+                        #[cfg(feature = "telemetry")]
+                        current_method,
+                    )?;
+                    *idx = 0;
                     continue;
                 }
                 // Slow path: full CP resolution + method search.
                 let (callee_class, callee_name, callee_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&callee_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &callee_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &callee_class, current_class)?;
                 let callee_idx = {
                     let ctx = registry.get(&callee_class)?;
                     ctx.methods
@@ -5676,33 +6088,23 @@ pub fn execute_class(
                             let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                             (pci, f)
                         };
-                        call_stack.push(CallFrame {
+                        activate_method_state(
                             frame,
                             method_idx,
                             pc_to_idx,
-                            resume_idx: idx + 1,
-                            class_name: current_class.clone(),
-                        });
-                        frame = callee_frame;
-                        method_idx = callee_idx;
-                        pc_to_idx = callee_pc_to_idx;
-                        current_class = callee_class;
-                        instructions = std::sync::Arc::clone(
-                            &registry.get(&current_class)?.methods[method_idx].instructions,
-                        );
-                        #[cfg(feature = "telemetry")]
-                        {
-                            current_method = registry
-                                .get(&current_class)
-                                .map(|c| {
-                                    c.methods
-                                        .get(method_idx)
-                                        .map(|m| m.name.clone())
-                                        .unwrap_or_default()
-                                })
-                                .unwrap_or_default();
-                        }
-                        idx = 0;
+                            instructions,
+                            current_class,
+                            call_stack,
+                            registry,
+                            callee_class,
+                            callee_idx,
+                            callee_pc_to_idx,
+                            callee_frame,
+                            *idx + 1,
+                            #[cfg(feature = "telemetry")]
+                            current_method,
+                        )?;
+                        *idx = 0;
                         continue;
                     }
                     None => {
@@ -5721,7 +6123,9 @@ pub fn execute_class(
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let result = handler(&native_args, heap, stdout);
+                                let mut native_control = NativeControl::default();
+                                let result =
+                                    handler(&native_args, heap, stdout, &mut native_control);
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
@@ -5742,10 +6146,11 @@ pub fn execute_class(
                                     }
                                     Err(err) => return Err(err),
                                 };
-                                if let Some(val) = result {
-                                    frame.push(val)?;
+                                if let Some(outcome) =
+                                    finish_native_call(&mut native_control, frame, idx, result)?
+                                {
+                                    return Ok(outcome);
                                 }
-                                idx += 1;
                                 continue;
                             }
                             Some(HandlerKind::Callback(handler)) => {
@@ -5757,7 +6162,14 @@ pub fn execute_class(
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut invoke_cb = create_invoke_cb!(registry, loader);
-                                let result = handler(&native_args, heap, stdout, &mut invoke_cb);
+                                let mut native_control = NativeControl::default();
+                                let result = handler(
+                                    &native_args,
+                                    heap,
+                                    stdout,
+                                    &mut native_control,
+                                    &mut invoke_cb,
+                                );
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
@@ -5778,10 +6190,11 @@ pub fn execute_class(
                                     }
                                     Err(err) => return Err(err),
                                 };
-                                if let Some(val) = result {
-                                    frame.push(val)?;
+                                if let Some(outcome) =
+                                    finish_native_call(&mut native_control, frame, idx, result)?
+                                {
+                                    return Ok(outcome);
                                 }
-                                idx += 1;
                                 continue;
                             }
                             None => {
@@ -5836,7 +6249,7 @@ pub fn execute_class(
             Instruction::Ldc(raw_idx) => {
                 let cp_idx = usize::from(*raw_idx);
                 let string_info = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     if let Some(CpEntry::String { string_index }) =
                         ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
                     {
@@ -5862,7 +6275,7 @@ pub fn execute_class(
                 } else {
                     // Check for Class constant
                     let class_info = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         if let Some(CpEntry::Class { name_index }) =
                             ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
                         {
@@ -5891,15 +6304,15 @@ pub fn execute_class(
                         };
                         frame.push(Slot::Reference(Some(r)))?;
                     } else {
-                        let ctx = registry.get(&current_class)?;
-                        ldc_push(&mut frame, &ctx.constant_pool, cp_idx)?;
+                        let ctx = registry.get(current_class)?;
+                        ldc_push(frame, &ctx.constant_pool, cp_idx)?;
                     }
                 }
             }
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
                 let idx_val = usize::from(cp_idx.0);
                 let string_info = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     if let Some(CpEntry::String { string_index }) =
                         ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
                     {
@@ -5925,7 +6338,7 @@ pub fn execute_class(
                 } else {
                     // Check for Class constant
                     let class_info = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         if let Some(CpEntry::Class { name_index }) =
                             ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
                         {
@@ -5954,8 +6367,8 @@ pub fn execute_class(
                         };
                         frame.push(Slot::Reference(Some(r)))?;
                     } else {
-                        let ctx = registry.get(&current_class)?;
-                        ldc_push(&mut frame, &ctx.constant_pool, idx_val)?;
+                        let ctx = registry.get(current_class)?;
+                        ldc_push(frame, &ctx.constant_pool, idx_val)?;
                     }
                 }
             }
@@ -6525,25 +6938,18 @@ pub fn execute_class(
             // ---- Object allocation ----
             Instruction::New(cp_idx) => {
                 let target_class = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &target_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
                 // Walk the super chain to sum all instance field counts
                 // (e.g. Enum has 2 fields inherited by every enum subclass).
                 let field_count = total_instance_field_count(registry, &target_class);
                 #[cfg(feature = "telemetry")]
                 registry.telemetry.object_lineage.record(
-                    &current_class,
-                    &current_method,
+                    current_class,
+                    current_method,
                     pc,
                     &target_class,
                 );
@@ -6553,17 +6959,17 @@ pub fn execute_class(
                 // for reference-typed fields (should be Reference(None)).
                 init_object_fields(registry, heap, r, &target_class);
                 frame.push(Slot::Reference(Some(r)))?;
-                if heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                if gc_allowed && heap.should_gc() {
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
-                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
             }
 
             // ---- Field access ----
             Instruction::Getfield(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let r = frame.pop_ref()?;
@@ -6574,7 +6980,7 @@ pub fn execute_class(
             }
             Instruction::Putfield(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let val = frame.pop()?;
@@ -6585,37 +6991,23 @@ pub fn execute_class(
             }
             Instruction::Getstatic(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &target_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 let val = registry.get(&target_class)?.static_fields[sidx];
                 frame.push(val)?;
             }
             Instruction::Putstatic(cp_idx) => {
                 let (target_class, field_name, _) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let val = frame.pop()?;
                 registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(
-                    registry,
-                    loader,
-                    heap,
-                    stdout,
-                    &target_class,
-                    &current_class,
-                )?;
+                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
                 let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
                 registry.get_mut(&target_class)?.static_fields[sidx] = val;
             }
@@ -6654,42 +7046,32 @@ pub fn execute_class(
                     };
                     let dispatch_class = cached_cls.clone();
                     let callee_idx = cached_idx;
-                    call_stack.push(CallFrame {
+                    activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
-                        resume_idx: idx + 1,
-                        class_name: current_class.clone(),
-                    });
-                    frame = callee_frame;
-                    method_idx = callee_idx;
-                    pc_to_idx = callee_pc_to_idx;
-                    current_class = dispatch_class;
-                    instructions = std::sync::Arc::clone(
-                        &registry.get(&current_class)?.methods[method_idx].instructions,
-                    );
-                    #[cfg(feature = "telemetry")]
-                    {
-                        current_method = registry
-                            .get(&current_class)
-                            .map(|c| {
-                                c.methods
-                                    .get(method_idx)
-                                    .map(|m| m.name.clone())
-                                    .unwrap_or_default()
-                            })
-                            .unwrap_or_default();
-                    }
-                    idx = 0;
+                        instructions,
+                        current_class,
+                        call_stack,
+                        registry,
+                        dispatch_class,
+                        callee_idx,
+                        callee_pc_to_idx,
+                        callee_frame,
+                        *idx + 1,
+                        #[cfg(feature = "telemetry")]
+                        current_method,
+                    )?;
+                    *idx = 0;
                     continue;
                 }
                 let (callee_class, callee_name, callee_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 // <clinit> (static initialiser) is not supported yet — skip silently.
                 if callee_name == "<clinit>" {
-                    idx += 1;
+                    *idx += 1;
                     continue;
                 }
                 // Attempt to load the target class; soft-fail for unloadable.
@@ -6769,34 +7151,23 @@ pub fn execute_class(
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, f)
                                     };
-                                    call_stack.push(CallFrame {
+                                    activate_method_state(
                                         frame,
                                         method_idx,
                                         pc_to_idx,
-                                        resume_idx: idx + 1,
-                                        class_name: current_class.clone(),
-                                    });
-                                    frame = callee_frame;
-                                    method_idx = impl_idx;
-                                    pc_to_idx = callee_pc_to_idx;
-                                    current_class = dispatch_class;
-                                    instructions = std::sync::Arc::clone(
-                                        &registry.get(&current_class)?.methods[method_idx]
-                                            .instructions,
-                                    );
-                                    #[cfg(feature = "telemetry")]
-                                    {
-                                        current_method = registry
-                                            .get(&current_class)
-                                            .map(|c| {
-                                                c.methods
-                                                    .get(method_idx)
-                                                    .map(|m| m.name.clone())
-                                                    .unwrap_or_default()
-                                            })
-                                            .unwrap_or_default();
-                                    }
-                                    idx = 0;
+                                        instructions,
+                                        current_class,
+                                        call_stack,
+                                        registry,
+                                        dispatch_class,
+                                        impl_idx,
+                                        callee_pc_to_idx,
+                                        callee_frame,
+                                        *idx + 1,
+                                        #[cfg(feature = "telemetry")]
+                                        current_method,
+                                    )?;
+                                    *idx = 0;
                                     continue;
                                 }
                             }
@@ -6846,7 +7217,9 @@ pub fn execute_class(
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let result = handler(&native_args, heap, stdout);
+                                let mut native_control = NativeControl::default();
+                                let result =
+                                    handler(&native_args, heap, stdout, &mut native_control);
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
@@ -6859,7 +7232,7 @@ pub fn execute_class(
                                         // Native methods do not perform a bytecode hierarchy
                                         // walk — hierarchy_walk is always false here.
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &callee_class,
                                             false,
@@ -6879,10 +7252,11 @@ pub fn execute_class(
                                     }
                                     Err(err) => return Err(err),
                                 };
-                                if let Some(val) = result {
-                                    frame.push(val)?;
+                                if let Some(outcome) =
+                                    finish_native_call(&mut native_control, frame, idx, result)?
+                                {
+                                    return Ok(outcome);
                                 }
-                                idx += 1;
                                 continue;
                             }
                             Some(HandlerKind::Callback(handler)) => {
@@ -6896,7 +7270,14 @@ pub fn execute_class(
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
                                 let mut invoke_cb = create_invoke_cb!(registry, loader);
-                                let result = handler(&native_args, heap, stdout, &mut invoke_cb);
+                                let mut native_control = NativeControl::default();
+                                let result = handler(
+                                    &native_args,
+                                    heap,
+                                    stdout,
+                                    &mut native_control,
+                                    &mut invoke_cb,
+                                );
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
@@ -6907,7 +7288,7 @@ pub fn execute_class(
                                     );
                                     if matches!(instr, Instruction::Invokevirtual(_)) {
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &callee_class,
                                             false,
@@ -6927,10 +7308,11 @@ pub fn execute_class(
                                     }
                                     Err(err) => return Err(err),
                                 };
-                                if let Some(val) = result {
-                                    frame.push(val)?;
+                                if let Some(outcome) =
+                                    finish_native_call(&mut native_control, frame, idx, result)?
+                                {
+                                    return Ok(outcome);
                                 }
-                                idx += 1;
                                 continue;
                             }
                             None => {
@@ -6940,7 +7322,7 @@ pub fn execute_class(
                                     frame.pop()?;
                                 }
                                 frame.pop()?; // pop `this`
-                                idx += 1;
+                                *idx += 1;
                                 continue;
                             }
                         }
@@ -6957,7 +7339,7 @@ pub fn execute_class(
                 #[cfg(feature = "telemetry")]
                 if matches!(instr, Instruction::Invokevirtual(_)) {
                     registry.telemetry.dispatch_resolution.record(
-                        &current_class,
+                        current_class,
                         cp_idx.0,
                         &dispatch_class,
                         dispatch_class != callee_class,
@@ -6984,33 +7366,23 @@ pub fn execute_class(
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, f)
                 };
-                call_stack.push(CallFrame {
+                activate_method_state(
                     frame,
                     method_idx,
                     pc_to_idx,
-                    resume_idx: idx + 1,
-                    class_name: current_class.clone(),
-                });
-                frame = callee_frame;
-                method_idx = callee_idx;
-                pc_to_idx = callee_pc_to_idx;
-                current_class = dispatch_class;
-                instructions = std::sync::Arc::clone(
-                    &registry.get(&current_class)?.methods[method_idx].instructions,
-                );
-                #[cfg(feature = "telemetry")]
-                {
-                    current_method = registry
-                        .get(&current_class)
-                        .map(|c| {
-                            c.methods
-                                .get(method_idx)
-                                .map(|m| m.name.clone())
-                                .unwrap_or_default()
-                        })
-                        .unwrap_or_default();
-                }
-                idx = 0;
+                    instructions,
+                    current_class,
+                    call_stack,
+                    registry,
+                    dispatch_class,
+                    callee_idx,
+                    callee_pc_to_idx,
+                    callee_frame,
+                    *idx + 1,
+                    #[cfg(feature = "telemetry")]
+                    current_method,
+                )?;
+                *idx = 0;
                 continue;
             }
 
@@ -7062,15 +7434,15 @@ pub fn execute_class(
                     _ => {} // Int/Boolean/Byte/Char/Short default to Slot::Int(0)
                 }
                 frame.push(Slot::Reference(Some(r)))?;
-                if heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                if gc_allowed && heap.should_gc() {
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
-                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
             }
             Instruction::Anewarray(cp_idx) => {
                 let element_type = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let array_type = format!("[L{element_type};");
@@ -7085,10 +7457,10 @@ pub fn execute_class(
                     *slot = Slot::Reference(None);
                 }
                 frame.push(Slot::Reference(Some(r)))?;
-                if heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                if gc_allowed && heap.should_gc() {
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
-                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
             }
             Instruction::Arraylength => {
@@ -7386,7 +7758,7 @@ pub fn execute_class(
                     }
                     Slot::Reference(Some(r)) => {
                         let target = {
-                            let ctx = registry.get(&current_class)?;
+                            let ctx = registry.get(current_class)?;
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
@@ -7415,7 +7787,7 @@ pub fn execute_class(
                     }
                     Slot::Reference(Some(r)) => {
                         let target = {
-                            let ctx = registry.get(&current_class)?;
+                            let ctx = registry.get(current_class)?;
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
@@ -7448,7 +7820,7 @@ pub fn execute_class(
 
                 // 1. Resolve InvokeDynamic CP entry.
                 let (bsm_idx, call_name, call_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     let cp = &ctx.constant_pool;
                     match cp.get(cp_idx_val).and_then(|e| e.as_ref()) {
                         Some(CpEntry::InvokeDynamic {
@@ -7465,7 +7837,7 @@ pub fn execute_class(
 
                 // 2. Look up the bootstrap method entry.
                 let (bsm_class, bsm_args) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     let bsm_entry = ctx
                         .bootstrap_methods
                         .get(bsm_idx)
@@ -7490,7 +7862,7 @@ pub fn execute_class(
 
                     // Resolve recipe (first bootstrap arg) and constants (remaining).
                     let (recipe, constants) = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         let cp = &ctx.constant_pool;
                         let recipe = if bsm_args.is_empty() {
                             String::new()
@@ -7519,7 +7891,7 @@ pub fn execute_class(
                     // Bootstrap args: [MethodType erased, MethodHandle impl, MethodType specialized]
 
                     let (impl_kind, impl_class, impl_method, impl_desc) = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         let cp = &ctx.constant_pool;
                         if bsm_args.len() < 3 {
                             return Err(VmError::Unimplemented {
@@ -7533,7 +7905,7 @@ pub fn execute_class(
 
                     // Resolve erased SAM descriptor from bootstrap arg 0.
                     let sam_desc = {
-                        let ctx = registry.get(&current_class)?;
+                        let ctx = registry.get(current_class)?;
                         let cp = &ctx.constant_pool;
                         match cp.get(bsm_args[0].0 as usize).and_then(|e| e.as_ref()) {
                             Some(CpEntry::MethodType { descriptor_index }) => {
@@ -7580,10 +7952,10 @@ pub fn execute_class(
                     let _ = registry.ensure_loaded(&impl_class, loader);
 
                     frame.push(Slot::Reference(Some(r)))?;
-                    if heap.should_gc() {
-                        let roots = gather_roots(&frame, &call_stack, registry);
+                    if gc_allowed && heap.should_gc() {
+                        let roots = gather_roots(frame, call_stack, registry);
                         heap.collect(&roots);
-                        patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
+                        patch_forwarded_slots(frame, call_stack, registry, heap);
                     }
                 } else {
                     // Unknown bootstrap method — pop args and push null.
@@ -7606,11 +7978,11 @@ pub fn execute_class(
                 count: _,
             } => {
                 let (callee_class, callee_name, callee_desc) = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 if callee_name == "<clinit>" {
-                    idx += 1;
+                    *idx += 1;
                     continue;
                 }
                 let arg_count = parse_arg_count(&callee_desc);
@@ -7676,7 +8048,9 @@ pub fn execute_class(
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
                                     let _native_start = std::time::Instant::now();
-                                    let result = handler(&callee_args, heap, stdout);
+                                    let mut native_control = NativeControl::default();
+                                    let result =
+                                        handler(&callee_args, heap, stdout, &mut native_control);
                                     #[cfg(feature = "telemetry")]
                                     {
                                         registry.telemetry.native_boundary.record_call(
@@ -7688,7 +8062,7 @@ pub fn execute_class(
                                         // Native interface methods skip the bytecode
                                         // hierarchy walk — hierarchy_walk is always false here.
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &actual_class,
                                             false,
@@ -7711,10 +8085,11 @@ pub fn execute_class(
                                         }
                                         Err(err) => return Err(err),
                                     };
-                                    if let Some(val) = result {
-                                        frame.push(val)?;
+                                    if let Some(outcome) =
+                                        finish_native_call(&mut native_control, frame, idx, result)?
+                                    {
+                                        return Ok(outcome);
                                     }
-                                    idx += 1;
                                     continue;
                                 }
                                 Some(HandlerKind::Callback(handler)) => {
@@ -7727,8 +8102,14 @@ pub fn execute_class(
                                     #[cfg(feature = "telemetry")]
                                     let _native_start = std::time::Instant::now();
                                     let mut invoke_cb = create_invoke_cb!(registry, loader);
-                                    let result =
-                                        handler(&callee_args, heap, stdout, &mut invoke_cb);
+                                    let mut native_control = NativeControl::default();
+                                    let result = handler(
+                                        &callee_args,
+                                        heap,
+                                        stdout,
+                                        &mut native_control,
+                                        &mut invoke_cb,
+                                    );
                                     #[cfg(feature = "telemetry")]
                                     {
                                         registry.telemetry.native_boundary.record_call(
@@ -7738,7 +8119,7 @@ pub fn execute_class(
                                             result.is_err(),
                                         );
                                         registry.telemetry.dispatch_resolution.record(
-                                            &current_class,
+                                            current_class,
                                             cp_idx.0,
                                             &actual_class,
                                             false,
@@ -7761,10 +8142,11 @@ pub fn execute_class(
                                         }
                                         Err(err) => return Err(err),
                                     };
-                                    if let Some(val) = result {
-                                        frame.push(val)?;
+                                    if let Some(outcome) =
+                                        finish_native_call(&mut native_control, frame, idx, result)?
+                                    {
+                                        return Ok(outcome);
                                     }
-                                    idx += 1;
                                     continue;
                                 }
                                 None => {} // fall through to lambda / no-op
@@ -7822,34 +8204,23 @@ pub fn execute_class(
                                             );
                                             (pci, f)
                                         };
-                                        call_stack.push(CallFrame {
+                                        activate_method_state(
                                             frame,
                                             method_idx,
                                             pc_to_idx,
-                                            resume_idx: idx + 1,
-                                            class_name: current_class.clone(),
-                                        });
-                                        frame = callee_frame;
-                                        method_idx = impl_idx;
-                                        pc_to_idx = callee_pc_to_idx;
-                                        current_class = dispatch_class;
-                                        instructions = std::sync::Arc::clone(
-                                            &registry.get(&current_class)?.methods[method_idx]
-                                                .instructions,
-                                        );
-                                        #[cfg(feature = "telemetry")]
-                                        {
-                                            current_method = registry
-                                                .get(&current_class)
-                                                .map(|c| {
-                                                    c.methods
-                                                        .get(method_idx)
-                                                        .map(|m| m.name.clone())
-                                                        .unwrap_or_default()
-                                                })
-                                                .unwrap_or_default();
-                                        }
-                                        idx = 0;
+                                            instructions,
+                                            current_class,
+                                            call_stack,
+                                            registry,
+                                            dispatch_class,
+                                            impl_idx,
+                                            callee_pc_to_idx,
+                                            callee_frame,
+                                            *idx + 1,
+                                            #[cfg(feature = "telemetry")]
+                                            current_method,
+                                        )?;
+                                        *idx = 0;
                                         continue;
                                     }
                                 } else if lambda_info.impl_kind == 5 || lambda_info.impl_kind == 9 {
@@ -7881,34 +8252,23 @@ pub fn execute_class(
                                             );
                                             (pci, f)
                                         };
-                                        call_stack.push(CallFrame {
+                                        activate_method_state(
                                             frame,
                                             method_idx,
                                             pc_to_idx,
-                                            resume_idx: idx + 1,
-                                            class_name: current_class.clone(),
-                                        });
-                                        frame = callee_frame;
-                                        method_idx = impl_idx;
-                                        pc_to_idx = callee_pc_to_idx;
-                                        current_class = dispatch_class;
-                                        instructions = std::sync::Arc::clone(
-                                            &registry.get(&current_class)?.methods[method_idx]
-                                                .instructions,
-                                        );
-                                        #[cfg(feature = "telemetry")]
-                                        {
-                                            current_method = registry
-                                                .get(&current_class)
-                                                .map(|c| {
-                                                    c.methods
-                                                        .get(method_idx)
-                                                        .map(|m| m.name.clone())
-                                                        .unwrap_or_default()
-                                                })
-                                                .unwrap_or_default();
-                                        }
-                                        idx = 0;
+                                            instructions,
+                                            current_class,
+                                            call_stack,
+                                            registry,
+                                            dispatch_class,
+                                            impl_idx,
+                                            callee_pc_to_idx,
+                                            callee_frame,
+                                            *idx + 1,
+                                            #[cfg(feature = "telemetry")]
+                                            current_method,
+                                        )?;
+                                        *idx = 0;
                                         continue;
                                     }
                                     // Try native fallback for virtual/interface
@@ -7921,7 +8281,13 @@ pub fn execute_class(
                                         Some(HandlerKind::Simple(handler)) => {
                                             #[cfg(feature = "telemetry")]
                                             let _native_start = std::time::Instant::now();
-                                            let result = handler(&impl_args, heap, stdout);
+                                            let mut native_control = NativeControl::default();
+                                            let result = handler(
+                                                &impl_args,
+                                                heap,
+                                                stdout,
+                                                &mut native_control,
+                                            );
                                             #[cfg(feature = "telemetry")]
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
@@ -7947,18 +8313,28 @@ pub fn execute_class(
                                                 }
                                                 Err(err) => return Err(err),
                                             };
-                                            if let Some(val) = result {
-                                                frame.push(val)?;
+                                            if let Some(outcome) = finish_native_call(
+                                                &mut native_control,
+                                                frame,
+                                                idx,
+                                                result,
+                                            )? {
+                                                return Ok(outcome);
                                             }
-                                            idx += 1;
                                             continue;
                                         }
                                         Some(HandlerKind::Callback(handler)) => {
                                             #[cfg(feature = "telemetry")]
                                             let _native_start = std::time::Instant::now();
                                             let mut invoke_cb = create_invoke_cb!(registry, loader);
-                                            let result =
-                                                handler(&impl_args, heap, stdout, &mut invoke_cb);
+                                            let mut native_control = NativeControl::default();
+                                            let result = handler(
+                                                &impl_args,
+                                                heap,
+                                                stdout,
+                                                &mut native_control,
+                                                &mut invoke_cb,
+                                            );
                                             #[cfg(feature = "telemetry")]
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
@@ -7984,20 +8360,24 @@ pub fn execute_class(
                                                 }
                                                 Err(err) => return Err(err),
                                             };
-                                            if let Some(val) = result {
-                                                frame.push(val)?;
+                                            if let Some(outcome) = finish_native_call(
+                                                &mut native_control,
+                                                frame,
+                                                idx,
+                                                result,
+                                            )? {
+                                                return Ok(outcome);
                                             }
-                                            idx += 1;
                                             continue;
                                         }
                                         None => {}
                                     }
                                 }
-                                idx += 1;
+                                *idx += 1;
                                 continue;
                             }
                             // No-op fallback.
-                            idx += 1;
+                            *idx += 1;
                             continue;
                         }
                     }
@@ -8006,7 +8386,7 @@ pub fn execute_class(
                 // Bytecode execution path — Pattern B: pop directly into locals_buf.
                 #[cfg(feature = "telemetry")]
                 registry.telemetry.dispatch_resolution.record(
-                    &current_class,
+                    current_class,
                     cp_idx.0,
                     &dispatch_class,
                     dispatch_class != actual_class,
@@ -8032,33 +8412,23 @@ pub fn execute_class(
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, f)
                 };
-                call_stack.push(CallFrame {
+                activate_method_state(
                     frame,
                     method_idx,
                     pc_to_idx,
-                    resume_idx: idx + 1,
-                    class_name: current_class.clone(),
-                });
-                frame = callee_frame;
-                method_idx = callee_idx;
-                pc_to_idx = callee_pc_to_idx;
-                current_class = dispatch_class;
-                instructions = std::sync::Arc::clone(
-                    &registry.get(&current_class)?.methods[method_idx].instructions,
-                );
-                #[cfg(feature = "telemetry")]
-                {
-                    current_method = registry
-                        .get(&current_class)
-                        .map(|c| {
-                            c.methods
-                                .get(method_idx)
-                                .map(|m| m.name.clone())
-                                .unwrap_or_default()
-                        })
-                        .unwrap_or_default();
-                }
-                idx = 0;
+                    instructions,
+                    current_class,
+                    call_stack,
+                    registry,
+                    dispatch_class,
+                    callee_idx,
+                    callee_pc_to_idx,
+                    callee_frame,
+                    *idx + 1,
+                    #[cfg(feature = "telemetry")]
+                    current_method,
+                )?;
+                *idx = 0;
                 continue;
             }
 
@@ -8070,7 +8440,7 @@ pub fn execute_class(
                 dimensions,
             } => {
                 let element_type = {
-                    let ctx = registry.get(&current_class)?;
+                    let ctx = registry.get(current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
 
@@ -8110,10 +8480,10 @@ pub fn execute_class(
 
                 let r = alloc_multi(heap, &dims, 0, &element_type);
                 frame.push(Slot::Reference(Some(r)))?;
-                if heap.should_gc() {
-                    let roots = gather_roots(&frame, &call_stack, registry);
+                if gc_allowed && heap.should_gc() {
+                    let roots = gather_roots(frame, call_stack, registry);
                     heap.collect(&roots);
-                    patch_forwarded_slots(&mut frame, &mut call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap);
                 }
             }
 
@@ -8134,14 +8504,375 @@ pub fn execute_class(
             let elapsed = _telem_start.elapsed().as_nanos() as u64;
             registry.telemetry.bytecode_cost.record(
                 _telem_name,
-                &current_class,
-                &current_method,
+                current_class,
+                current_method,
                 _telem_pc,
                 elapsed,
             );
         }
 
-        idx += 1;
+        *idx += 1;
+    }
+}
+
+struct CompletionVm {
+    registry: ClassRegistry,
+    heap: duke_gc::Heap,
+    output: Vec<u8>,
+    live_workers: usize,
+}
+
+#[derive(Default)]
+struct CompletionRuntime {
+    threads: threading::ThreadRuntime,
+    handles: HashMap<i32, std::thread::JoinHandle<VmResult<()>>>,
+}
+
+fn resolve_thread_entry(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &duke_gc::Heap,
+    thread_ref: u64,
+) -> VmResult<Option<(String, usize, Vec<Slot>)>> {
+    let actual_class = heap.get(thread_ref)?.class_name.clone();
+    if actual_class != "java/lang/Thread"
+        && let Some((dispatch_class, method_idx)) =
+            resolve_method_in_hierarchy(registry, loader, &actual_class, "run", "()V")
+    {
+        return Ok(Some((
+            dispatch_class,
+            method_idx,
+            vec![Slot::Reference(Some(thread_ref))],
+        )));
+    }
+
+    let target_ref = match heap.get(thread_ref)?.fields.get(THREAD_TARGET_SLOT) {
+        Some(Slot::Reference(Some(target_ref))) => *target_ref,
+        _ => return Ok(None),
+    };
+    let target_class = heap.get(target_ref)?.class_name.clone();
+    let (dispatch_class, method_idx) =
+        resolve_method_in_hierarchy(registry, loader, &target_class, "run", "()V").ok_or_else(
+            || VmError::AbstractMethodError {
+                class_name: target_class.clone(),
+                method_name: "run".to_string(),
+            },
+        )?;
+    Ok(Some((
+        dispatch_class,
+        method_idx,
+        vec![Slot::Reference(Some(target_ref))],
+    )))
+}
+
+fn join_java_thread(
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    thread_id: i32,
+) -> VmResult<()> {
+    loop {
+        let handle = {
+            let mut runtime = runtime.lock().unwrap();
+            let is_finished = runtime
+                .threads
+                .records()
+                .iter()
+                .find(|record| record.thread_id == thread_id)
+                .is_none_or(|record| record.finished);
+            if is_finished {
+                return Ok(());
+            }
+            runtime.handles.remove(&thread_id)
+        };
+
+        if let Some(handle) = handle {
+            return match handle.join() {
+                Ok(result) => result,
+                Err(payload) => std::panic::resume_unwind(payload),
+            };
+        }
+
+        std::thread::yield_now();
+    }
+}
+
+fn wait_for_all_java_threads(
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+) -> VmResult<()> {
+    loop {
+        let handles = {
+            let mut runtime = runtime.lock().unwrap();
+            if runtime.handles.is_empty() {
+                return Ok(());
+            }
+            runtime
+                .handles
+                .drain()
+                .map(|(_, handle)| handle)
+                .collect::<Vec<_>>()
+        };
+
+        for handle in handles {
+            match handle.join() {
+                Ok(result) => result?,
+                Err(payload) => std::panic::resume_unwind(payload),
+            }
+        }
+    }
+}
+
+fn handle_thread_action(
+    action: NativeThreadAction,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> VmResult<()> {
+    match action {
+        NativeThreadAction::Start { thread_ref } => {
+            spawn_java_thread(shared, runtime, loader, thread_ref)
+        }
+        NativeThreadAction::Sleep(duration) => {
+            std::thread::sleep(duration);
+            Ok(())
+        }
+        NativeThreadAction::Join { thread_id } => join_java_thread(runtime, thread_id),
+    }
+}
+
+fn run_thread_to_completion(
+    mut state: ExecutionState,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> VmResult<()> {
+    loop {
+        let mut shared_guard = shared.lock().unwrap();
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            live_workers,
+        } = &mut *shared_guard;
+        let outcome = run_execution(
+            &mut state,
+            registry,
+            loader.as_ref(),
+            heap,
+            output,
+            *live_workers == 0,
+        )?;
+        drop(shared_guard);
+
+        match outcome {
+            ExecutionOutcome::Returned(_) => return Ok(()),
+            ExecutionOutcome::ThreadAction(action) => {
+                handle_thread_action(action, shared, runtime, loader)?;
+            }
+        }
+    }
+}
+
+fn spawn_java_thread(
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+    thread_ref: u64,
+) -> VmResult<()> {
+    {
+        let mut shared_guard = shared.lock().unwrap();
+        let thread = shared_guard.heap.get_mut(thread_ref)?;
+        let already_started = matches!(
+            thread.fields.get(THREAD_ID_SLOT),
+            Some(Slot::Int(thread_id)) if *thread_id >= 0
+        );
+        drop(shared_guard);
+        if already_started {
+            return Ok(());
+        }
+    }
+
+    let thread_id = {
+        let mut runtime = runtime.lock().unwrap();
+        let thread_id = runtime.threads.allocate_thread_id();
+        runtime
+            .threads
+            .register(threading::ThreadRecord::new(thread_ref, thread_id));
+        thread_id
+    };
+
+    let entry = {
+        let mut shared_guard = shared.lock().unwrap();
+        {
+            let thread = shared_guard.heap.get_mut(thread_ref)?;
+            thread.fields[THREAD_ID_SLOT] = Slot::Int(thread_id);
+        }
+        let CompletionVm {
+            registry,
+            heap,
+            live_workers,
+            ..
+        } = &mut *shared_guard;
+        let entry = resolve_thread_entry(registry, loader.as_ref(), heap, thread_ref)?;
+        if entry.is_some() {
+            *live_workers += 1;
+        }
+        drop(shared_guard);
+        entry
+    };
+    let Some((dispatch_class, method_idx, args)) = entry else {
+        let _ = runtime.lock().unwrap().threads.mark_finished(thread_id);
+        return Ok(());
+    };
+
+    let state = {
+        let shared = shared.lock().unwrap();
+        ExecutionState::new(&shared.registry, &dispatch_class, "run", method_idx, &args)?
+    };
+
+    let shared_clone = std::sync::Arc::clone(shared);
+    let runtime_clone = std::sync::Arc::clone(runtime);
+    let loader_clone = std::sync::Arc::clone(loader);
+    let handle = std::thread::spawn(move || {
+        let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
+        {
+            let mut shared = shared_clone.lock().unwrap();
+            shared.live_workers = shared.live_workers.saturating_sub(1);
+        }
+        let _ = runtime_clone
+            .lock()
+            .unwrap()
+            .threads
+            .mark_finished_by_java_ref(thread_ref);
+        result
+    });
+    runtime.lock().unwrap().handles.insert(thread_id, handle);
+    Ok(())
+}
+
+/// Execute a Java entrypoint and keep the VM alive until any spawned worker
+/// threads have either finished or been joined.
+///
+/// # Errors
+///
+/// Returns `VmError` if class resolution, method dispatch, or bytecode
+/// execution fails in any thread.
+///
+/// # Panics
+///
+/// Panics if a `Mutex` protecting shared VM state is poisoned by a
+/// panicking thread, or if the `Arc` cannot be unwound after all threads
+/// have joined.
+#[allow(clippy::too_many_arguments)]
+pub fn execute_class_to_completion<L>(
+    registry: &mut ClassRegistry,
+    loader: L,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    class_name: &str,
+    method_name: &str,
+    descriptor: &str,
+    args: &[Slot],
+) -> VmResult<Option<Slot>>
+where
+    L: ClassLoader + Send + Sync + 'static,
+{
+    let loader: std::sync::Arc<dyn ClassLoader + Send + Sync> = std::sync::Arc::new(loader);
+    if registry
+        .natives()
+        .get_kind(class_name, method_name, descriptor)
+        .is_some()
+    {
+        return execute_class(
+            registry,
+            loader.as_ref(),
+            heap,
+            stdout,
+            class_name,
+            method_name,
+            descriptor,
+            args,
+        );
+    }
+
+    let mut vm = CompletionVm {
+        registry: std::mem::take(registry),
+        heap: std::mem::replace(heap, duke_gc::Heap::new()),
+        output: Vec::new(),
+        live_workers: 0,
+    };
+
+    let mut state = match prepare_execution_state(
+        &mut vm.registry,
+        loader.as_ref(),
+        &mut vm.heap,
+        &mut vm.output,
+        class_name,
+        method_name,
+        descriptor,
+        args,
+    ) {
+        Ok(state) => state,
+        Err(err) => {
+            *registry = vm.registry;
+            *heap = vm.heap;
+            return Err(err);
+        }
+    };
+
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(vm));
+    let runtime = std::sync::Arc::new(std::sync::Mutex::new(CompletionRuntime::default()));
+
+    let run_result: VmResult<Option<Slot>> = loop {
+        let mut shared_guard = shared.lock().unwrap();
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            live_workers,
+        } = &mut *shared_guard;
+        let outcome = run_execution(
+            &mut state,
+            registry,
+            loader.as_ref(),
+            heap,
+            output,
+            *live_workers == 0,
+        )?;
+        drop(shared_guard);
+
+        match outcome {
+            ExecutionOutcome::Returned(result) => break Ok(result),
+            ExecutionOutcome::ThreadAction(action) => {
+                handle_thread_action(action, &shared, &runtime, &loader)?;
+            }
+        }
+    };
+
+    let wait_result = wait_for_all_java_threads(&runtime);
+    let Ok(shared) = std::sync::Arc::try_unwrap(shared) else {
+        panic!("completion runtime released shared VM state")
+    };
+    let Ok(shared) = shared.into_inner() else {
+        panic!("shared VM mutex poisoned")
+    };
+    let flush_result = stdout
+        .write_all(&shared.output)
+        .map_err(|_| VmError::Unimplemented {
+            mnemonic: "output flush",
+        });
+    *registry = shared.registry;
+    *heap = shared.heap;
+
+    match run_result {
+        Ok(result) => {
+            wait_result?;
+            flush_result?;
+            Ok(result)
+        }
+        Err(err) => {
+            let _ = wait_result;
+            let _ = flush_result;
+            Err(err)
+        }
     }
 }
 
@@ -8850,6 +9581,7 @@ fn native_sb_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -8865,6 +9597,7 @@ fn native_sb_init_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -8884,6 +9617,7 @@ fn native_sb_append_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -8905,6 +9639,7 @@ fn native_sb_append_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -8931,6 +9666,7 @@ fn native_sb_append_long(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -8957,6 +9693,7 @@ fn native_sb_append_double(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -8983,6 +9720,7 @@ fn native_sb_append_float(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9009,6 +9747,7 @@ fn native_sb_append_boolean(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9030,6 +9769,7 @@ fn native_sb_append_char(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9051,6 +9791,7 @@ fn native_sb_tostring(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9066,6 +9807,7 @@ fn native_sb_length(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9098,6 +9840,7 @@ fn native_char_is_digit(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_ascii_digit()))))
@@ -9108,6 +9851,7 @@ fn native_char_is_letter(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_alphabetic()))))
@@ -9118,6 +9862,7 @@ fn native_char_is_whitespace(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_whitespace()))))
@@ -9128,6 +9873,7 @@ fn native_char_is_uppercase(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_uppercase()))))
@@ -9138,6 +9884,7 @@ fn native_char_is_lowercase(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_lowercase()))))
@@ -9148,6 +9895,7 @@ fn native_char_to_uppercase(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     let upper = ch.to_uppercase().next().unwrap_or(ch);
@@ -9159,6 +9907,7 @@ fn native_char_to_lowercase(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     let lower = ch.to_lowercase().next().unwrap_or(ch);
@@ -9170,6 +9919,7 @@ fn native_char_is_letter_or_digit(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_alphanumeric()))))
@@ -9180,6 +9930,7 @@ fn native_char_valueof(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => *v,
@@ -9200,6 +9951,7 @@ fn native_char_charvalue(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9218,6 +9970,7 @@ fn native_arraylist_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9232,6 +9985,7 @@ fn native_arraylist_add(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9253,6 +10007,7 @@ fn native_arraylist_get(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9283,6 +10038,7 @@ fn native_arraylist_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9300,6 +10056,7 @@ fn native_arraylist_iterator(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9322,6 +10079,7 @@ fn array_list_sort(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
+    _control: &mut NativeControl,
     invoke: &mut InvokeFn<'_>,
 ) -> VmResult<Option<Slot>> {
     // args[0] = ArrayList ref, args[1] = Comparator (null = natural ordering)
@@ -9436,6 +10194,7 @@ fn native_collections_sort(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
+    _control: &mut NativeControl,
     invoke: &mut InvokeFn<'_>,
 ) -> VmResult<Option<Slot>> {
     // args[0] = List ref
@@ -9466,6 +10225,7 @@ fn native_arraylist_iter_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     Ok(None)
 }
@@ -9475,6 +10235,7 @@ fn native_arraylist_iter_hasnext(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9502,6 +10263,7 @@ fn native_arraylist_iter_next(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9542,6 +10304,7 @@ fn native_double_isnan(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     match args.first() {
         Some(Slot::Double(v)) => Ok(Some(Slot::Int(i32::from(v.is_nan())))),
@@ -9554,6 +10317,7 @@ fn native_double_compareto(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let double_val = |s: &Slot| -> VmResult<f64> {
         match s {
@@ -9583,6 +10347,7 @@ fn native_arrays_fill_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let arr_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9604,6 +10369,7 @@ fn native_arrays_fill_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let arr_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9622,6 +10388,7 @@ fn native_arrays_copyof_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let src_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9646,6 +10413,7 @@ fn native_arrays_copyof_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let src_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9670,6 +10438,7 @@ fn native_arrays_sort_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let arr_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9722,6 +10491,7 @@ fn native_hashmap_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9742,6 +10512,7 @@ fn native_hashmap_put(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9774,6 +10545,7 @@ fn native_hashmap_get(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9793,6 +10565,7 @@ fn native_hashmap_contains_key(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9813,6 +10586,7 @@ fn native_hashmap_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9830,6 +10604,7 @@ fn native_hashmap_remove(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9861,6 +10636,7 @@ fn native_hashmap_is_empty(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9878,6 +10654,7 @@ fn native_hashmap_get_or_default(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9913,6 +10690,7 @@ fn native_hashset_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9933,6 +10711,7 @@ fn native_hashset_add(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9959,6 +10738,7 @@ fn native_hashset_contains(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -9980,6 +10760,7 @@ fn native_hashset_remove(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -10008,6 +10789,7 @@ fn native_hashset_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -10024,6 +10806,7 @@ fn native_hashset_is_empty(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
+    _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -10090,6 +10873,75 @@ fn patch_forwarded_slots(
 mod tests {
     use super::*;
 
+    macro_rules! wrap_simple_native_for_tests {
+        ($($name:ident),* $(,)?) => {
+            $(
+                fn $name(
+                    args: &[Slot],
+                    heap: &mut duke_gc::Heap,
+                    out: &mut dyn std::io::Write,
+                ) -> VmResult<Option<Slot>> {
+                    super::$name(args, heap, out, &mut NativeControl::default())
+                }
+            )*
+        };
+    }
+
+    wrap_simple_native_for_tests!(
+        native_arraylist_get,
+        native_arrays_copyof_int,
+        native_arrays_copyof_object,
+        native_arrays_fill_object,
+        native_boolean_parseboolean,
+        native_double_doublevalue,
+        native_double_parsedouble,
+        native_float_parsefloat,
+        native_hashmap_contains_key,
+        native_hashmap_get,
+        native_hashmap_get_or_default,
+        native_hashmap_init,
+        native_hashmap_put,
+        native_hashmap_remove,
+        native_hashmap_size,
+        native_integer_parseint,
+        native_long_parselong,
+        native_math_min_double,
+        native_object_tostring,
+        native_print_boolean,
+        native_print_char,
+        native_print_double,
+        native_print_float,
+        native_print_long,
+        native_print_object,
+        native_print_string,
+        native_println_boolean,
+        native_println_object,
+        native_println_string,
+        native_sb_append_char,
+        native_sb_append_string,
+        native_sb_init_string,
+        native_string_concat,
+        native_string_contains,
+        native_string_equals,
+        native_string_format,
+        native_string_indexof,
+        native_string_replace_charsequence,
+        native_string_split,
+        native_string_substring,
+        native_string_substring_range,
+        native_string_value_of_object,
+        native_system_exit,
+    );
+
+    fn array_list_sort(
+        args: &[Slot],
+        heap: &mut duke_gc::Heap,
+        out: &mut dyn std::io::Write,
+        invoke: &mut InvokeFn<'_>,
+    ) -> VmResult<Option<Slot>> {
+        super::array_list_sort(args, heap, out, &mut NativeControl::default(), invoke)
+    }
+
     // ---- Unit tests: hand-crafted instruction streams ----
 
     #[test]
@@ -10107,6 +10959,7 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
+            _control: &mut NativeControl,
             _invoke: &mut InvokeFn<'_>,
         ) -> VmResult<Option<Slot>> {
             Ok(None)
@@ -10126,6 +10979,7 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
+            _control: &mut NativeControl,
         ) -> VmResult<Option<Slot>> {
             Ok(None)
         }
@@ -11371,6 +12225,7 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
+            _control: &mut NativeControl,
         ) -> VmResult<Option<Slot>> {
             Ok(Some(Slot::Int(99)))
         }
@@ -11380,7 +12235,13 @@ mod tests {
         assert!(handler.is_some());
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
-        let result = handler.unwrap()(&[Slot::Int(1)], &mut heap, &mut out).unwrap();
+        let result = handler.unwrap()(
+            &[Slot::Int(1)],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
         assert_eq!(result, Some(Slot::Int(99)));
     }
 
@@ -14054,9 +14915,9 @@ mod tests {
             .map(|arg| Slot::Reference(Some(heap.allocate_string(arg.clone()))))
             .collect();
         let mut out: Vec<u8> = Vec::new();
-        execute_class(
+        execute_class_to_completion(
             &mut registry,
-            &loader,
+            loader,
             &mut heap,
             &mut out,
             &entry_class,
@@ -14064,6 +14925,37 @@ mod tests {
             descriptor,
             &arg_slots,
         )
+    }
+
+    fn run_bootstrap_with_output(
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+    ) -> VmResult<(Option<Slot>, Vec<String>)> {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )?;
+        let lines = String::from_utf8(out)
+            .expect("captured output is utf8")
+            .lines()
+            .map(std::string::ToString::to_string)
+            .collect();
+        Ok((result, lines))
     }
 
     struct TempCleanup(std::path::PathBuf);
@@ -14919,7 +15811,7 @@ mod tests {
             "duke/test/Helper",
             "answer",
             "()I",
-            |_args, _heap, _out| Ok(Some(Slot::Int(42))),
+            |_args, _heap, _out, _control| Ok(Some(Slot::Int(42))),
         );
 
         // Callback native: invokes the helper and returns its result.
@@ -14927,7 +15819,7 @@ mod tests {
             "duke/test/Caller",
             "call",
             "()I",
-            |_args, heap, output, invoke| {
+            |_args, heap, output, _control, invoke| {
                 CALLED.store(true, std::sync::atomic::Ordering::SeqCst);
                 invoke(heap, output, "duke/test/Helper", "answer", "()I", vec![])
             },
@@ -14994,7 +15886,7 @@ mod tests {
             "java/lang/Integer",
             "parseInt",
             "(Ljava/lang/String;)I",
-            |args, heap, _output, _invoke| {
+            |args, heap, _output, _control, _invoke| {
                 CALLED.store(true, Ordering::SeqCst);
                 // args[0] is the String reference; extract its string_value.
                 let s = match &args[0] {
@@ -15060,14 +15952,13 @@ mod tests {
             "java/lang/Integer",
             "intValue",
             "()I",
-            |args, heap, _output, _invoke| {
+            |args, heap, _output, _control, _invoke| {
                 CALLED.store(true, Ordering::SeqCst);
                 // args[0] is `this` (the Integer object); fields[0] holds the int.
-                let r = match &args[0] {
-                    Slot::Reference(Some(r)) => *r,
-                    _ => return Err(VmError::NullPointerException),
+                let Slot::Reference(Some(r)) = &args[0] else {
+                    return Err(VmError::NullPointerException);
                 };
-                let val = heap.get(r)?.fields[0];
+                let val = heap.get(*r)?.fields[0];
                 Ok(Some(val))
             },
         );
@@ -15122,7 +16013,7 @@ mod tests {
             "duke/util/ArrayListIterator",
             "hasNext",
             "()Z",
-            |_args, _heap, _output, _invoke| {
+            |_args, _heap, _output, _control, _invoke| {
                 CALLED.store(true, Ordering::SeqCst);
                 Ok(Some(Slot::Int(0))) // false — loop body never runs
             },
@@ -15196,7 +16087,7 @@ mod tests {
             "java/util/Objects",
             "requireNonNull",
             "(Ljava/lang/Object;)Ljava/lang/Object;",
-            |args, _heap, _out| Ok(Some(args[0])),
+            |args, _heap, _out, _control| Ok(Some(args[0])),
         );
 
         // Override String.length with a Callback.  This replaces the Simple
@@ -15206,14 +16097,13 @@ mod tests {
             "java/lang/String",
             "length",
             "()I",
-            |args, heap, _output, _invoke| {
+            |args, heap, _output, _control, _invoke| {
                 CALLED.store(true, Ordering::SeqCst);
                 // args[0] is `this` (the captured String reference).
-                let r = match &args[0] {
-                    Slot::Reference(Some(r)) => *r,
-                    _ => return Err(VmError::NullPointerException),
+                let Slot::Reference(Some(r)) = &args[0] else {
+                    return Err(VmError::NullPointerException);
                 };
-                let len = i32::try_from(heap.get(r)?.string_value.as_deref().unwrap_or("").len())
+                let len = i32::try_from(heap.get(*r)?.string_value.as_deref().unwrap_or("").len())
                     .unwrap_or(i32::MAX);
                 Ok(Some(Slot::Int(len)))
             },
@@ -16041,6 +16931,100 @@ mod tests {
         );
     }
 
+    // ---- Phase 28: Threading ----
+
+    #[test]
+    fn threading_spawn_and_join_ten_workers() {
+        let start = std::time::Instant::now();
+        let result = run_bootstrap_with_output("ThreadingTest.class", "spawnAndJoinTen", "()I");
+        let elapsed = start.elapsed();
+
+        assert!(
+            result.is_ok(),
+            "expected basic Thread/Runnable support; current Duke failed with {result:?}"
+        );
+        let (value, mut lines) = result.unwrap();
+        lines.sort();
+        assert_eq!(
+            value,
+            Some(Slot::Int(10)),
+            "spawnAndJoinTen should return 10"
+        );
+        assert_eq!(lines.len(), 20, "ten workers should print two lines each");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(40),
+            "spawnAndJoinTen should observe real sleep time; elapsed={elapsed:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(450),
+            "spawnAndJoinTen should complete faster than serialized sleeps; elapsed={elapsed:?}"
+        );
+        for expected in 0..10 {
+            assert!(
+                lines.iter().any(|line| line == &expected.to_string()),
+                "missing worker start line for {expected}: {lines:?}"
+            );
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line == &(expected + 100).to_string()),
+                "missing worker finish line for {}: {lines:?}",
+                expected + 100
+            );
+            assert!(
+                !lines
+                    .iter()
+                    .any(|line| line == &(-1000 - expected).to_string()),
+                "worker {expected} reported a sleep failure: {lines:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn threading_subclass_run_method_wins_over_base_thread() {
+        let result = run_bootstrap_with_output("ThreadingTest.class", "subclassRunWins", "()I");
+
+        assert!(
+            result.is_ok(),
+            "expected Thread subclass support; current Duke failed with {result:?}"
+        );
+        let (value, lines) = result.unwrap();
+        assert_eq!(value, Some(Slot::Int(1)), "subclassRunWins should return 1");
+        assert!(
+            lines.iter().any(|line| line == "205"),
+            "expected subclass run() output to contain 205, got {lines:?}"
+        );
+    }
+
+    #[test]
+    fn threading_fire_and_forget_still_waits_for_workers_before_returning() {
+        let result =
+            run_bootstrap_with_output("ThreadingTest.class", "fireAndForgetStillFinishes", "()I");
+
+        assert!(
+            result.is_ok(),
+            "expected Duke to keep the VM alive for worker threads; current Duke failed with {result:?}"
+        );
+        let (value, mut lines) = result.unwrap();
+        lines.sort();
+        assert_eq!(
+            value,
+            Some(Slot::Int(3)),
+            "fireAndForgetStillFinishes should return 3"
+        );
+        assert_eq!(
+            lines.len(),
+            6,
+            "three workers should still finish before the VM returns"
+        );
+        for expected in [0, 1, 2, 100, 101, 102] {
+            assert!(
+                lines.iter().any(|line| line == &expected.to_string()),
+                "missing expected worker output {expected}: {lines:?}"
+            );
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // ClassRegistry unit tests
     // ---------------------------------------------------------------------------
@@ -16071,6 +17055,7 @@ mod tests {
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
+            _control: &mut NativeControl,
         ) -> VmResult<Option<Slot>> {
             Ok(Some(Slot::Int(99)))
         }
