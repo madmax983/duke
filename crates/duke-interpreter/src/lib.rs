@@ -8531,7 +8531,7 @@ struct CompletionRuntime {
 fn resolve_thread_entry(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
-    heap: &mut duke_gc::Heap,
+    heap: &duke_gc::Heap,
     thread_ref: u64,
 ) -> VmResult<Option<(String, usize, Vec<Slot>)>> {
     let actual_class = heap.get(thread_ref)?.class_name.clone();
@@ -8645,28 +8645,27 @@ fn run_thread_to_completion(
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
 ) -> VmResult<()> {
     loop {
-        let outcome = {
-            let mut shared = shared.lock().unwrap();
-            let CompletionVm {
-                registry,
-                heap,
-                output,
-                live_workers,
-            } = &mut *shared;
-            run_execution(
-                &mut state,
-                registry,
-                loader.as_ref(),
-                heap,
-                output,
-                *live_workers == 0,
-            )?
-        };
+        let mut shared_guard = shared.lock().unwrap();
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            live_workers,
+        } = &mut *shared_guard;
+        let outcome = run_execution(
+            &mut state,
+            registry,
+            loader.as_ref(),
+            heap,
+            output,
+            *live_workers == 0,
+        )?;
+        drop(shared_guard);
 
         match outcome {
             ExecutionOutcome::Returned(_) => return Ok(()),
             ExecutionOutcome::ThreadAction(action) => {
-                handle_thread_action(action, shared, runtime, loader)?
+                handle_thread_action(action, shared, runtime, loader)?;
             }
         }
     }
@@ -8679,12 +8678,14 @@ fn spawn_java_thread(
     thread_ref: u64,
 ) -> VmResult<()> {
     {
-        let mut shared = shared.lock().unwrap();
-        let thread = shared.heap.get_mut(thread_ref)?;
-        if matches!(
+        let mut shared_guard = shared.lock().unwrap();
+        let thread = shared_guard.heap.get_mut(thread_ref)?;
+        let already_started = matches!(
             thread.fields.get(THREAD_ID_SLOT),
             Some(Slot::Int(thread_id)) if *thread_id >= 0
-        ) {
+        );
+        drop(shared_guard);
+        if already_started {
             return Ok(());
         }
     }
@@ -8698,10 +8699,10 @@ fn spawn_java_thread(
         thread_id
     };
 
-    let Some((dispatch_class, method_idx, args)) = ({
-        let mut shared = shared.lock().unwrap();
+    let entry = {
+        let mut shared_guard = shared.lock().unwrap();
         {
-            let thread = shared.heap.get_mut(thread_ref)?;
+            let thread = shared_guard.heap.get_mut(thread_ref)?;
             thread.fields[THREAD_ID_SLOT] = Slot::Int(thread_id);
         }
         let CompletionVm {
@@ -8709,13 +8710,15 @@ fn spawn_java_thread(
             heap,
             live_workers,
             ..
-        } = &mut *shared;
+        } = &mut *shared_guard;
         let entry = resolve_thread_entry(registry, loader.as_ref(), heap, thread_ref)?;
         if entry.is_some() {
             *live_workers += 1;
         }
+        drop(shared_guard);
         entry
-    }) else {
+    };
+    let Some((dispatch_class, method_idx, args)) = entry else {
         let _ = runtime.lock().unwrap().threads.mark_finished(thread_id);
         return Ok(());
     };
@@ -8747,6 +8750,17 @@ fn spawn_java_thread(
 
 /// Execute a Java entrypoint and keep the VM alive until any spawned worker
 /// threads have either finished or been joined.
+///
+/// # Errors
+///
+/// Returns `VmError` if class resolution, method dispatch, or bytecode
+/// execution fails in any thread.
+///
+/// # Panics
+///
+/// Panics if a `Mutex` protecting shared VM state is poisoned by a
+/// panicking thread, or if the `Arc` cannot be unwound after all threads
+/// have joined.
 #[allow(clippy::too_many_arguments)]
 pub fn execute_class_to_completion<L>(
     registry: &mut ClassRegistry,
@@ -8808,23 +8822,22 @@ where
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(CompletionRuntime::default()));
 
     let run_result: VmResult<Option<Slot>> = loop {
-        let outcome = {
-            let mut shared = shared.lock().unwrap();
-            let CompletionVm {
-                registry,
-                heap,
-                output,
-                live_workers,
-            } = &mut *shared;
-            run_execution(
-                &mut state,
-                registry,
-                loader.as_ref(),
-                heap,
-                output,
-                *live_workers == 0,
-            )?
-        };
+        let mut shared_guard = shared.lock().unwrap();
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            live_workers,
+        } = &mut *shared_guard;
+        let outcome = run_execution(
+            &mut state,
+            registry,
+            loader.as_ref(),
+            heap,
+            output,
+            *live_workers == 0,
+        )?;
+        drop(shared_guard);
 
         match outcome {
             ExecutionOutcome::Returned(result) => break Ok(result),
@@ -8835,13 +8848,11 @@ where
     };
 
     let wait_result = wait_for_all_java_threads(&runtime);
-    let shared = match std::sync::Arc::try_unwrap(shared) {
-        Ok(shared) => shared,
-        Err(_) => panic!("completion runtime released shared VM state"),
+    let Ok(shared) = std::sync::Arc::try_unwrap(shared) else {
+        panic!("completion runtime released shared VM state")
     };
-    let shared = match shared.into_inner() {
-        Ok(shared) => shared,
-        Err(_) => panic!("shared VM mutex poisoned"),
+    let Ok(shared) = shared.into_inner() else {
+        panic!("shared VM mutex poisoned")
     };
     let flush_result = stdout
         .write_all(&shared.output)
@@ -15944,9 +15955,8 @@ mod tests {
             |args, heap, _output, _control, _invoke| {
                 CALLED.store(true, Ordering::SeqCst);
                 // args[0] is `this` (the Integer object); fields[0] holds the int.
-                let r = match &args[0] {
-                    Slot::Reference(Some(r)) => r,
-                    _ => return Err(VmError::NullPointerException),
+                let Slot::Reference(Some(r)) = &args[0] else {
+                    return Err(VmError::NullPointerException);
                 };
                 let val = heap.get(*r)?.fields[0];
                 Ok(Some(val))
@@ -16090,9 +16100,8 @@ mod tests {
             |args, heap, _output, _control, _invoke| {
                 CALLED.store(true, Ordering::SeqCst);
                 // args[0] is `this` (the captured String reference).
-                let r = match &args[0] {
-                    Slot::Reference(Some(r)) => r,
-                    _ => return Err(VmError::NullPointerException),
+                let Slot::Reference(Some(r)) = &args[0] else {
+                    return Err(VmError::NullPointerException);
                 };
                 let len = i32::try_from(heap.get(*r)?.string_value.as_deref().unwrap_or("").len())
                     .unwrap_or(i32::MAX);

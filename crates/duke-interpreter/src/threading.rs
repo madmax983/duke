@@ -23,7 +23,7 @@ impl SharedOutput {
     }
 
     #[must_use]
-    pub fn from_buffer(buffer: Arc<Mutex<Vec<u8>>>) -> Self {
+    pub const fn from_buffer(buffer: Arc<Mutex<Vec<u8>>>) -> Self {
         Self { buffer }
     }
 
@@ -44,7 +44,7 @@ pub struct ThreadRecord {
 
 impl ThreadRecord {
     #[must_use]
-    pub fn new(java_ref: u64, thread_id: i32) -> Self {
+    pub const fn new(java_ref: u64, thread_id: i32) -> Self {
         Self {
             java_ref,
             thread_id,
@@ -54,7 +54,7 @@ impl ThreadRecord {
     }
 
     /// Mark this record as finished and report whether the state changed.
-    pub fn mark_finished(&mut self) -> bool {
+    pub const fn mark_finished(&mut self) -> bool {
         if self.finished {
             return false;
         }
@@ -77,7 +77,7 @@ impl ThreadRuntime {
     }
 
     #[must_use]
-    pub fn next_thread_id(&self) -> i32 {
+    pub const fn next_thread_id(&self) -> i32 {
         self.next_thread_id
     }
 
@@ -95,7 +95,7 @@ impl ThreadRuntime {
     }
 
     #[must_use]
-    pub fn allocate_thread_id(&mut self) -> i32 {
+    pub const fn allocate_thread_id(&mut self) -> i32 {
         let id = self.next_thread_id;
         self.next_thread_id += 1;
         id

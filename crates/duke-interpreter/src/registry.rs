@@ -41,12 +41,12 @@ pub struct NativeControl {
 
 impl NativeControl {
     /// Request a thread-related action from the interpreter loop.
-    pub fn request(&mut self, action: NativeThreadAction) {
+    pub const fn request(&mut self, action: NativeThreadAction) {
         self.pending_thread_action = Some(action);
     }
 
     /// Take the pending thread-related action, if any.
-    pub fn take(&mut self) -> Option<NativeThreadAction> {
+    pub const fn take(&mut self) -> Option<NativeThreadAction> {
         self.pending_thread_action.take()
     }
 }
