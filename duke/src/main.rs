@@ -1,3 +1,8 @@
+//! Main entry point for the Duke JVM executable.
+//!
+//! Handles command-line argument parsing, environment initialization,
+//! class loading, and the main execution loop for the JVM.
+
 use std::process;
 
 use duke_bytecode::decode;

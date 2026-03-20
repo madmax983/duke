@@ -1,3 +1,9 @@
+//! Repositories for loaded classes and registered native methods.
+//!
+//! Provides the execution environment with access to classes, handles class loading and
+//! initialization on demand, and maintains the mapping between `native` methods
+//! and their Rust implementations.
+
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
@@ -44,7 +50,7 @@ impl NativeControl {
         self.pending_thread_action.take()
     }
 }
-
+/// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
     natives: NativeRegistry,
@@ -261,7 +267,9 @@ pub type InvokeFn<'a> = dyn FnMut(&mut duke_gc::Heap, &mut dyn Write, &str, &str
 /// Stored in `NativeRegistry` — all existing handlers stay `Simple`.
 #[derive(Copy, Clone, Debug)]
 pub enum HandlerKind {
+    /// A simple stateless native method handler.
     Simple(NativeHandler),
+    /// A handler that delegates back to a callback trait or closure.
     Callback(CallbackNativeHandler),
 }
 

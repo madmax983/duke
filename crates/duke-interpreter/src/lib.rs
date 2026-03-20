@@ -4,7 +4,9 @@
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
 
+/// Core execution context types for methods and classes.
 pub mod context;
+/// Repositories for loaded classes and registered native methods.
 pub mod registry;
 mod threading;
 

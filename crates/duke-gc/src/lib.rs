@@ -45,7 +45,9 @@ const DEFAULT_PROMOTION_AGE: u8 = 4;
 /// ```
 #[derive(Debug, Clone)]
 pub struct HeapObject {
+    /// The runtime class name of this object (e.g. `"java/lang/String"`).
     pub class_name: String,
+    /// Storage for all instance fields of this object.
     pub fields: Vec<Slot>,
     /// String content for `java/lang/String` objects. `None` for non-string objects.
     pub string_value: Option<String>,
@@ -63,8 +65,11 @@ pub struct HeapObject {
 }
 
 #[derive(Debug)]
+/// A handle to a native file managed by the VM on behalf of Java I/O classes.
 pub enum HostFileHandle {
+    /// A file opened for reading.
     Reader(std::fs::File),
+    /// A file opened for writing.
     Writer(std::fs::File),
 }
 
@@ -231,6 +236,10 @@ impl Heap {
         idx
     }
 
+    /// Opens an input file on the host OS.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file does not exist or an IO error occurs.
     pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::open(path).map_err(|err| match err.kind() {
             std::io::ErrorKind::NotFound => VmError::JavaException {
@@ -246,6 +255,10 @@ impl Heap {
         Ok(id)
     }
 
+    /// Opens an output file on the host OS.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file cannot be created.
     pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
             class_name: "java/io/IOException".to_string(),
@@ -256,6 +269,10 @@ impl Heap {
         Ok(id)
     }
 
+    /// Reads a single byte from a host file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
     pub fn read_host_file_byte(&mut self, id: i32) -> VmResult<i32> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {
@@ -277,6 +294,11 @@ impl Heap {
         }
     }
 
+    /// Writes a single byte to a host file.
+    ///
+    /// # Errors
+    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> VmResult<()> {
         let Some(handle) = self.host_files.get_mut(&id) else {
             return Err(VmError::JavaException {
@@ -294,6 +316,9 @@ impl Heap {
             })
     }
 
+    /// Closes a host file handle previously opened via the registry.
+    ///
+    /// Silently ignores invalid or already-closed file descriptors.
     pub fn close_host_file(&mut self, id: i32) {
         if id > 0 {
             self.host_files.remove(&id);
