@@ -77,6 +77,10 @@ pub enum HostFileHandle {
     SocketReader(std::net::TcpStream),
     /// The write half of an accepted or connected TCP socket.
     SocketWriter(std::net::TcpStream),
+    /// An opened ZIP/JAR archive (parsed and indexed).
+    ZipArchive(duke_loader::ZipReader),
+    /// An in-memory byte buffer (e.g. decompressed ZIP entry for `InputStream`).
+    ByteBuffer(std::io::Cursor<Vec<u8>>),
 }
 
 /// The generational object heap.
@@ -288,6 +292,7 @@ impl Heap {
         let reader: &mut dyn Read = match handle {
             HostFileHandle::Reader(f) => f,
             HostFileHandle::SocketReader(s) => s,
+            HostFileHandle::ByteBuffer(cursor) => cursor,
             _ => {
                 return Err(VmError::JavaException {
                     class_name: "java/io/IOException".into(),
@@ -338,6 +343,84 @@ impl Heap {
         if id > 0 {
             self.host_files.remove(&id);
         }
+    }
+
+    /// Opens a ZIP/JAR archive on the host OS, parses and indexes it.
+    ///
+    /// # Errors
+    /// Returns `ZipException` if the file is not a valid ZIP, or
+    /// `FileNotFoundException` if the path does not exist.
+    pub fn open_host_zip(&mut self, path: &std::path::Path) -> VmResult<i32> {
+        let reader = duke_loader::ZipReader::open(path).map_err(|err| match err {
+            duke_loader::LoadError::Io { .. } => VmError::JavaException {
+                class_name: "java/io/FileNotFoundException".to_string(),
+            },
+            _ => VmError::JavaException {
+                class_name: "java/util/zip/ZipException".to_string(),
+            },
+        })?;
+        let id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        self.host_files
+            .insert(id, HostFileHandle::ZipArchive(reader));
+        Ok(id)
+    }
+
+    /// Returns the number of entries in an opened ZIP archive.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the handle is invalid or not a ZIP archive.
+    pub fn zip_entry_count(&self, id: i32) -> VmResult<usize> {
+        match self.host_files.get(&id) {
+            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.entry_count()),
+            _ => Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            }),
+        }
+    }
+
+    /// Looks up a ZIP entry by name, returning a clone of its metadata.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the handle is invalid or not a ZIP archive.
+    pub fn zip_get_entry_info(
+        &self,
+        id: i32,
+        name: &str,
+    ) -> VmResult<Option<duke_loader::ZipEntryInfo>> {
+        match self.host_files.get(&id) {
+            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.get_entry(name).cloned()),
+            _ => Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            }),
+        }
+    }
+
+    /// Reads and decompresses a ZIP entry's bytes.
+    ///
+    /// # Errors
+    /// Returns `ZipException` on decompression failure, `IOException` for invalid handles.
+    pub fn zip_read_entry(&self, id: i32, name: &str) -> VmResult<Vec<u8>> {
+        match self.host_files.get(&id) {
+            Some(HostFileHandle::ZipArchive(reader)) => {
+                reader.read_entry(name).map_err(|_| VmError::JavaException {
+                    class_name: "java/util/zip/ZipException".into(),
+                })
+            }
+            _ => Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            }),
+        }
+    }
+
+    /// Creates an in-memory byte buffer handle (for reading decompressed data
+    /// as an `InputStream`).
+    pub fn open_host_byte_buffer(&mut self, data: Vec<u8>) -> i32 {
+        let id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        self.host_files
+            .insert(id, HostFileHandle::ByteBuffer(std::io::Cursor::new(data)));
+        id
     }
 
     /// Binds a TCP listener to the given address string (e.g. `"0.0.0.0:8080"`).

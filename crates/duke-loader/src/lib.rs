@@ -6,16 +6,22 @@
 //! - [`directory`] — Loads classes from standard directories (e.g. `tests/fixtures`).
 //! - [`error`] — Errors encountered during class loading.
 //! - [`jimage`] — Reads JDK `modules` files (`JImage` format).
+//! - [`manifest`] — MANIFEST.MF parser for JAR files.
+//! - [`zip`] — Read-only ZIP/JAR archive support.
 
 pub mod bootstrap;
 pub mod directory;
 pub mod error;
 pub mod jimage;
+pub mod manifest;
+pub mod zip;
 
-pub use bootstrap::BootstrapLoader;
+pub use bootstrap::{BootstrapLoader, ClasspathEntry};
 pub use directory::DirectoryLoader;
 pub use error::{LoadError, LoadResult};
 pub use jimage::JImageReader;
+pub use manifest::parse_main_class;
+pub use zip::{ZipEntryInfo, ZipLoader, ZipReader};
 
 /// Abstraction over class file loading sources.
 ///
