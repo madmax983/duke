@@ -832,4 +832,28 @@ mod tests {
         assert_eq!(res, Some(MermaidDest::File("output.mmd".to_string())));
         assert_eq!(args.len(), 2); // the flag itself is removed
     }
+
+    #[test]
+    fn test_emit_mermaid_heap_stdout() {
+        use super::emit_mermaid_heap;
+        use duke_gc::Heap;
+        let heap = Heap::new();
+        // Just checking that it doesn't panic. Stdout can't be easily captured here,
+        // but it executes the branch.
+        emit_mermaid_heap(&heap, Some(MermaidDest::Stdout));
+    }
+
+    #[test]
+    fn test_emit_mermaid_heap_file() {
+        use super::emit_mermaid_heap;
+        use duke_gc::Heap;
+        use std::fs;
+        let heap = Heap::new();
+        let path = "test_output.mmd";
+        emit_mermaid_heap(&heap, Some(MermaidDest::File(path.to_string())));
+
+        let content = fs::read_to_string(path).unwrap();
+        assert!(content.contains("graph TD"));
+        fs::remove_file(path).unwrap();
+    }
 }
