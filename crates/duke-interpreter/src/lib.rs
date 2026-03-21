@@ -730,6 +730,126 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(class_ctx);
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "forName",
+        "(Ljava/lang/String;)Ljava/lang/Class;",
+        native_class_for_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getName",
+        "()Ljava/lang/String;",
+        native_class_get_name,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getDeclaredMethods",
+        "()[Ljava/lang/reflect/Method;",
+        native_class_get_declared_methods,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getDeclaredFields",
+        "()[Ljava/lang/reflect/Field;",
+        native_class_get_declared_fields,
+    );
+
+    let reflect_method_ctx = ClassContext {
+        class_name: "java/lang/reflect/Method".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "declaringClass".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "descriptor".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "publicFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "staticFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(reflect_method_ctx);
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "getName",
+        "()Ljava/lang/String;",
+        native_reflect_method_get_name,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Method",
+        "invoke",
+        "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
+        native_reflect_method_invoke,
+    );
+
+    let reflect_field_ctx = ClassContext {
+        class_name: "java/lang/reflect/Field".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "declaringClass".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "descriptor".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "publicFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "staticFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(reflect_field_ctx);
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "getName",
+        "()Ljava/lang/String;",
+        native_reflect_field_get_name,
+    );
 
     let runnable_ctx = ClassContext {
         class_name: "java/lang/Runnable".to_string(),
@@ -833,6 +953,71 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(rte_ctx);
+
+    let illegal_argument_ctx = ClassContext {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+        super_class: Some("java/lang/RuntimeException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(illegal_argument_ctx);
+
+    let reflective_operation_ctx = ClassContext {
+        class_name: "java/lang/ReflectiveOperationException".to_string(),
+        super_class: Some("java/lang/Exception".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(reflective_operation_ctx);
+
+    let class_not_found_ctx = ClassContext {
+        class_name: "java/lang/ClassNotFoundException".to_string(),
+        super_class: Some("java/lang/ReflectiveOperationException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(class_not_found_ctx);
+
+    let illegal_access_ctx = ClassContext {
+        class_name: "java/lang/IllegalAccessException".to_string(),
+        super_class: Some("java/lang/ReflectiveOperationException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(illegal_access_ctx);
+
+    let invocation_target_ctx = ClassContext {
+        class_name: "java/lang/reflect/InvocationTargetException".to_string(),
+        super_class: Some("java/lang/ReflectiveOperationException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(invocation_target_ctx);
 
     // java/lang/AutoCloseable — marker interface for try-with-resources.
     // Registered so is_assignable_from correctly handles queries like
@@ -2931,6 +3116,196 @@ fn native_enum_valueof(
     Err(VmError::JavaException {
         class_name: "java/lang/IllegalArgumentException".to_string(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Reflection natives
+// ---------------------------------------------------------------------------
+
+fn native_class_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let class_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let name_ref = heap.allocate_string(internal_name_to_binary_name(&internal_name));
+    Ok(Some(Slot::Reference(Some(name_ref))))
+}
+
+fn native_class_for_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let name_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let binary_name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)?;
+    let internal_name = binary_name_to_internal_name(&binary_name);
+    match ops.ensure_loaded(&internal_name) {
+        Ok(()) => {
+            let class_ref = allocate_class_object(heap, &internal_name)?;
+            Ok(Some(Slot::Reference(Some(class_ref))))
+        }
+        Err(VmError::ClassNotFound { .. }) => Err(VmError::JavaException {
+            class_name: "java/lang/ClassNotFoundException".to_string(),
+        }),
+        Err(err) => Err(err),
+    }
+}
+
+fn native_class_get_declared_methods(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&internal_name)?;
+    let method_refs = reflected
+        .methods
+        .into_iter()
+        .filter(|method| method.name != "<init>" && method.name != "<clinit>")
+        .map(|method| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Method",
+                &reflected.internal_name,
+                &method.name,
+                &method.descriptor,
+                method.is_public,
+                method.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+fn native_class_get_declared_fields(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&internal_name)?;
+    let field_refs = reflected
+        .fields
+        .into_iter()
+        .map(|field| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Field",
+                &reflected.internal_name,
+                &field.name,
+                &field.descriptor,
+                field.is_public,
+                field.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+fn native_reflect_method_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let method_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    Ok(Some(reflection_member_name_slot(heap, method_ref)?))
+}
+
+fn native_reflect_field_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let field_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    Ok(Some(reflection_member_name_slot(heap, field_ref)?))
+}
+
+fn native_reflect_method_invoke(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let method_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let invoke_arg_slots =
+        reflection_array_elements(heap, args.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+    let method = reflected_method_handle(heap, method_ref)?;
+
+    if !method.is_public {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalAccessException".to_string(),
+        });
+    }
+
+    let invoke_args = build_reflection_invoke_args(
+        heap,
+        target_slot,
+        &method.descriptor,
+        invoke_arg_slots,
+        method.is_static,
+    )?;
+
+    ops.ensure_loaded(&method.declaring_internal_name)?;
+    match ops.invoke(
+        heap,
+        output,
+        &method.declaring_internal_name,
+        &method.method_name,
+        &method.descriptor,
+        invoke_args,
+    ) {
+        Ok(result) => Ok(Some(box_reflection_return_value(
+            heap,
+            descriptor_return_type(&method.descriptor),
+            result,
+        )?)),
+        Err(VmError::JavaException { .. }) => Err(VmError::JavaException {
+            class_name: "java/lang/reflect/InvocationTargetException".to_string(),
+        }),
+        Err(err) => Err(err),
+    }
 }
 
 /// Native: `String.valueOf(int)` — static method, returns string of int.
@@ -6224,6 +6599,48 @@ struct ExecutionState {
     current_method: String,
 }
 
+struct InterpreterCallbackOps<'a> {
+    registry: &'a mut ClassRegistry,
+    loader: &'a dyn ClassLoader,
+}
+
+impl CallbackOps for InterpreterCallbackOps<'_> {
+    fn invoke(
+        &mut self,
+        heap: &mut duke_gc::Heap,
+        output: &mut dyn Write,
+        class: &str,
+        method: &str,
+        descriptor: &str,
+        args: Vec<Slot>,
+    ) -> VmResult<Option<Slot>> {
+        execute_class(
+            self.registry,
+            self.loader,
+            heap,
+            output,
+            class,
+            method,
+            descriptor,
+            &args,
+        )
+    }
+
+    fn ensure_loaded(&mut self, class: &str) -> VmResult<()> {
+        if self.registry.ensure_loaded(class, self.loader)? {
+            Ok(())
+        } else {
+            Err(VmError::ClassNotFound {
+                name: class.to_string(),
+            })
+        }
+    }
+
+    fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo> {
+        inspect_reflected_class(self.registry, self.loader, class)
+    }
+}
+
 impl ExecutionState {
     fn new(
         registry: &ClassRegistry,
@@ -6559,22 +6976,6 @@ pub fn execute_class(
     descriptor: &str,
     args: &[Slot],
 ) -> VmResult<Option<Slot>> {
-    macro_rules! create_invoke_cb {
-        ($registry:ident, $loader:ident) => {
-            |heap: &mut duke_gc::Heap,
-             output: &mut dyn std::io::Write,
-             class: &str,
-             method: &str,
-             desc: &str,
-             cb_args: Vec<Slot>|
-             -> VmResult<Option<Slot>> {
-                execute_class(
-                    $registry, $loader, heap, output, class, method, desc, &cb_args,
-                )
-            }
-        };
-    }
-
     // Fast path: if a native handler is registered for this class/method/descriptor,
     // dispatch it directly without requiring a ClassContext in the registry.
     // This handles both Simple natives and Callback natives at the top-level call site.
@@ -6593,9 +6994,11 @@ pub fn execute_class(
             return Ok(result);
         }
         Some(HandlerKind::Callback(h)) => {
-            let mut invoke_cb = create_invoke_cb!(registry, loader);
             let mut native_control = NativeControl::default();
-            let result = h(args, heap, stdout, &mut native_control, &mut invoke_cb)?;
+            let result = {
+                let mut callback_ops = InterpreterCallbackOps { registry, loader };
+                h(args, heap, stdout, &mut native_control, &mut callback_ops)?
+            };
             if native_control.take().is_some() {
                 return Err(VmError::Unimplemented {
                     mnemonic: "thread action requires execute_class_to_completion",
@@ -6660,22 +7063,6 @@ fn run_execution(
         #[cfg(feature = "telemetry")]
         current_method,
     } = state;
-
-    macro_rules! create_invoke_cb {
-        ($registry:ident, $loader:ident) => {
-            |heap: &mut duke_gc::Heap,
-             output: &mut dyn std::io::Write,
-             class: &str,
-             method: &str,
-             desc: &str,
-             cb_args: Vec<Slot>|
-             -> VmResult<Option<Slot>> {
-                execute_class(
-                    $registry, $loader, heap, output, class, method, desc, &cb_args,
-                )
-            }
-        };
-    }
 
     loop {
         let (pc, instr) = {
@@ -7045,15 +7432,18 @@ fn run_execution(
                                 }
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut invoke_cb = create_invoke_cb!(registry, loader);
                                 let mut native_control = NativeControl::default();
-                                let result = handler(
-                                    &native_args,
-                                    heap,
-                                    stdout,
-                                    &mut native_control,
-                                    &mut invoke_cb,
-                                );
+                                let result = {
+                                    let mut callback_ops =
+                                        InterpreterCallbackOps { registry, loader };
+                                    handler(
+                                        &native_args,
+                                        heap,
+                                        stdout,
+                                        &mut native_control,
+                                        &mut callback_ops,
+                                    )
+                                };
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
                                     &callee_class,
@@ -8208,15 +8598,18 @@ fn run_execution(
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut invoke_cb = create_invoke_cb!(registry, loader);
                                 let mut native_control = NativeControl::default();
-                                let result = handler(
-                                    &native_args,
-                                    heap,
-                                    stdout,
-                                    &mut native_control,
-                                    &mut invoke_cb,
-                                );
+                                let result = {
+                                    let mut callback_ops =
+                                        InterpreterCallbackOps { registry, loader };
+                                    handler(
+                                        &native_args,
+                                        heap,
+                                        stdout,
+                                        &mut native_control,
+                                        &mut callback_ops,
+                                    )
+                                };
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
@@ -9053,15 +9446,18 @@ fn run_execution(
                                     callee_args.insert(0, this_slot);
                                     #[cfg(feature = "telemetry")]
                                     let _native_start = std::time::Instant::now();
-                                    let mut invoke_cb = create_invoke_cb!(registry, loader);
                                     let mut native_control = NativeControl::default();
-                                    let result = handler(
-                                        &callee_args,
-                                        heap,
-                                        stdout,
-                                        &mut native_control,
-                                        &mut invoke_cb,
-                                    );
+                                    let result = {
+                                        let mut callback_ops =
+                                            InterpreterCallbackOps { registry, loader };
+                                        handler(
+                                            &callee_args,
+                                            heap,
+                                            stdout,
+                                            &mut native_control,
+                                            &mut callback_ops,
+                                        )
+                                    };
                                     #[cfg(feature = "telemetry")]
                                     {
                                         registry.telemetry.native_boundary.record_call(
@@ -9281,15 +9677,18 @@ fn run_execution(
                                         Some(HandlerKind::Callback(handler)) => {
                                             #[cfg(feature = "telemetry")]
                                             let _native_start = std::time::Instant::now();
-                                            let mut invoke_cb = create_invoke_cb!(registry, loader);
                                             let mut native_control = NativeControl::default();
-                                            let result = handler(
-                                                &impl_args,
-                                                heap,
-                                                stdout,
-                                                &mut native_control,
-                                                &mut invoke_cb,
-                                            );
+                                            let result = {
+                                                let mut callback_ops =
+                                                    InterpreterCallbackOps { registry, loader };
+                                                handler(
+                                                    &impl_args,
+                                                    heap,
+                                                    stdout,
+                                                    &mut native_control,
+                                                    &mut callback_ops,
+                                                )
+                                            };
                                             #[cfg(feature = "telemetry")]
                                             registry.telemetry.native_boundary.record_call(
                                                 &lambda_info.impl_class,
@@ -10020,6 +10419,472 @@ fn resolve_class_name(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String>
             }
         }
         _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+    }
+}
+
+fn internal_name_to_binary_name(name: &str) -> String {
+    name.replace('/', ".")
+}
+
+fn binary_name_to_internal_name(name: &str) -> String {
+    name.replace('.', "/")
+}
+
+fn cp_utf8_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> {
+    match cp.get(cp_idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::Utf8(s)) => Ok(s.clone()),
+        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+    }
+}
+
+fn inspect_reflected_class(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    internal_name: &str,
+) -> VmResult<ReflectedClassInfo> {
+    use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
+
+    if let Ok(bytes) = loader.find_class(internal_name)
+        && let Ok(class_file) = duke_classfile::parse(&bytes)
+    {
+        let methods = class_file
+            .methods
+            .iter()
+            .filter_map(|method| {
+                let name =
+                    cp_utf8_string(&class_file.constant_pool, method.name_index.0 as usize).ok()?;
+                let descriptor = cp_utf8_string(
+                    &class_file.constant_pool,
+                    method.descriptor_index.0 as usize,
+                )
+                .ok()?;
+                Some(ReflectedMethodInfo {
+                    name,
+                    descriptor,
+                    is_public: method.access_flags.contains(MethodAccessFlags::PUBLIC),
+                    is_static: method.access_flags.contains(MethodAccessFlags::STATIC),
+                })
+            })
+            .collect();
+        let fields = class_file
+            .fields
+            .iter()
+            .filter_map(|field| {
+                let name =
+                    cp_utf8_string(&class_file.constant_pool, field.name_index.0 as usize).ok()?;
+                let descriptor =
+                    cp_utf8_string(&class_file.constant_pool, field.descriptor_index.0 as usize)
+                        .ok()?;
+                Some(ReflectedFieldInfo {
+                    name,
+                    descriptor,
+                    is_public: field.access_flags.contains(FieldAccessFlags::PUBLIC),
+                    is_static: field.access_flags.contains(FieldAccessFlags::STATIC),
+                })
+            })
+            .collect();
+        return Ok(ReflectedClassInfo {
+            internal_name: internal_name.to_string(),
+            binary_name: internal_name_to_binary_name(internal_name),
+            methods,
+            fields,
+        });
+    }
+
+    registry.ensure_loaded(internal_name, loader)?;
+    let ctx = registry.get(internal_name)?;
+    let methods = ctx
+        .methods
+        .iter()
+        .map(|method| ReflectedMethodInfo {
+            name: method.name.clone(),
+            descriptor: method.descriptor.clone(),
+            is_public: true,
+            is_static: false,
+        })
+        .collect();
+    let fields = ctx
+        .fields
+        .iter()
+        .map(|field| ReflectedFieldInfo {
+            name: field.name.clone(),
+            descriptor: field.descriptor.clone(),
+            is_public: true,
+            is_static: field.is_static,
+        })
+        .collect();
+
+    Ok(ReflectedClassInfo {
+        internal_name: internal_name.to_string(),
+        binary_name: internal_name_to_binary_name(internal_name),
+        methods,
+        fields,
+    })
+}
+
+const REFLECTION_MEMBER_DECLARING_CLASS_FIELD: usize = 0;
+const REFLECTION_MEMBER_NAME_FIELD: usize = 1;
+const REFLECTION_MEMBER_DESCRIPTOR_FIELD: usize = 2;
+const REFLECTION_MEMBER_PUBLIC_FIELD: usize = 3;
+const REFLECTION_MEMBER_STATIC_FIELD: usize = 4;
+
+fn allocate_class_object(heap: &mut duke_gc::Heap, internal_name: &str) -> VmResult<u64> {
+    let class_ref = heap.allocate("java/lang/Class".to_string(), 0);
+    heap.get_mut(class_ref)?.string_value = Some(internal_name.to_string());
+    Ok(class_ref)
+}
+
+fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
+    heap.get(class_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::InvalidRef { address: class_ref })
+}
+
+fn allocate_reference_array(
+    heap: &mut duke_gc::Heap,
+    array_class_name: &str,
+    elements: &[u64],
+) -> VmResult<u64> {
+    let array_ref = heap.allocate(array_class_name.to_string(), elements.len());
+    {
+        let array_obj = heap.get_mut(array_ref)?;
+        for slot in &mut array_obj.fields {
+            *slot = Slot::Reference(None);
+        }
+    }
+    for (idx, element_ref) in elements.iter().enumerate() {
+        heap.write_field(array_ref, idx, Slot::Reference(Some(*element_ref)))?;
+    }
+    Ok(array_ref)
+}
+
+fn allocate_reflection_member_object(
+    heap: &mut duke_gc::Heap,
+    member_class_name: &str,
+    declaring_internal_name: &str,
+    name: &str,
+    descriptor: &str,
+    is_public: bool,
+    is_static: bool,
+) -> VmResult<u64> {
+    let member_ref = heap.allocate(member_class_name.to_string(), 5);
+    let declaring_class_ref = allocate_class_object(heap, declaring_internal_name)?;
+    let name_ref = heap.allocate_string(name.to_string());
+    let descriptor_ref = heap.allocate_string(descriptor.to_string());
+    heap.write_field(
+        member_ref,
+        REFLECTION_MEMBER_DECLARING_CLASS_FIELD,
+        Slot::Reference(Some(declaring_class_ref)),
+    )?;
+    heap.write_field(
+        member_ref,
+        REFLECTION_MEMBER_NAME_FIELD,
+        Slot::Reference(Some(name_ref)),
+    )?;
+    heap.write_field(
+        member_ref,
+        REFLECTION_MEMBER_DESCRIPTOR_FIELD,
+        Slot::Reference(Some(descriptor_ref)),
+    )?;
+    heap.write_field(
+        member_ref,
+        REFLECTION_MEMBER_PUBLIC_FIELD,
+        Slot::Int(i32::from(is_public)),
+    )?;
+    heap.write_field(
+        member_ref,
+        REFLECTION_MEMBER_STATIC_FIELD,
+        Slot::Int(i32::from(is_static)),
+    )?;
+    Ok(member_ref)
+}
+
+fn reflection_member_name_slot(heap: &duke_gc::Heap, member_ref: u64) -> VmResult<Slot> {
+    heap.get(member_ref)?
+        .fields
+        .get(REFLECTION_MEMBER_NAME_FIELD)
+        .copied()
+        .ok_or(VmError::InvalidRef {
+            address: member_ref,
+        })
+}
+
+fn reflection_array_elements(heap: &duke_gc::Heap, args_slot: Slot) -> VmResult<Vec<Slot>> {
+    match args_slot {
+        Slot::Reference(None) => Ok(Vec::new()),
+        Slot::Reference(Some(array_ref)) => Ok(heap.get(array_ref)?.fields.clone()),
+        _ => Err(VmError::TypeMismatch {
+            expected: "reference array",
+            got: "other",
+        }),
+    }
+}
+
+struct ReflectedMethodHandle {
+    declaring_internal_name: String,
+    method_name: String,
+    descriptor: String,
+    is_public: bool,
+    is_static: bool,
+}
+
+fn reflected_method_handle(
+    heap: &duke_gc::Heap,
+    method_ref: u64,
+) -> VmResult<ReflectedMethodHandle> {
+    let method_obj = heap.get(method_ref)?;
+    let Some(Slot::Reference(Some(declaring_class_ref))) = method_obj
+        .fields
+        .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
+        .copied()
+    else {
+        return Err(VmError::InvalidRef {
+            address: method_ref,
+        });
+    };
+    let Some(Slot::Reference(Some(name_ref))) =
+        method_obj.fields.get(REFLECTION_MEMBER_NAME_FIELD).copied()
+    else {
+        return Err(VmError::InvalidRef {
+            address: method_ref,
+        });
+    };
+    let Some(Slot::Reference(Some(descriptor_ref))) = method_obj
+        .fields
+        .get(REFLECTION_MEMBER_DESCRIPTOR_FIELD)
+        .copied()
+    else {
+        return Err(VmError::InvalidRef {
+            address: method_ref,
+        });
+    };
+    let is_public = matches!(
+        method_obj.fields.get(REFLECTION_MEMBER_PUBLIC_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+    let is_static = matches!(
+        method_obj.fields.get(REFLECTION_MEMBER_STATIC_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+
+    Ok(ReflectedMethodHandle {
+        declaring_internal_name: class_internal_name_from_ref(heap, declaring_class_ref)?,
+        method_name: heap
+            .get(name_ref)?
+            .string_value
+            .clone()
+            .ok_or(VmError::NullPointerException)?,
+        descriptor: heap
+            .get(descriptor_ref)?
+            .string_value
+            .clone()
+            .ok_or(VmError::NullPointerException)?,
+        is_public,
+        is_static,
+    })
+}
+
+fn build_reflection_invoke_args(
+    heap: &duke_gc::Heap,
+    target_slot: Slot,
+    descriptor: &str,
+    invoke_arg_slots: Vec<Slot>,
+    is_static: bool,
+) -> VmResult<Vec<Slot>> {
+    let arg_types = parse_arg_types(descriptor);
+    if arg_types.len() != invoke_arg_slots.len() {
+        return Err(VmError::TypeMismatch {
+            expected: "matching reflective argument count",
+            got: "different count",
+        });
+    }
+
+    let mut invoke_args = Vec::with_capacity(arg_types.len() + usize::from(!is_static));
+    if !is_static {
+        match target_slot {
+            Slot::Reference(Some(_)) => invoke_args.push(target_slot),
+            _ => return Err(VmError::NullPointerException),
+        }
+    }
+    for (descriptor, arg) in arg_types.iter().copied().zip(invoke_arg_slots) {
+        invoke_args.push(unbox_reflection_argument(heap, descriptor, arg)?);
+        if matches!(descriptor, 'J' | 'D') {
+            invoke_args.push(Slot::Int(0));
+        }
+    }
+    Ok(invoke_args)
+}
+
+fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) -> VmResult<Slot> {
+    match descriptor {
+        'L' | '[' => match arg {
+            Slot::Reference(_) => Ok(arg),
+            _ => Err(VmError::TypeMismatch {
+                expected: "reference",
+                got: "other",
+            }),
+        },
+        'B' | 'C' | 'I' | 'S' | 'Z' => {
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
+            };
+            match heap.get(obj_ref)?.fields.first() {
+                Some(Slot::Int(value)) => Ok(Slot::Int(*value)),
+                _ => Err(VmError::TypeMismatch {
+                    expected: "boxed int-like primitive",
+                    got: "other",
+                }),
+            }
+        }
+        'J' => {
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
+            };
+            match heap.get(obj_ref)?.fields.first() {
+                Some(Slot::Long(value)) => Ok(Slot::Long(*value)),
+                _ => Err(VmError::TypeMismatch {
+                    expected: "boxed long",
+                    got: "other",
+                }),
+            }
+        }
+        'F' => {
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
+            };
+            match heap.get(obj_ref)?.fields.first() {
+                Some(Slot::Float(value)) => Ok(Slot::Float(*value)),
+                _ => Err(VmError::TypeMismatch {
+                    expected: "boxed float",
+                    got: "other",
+                }),
+            }
+        }
+        'D' => {
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
+            };
+            match heap.get(obj_ref)?.fields.first() {
+                Some(Slot::Double(value)) => Ok(Slot::Double(*value)),
+                _ => Err(VmError::TypeMismatch {
+                    expected: "boxed double",
+                    got: "other",
+                }),
+            }
+        }
+        _ => Err(VmError::Unimplemented {
+            mnemonic: "reflection primitive unboxing",
+        }),
+    }
+}
+
+fn descriptor_return_type(descriptor: &str) -> char {
+    descriptor
+        .split_once(')')
+        .and_then(|(_, ret)| ret.chars().next())
+        .unwrap_or('V')
+}
+
+fn box_reflection_return_value(
+    heap: &mut duke_gc::Heap,
+    return_type: char,
+    result: Option<Slot>,
+) -> VmResult<Slot> {
+    match return_type {
+        'V' => Ok(Slot::Reference(None)),
+        'L' | '[' => Ok(result.unwrap_or(Slot::Reference(None))),
+        'B' => {
+            let Some(Slot::Int(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "byte result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Byte".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Int(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        'C' => {
+            let Some(Slot::Int(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "char result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Character".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Int(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        'D' => {
+            let Some(Slot::Double(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "double result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Double".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Double(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        'F' => {
+            let Some(Slot::Float(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "float result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Float".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Float(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        'I' => {
+            let Some(Slot::Int(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "int result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Int(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        'J' => {
+            let Some(Slot::Long(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "long result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Long".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Long(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        'S' => {
+            let Some(Slot::Int(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "short result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Short".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Int(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        'Z' => {
+            let Some(Slot::Int(value)) = result else {
+                return Err(VmError::TypeMismatch {
+                    expected: "boolean result",
+                    got: "other",
+                });
+            };
+            let boxed_ref = heap.allocate("java/lang/Boolean".to_string(), 1);
+            heap.get_mut(boxed_ref)?.fields[0] = Slot::Int(value);
+            Ok(Slot::Reference(Some(boxed_ref)))
+        }
+        _ => Err(VmError::Unimplemented {
+            mnemonic: "reflection primitive boxing",
+        }),
     }
 }
 
@@ -11035,7 +11900,7 @@ fn array_list_sort(
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
     _control: &mut NativeControl,
-    invoke: &mut InvokeFn<'_>,
+    ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     // args[0] = ArrayList ref, args[1] = Comparator (null = natural ordering)
     let list_ref = match args.first() {
@@ -11081,7 +11946,7 @@ fn array_list_sort(
         while j > 0 {
             let receiver = elems[j - 1];
             let class_name = heap.get(receiver)?.class_name.clone();
-            let cmp = invoke(
+            let cmp = ops.invoke(
                 heap,
                 output,
                 &class_name,
@@ -11150,7 +12015,7 @@ fn native_collections_sort(
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
     _control: &mut NativeControl,
-    invoke: &mut InvokeFn<'_>,
+    ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     // args[0] = List ref
     let list_ref = match args.first() {
@@ -11159,7 +12024,7 @@ fn native_collections_sort(
     };
     // Dispatch on the actual runtime class so any List implementation works.
     let class_name = heap.get(list_ref)?.class_name.clone();
-    invoke(
+    ops.invoke(
         heap,
         output,
         &class_name,
@@ -11892,9 +12757,38 @@ mod tests {
         args: &[Slot],
         heap: &mut duke_gc::Heap,
         out: &mut dyn std::io::Write,
-        invoke: &mut InvokeFn<'_>,
+        ops: &mut dyn CallbackOps,
     ) -> VmResult<Option<Slot>> {
-        super::array_list_sort(args, heap, out, &mut NativeControl::default(), invoke)
+        super::array_list_sort(args, heap, out, &mut NativeControl::default(), ops)
+    }
+
+    struct NoopCallbackOps;
+
+    impl CallbackOps for NoopCallbackOps {
+        fn invoke(
+            &mut self,
+            _heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> VmResult<Option<Slot>> {
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+            Ok(ReflectedClassInfo {
+                internal_name: String::new(),
+                binary_name: String::new(),
+                methods: Vec::new(),
+                fields: Vec::new(),
+            })
+        }
     }
 
     // ---- Unit tests: hand-crafted instruction streams ----
@@ -11915,7 +12809,7 @@ mod tests {
             _heap: &mut duke_gc::Heap,
             _out: &mut dyn std::io::Write,
             _control: &mut NativeControl,
-            _invoke: &mut InvokeFn<'_>,
+            _ops: &mut dyn CallbackOps,
         ) -> VmResult<Option<Slot>> {
             Ok(None)
         }
@@ -16774,9 +17668,9 @@ mod tests {
             "duke/test/Caller",
             "call",
             "()I",
-            |_args, heap, output, _control, invoke| {
+            |_args, heap, output, _control, ops| {
                 CALLED.store(true, std::sync::atomic::Ordering::SeqCst);
-                invoke(heap, output, "duke/test/Helper", "answer", "()I", vec![])
+                ops.invoke(heap, output, "duke/test/Helper", "answer", "()I", vec![])
             },
         );
 
@@ -25846,17 +26740,109 @@ mod tests {
         heap.get_mut(list_ref).unwrap().fields[0] = Slot::Int(-1);
         let mut sink: Vec<u8> = Vec::new();
         let args = [Slot::Reference(Some(list_ref)), Slot::Reference(None)];
-        let mut invoke_fn = |_heap: &mut duke_gc::Heap,
-                             _output: &mut dyn std::io::Write,
-                             _class: &str,
-                             _method: &str,
-                             _desc: &str,
-                             _args: Vec<Slot>|
-         -> VmResult<Option<Slot>> { Ok(None) };
-        let err = array_list_sort(&args, &mut heap, &mut sink, &mut invoke_fn).unwrap_err();
+        let mut ops = NoopCallbackOps;
+        let err = array_list_sort(&args, &mut heap, &mut sink, &mut ops).unwrap_err();
         assert!(
             matches!(err, VmError::NegativeArraySize { .. }),
             "expected NegativeArraySize, got {err:?}"
+        );
+    }
+
+    // ---- Phase 30: Reflection fixture coverage ----
+
+    #[test]
+    fn reflection_for_name_and_get_name() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "forNameAndGetName", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_string_class_literal_uses_binary_name() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "stringClassLiteralUsesBinaryName",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_declared_methods_include_public_and_private() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "declaredMethodsIncludePublicAndPrivate",
+                "()I",
+            ),
+            5
+        );
+    }
+
+    #[test]
+    fn reflection_declared_fields_include_public_and_private() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "declaredFieldsIncludePublicAndPrivate",
+                "()I",
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn reflection_invoke_static_and_instance_methods() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "invokeStaticAdd", "()I"),
+            7
+        );
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "invokeInstanceTimes", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn reflection_invoke_long_primitive_round_trips() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "invokeStaticAddLong", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_missing_class_raises_class_not_found() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "missingClassRaisesClassNotFound",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_private_method_invoke_raises_illegal_access() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "privateMethodRaisesIllegalAccess",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_target_exception_is_wrapped() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "targetExceptionIsWrapped", "()I"),
+            1
         );
     }
 

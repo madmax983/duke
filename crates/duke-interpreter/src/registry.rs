@@ -50,6 +50,33 @@ impl NativeControl {
         self.pending_thread_action.take()
     }
 }
+
+/// Reflection metadata for one declared method discovered from a classfile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReflectedMethodInfo {
+    pub name: String,
+    pub descriptor: String,
+    pub is_public: bool,
+    pub is_static: bool,
+}
+
+/// Reflection metadata for one declared field discovered from a classfile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReflectedFieldInfo {
+    pub name: String,
+    pub descriptor: String,
+    pub is_public: bool,
+    pub is_static: bool,
+}
+
+/// Reflection metadata for one class discovered from the loader or registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReflectedClassInfo {
+    pub internal_name: String,
+    pub binary_name: String,
+    pub methods: Vec<ReflectedMethodInfo>,
+    pub fields: Vec<ReflectedFieldInfo>,
+}
 /// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
@@ -233,36 +260,48 @@ impl Default for ClassRegistry {
 pub type NativeHandler =
     fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write, &mut NativeControl) -> VmResult<Option<Slot>>;
 
-/// A native handler that can call back into the interpreter to invoke Java methods.
+/// Mutable helper surface exposed to callback natives.
 ///
-/// The `invoke` closure takes `heap` and `output` as *parameters* (not captured),
-/// using the "loan" pattern: the handler passes its borrows through each call and
-/// gets them back when the call returns. Sequential reborrows — no unsafe required.
+/// This keeps class loading, reflection metadata inspection, and nested Java
+/// invocation behind one mutable object so natives do not need direct access to
+/// the interpreter's registry/loader state.
+pub trait CallbackOps {
+    /// Invoke a Java method through the current interpreter/runtime boundary.
+    ///
+    /// # Errors
+    /// Returns any VM error produced while resolving or executing the target method.
+    fn invoke(
+        &mut self,
+        heap: &mut duke_gc::Heap,
+        output: &mut dyn Write,
+        class: &str,
+        method: &str,
+        descriptor: &str,
+        args: Vec<Slot>,
+    ) -> VmResult<Option<Slot>>;
+
+    /// Ensure the named class is available to the current runtime.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be loaded or linked.
+    fn ensure_loaded(&mut self, class: &str) -> VmResult<()>;
+
+    /// Read reflection metadata for a loaded or loadable class.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be inspected.
+    fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo>;
+}
+
+/// A native handler that can call back into the interpreter to invoke Java methods
+/// and query reflection metadata from the current loader/registry.
 pub type CallbackNativeHandler = fn(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
     control: &mut NativeControl,
-    invoke: &mut dyn FnMut(
-        &mut duke_gc::Heap,
-        &mut dyn Write,
-        &str, // class name
-        &str, // method name
-        &str, // descriptor
-        Vec<Slot>,
-    ) -> VmResult<Option<Slot>>,
+    ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>>;
-
-/// The `invoke` closure type passed into [`CallbackNativeHandler`] implementations.
-///
-/// Defined separately so function signatures that accept this parameter avoid the
-/// `clippy::type_complexity` lint.
-///
-/// `pub` so that external crates can write their own [`CallbackNativeHandler`]
-/// implementations.  If external registration is not needed, consider
-/// narrowing to `pub(crate)`.
-pub type InvokeFn<'a> = dyn FnMut(&mut duke_gc::Heap, &mut dyn Write, &str, &str, &str, Vec<Slot>) -> VmResult<Option<Slot>>
-    + 'a;
 
 /// Stored in `NativeRegistry` — all existing handlers stay `Simple`.
 #[derive(Copy, Clone, Debug)]
