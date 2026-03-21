@@ -391,8 +391,8 @@ pub(crate) fn resolve_attributes(
 ) -> ParseResult<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
-        let raw = match &attr.data {
-            AttributeData::Raw(b) => b.clone(),
+        let raw = match &mut attr.data {
+            AttributeData::Raw(b) => std::mem::take(b),
             _ => continue, // already resolved
         };
         attr.data = decode_known_attribute(name, &raw)?;
