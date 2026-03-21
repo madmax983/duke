@@ -399,6 +399,7 @@ fn parse_central_directory(
 // ───────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
 
@@ -702,7 +703,7 @@ mod tests {
         let zip = build_multi_entry_zip(&[("x.txt", b"x"), ("y.txt", b"y")]);
         let reader = ZipReader::from_bytes(zip).expect("should parse");
         let mut names: Vec<&str> = reader.entry_names().collect();
-        names.sort();
+        names.sort_unstable();
         assert_eq!(names, vec!["x.txt", "y.txt"]);
     }
 
