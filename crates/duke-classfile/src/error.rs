@@ -1,3 +1,5 @@
+//! `duke-classfile::error` — [`ParseError`] and related types
+
 use thiserror::Error;
 
 /// Errors that can occur while parsing a JVM `.class` file.

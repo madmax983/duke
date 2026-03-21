@@ -1,3 +1,5 @@
+//! `duke-classfile::parser` — JVM `.class` file parser implementation
+
 use crate::{
     access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags},
     error::{ParseError, ParseResult},

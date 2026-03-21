@@ -1,3 +1,5 @@
+//! `duke-bytecode::error` — [`DecodeError`] and [`VerifyError`]
+
 use thiserror::Error;
 
 /// Errors produced by the bytecode decoder.

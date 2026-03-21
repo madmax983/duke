@@ -1,3 +1,5 @@
+//! `duke-interpreter::threading` — Thread management
+
 #![allow(dead_code)]
 
 use std::sync::{Arc, Mutex};

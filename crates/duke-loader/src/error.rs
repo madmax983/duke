@@ -1,3 +1,5 @@
+//! `duke-loader::error` — Errors encountered during class loading.
+
 use thiserror::Error;
 
 /// Errors that can occur when locating or reading `.class` files.

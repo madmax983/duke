@@ -226,6 +226,27 @@ impl ZipReader {
 // ───────────────────────────────────────────────────────────────────────────
 
 /// Loads `.class` files from a ZIP or JAR archive.
+///
+/// `ZipLoader` implements the [`ClassLoader`] trait to seamlessly find and read `.class`
+/// files embedded inside a `.zip` or `.jar` archive. It uses a read-only, memory-mapped
+/// [`ZipReader`] underneath to avoid eagerly unpacking the archive into memory.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use duke_loader::{ClassLoader, ZipLoader};
+///
+/// // 1. Open the archive
+/// let loader = ZipLoader::open(Path::new("my_library.jar"))
+///     .expect("Failed to open jar file");
+///
+/// // 2. Find a class by its internal JVM name
+/// let bytes = loader.find_class("com/example/MyClass")
+///     .expect("Class not found in archive");
+///
+/// assert_eq!(&bytes[0..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+/// ```
 pub struct ZipLoader {
     reader: ZipReader,
 }
@@ -233,15 +254,36 @@ pub struct ZipLoader {
 impl ZipLoader {
     /// Open a ZIP/JAR file as a class loader.
     ///
+    /// This immediately memory-maps the file and parses its Central Directory to build
+    /// a fast lookup index. It does **not** decompress the file contents yet.
+    ///
     /// # Errors
-    /// Returns [`LoadError`] if the archive cannot be opened or is invalid.
+    ///
+    /// Returns [`LoadError`] if:
+    /// * The file does not exist or cannot be read.
+    /// * The file is not a structurally valid ZIP archive (missing End of Central Directory).
+    /// * The archive uses unsupported features (like ZIP64 or encryption).
     pub fn open(path: &Path) -> LoadResult<Self> {
         Ok(Self {
             reader: ZipReader::open(path)?,
         })
     }
 
-    /// Access the underlying reader (e.g. to read `META-INF/MANIFEST.MF`).
+    /// Access the underlying reader.
+    ///
+    /// This is particularly useful for reading non-class resources stored in the archive,
+    /// such as the `META-INF/MANIFEST.MF` file or native libraries.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::{ZipLoader};
+    ///
+    /// let loader = ZipLoader::open(Path::new("app.jar")).unwrap();
+    /// let manifest_bytes = loader.reader().read_entry("META-INF/MANIFEST.MF")
+    ///     .expect("Missing manifest");
+    /// ```
     #[must_use]
     pub const fn reader(&self) -> &ZipReader {
         &self.reader
