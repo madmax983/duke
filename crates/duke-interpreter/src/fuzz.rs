@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use duke_runtime::{Slot, Frame};
+    use duke_runtime::{Frame, Slot};
     use proptest::prelude::*;
 
     proptest! {
