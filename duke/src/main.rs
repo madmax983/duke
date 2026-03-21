@@ -856,4 +856,15 @@ mod tests {
         assert!(content.contains("graph TD"));
         fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn test_emit_mermaid_heap_file_error() {
+        use super::emit_mermaid_heap;
+        use duke_gc::Heap;
+        let heap = Heap::new();
+        // Trying to write to a directory should trigger an IO error
+        let path = ".";
+        // It shouldn't panic, but print an error to stderr (handled by the branch we want to cover)
+        emit_mermaid_heap(&heap, Some(MermaidDest::File(path.to_string())));
+    }
 }
