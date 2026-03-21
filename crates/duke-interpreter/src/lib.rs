@@ -5808,7 +5808,7 @@ impl ExecutionState {
     fn new(
         registry: &ClassRegistry,
         class_name: &str,
-        _method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         entry_idx: usize,
         args: &[Slot],
     ) -> VmResult<Self> {
@@ -5842,7 +5842,7 @@ impl ExecutionState {
             idx: 0,
             string_intern: HashMap::new(),
             #[cfg(feature = "telemetry")]
-            current_method: _method_name.to_string(),
+            current_method: method_name.to_string(),
         })
     }
 }
