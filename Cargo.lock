@@ -242,6 +242,7 @@ dependencies = [
 name = "duke-gc"
 version = "0.1.0"
 dependencies = [
+ "duke-loader",
  "duke-runtime",
 ]
 

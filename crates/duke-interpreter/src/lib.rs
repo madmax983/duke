@@ -1704,6 +1704,186 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/List;)V",
         native_collections_sort,
     );
+
+    // ── java.util.zip ──────────────────────────────────────────────────
+
+    let zip_exception_ctx = ClassContext {
+        class_name: "java/util/zip/ZipException".to_string(),
+        super_class: Some("java/io/IOException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(zip_exception_ctx);
+
+    // ZipEntry: [name: Ref, compressedSize_lo: Int, compressedSize_hi: Int,
+    //            size_lo: Int, size_hi: Int, method: Int]  → 6 fields
+    let zip_entry_ctx = ClassContext {
+        class_name: "java/util/zip/ZipEntry".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "name".into(),
+                descriptor: "Ljava/lang/String;".into(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "compressedSize_lo".into(),
+                descriptor: "I".into(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "compressedSize_hi".into(),
+                descriptor: "I".into(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "size_lo".into(),
+                descriptor: "I".into(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "size_hi".into(),
+                descriptor: "I".into(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "method".into(),
+                descriptor: "I".into(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 6,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(zip_entry_ctx);
+    registry.natives_mut().register(
+        "java/util/zip/ZipEntry",
+        "getName",
+        "()Ljava/lang/String;",
+        native_zip_entry_get_name,
+    );
+    registry.natives_mut().register(
+        "java/util/zip/ZipEntry",
+        "getCompressedSize",
+        "()J",
+        native_zip_entry_get_compressed_size,
+    );
+    registry.natives_mut().register(
+        "java/util/zip/ZipEntry",
+        "getSize",
+        "()J",
+        native_zip_entry_get_size,
+    );
+    registry.natives_mut().register(
+        "java/util/zip/ZipEntry",
+        "getMethod",
+        "()I",
+        native_zip_entry_get_method,
+    );
+
+    // ZipFile: [fd: Int] → 1 field
+    let zip_file_ctx = ClassContext {
+        class_name: "java/util/zip/ZipFile".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".into(),
+            descriptor: "I".into(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(zip_file_ctx);
+    registry.natives_mut().register(
+        "java/util/zip/ZipFile",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_zip_file_init,
+    );
+    registry.natives_mut().register(
+        "java/util/zip/ZipFile",
+        "getEntry",
+        "(Ljava/lang/String;)Ljava/util/zip/ZipEntry;",
+        native_zip_file_get_entry,
+    );
+    registry.natives_mut().register(
+        "java/util/zip/ZipFile",
+        "getInputStream",
+        "(Ljava/util/zip/ZipEntry;)Ljava/io/InputStream;",
+        native_zip_file_get_input_stream,
+    );
+    registry.natives_mut().register(
+        "java/util/zip/ZipFile",
+        "close",
+        "()V",
+        native_zip_file_close,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/zip/ZipFile", "size", "()I", native_zip_file_size);
+
+    // JarFile extends ZipFile — inherits everything for now.
+    let jar_file_ctx = ClassContext {
+        class_name: "java/util/jar/JarFile".to_string(),
+        super_class: Some("java/util/zip/ZipFile".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(jar_file_ctx);
+
+    // ByteBufferInputStream — internal class for reading decompressed ZIP data.
+    let byte_buffer_is_ctx = ClassContext {
+        class_name: "duke/zip/ByteBufferInputStream".to_string(),
+        super_class: Some("java/io/InputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".into(),
+            descriptor: "I".into(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(byte_buffer_is_ctx);
+    registry.natives_mut().register(
+        "duke/zip/ByteBufferInputStream",
+        "read",
+        "()I",
+        native_file_input_stream_read,
+    );
+    registry.natives_mut().register(
+        "duke/zip/ByteBufferInputStream",
+        "read",
+        "([B)I",
+        native_file_input_stream_read_bytes,
+    );
+    registry.natives_mut().register(
+        "duke/zip/ByteBufferInputStream",
+        "close",
+        "()V",
+        native_file_input_stream_close,
+    );
 }
 
 fn native_println_string(
@@ -2265,6 +2445,246 @@ fn native_socket_close(
     obj.fields[0] = Slot::Int(0);
     obj.fields[1] = Slot::Int(0);
     Ok(None)
+}
+
+// ── ZIP / JAR natives ──────────────────────────────────────────────────
+
+/// Native: `ZipFile.<init>(String)` — open and index a ZIP/JAR archive.
+fn native_zip_file_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let path_str = heap
+        .get(path_ref)?
+        .string_value
+        .as_deref()
+        .ok_or(VmError::NullPointerException)?
+        .to_string();
+    let fd = heap.open_host_zip(std::path::Path::new(&path_str))?;
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields[0] = Slot::Int(fd);
+    Ok(None)
+}
+
+/// Native: `ZipFile.getEntry(String) -> ZipEntry` — look up an entry by name.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn native_zip_file_get_entry(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let name_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    let entry_name = heap
+        .get(name_ref)?
+        .string_value
+        .as_deref()
+        .ok_or(VmError::NullPointerException)?
+        .to_string();
+    let info = heap.zip_get_entry_info(fd, &entry_name)?;
+    let Some(info) = info else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    // Allocate a ZipEntry HeapObject with 6 fields.
+    let name_heap_ref = heap.allocate_string(info.name);
+    let entry_ref = heap.allocate("java/util/zip/ZipEntry".to_string(), 6);
+    let entry_obj = heap.get_mut(entry_ref)?;
+    entry_obj.fields[0] = Slot::Reference(Some(name_heap_ref));
+    entry_obj.fields[1] = Slot::Int(info.compressed_size as i32);
+    entry_obj.fields[2] = Slot::Int((info.compressed_size >> 32) as i32);
+    entry_obj.fields[3] = Slot::Int(info.uncompressed_size as i32);
+    entry_obj.fields[4] = Slot::Int((info.uncompressed_size >> 32) as i32);
+    entry_obj.fields[5] = Slot::Int(i32::from(info.compression_method));
+    Ok(Some(Slot::Reference(Some(entry_ref))))
+}
+
+/// Native: `ZipFile.getInputStream(ZipEntry) -> InputStream`
+fn native_zip_file_get_input_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let entry_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    // Get entry name from the ZipEntry object.
+    let name_slot_ref = match heap.get(entry_ref)?.fields.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let entry_name = heap
+        .get(name_slot_ref)?
+        .string_value
+        .as_deref()
+        .ok_or(VmError::NullPointerException)?
+        .to_string();
+    // Decompress the entry and wrap in a ByteBuffer.
+    let data = heap.zip_read_entry(fd, &entry_name)?;
+    let buf_fd = heap.open_host_byte_buffer(data);
+    let is_ref = heap.allocate("duke/zip/ByteBufferInputStream".to_string(), 1);
+    let is_obj = heap.get_mut(is_ref)?;
+    is_obj.fields[0] = Slot::Int(buf_fd);
+    Ok(Some(Slot::Reference(Some(is_ref))))
+}
+
+/// Native: `ZipFile.close()`
+fn native_zip_file_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) => *id,
+        _ => return Ok(None),
+    };
+    heap.close_host_file(fd);
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `ZipFile.size() -> int`
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+fn native_zip_file_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fd = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(id)) => *id,
+        _ => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+    };
+    let count = heap.zip_entry_count(fd)?;
+    Ok(Some(Slot::Int(count as i32)))
+}
+
+/// Native: `ZipEntry.getName() -> String`
+fn native_zip_entry_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    Ok(Some(heap.get(this_ref)?.fields[0]))
+}
+
+/// Native: `ZipEntry.getCompressedSize() -> long`
+fn native_zip_entry_get_compressed_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fields = &heap.get(this_ref)?.fields;
+    let lo = match fields[1] {
+        Slot::Int(v) => v,
+        _ => 0,
+    };
+    let hi = match fields[2] {
+        Slot::Int(v) => v,
+        _ => 0,
+    };
+    let val = (i64::from(hi) << 32) | (i64::from(lo) & 0xFFFF_FFFF);
+    Ok(Some(Slot::Long(val)))
+}
+
+/// Native: `ZipEntry.getSize() -> long`
+fn native_zip_entry_get_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let fields = &heap.get(this_ref)?.fields;
+    let lo = match fields[3] {
+        Slot::Int(v) => v,
+        _ => 0,
+    };
+    let hi = match fields[4] {
+        Slot::Int(v) => v,
+        _ => 0,
+    };
+    let val = (i64::from(hi) << 32) | (i64::from(lo) & 0xFFFF_FFFF);
+    Ok(Some(Slot::Long(val)))
+}
+
+/// Native: `ZipEntry.getMethod() -> int`
+fn native_zip_entry_get_method(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    Ok(Some(heap.get(this_ref)?.fields[5]))
 }
 
 /// Native: `String.length()` — returns string length as int.
@@ -25495,5 +25915,122 @@ mod tests {
         .expect("connectAndEchoCheck failed");
         handle.join().unwrap();
         assert_eq!(result, Some(Slot::Int(3)));
+    }
+
+    // ── ZIP / JAR tests ─────────────────────────────────────────────────
+
+    fn fixtures_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tests")
+            .join("fixtures")
+    }
+
+    #[test]
+    fn zip_loader_loads_class_from_jar() {
+        let jar_path = fixtures_dir().join("hello.jar");
+        let loader = duke_loader::ZipLoader::open(&jar_path).expect("should open hello.jar");
+        let bytes = loader
+            .find_class("HelloWorld")
+            .expect("should find HelloWorld in JAR");
+        assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+    }
+
+    #[test]
+    fn execute_class_loaded_from_jar() {
+        let jar_path = fixtures_dir().join("hello.jar");
+        let loader = duke_loader::ZipLoader::open(&jar_path).expect("open hello.jar");
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        // Pre-load the entry class from the JAR.
+        registry
+            .ensure_loaded("HelloWorld", &loader)
+            .expect("load HelloWorld");
+        // Build String[] args
+        let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+        let main_args = vec![Slot::Reference(Some(arr_ref))];
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            "HelloWorld",
+            "main",
+            "([Ljava/lang/String;)V",
+            &main_args,
+        );
+        assert!(
+            result.is_ok(),
+            "HelloWorld.main from JAR failed: {}",
+            result.unwrap_err()
+        );
+        let output = String::from_utf8(out).unwrap();
+        assert!(output.contains("Hello, World!"), "output was: {output}");
+    }
+
+    #[test]
+    fn multi_class_jar_loading() {
+        let jar_path = fixtures_dir().join("multi.jar");
+        let loader = duke_loader::ZipLoader::open(&jar_path).expect("open multi.jar");
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        // Pre-load the entry class from the JAR.
+        registry
+            .ensure_loaded("MultiClassJar", &loader)
+            .expect("load MultiClassJar");
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MultiClassJar",
+            "compute",
+            "()I",
+            &[],
+        )
+        .expect("MultiClassJar.compute should succeed");
+        assert_eq!(result, Some(Slot::Int(99)));
+    }
+
+    #[test]
+    fn zip_file_native_entry_count() {
+        let jar_path = fixtures_dir().join("hello.jar");
+        let jar_str = jar_path.to_str().unwrap().to_string();
+        let result = run_bootstrap_with_string_args(
+            "ZipReadTest.class",
+            "entryCount",
+            "(Ljava/lang/String;)I",
+            &[jar_str],
+        )
+        .expect("entryCount should succeed");
+        // hello.jar contains HelloWorld.class + META-INF/MANIFEST.MF
+        if let Some(Slot::Int(count)) = result {
+            assert!(count >= 2, "expected at least 2 entries, got {count}");
+        } else {
+            panic!("expected Int result, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn zip_file_native_read_first_byte() {
+        // Use hello.jar — read the first byte of HelloWorld.class (0xCA = 202).
+        let jar_path = fixtures_dir().join("hello.jar");
+        let path_str = jar_path.to_str().unwrap().to_string();
+        let result = run_bootstrap_with_string_args(
+            "ZipReadTest.class",
+            "readFirstByte",
+            "(Ljava/lang/String;Ljava/lang/String;)I",
+            &[path_str, "HelloWorld.class".to_string()],
+        )
+        .expect("readFirstByte should succeed");
+        // 0xCA = 202 (first byte of .class magic number)
+        assert_eq!(result, Some(Slot::Int(0xCA)));
     }
 }

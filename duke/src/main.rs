@@ -14,7 +14,9 @@ use duke_gc::Heap;
 use duke_interpreter::{
     ClassRegistry, bootstrap_stdlib, build_class_context, execute_class_to_completion,
 };
-use duke_loader::{BootstrapLoader, ClassLoader, DirectoryLoader, LoadResult};
+use duke_loader::{
+    BootstrapLoader, ClassLoader, ClasspathEntry, DirectoryLoader, LoadResult, ZipLoader, ZipReader,
+};
 use duke_runtime::{Slot, VmError};
 
 /// Where to write telemetry JSON after execution.
@@ -47,6 +49,25 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
     jdk
 }
 
+/// Strip `-jar <path>` or `--jar <path>` from `args` and return the JAR path.
+fn extract_jar_flag(args: &mut Vec<String>) -> Option<String> {
+    let mut jar = None;
+    let mut remove_next = false;
+    args.retain(|arg| {
+        if remove_next {
+            jar = Some(arg.clone());
+            remove_next = false;
+            return false;
+        }
+        if arg == "-jar" || arg == "--jar" {
+            remove_next = true;
+            return false;
+        }
+        true
+    });
+    jar
+}
+
 /// Build a class loader: `BootstrapLoader` (JDK jimage + app dir) when JDK path
 /// is known, or plain `DirectoryLoader` otherwise.
 struct CliLoader(Box<dyn ClassLoader + Send + Sync>);
@@ -57,11 +78,11 @@ impl ClassLoader for CliLoader {
     }
 }
 
-fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> CliLoader {
+fn make_loader(jdk_home: Option<&str>, classpath: &[std::path::PathBuf]) -> CliLoader {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
         if modules.exists() {
-            match BootstrapLoader::new(&modules, vec![app_dir]) {
+            match BootstrapLoader::new(&modules, classpath.to_vec()) {
                 Ok(bl) => return CliLoader(Box::new(bl)),
                 Err(e) => eprintln!(
                     "duke: warning: cannot open JDK modules ({e}), falling back to directory loader"
@@ -74,7 +95,54 @@ fn make_loader(jdk_home: Option<&str>, app_dir: &std::path::Path) -> CliLoader {
             );
         }
     }
-    CliLoader(Box::new(DirectoryLoader::new(app_dir)))
+    // Without JDK, build a composite loader from classpath entries.
+    if classpath.len() == 1 {
+        let p = &classpath[0];
+        let is_archive = p
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"));
+        if is_archive {
+            match ZipLoader::open(p) {
+                Ok(zl) => return CliLoader(Box::new(zl)),
+                Err(e) => {
+                    eprintln!("duke: warning: cannot open JAR ({e}), falling back to directory");
+                }
+            }
+        }
+        return CliLoader(Box::new(DirectoryLoader::new(p)));
+    }
+    // Multiple entries: build a chain loader.
+    let mut entries: Vec<ClasspathEntry> = Vec::new();
+    for p in classpath {
+        let is_archive = p
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"));
+        if is_archive {
+            match ZipLoader::open(p) {
+                Ok(zl) => entries.push(ClasspathEntry::Zip(zl)),
+                Err(e) => eprintln!("duke: warning: skipping JAR {}: {e}", p.display()),
+            }
+        } else {
+            entries.push(ClasspathEntry::Directory(DirectoryLoader::new(p)));
+        }
+    }
+    CliLoader(Box::new(ChainLoader(entries)))
+}
+
+/// A chain of classpath entries tried in order.
+struct ChainLoader(Vec<ClasspathEntry>);
+
+impl ClassLoader for ChainLoader {
+    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+        for entry in &self.0 {
+            if let Ok(bytes) = entry.find_class(name) {
+                return Ok(bytes);
+            }
+        }
+        Err(duke_loader::LoadError::NotFound {
+            name: name.to_string(),
+        })
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -123,17 +191,26 @@ fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);
     let jdk_home = extract_jdk_flag(&mut args);
+    let jar_path = extract_jar_flag(&mut args);
 
-    if args.len() < 2 {
+    if jar_path.is_none() && args.len() < 2 {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
+        eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --jdk=<path>        JDK home for loading real JDK classes");
         eprintln!("         (also reads JAVA_HOME env var)");
         process::exit(1);
+    }
+
+    // Dispatch `-jar`: discover Main-Class from manifest and execute it.
+    if let Some(ref jar) = jar_path {
+        let remaining_args: Vec<&str> = args[1..].iter().map(String::as_str).collect();
+        run_jar(jar, &remaining_args, telemetry, jdk_home.as_deref());
+        return;
     }
 
     // Dispatch `load` before trying to read a file.
@@ -284,7 +361,7 @@ fn exec_method(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Opti
     let parent = std::path::Path::new(path)
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
-    let loader = make_loader(jdk_home, parent);
+    let loader = make_loader(jdk_home, &[parent.to_path_buf()]);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
 
@@ -351,7 +428,7 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<
     let parent = std::path::Path::new(path)
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
-    let loader = make_loader(jdk_home, parent);
+    let loader = make_loader(jdk_home, &[parent.to_path_buf()]);
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
 
@@ -375,6 +452,93 @@ fn run_main(args: &[String], telemetry: Option<TelemetryDest>, jdk_home: Option<
         &mut heap,
         &mut stdout,
         &entry_class,
+        "main",
+        "([Ljava/lang/String;)V",
+        &main_args,
+    ) {
+        Ok(_) => None,
+        Err(VmError::SystemExit { code }) => Some(code),
+        Err(e) => {
+            eprintln!("duke: runtime error: {e}");
+            process::exit(1);
+        }
+    };
+    emit_telemetry(&registry, telemetry);
+    if let Some(code) = exit_code {
+        process::exit(code);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Jar
+// ---------------------------------------------------------------------------
+
+/// `duke -jar <file.jar> [string-arg...]`
+///
+/// Reads `META-INF/MANIFEST.MF` to discover `Main-Class`, then executes it.
+fn run_jar(
+    jar_path: &str,
+    string_args: &[&str],
+    telemetry: Option<TelemetryDest>,
+    jdk_home: Option<&str>,
+) {
+    let jar = std::path::Path::new(jar_path);
+    let reader = ZipReader::open(jar).unwrap_or_else(|e| {
+        eprintln!("duke: cannot open JAR '{jar_path}': {e}");
+        process::exit(1);
+    });
+    let manifest_bytes = reader
+        .read_entry("META-INF/MANIFEST.MF")
+        .unwrap_or_else(|_| {
+            eprintln!("duke: JAR '{jar_path}' has no META-INF/MANIFEST.MF");
+            process::exit(1);
+        });
+    let main_class = duke_loader::parse_main_class(&manifest_bytes).unwrap_or_else(|| {
+        eprintln!("duke: no Main-Class attribute in '{jar_path}' manifest");
+        process::exit(1);
+    });
+
+    // Build classpath: the JAR itself + its parent directory (for auxiliary classes).
+    let jar_abs = jar.to_path_buf();
+    let parent = jar
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
+    let classpath = vec![jar_abs, parent];
+    let loader = make_loader(jdk_home, &classpath);
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    // Pre-load the entry class from the JAR.
+    if !registry
+        .ensure_loaded(&main_class, &loader)
+        .unwrap_or(false)
+    {
+        eprintln!("duke: cannot load class '{main_class}' from JAR '{jar_path}'");
+        process::exit(1);
+    }
+
+    // Build String[] args array on the heap.
+    let mut arg_refs: Vec<Slot> = Vec::new();
+    for arg in string_args {
+        let r = heap.allocate_string((*arg).to_string());
+        arg_refs.push(Slot::Reference(Some(r)));
+    }
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
+    for (i, slot) in arg_refs.into_iter().enumerate() {
+        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
+    }
+    let main_args = vec![Slot::Reference(Some(arr_ref))];
+
+    let mut stdout = std::io::stdout();
+    let exit_code = match execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut stdout,
+        &main_class,
         "main",
         "([Ljava/lang/String;)V",
         &main_args,

@@ -35,6 +35,24 @@ pub enum LoadError {
         /// Name of the resource that failed.
         name: String,
     },
+
+    /// The ZIP/JAR archive format is invalid or corrupted.
+    #[error("ZIP format error: {msg}")]
+    ZipFormat {
+        /// Reason for format error.
+        msg: String,
+    },
+
+    /// A ZIP entry's CRC32 checksum does not match after decompression.
+    #[error("ZIP CRC32 mismatch for '{name}': expected {expected:#010x}, got {actual:#010x}")]
+    ZipCrc32 {
+        /// Name of the entry that failed.
+        name: String,
+        /// Expected CRC32 from the central directory.
+        expected: u32,
+        /// Actual CRC32 computed from decompressed bytes.
+        actual: u32,
+    },
 }
 
 /// Convenience alias for `Result<T, LoadError>`.
