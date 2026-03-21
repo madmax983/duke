@@ -18,6 +18,8 @@ use std::io::{Read, Write};
 
 use duke_runtime::{Slot, VmError, VmResult};
 
+mod mermaid;
+
 /// High bit set ⟹ old-generation reference; clear ⟹ young-generation reference.
 pub const OLD_BIT: u64 = 1 << 63;
 
@@ -967,6 +969,12 @@ impl Heap {
     #[must_use]
     pub const fn free_list_len(&self) -> usize {
         self.old_free_list.len() + self.young_dropped
+    }
+
+    /// Generates a Mermaid JS graph of the heap.
+    #[must_use]
+    pub fn dump_mermaid(&self) -> String {
+        mermaid::dump_mermaid(self)
     }
 }
 
