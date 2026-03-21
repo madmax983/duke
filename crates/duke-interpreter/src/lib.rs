@@ -27092,3 +27092,5 @@ mod tests {
         assert_eq!(result, Some(Slot::Int(0xCA)));
     }
 }
+#[cfg(test)]
+mod fuzz;
