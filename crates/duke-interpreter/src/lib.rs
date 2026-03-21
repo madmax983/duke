@@ -17921,6 +17921,66 @@ mod tests {
     }
 
     #[test]
+    fn native_print_int_value() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        native_print_int(
+            &[Slot::Reference(None), Slot::Int(42)],
+            &mut heap,
+            &mut out,
+            &mut control,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "42");
+    }
+
+    #[test]
+    fn native_print_int_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let err = native_print_int(
+            &[Slot::Reference(None), Slot::Long(42)],
+            &mut heap,
+            &mut out,
+            &mut control,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn native_println_int_value() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        native_println_int(
+            &[Slot::Reference(None), Slot::Int(100)],
+            &mut heap,
+            &mut out,
+            &mut control,
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "100\n");
+    }
+
+    #[test]
+    fn native_println_int_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let err = native_println_int(
+            &[Slot::Reference(None), Slot::Float(100.0)],
+            &mut heap,
+            &mut out,
+            &mut control,
+        )
+        .unwrap_err();
+        assert!(matches!(err, VmError::TypeMismatch { .. }));
+    }
+
+    #[test]
     fn native_print_double_value() {
         let mut heap = duke_gc::Heap::new();
         let mut out: Vec<u8> = Vec::new();
