@@ -1,3 +1,5 @@
+//! `duke-classfile::access_flags` — Class, field, and method access flags
+
 use bitflags::bitflags;
 
 bitflags! {

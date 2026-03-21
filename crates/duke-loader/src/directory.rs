@@ -1,3 +1,5 @@
+//! `duke-loader::directory` — Loads classes from standard directories (e.g. `tests/fixtures`).
+
 use std::path::{Path, PathBuf};
 
 use crate::{ClassLoader, LoadError, LoadResult};

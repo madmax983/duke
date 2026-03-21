@@ -1,3 +1,5 @@
+//! `duke-loader::bootstrap` — The system bootstrap classloader.
+
 use std::path::Path;
 
 use crate::{ClassLoader, DirectoryLoader, JImageReader, LoadError, LoadResult, ZipLoader};

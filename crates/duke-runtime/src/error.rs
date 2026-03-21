@@ -1,3 +1,5 @@
+//! `duke-runtime::error` — Runtime errors
+
 use thiserror::Error;
 
 /// Runtime errors that can occur during JVM bytecode execution.

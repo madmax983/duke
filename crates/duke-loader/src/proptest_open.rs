@@ -1,3 +1,5 @@
+//! `duke-loader::proptest_open` — Fuzzing utilities for class loaders
+
 use super::jimage::JImageReader;
 use proptest::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
