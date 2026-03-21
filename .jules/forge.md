@@ -16,3 +16,7 @@
 **[Extracting Repeated Code]
 **Learning:** Found identical `while i + 1 < fields.len()` loops used to iterate over key-value pairs in HashMap natives, and similar logic in HashSet.
 **Action:** Extracted these loops into simple helper functions `find_hashmap_entry_index` and `find_hashset_entry_index` which return `Option<usize>`, simplifying five separate native functions and removing `mut i` boilerplate.
+
+**[Preserving Jump Tables in Refactors]
+**Learning:** Breaking a massive `match` statement in a hot path (like a bytecode decoder) into multiple sequential helper functions ruins the compiler's ability to generate an O(1) jump table, causing a severe performance regression.
+**Action:** When fixing `clippy::too_many_lines` on a massive `match`, keep the massive `match` statement intact and use `#[allow(clippy::too_many_lines)]`. Only extract the complex logic *inside* specific arms (like `TABLESWITCH` or `LOOKUPSWITCH`) into helper functions.
