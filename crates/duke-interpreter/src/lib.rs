@@ -3271,109 +3271,34 @@ fn native_reflect_method_invoke(
     let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let invoke_arg_slots =
         reflection_array_elements(heap, args.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+    let method = reflected_method_handle(heap, method_ref)?;
 
-    let (declaring_class_ref, name_ref, descriptor_ref, is_public, is_static) = {
-        let method_obj = heap.get(method_ref)?;
-        let declaring_class_ref = match method_obj
-            .fields
-            .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
-            .copied()
-        {
-            Some(Slot::Reference(Some(r))) => r,
-            _ => {
-                return Err(VmError::InvalidRef {
-                    address: method_ref,
-                });
-            }
-        };
-        let name_ref = match method_obj.fields.get(REFLECTION_MEMBER_NAME_FIELD).copied() {
-            Some(Slot::Reference(Some(r))) => r,
-            _ => {
-                return Err(VmError::InvalidRef {
-                    address: method_ref,
-                });
-            }
-        };
-        let descriptor_ref = match method_obj
-            .fields
-            .get(REFLECTION_MEMBER_DESCRIPTOR_FIELD)
-            .copied()
-        {
-            Some(Slot::Reference(Some(r))) => r,
-            _ => {
-                return Err(VmError::InvalidRef {
-                    address: method_ref,
-                });
-            }
-        };
-        let is_public = matches!(
-            method_obj.fields.get(REFLECTION_MEMBER_PUBLIC_FIELD),
-            Some(Slot::Int(value)) if *value != 0
-        );
-        let is_static = matches!(
-            method_obj.fields.get(REFLECTION_MEMBER_STATIC_FIELD),
-            Some(Slot::Int(value)) if *value != 0
-        );
-        (
-            declaring_class_ref,
-            name_ref,
-            descriptor_ref,
-            is_public,
-            is_static,
-        )
-    };
-    let declaring_internal_name = class_internal_name_from_ref(heap, declaring_class_ref)?;
-    let method_name = heap
-        .get(name_ref)?
-        .string_value
-        .clone()
-        .ok_or(VmError::NullPointerException)?;
-    let descriptor = heap
-        .get(descriptor_ref)?
-        .string_value
-        .clone()
-        .ok_or(VmError::NullPointerException)?;
-
-    if !is_public {
+    if !method.is_public {
         return Err(VmError::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
     }
 
-    let arg_types = parse_arg_types(&descriptor);
-    if arg_types.len() != invoke_arg_slots.len() {
-        return Err(VmError::TypeMismatch {
-            expected: "matching reflective argument count",
-            got: "different count",
-        });
-    }
+    let invoke_args = build_reflection_invoke_args(
+        heap,
+        target_slot,
+        &method.descriptor,
+        invoke_arg_slots,
+        method.is_static,
+    )?;
 
-    let mut invoke_args = Vec::with_capacity(arg_types.len() + usize::from(!is_static));
-    if !is_static {
-        match target_slot {
-            Slot::Reference(Some(_)) => invoke_args.push(target_slot),
-            _ => return Err(VmError::NullPointerException),
-        }
-    }
-    for (descriptor, arg) in arg_types.iter().copied().zip(invoke_arg_slots.into_iter()) {
-        invoke_args.push(unbox_reflection_argument(heap, descriptor, arg)?);
-        if matches!(descriptor, 'J' | 'D') {
-            invoke_args.push(Slot::Int(0));
-        }
-    }
-
-    ops.ensure_loaded(&declaring_internal_name)?;
+    ops.ensure_loaded(&method.declaring_internal_name)?;
     match ops.invoke(
         heap,
         output,
-        &declaring_internal_name,
-        &method_name,
-        &descriptor,
+        &method.declaring_internal_name,
+        &method.method_name,
+        &method.descriptor,
         invoke_args,
     ) {
         Ok(result) => Ok(Some(box_reflection_return_value(
             heap,
-            descriptor_return_type(&descriptor),
+            descriptor_return_type(&method.descriptor),
             result,
         )?)),
         Err(VmError::JavaException { .. }) => Err(VmError::JavaException {
@@ -10696,6 +10621,101 @@ fn reflection_array_elements(heap: &duke_gc::Heap, args_slot: Slot) -> VmResult<
     }
 }
 
+struct ReflectedMethodHandle {
+    declaring_internal_name: String,
+    method_name: String,
+    descriptor: String,
+    is_public: bool,
+    is_static: bool,
+}
+
+fn reflected_method_handle(
+    heap: &duke_gc::Heap,
+    method_ref: u64,
+) -> VmResult<ReflectedMethodHandle> {
+    let method_obj = heap.get(method_ref)?;
+    let Some(Slot::Reference(Some(declaring_class_ref))) = method_obj
+        .fields
+        .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
+        .copied()
+    else {
+        return Err(VmError::InvalidRef {
+            address: method_ref,
+        });
+    };
+    let Some(Slot::Reference(Some(name_ref))) =
+        method_obj.fields.get(REFLECTION_MEMBER_NAME_FIELD).copied()
+    else {
+        return Err(VmError::InvalidRef {
+            address: method_ref,
+        });
+    };
+    let Some(Slot::Reference(Some(descriptor_ref))) = method_obj
+        .fields
+        .get(REFLECTION_MEMBER_DESCRIPTOR_FIELD)
+        .copied()
+    else {
+        return Err(VmError::InvalidRef {
+            address: method_ref,
+        });
+    };
+    let is_public = matches!(
+        method_obj.fields.get(REFLECTION_MEMBER_PUBLIC_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+    let is_static = matches!(
+        method_obj.fields.get(REFLECTION_MEMBER_STATIC_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+
+    Ok(ReflectedMethodHandle {
+        declaring_internal_name: class_internal_name_from_ref(heap, declaring_class_ref)?,
+        method_name: heap
+            .get(name_ref)?
+            .string_value
+            .clone()
+            .ok_or(VmError::NullPointerException)?,
+        descriptor: heap
+            .get(descriptor_ref)?
+            .string_value
+            .clone()
+            .ok_or(VmError::NullPointerException)?,
+        is_public,
+        is_static,
+    })
+}
+
+fn build_reflection_invoke_args(
+    heap: &duke_gc::Heap,
+    target_slot: Slot,
+    descriptor: &str,
+    invoke_arg_slots: Vec<Slot>,
+    is_static: bool,
+) -> VmResult<Vec<Slot>> {
+    let arg_types = parse_arg_types(descriptor);
+    if arg_types.len() != invoke_arg_slots.len() {
+        return Err(VmError::TypeMismatch {
+            expected: "matching reflective argument count",
+            got: "different count",
+        });
+    }
+
+    let mut invoke_args = Vec::with_capacity(arg_types.len() + usize::from(!is_static));
+    if !is_static {
+        match target_slot {
+            Slot::Reference(Some(_)) => invoke_args.push(target_slot),
+            _ => return Err(VmError::NullPointerException),
+        }
+    }
+    for (descriptor, arg) in arg_types.iter().copied().zip(invoke_arg_slots) {
+        invoke_args.push(unbox_reflection_argument(heap, descriptor, arg)?);
+        if matches!(descriptor, 'J' | 'D') {
+            invoke_args.push(Slot::Int(0));
+        }
+    }
+    Ok(invoke_args)
+}
+
 fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) -> VmResult<Slot> {
     match descriptor {
         'L' | '[' => match arg {
@@ -10706,9 +10726,8 @@ fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) 
             }),
         },
         'B' | 'C' | 'I' | 'S' | 'Z' => {
-            let obj_ref = match arg {
-                Slot::Reference(Some(r)) => r,
-                _ => return Err(VmError::NullPointerException),
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Int(value)) => Ok(Slot::Int(*value)),
@@ -10719,9 +10738,8 @@ fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) 
             }
         }
         'J' => {
-            let obj_ref = match arg {
-                Slot::Reference(Some(r)) => r,
-                _ => return Err(VmError::NullPointerException),
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Long(value)) => Ok(Slot::Long(*value)),
@@ -10732,9 +10750,8 @@ fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) 
             }
         }
         'F' => {
-            let obj_ref = match arg {
-                Slot::Reference(Some(r)) => r,
-                _ => return Err(VmError::NullPointerException),
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Float(value)) => Ok(Slot::Float(*value)),
@@ -10745,9 +10762,8 @@ fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) 
             }
         }
         'D' => {
-            let obj_ref = match arg {
-                Slot::Reference(Some(r)) => r,
-                _ => return Err(VmError::NullPointerException),
+            let Slot::Reference(Some(obj_ref)) = arg else {
+                return Err(VmError::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Double(value)) => Ok(Slot::Double(*value)),

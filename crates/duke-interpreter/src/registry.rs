@@ -266,6 +266,10 @@ pub type NativeHandler =
 /// invocation behind one mutable object so natives do not need direct access to
 /// the interpreter's registry/loader state.
 pub trait CallbackOps {
+    /// Invoke a Java method through the current interpreter/runtime boundary.
+    ///
+    /// # Errors
+    /// Returns any VM error produced while resolving or executing the target method.
     fn invoke(
         &mut self,
         heap: &mut duke_gc::Heap,
@@ -276,8 +280,16 @@ pub trait CallbackOps {
         args: Vec<Slot>,
     ) -> VmResult<Option<Slot>>;
 
+    /// Ensure the named class is available to the current runtime.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be loaded or linked.
     fn ensure_loaded(&mut self, class: &str) -> VmResult<()>;
 
+    /// Read reflection metadata for a loaded or loadable class.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be inspected.
     fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo>;
 }
 
