@@ -17479,9 +17479,13 @@ mod tests {
         let loader = fixtures_loader();
         let mut out: Vec<u8> = Vec::new();
 
-        registry.natives_mut().register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
-            Err(VmError::Unimplemented { mnemonic: "Test panic simulation" })
-        });
+        registry
+            .natives_mut()
+            .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+                Err(VmError::Unimplemented {
+                    mnemonic: "Test panic simulation",
+                })
+            });
 
         let result = execute_class_to_completion(
             &mut registry,
@@ -17494,7 +17498,12 @@ mod tests {
             &[],
         );
 
-        assert!(matches!(result, Err(VmError::Unimplemented { mnemonic: "Test panic simulation" })));
+        assert!(matches!(
+            result,
+            Err(VmError::Unimplemented {
+                mnemonic: "Test panic simulation"
+            })
+        ));
     }
 
     #[test]
@@ -17508,9 +17517,11 @@ mod tests {
         let loader = fixtures_loader();
         let mut out: Vec<u8> = Vec::new();
 
-        registry.natives_mut().register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
-            panic!("Test rust panic simulation");
-        });
+        registry
+            .natives_mut()
+            .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+                panic!("Test rust panic simulation");
+            });
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = execute_class_to_completion(
