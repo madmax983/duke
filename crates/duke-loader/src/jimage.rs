@@ -88,6 +88,16 @@ pub struct JImageReader {
 // ---------------------------------------------------------------------------
 
 impl JImageReader {
+    #[cfg(test)]
+    pub(crate) fn empty_for_test() -> Self {
+        Self {
+            data: Vec::new(),
+            resource_count: 0,
+            data_offset: 0,
+            index: HashMap::new(),
+        }
+    }
+
     /// Open and parse a jimage file, building the resource index.
     ///
     /// # Errors
