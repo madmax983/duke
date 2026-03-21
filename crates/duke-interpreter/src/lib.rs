@@ -9133,12 +9133,11 @@ fn join_java_thread(
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
 ) -> VmResult<()> {
-    let mut first_error = None;
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap();
             if runtime.handles.is_empty() {
-                break;
+                return Ok(());
             }
             runtime
                 .handles
@@ -9149,18 +9148,11 @@ fn wait_for_all_java_threads(
 
         for handle in handles {
             match handle.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => {
-                    if first_error.is_none() {
-                        first_error = Some(err);
-                    }
-                }
+                Ok(result) => result?,
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }
     }
-
-    first_error.map_or(Ok(()), Err)
 }
 
 fn handle_thread_action(
@@ -17487,13 +17479,9 @@ mod tests {
         let loader = fixtures_loader();
         let mut out: Vec<u8> = Vec::new();
 
-        registry
-            .natives_mut()
-            .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
-                Err(VmError::Unimplemented {
-                    mnemonic: "Test panic simulation",
-                })
-            });
+        registry.natives_mut().register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+            Err(VmError::Unimplemented { mnemonic: "Test panic simulation" })
+        });
 
         let result = execute_class_to_completion(
             &mut registry,
@@ -17506,12 +17494,40 @@ mod tests {
             &[],
         );
 
-        assert!(matches!(
-            result,
-            Err(VmError::Unimplemented {
-                mnemonic: "Test panic simulation"
-            })
-        ));
+        assert!(matches!(result, Err(VmError::Unimplemented { mnemonic: "Test panic simulation" })));
+    }
+
+    #[test]
+    fn threading_havoc_wait_for_all_java_threads_rust_panic_path() {
+        let ctx = load_class_context("ThreadingTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        registry.natives_mut().register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+            panic!("Test rust panic simulation");
+        });
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = execute_class_to_completion(
+                &mut registry,
+                loader,
+                &mut heap,
+                &mut out,
+                &entry_class,
+                "spawnAndJoinTen",
+                "()I",
+                &[],
+            );
+        }));
+
+        assert!(result.is_err(), "Expected the panic to propagate");
+        // We don't care about the specific error message as long as it propagated
+        // It could be 'Test rust panic simulation' or 'PoisonError'
     }
     #[test]
     fn threading_spawn_and_join_ten_workers() {
@@ -17577,7 +17593,6 @@ mod tests {
     }
 
     #[test]
-
     fn threading_fire_and_forget_still_waits_for_workers_before_returning() {
         let result =
             run_bootstrap_with_output("ThreadingTest.class", "fireAndForgetStillFinishes", "()I");
