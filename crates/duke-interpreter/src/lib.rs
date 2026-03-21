@@ -17889,6 +17889,78 @@ mod tests {
     // ---- Phase 28: Threading ----
 
     #[test]
+    fn threading_havoc_wait_for_all_java_threads_error_path() {
+        let ctx = load_class_context("ThreadingTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        registry
+            .natives_mut()
+            .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+                Err(VmError::Unimplemented {
+                    mnemonic: "Test panic simulation",
+                })
+            });
+
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            "spawnAndJoinTen",
+            "()I",
+            &[],
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::Unimplemented {
+                mnemonic: "Test panic simulation"
+            })
+        ));
+    }
+
+    #[test]
+    fn threading_havoc_wait_for_all_java_threads_rust_panic_path() {
+        let ctx = load_class_context("ThreadingTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        registry
+            .natives_mut()
+            .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+                panic!("Test rust panic simulation");
+            });
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = execute_class_to_completion(
+                &mut registry,
+                loader,
+                &mut heap,
+                &mut out,
+                &entry_class,
+                "spawnAndJoinTen",
+                "()I",
+                &[],
+            );
+        }));
+
+        assert!(result.is_err(), "Expected the panic to propagate");
+        // We don't care about the specific error message as long as it propagated
+        // It could be 'Test rust panic simulation' or 'PoisonError'
+    }
+    #[test]
     fn threading_spawn_and_join_ten_workers() {
         let start = std::time::Instant::now();
         let result = run_bootstrap_with_output("ThreadingTest.class", "spawnAndJoinTen", "()I");
