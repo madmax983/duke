@@ -942,6 +942,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/System", "exit", "(I)V", native_system_exit);
+    registry.natives_mut().register(
+        "java/lang/System",
+        "currentTimeMillis",
+        "()J",
+        native_system_current_time_millis,
+    );
 
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
     // java/lang/Object (root — no super)
@@ -3963,6 +3969,24 @@ fn native_system_exit(
         _ => 1,
     };
     Err(VmError::SystemExit { code })
+}
+
+fn system_time_to_epoch_millis(now: std::time::SystemTime) -> i64 {
+    match now.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_millis()).unwrap_or(i64::MAX),
+        Err(_) => 0,
+    }
+}
+
+fn native_system_current_time_millis(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(Slot::Long(system_time_to_epoch_millis(
+        std::time::SystemTime::now(),
+    ))))
 }
 
 const THREAD_TARGET_SLOT: usize = 0;
@@ -27638,6 +27662,18 @@ mod tests {
             ),
             1,
         );
+    }
+
+    #[test]
+    fn time_system_time_to_epoch_millis_converts_forward_values() {
+        let sample = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234);
+        assert_eq!(system_time_to_epoch_millis(sample), 1_234);
+    }
+
+    #[test]
+    fn time_system_time_to_epoch_millis_clamps_pre_epoch_to_zero() {
+        let sample = std::time::UNIX_EPOCH - std::time::Duration::from_secs(1);
+        assert_eq!(system_time_to_epoch_millis(sample), 0);
     }
 
     // ---- Phase 29: Networking helpers and integration tests ----
