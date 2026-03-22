@@ -130,4 +130,88 @@ mod tests {
         assert!(cfg.contains("node4 --> node5"));
         assert!(cfg.contains("node6 --> node7"));
     }
+
+    #[test]
+    fn test_cfg_goto() {
+        let instructions = vec![
+            (0, Instruction::Goto(5)),
+            (3, Instruction::Iconst0),
+            (4, Instruction::Ireturn),
+            (5, Instruction::Iconst1),
+            (6, Instruction::Ireturn),
+        ];
+        let cfg = generate_mermaid_cfg(&instructions);
+        assert!(cfg.contains("node0 --> node5"));
+    }
+
+    #[test]
+    fn test_cfg_gotow() {
+        let instructions = vec![
+            (0, Instruction::GotoW(5)),
+            (5, Instruction::Ireturn),
+        ];
+        let cfg = generate_mermaid_cfg(&instructions);
+        assert!(cfg.contains("node0 --> node5"));
+    }
+
+    #[test]
+    fn test_cfg_tableswitch() {
+        let instructions = vec![
+            (0, Instruction::Tableswitch {
+                default: 10,
+                low: 1,
+                high: 2,
+                offsets: vec![4, 6],
+            }),
+            (4, Instruction::Ireturn),
+            (6, Instruction::Ireturn),
+            (10, Instruction::Ireturn),
+        ];
+        let cfg = generate_mermaid_cfg(&instructions);
+        assert!(cfg.contains("node0 -->|default| node10"));
+        assert!(cfg.contains("node0 -->|0| node4"));
+        assert!(cfg.contains("node0 -->|1| node6"));
+    }
+
+    #[test]
+    fn test_cfg_lookupswitch() {
+        let instructions = vec![
+            (0, Instruction::Lookupswitch {
+                default: 10,
+                pairs: vec![(5, 4), (10, 6)],
+            }),
+            (4, Instruction::Ireturn),
+            (6, Instruction::Ireturn),
+            (10, Instruction::Ireturn),
+        ];
+        let cfg = generate_mermaid_cfg(&instructions);
+        assert!(cfg.contains("node0 -->|default| node10"));
+        assert!(cfg.contains("node0 -->|5| node4"));
+        assert!(cfg.contains("node0 -->|10| node6"));
+    }
+
+    #[test]
+    fn test_cfg_jsr() {
+        let instructions = vec![
+            (0, Instruction::Jsr(5)),
+            (3, Instruction::Ireturn),
+            (5, Instruction::Astore1),
+            (6, Instruction::Ret(1)),
+        ];
+        let cfg = generate_mermaid_cfg(&instructions);
+        assert!(cfg.contains("node0 -->|true| node5"));
+        assert!(cfg.contains("node0 -->|false| node3"));
+    }
+
+    #[test]
+    fn test_cfg_jsrw() {
+        let instructions = vec![
+            (0, Instruction::JsrW(5)),
+            (5, Instruction::Astore1),
+            (6, Instruction::RetW(1)),
+        ];
+        let cfg = generate_mermaid_cfg(&instructions);
+        assert!(cfg.contains("node0 -->|true| node5"));
+        assert!(cfg.contains("node0 -->|false| node5"));
+    }
 }
