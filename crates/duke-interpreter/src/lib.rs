@@ -948,6 +948,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()J",
         native_system_current_time_millis,
     );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "nanoTime",
+        "()J",
+        native_system_nano_time,
+    );
 
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
     // java/lang/Object (root — no super)
@@ -3972,12 +3978,12 @@ fn native_system_exit(
 }
 
 fn system_time_to_epoch_millis(now: std::time::SystemTime) -> i64 {
-    match now.duration_since(std::time::UNIX_EPOCH) {
-        Ok(duration) => i64::try_from(duration.as_millis()).unwrap_or(i64::MAX),
-        Err(_) => 0,
-    }
+    now.duration_since(std::time::UNIX_EPOCH).map_or(0, |duration| {
+        i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
 fn native_system_current_time_millis(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -3987,6 +3993,23 @@ fn native_system_current_time_millis(
     Ok(Some(Slot::Long(system_time_to_epoch_millis(
         std::time::SystemTime::now(),
     ))))
+}
+
+static NANO_TIME_ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+fn monotonic_nano_time_now() -> i64 {
+    let origin = NANO_TIME_ORIGIN.get_or_init(std::time::Instant::now);
+    i64::try_from(origin.elapsed().as_nanos()).unwrap_or(i64::MAX)
+}
+
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+fn native_system_nano_time(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(Slot::Long(monotonic_nano_time_now())))
 }
 
 const THREAD_TARGET_SLOT: usize = 0;
@@ -27695,6 +27718,17 @@ mod tests {
     fn time_system_time_to_epoch_millis_clamps_pre_epoch_to_zero() {
         let sample = std::time::UNIX_EPOCH - std::time::Duration::from_secs(1);
         assert_eq!(system_time_to_epoch_millis(sample), 0);
+    }
+
+    #[test]
+    fn time_monotonic_nano_time_is_non_decreasing() {
+        let first = monotonic_nano_time_now();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let second = monotonic_nano_time_now();
+        assert!(
+            second >= first,
+            "expected non-decreasing nanos: {first} -> {second}"
+        );
     }
 
     // ---- Phase 29: Networking helpers and integration tests ----
