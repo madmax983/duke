@@ -942,6 +942,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/System", "exit", "(I)V", native_system_exit);
+    registry.natives_mut().register(
+        "java/lang/System",
+        "currentTimeMillis",
+        "()J",
+        native_system_current_time_millis,
+    );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "nanoTime",
+        "()J",
+        native_system_nano_time,
+    );
 
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
     // java/lang/Object (root — no super)
@@ -3963,6 +3975,42 @@ fn native_system_exit(
         _ => 1,
     };
     Err(VmError::SystemExit { code })
+}
+
+fn system_time_to_epoch_millis(now: std::time::SystemTime) -> i64 {
+    now.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+        })
+}
+
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+fn native_system_current_time_millis(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(Slot::Long(system_time_to_epoch_millis(
+        std::time::SystemTime::now(),
+    ))))
+}
+
+static NANO_TIME_ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+fn monotonic_nano_time_now() -> i64 {
+    let origin = NANO_TIME_ORIGIN.get_or_init(std::time::Instant::now);
+    i64::try_from(origin.elapsed().as_nanos()).unwrap_or(i64::MAX)
+}
+
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+fn native_system_nano_time(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(Slot::Long(monotonic_nano_time_now())))
 }
 
 const THREAD_TARGET_SLOT: usize = 0;
@@ -17281,6 +17329,58 @@ mod tests {
         }
     }
 
+    fn run_bootstrap_long(class_name: &str, method_name: &str, descriptor: &str) -> i64 {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )
+        .expect("fixture should execute");
+        match result {
+            Some(Slot::Long(value)) => value,
+            other => panic!("expected long result, got {other:?}"),
+        }
+    }
+
+    fn run_bootstrap_int_completion(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )
+        .expect("fixture should execute");
+        match result {
+            Some(Slot::Int(value)) => value,
+            other => panic!("expected int result, got {other:?}"),
+        }
+    }
+
     fn run_bootstrap_with_string_args(
         class_name: &str,
         method_name: &str,
@@ -27548,6 +27648,89 @@ mod tests {
             "()I",
         );
         assert_eq!(result, 1);
+    }
+
+    // ---- Phase 33: Time primitive fixture coverage ----
+
+    #[test]
+    fn time_current_time_millis_matches_host_wall_clock_window() {
+        let host_before = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("host clock is after epoch")
+                .as_millis(),
+        )
+        .expect("millis fit in i64");
+        let value = run_bootstrap_long("TimePrimitivesTest.class", "currentTimeMillisNow", "()J");
+        let host_after = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("host clock is after epoch")
+                .as_millis(),
+        )
+        .expect("millis fit in i64");
+
+        assert!(
+            value >= host_before && value <= host_after,
+            "expected {value} within [{host_before}, {host_after}]",
+        );
+    }
+
+    #[test]
+    fn time_current_time_millis_advances_after_sleep() {
+        assert_eq!(
+            run_bootstrap_int_completion(
+                "TimePrimitivesTest.class",
+                "currentTimeMillisAdvancesAfterSleep",
+                "()I",
+            ),
+            1,
+        );
+    }
+
+    #[test]
+    fn time_nano_time_returns_positive_elapsed_duration() {
+        let delta =
+            run_bootstrap_long("TimePrimitivesTest.class", "nanoTimeDeltaAfterSleep", "()J");
+        assert!(
+            delta >= 1_000_000,
+            "expected at least 1 ms in nanos, got {delta}"
+        );
+    }
+
+    #[test]
+    fn time_nano_time_supports_java_duration_math() {
+        assert_eq!(
+            run_bootstrap_int_completion(
+                "TimePrimitivesTest.class",
+                "nanoTimeSupportsDurationMath",
+                "()I",
+            ),
+            1,
+        );
+    }
+
+    #[test]
+    fn time_system_time_to_epoch_millis_converts_forward_values() {
+        let sample = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234);
+        assert_eq!(system_time_to_epoch_millis(sample), 1_234);
+    }
+
+    #[test]
+    fn time_system_time_to_epoch_millis_clamps_pre_epoch_to_zero() {
+        let sample = std::time::UNIX_EPOCH - std::time::Duration::from_secs(1);
+        assert_eq!(system_time_to_epoch_millis(sample), 0);
+    }
+
+    #[test]
+    fn time_monotonic_nano_time_is_non_decreasing() {
+        let first = monotonic_nano_time_now();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let second = monotonic_nano_time_now();
+        assert!(
+            second >= first,
+            "expected non-decreasing nanos: {first} -> {second}"
+        );
     }
 
     // ---- Phase 29: Networking helpers and integration tests ----
