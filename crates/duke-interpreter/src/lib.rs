@@ -3978,9 +3978,10 @@ fn native_system_exit(
 }
 
 fn system_time_to_epoch_millis(now: std::time::SystemTime) -> i64 {
-    now.duration_since(std::time::UNIX_EPOCH).map_or(0, |duration| {
-        i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
-    })
+    now.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+        })
 }
 
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
@@ -27689,7 +27690,8 @@ mod tests {
 
     #[test]
     fn time_nano_time_returns_positive_elapsed_duration() {
-        let delta = run_bootstrap_long("TimePrimitivesTest.class", "nanoTimeDeltaAfterSleep", "()J");
+        let delta =
+            run_bootstrap_long("TimePrimitivesTest.class", "nanoTimeDeltaAfterSleep", "()J");
         assert!(
             delta >= 1_000_000,
             "expected at least 1 ms in nanos, got {delta}"
