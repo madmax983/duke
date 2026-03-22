@@ -131,18 +131,22 @@ pub fn parse(bytes: &[u8]) -> ParseResult<ClassFile> {
     let mut cursor = Cursor::new(bytes);
     let mut class_file = parse_class_file(&mut cursor)?;
 
+    /// ⚡ Bolt: Removed expensive `class_file.constant_pool.clone()` allocation.
+    /// Rust allows disjoint borrowing, so we can borrow `constant_pool` immutably
+    /// while mutably borrowing `attributes`, `fields`, and `methods`.
+
     // Resolve raw attribute bytes into typed variants now that we have the full CP.
-    let pool = class_file.constant_pool.clone();
-    resolve_attributes(&mut class_file.attributes, &pool)?;
+    let pool = &class_file.constant_pool;
+    resolve_attributes(&mut class_file.attributes, pool)?;
     for field in &mut class_file.fields {
-        resolve_attributes(&mut field.attributes, &pool)?;
+        resolve_attributes(&mut field.attributes, pool)?;
     }
     for method in &mut class_file.methods {
-        resolve_attributes(&mut method.attributes, &pool)?;
+        resolve_attributes(&mut method.attributes, pool)?;
         // Also resolve Code sub-attributes.
         for attr in &mut method.attributes {
             if let AttributeData::Code(code) = &mut attr.data {
-                resolve_attributes(&mut code.attributes, &pool)?;
+                resolve_attributes(&mut code.attributes, pool)?;
             }
         }
     }
