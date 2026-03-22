@@ -7,17 +7,58 @@ public final class ProcessManagementTest {
     private ProcessManagementTest() {
     }
 
-    private static String[] childCommand(String javaCmd, String classpath, String mode) {
-        return new String[] { javaCmd, "-cp", classpath, "ProcessChildMain", mode };
+    private static boolean isPowerShell(String launcher) {
+        return launcher.toLowerCase().contains("powershell");
     }
 
-    private static int readAllSum(InputStream in) throws Exception {
-        int sum = 0;
-        int next;
-        while ((next = in.read()) != -1) {
-            sum += next;
+    private static String[] shellCommand(String launcher, String script) {
+        if (isPowerShell(launcher)) {
+            return new String[] { launcher, "-NoProfile", "-NonInteractive", "-Command", script };
         }
-        return sum;
+        return new String[] { launcher, "-c", script };
+    }
+
+    private static String[] childCommand(String launcher, String classpath, String mode) {
+        if (mode.equals("stdout")) {
+            if (isPowerShell(launcher)) {
+                return shellCommand(launcher, "[Console]::Out.Write('duke-out')");
+            }
+            return shellCommand(launcher, "printf duke-out");
+        }
+        if (mode.equals("cwd-probe")) {
+            if (isPowerShell(launcher)) {
+                return shellCommand(
+                        launcher,
+                        "if (Test-Path tests -PathType Container) { [Console]::Out.Write('cwd-ok') } else { [Console]::Out.Write('cwd-bad') }"
+                );
+            }
+            return shellCommand(launcher, "if [ -d tests ]; then printf cwd-ok; else printf cwd-bad; fi");
+        }
+        if (mode.equals("stderr")) {
+            if (isPowerShell(launcher)) {
+                return shellCommand(launcher, "[Console]::Error.Write('duke-err')");
+            }
+            return shellCommand(launcher, "printf duke-err >&2");
+        }
+        if (mode.equals("stdin-sum")) {
+            if (isPowerShell(launcher)) {
+                return shellCommand(
+                        launcher,
+                        "$sum = 0; $stdin = [Console]::OpenStandardInput(); while (($b = $stdin.ReadByte()) -ne -1) { $sum += $b }; [Console]::Out.Write(\"sum=$sum\")"
+                );
+            }
+            return shellCommand(
+                    launcher,
+                    "exec python3 -c \"import sys; data=sys.stdin.buffer.read(); sys.stdout.write('sum=%d' % sum(data))\""
+            );
+        }
+        if (mode.equals("sleep")) {
+            if (isPowerShell(launcher)) {
+                return shellCommand(launcher, "Start-Sleep -Seconds 10");
+            }
+            return shellCommand(launcher, "exec sleep 10");
+        }
+        return shellCommand(launcher, "exit 9");
     }
 
     private static int streamContains(InputStream in, int[] needle) throws Exception {
@@ -137,50 +178,5 @@ public final class ProcessManagementTest {
         } catch (Throwable t) {
             return -1;
         }
-    }
-}
-
-final class ProcessChildMain {
-    private ProcessChildMain() {
-    }
-
-    public static void main(String[] args) throws Exception {
-        String mode = args[0];
-
-        if (mode.equals("stdout")) {
-            System.out.print("duke-out");
-            System.out.flush();
-            System.exit(0);
-        }
-
-        if (mode.equals("cwd-probe")) {
-            System.out.print(new File("tests").isDirectory() ? "cwd-ok" : "cwd-bad");
-            System.out.flush();
-            System.exit(0);
-        }
-
-        if (mode.equals("stderr")) {
-            System.err.print("duke-err");
-            System.err.flush();
-            System.exit(0);
-        }
-
-        if (mode.equals("stdin-sum")) {
-            int sum = 0;
-            int next;
-            while ((next = System.in.read()) != -1) {
-                sum += next;
-            }
-            System.out.print("sum=" + sum);
-            System.out.flush();
-            System.exit(0);
-        }
-
-        if (mode.equals("sleep")) {
-            Thread.sleep(10_000L);
-            System.exit(0);
-        }
-
-        System.exit(9);
     }
 }

@@ -27392,15 +27392,12 @@ mod tests {
             .to_path_buf()
     }
 
-    fn host_java_command() -> String {
-        let java_name = if cfg!(windows) { "java.exe" } else { "java" };
-        if let Ok(java_home) = std::env::var("JAVA_HOME") {
-            let candidate = std::path::Path::new(&java_home).join("bin").join(java_name);
-            if candidate.is_file() {
-                return candidate.to_string_lossy().into_owned();
-            }
+    fn host_process_command() -> String {
+        if cfg!(windows) {
+            "powershell".to_string()
+        } else {
+            "sh".to_string()
         }
-        java_name.to_string()
     }
 
     #[test]
@@ -27410,7 +27407,7 @@ mod tests {
             "spawnAndReadStdout",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
             &[
-                host_java_command(),
+                host_process_command(),
                 fixtures_dir().to_string_lossy().into_owned(),
                 repo_root_dir().to_string_lossy().into_owned(),
             ],
@@ -27430,7 +27427,7 @@ mod tests {
             "runtimeExecReadsStdout",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
             &[
-                host_java_command(),
+                host_process_command(),
                 fixtures_dir().to_string_lossy().into_owned(),
                 repo_root_dir().to_string_lossy().into_owned(),
             ],
@@ -27450,7 +27447,7 @@ mod tests {
             "processBuilderAppliesWorkingDirectory",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
             &[
-                host_java_command(),
+                host_process_command(),
                 fixtures_dir().to_string_lossy().into_owned(),
                 repo_root_dir().to_string_lossy().into_owned(),
             ],
@@ -27470,7 +27467,7 @@ mod tests {
             "runtimeExecAppliesWorkingDirectory",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
             &[
-                host_java_command(),
+                host_process_command(),
                 fixtures_dir().to_string_lossy().into_owned(),
                 repo_root_dir().to_string_lossy().into_owned(),
             ],
@@ -27490,7 +27487,7 @@ mod tests {
             "pipeStdinToChild",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
             &[
-                host_java_command(),
+                host_process_command(),
                 fixtures_dir().to_string_lossy().into_owned(),
                 repo_root_dir().to_string_lossy().into_owned(),
             ],
@@ -27510,7 +27507,7 @@ mod tests {
             "readErrorStream",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
             &[
-                host_java_command(),
+                host_process_command(),
                 fixtures_dir().to_string_lossy().into_owned(),
                 repo_root_dir().to_string_lossy().into_owned(),
             ],
@@ -27530,7 +27527,7 @@ mod tests {
             "destroySleepingChild",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
             &[
-                host_java_command(),
+                host_process_command(),
                 fixtures_dir().to_string_lossy().into_owned(),
                 repo_root_dir().to_string_lossy().into_owned(),
             ],
