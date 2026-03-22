@@ -17307,6 +17307,32 @@ mod tests {
         }
     }
 
+    fn run_bootstrap_int_completion(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )
+        .expect("fixture should execute");
+        match result {
+            Some(Slot::Int(value)) => value,
+            other => panic!("expected int result, got {other:?}"),
+        }
+    }
+
     fn run_bootstrap_with_string_args(
         class_name: &str,
         method_name: &str,
@@ -27605,7 +27631,7 @@ mod tests {
     #[test]
     fn time_current_time_millis_advances_after_sleep() {
         assert_eq!(
-            run_bootstrap_int(
+            run_bootstrap_int_completion(
                 "TimePrimitivesTest.class",
                 "currentTimeMillisAdvancesAfterSleep",
                 "()I",
