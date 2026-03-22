@@ -785,3 +785,5 @@ mod tests {
         assert!(found_bm);
     }
 }
+#[cfg(test)]
+mod fuzz;
