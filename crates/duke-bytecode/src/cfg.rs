@@ -146,10 +146,7 @@ mod tests {
 
     #[test]
     fn test_cfg_gotow() {
-        let instructions = vec![
-            (0, Instruction::GotoW(5)),
-            (5, Instruction::Ireturn),
-        ];
+        let instructions = vec![(0, Instruction::GotoW(5)), (5, Instruction::Ireturn)];
         let cfg = generate_mermaid_cfg(&instructions);
         assert!(cfg.contains("node0 --> node5"));
     }
@@ -157,12 +154,15 @@ mod tests {
     #[test]
     fn test_cfg_tableswitch() {
         let instructions = vec![
-            (0, Instruction::Tableswitch {
-                default: 10,
-                low: 1,
-                high: 2,
-                offsets: vec![4, 6],
-            }),
+            (
+                0,
+                Instruction::Tableswitch {
+                    default: 10,
+                    low: 1,
+                    high: 2,
+                    offsets: vec![4, 6],
+                },
+            ),
             (4, Instruction::Ireturn),
             (6, Instruction::Ireturn),
             (10, Instruction::Ireturn),
@@ -176,10 +176,13 @@ mod tests {
     #[test]
     fn test_cfg_lookupswitch() {
         let instructions = vec![
-            (0, Instruction::Lookupswitch {
-                default: 10,
-                pairs: vec![(5, 4), (10, 6)],
-            }),
+            (
+                0,
+                Instruction::Lookupswitch {
+                    default: 10,
+                    pairs: vec![(5, 4), (10, 6)],
+                },
+            ),
             (4, Instruction::Ireturn),
             (6, Instruction::Ireturn),
             (10, Instruction::Ireturn),
