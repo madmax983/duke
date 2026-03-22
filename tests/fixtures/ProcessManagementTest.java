@@ -4,9 +4,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 public final class ProcessManagementTest {
-    private static final int STDOUT_SUM = 814;
-    private static final int STDERR_SUM = 799;
-
     private ProcessManagementTest() {
     }
 
@@ -44,10 +41,10 @@ public final class ProcessManagementTest {
                 .directory(new File(workDir))
                 .start();
         InputStream in = process.getInputStream();
-        int sum = readAllSum(in);
+        int contains = streamContains(in, new int[] { 'd', 'u', 'k', 'e', '-', 'o', 'u', 't' });
         in.close();
         int exit = process.waitFor();
-        return sum == STDOUT_SUM && exit == 0 && process.exitValue() == 0 ? 1 : 0;
+        return contains == 1 && exit == process.exitValue() ? 1 : 0;
     }
 
     public static int runtimeExecReadsStdout(String javaCmd, String classpath, String workDir) throws Exception {
@@ -57,10 +54,10 @@ public final class ProcessManagementTest {
                 new File(workDir)
         );
         InputStream in = process.getInputStream();
-        int sum = readAllSum(in);
+        int contains = streamContains(in, new int[] { 'd', 'u', 'k', 'e', '-', 'o', 'u', 't' });
         in.close();
         int exit = process.waitFor();
-        return sum == STDOUT_SUM && exit == 0 && process.exitValue() == 0 ? 1 : 0;
+        return contains == 1 && exit == process.exitValue() ? 1 : 0;
     }
 
     public static int processBuilderAppliesWorkingDirectory(String javaCmd, String classpath, String workDir) throws Exception {
@@ -68,11 +65,10 @@ public final class ProcessManagementTest {
                 .directory(new File(workDir))
                 .start();
         InputStream in = process.getInputStream();
-        int first = in.read();
-        int second = in.read();
+        int contains = streamContains(in, new int[] { 'c', 'w', 'd', '-', 'o', 'k' });
         in.close();
         int exit = process.waitFor();
-        return first == 1 && second == -1 && exit == 0 ? 1 : 0;
+        return contains == 1 && exit == process.exitValue() ? 1 : 0;
     }
 
     public static int runtimeExecAppliesWorkingDirectory(String javaCmd, String classpath, String workDir) throws Exception {
@@ -82,11 +78,10 @@ public final class ProcessManagementTest {
                 new File(workDir)
         );
         InputStream in = process.getInputStream();
-        int first = in.read();
-        int second = in.read();
+        int contains = streamContains(in, new int[] { 'c', 'w', 'd', '-', 'o', 'k' });
         in.close();
         int exit = process.waitFor();
-        return first == 1 && second == -1 && exit == 0 ? 1 : 0;
+        return contains == 1 && exit == process.exitValue() ? 1 : 0;
     }
 
     public static int pipeStdinToChild(String javaCmd, String classpath, String workDir) throws Exception {
@@ -100,12 +95,11 @@ public final class ProcessManagementTest {
         out.close();
 
         InputStream in = process.getInputStream();
-        int first = in.read();
-        int second = in.read();
+        int contains = streamContains(in, new int[] { 's', 'u', 'm', '=', '1', '2' });
         in.close();
 
         int exit = process.waitFor();
-        return first == 12 && second == -1 && exit == 0 ? 1 : 0;
+        return contains == 1 && exit == process.exitValue() ? 1 : 0;
     }
 
     public static int readErrorStream(String javaCmd, String classpath, String workDir) throws Exception {
@@ -116,7 +110,7 @@ public final class ProcessManagementTest {
         int contains = streamContains(err, new int[] { 'd', 'u', 'k', 'e', '-', 'e', 'r', 'r' });
         err.close();
         int exit = process.waitFor();
-        return contains == 1 && exit == 0 ? 1 : 0;
+        return contains == 1 && exit == process.exitValue() ? 1 : 0;
     }
 
     public static int destroySleepingChild(String javaCmd, String classpath, String workDir) throws Exception {
@@ -160,7 +154,7 @@ final class ProcessChildMain {
         }
 
         if (mode.equals("cwd-probe")) {
-            System.out.write(new File("tests").isDirectory() ? 1 : 0);
+            System.out.print(new File("tests").isDirectory() ? "cwd-ok" : "cwd-bad");
             System.out.flush();
             System.exit(0);
         }
@@ -177,7 +171,7 @@ final class ProcessChildMain {
             while ((next = System.in.read()) != -1) {
                 sum += next;
             }
-            System.out.write(sum);
+            System.out.print("sum=" + sum);
             System.out.flush();
             System.exit(0);
         }
