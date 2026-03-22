@@ -17281,6 +17281,32 @@ mod tests {
         }
     }
 
+    fn run_bootstrap_long(class_name: &str, method_name: &str, descriptor: &str) -> i64 {
+        let ctx = load_class_context(class_name);
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            method_name,
+            descriptor,
+            &[],
+        )
+        .expect("fixture should execute");
+        match result {
+            Some(Slot::Long(value)) => value,
+            other => panic!("expected long result, got {other:?}"),
+        }
+    }
+
     fn run_bootstrap_with_string_args(
         class_name: &str,
         method_name: &str,
@@ -27548,6 +27574,44 @@ mod tests {
             "()I",
         );
         assert_eq!(result, 1);
+    }
+
+    // ---- Phase 33: Time primitive fixture coverage ----
+
+    #[test]
+    fn time_current_time_millis_matches_host_wall_clock_window() {
+        let host_before = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("host clock is after epoch")
+                .as_millis(),
+        )
+        .expect("millis fit in i64");
+        let value = run_bootstrap_long("TimePrimitivesTest.class", "currentTimeMillisNow", "()J");
+        let host_after = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("host clock is after epoch")
+                .as_millis(),
+        )
+        .expect("millis fit in i64");
+
+        assert!(
+            value >= host_before && value <= host_after,
+            "expected {value} within [{host_before}, {host_after}]",
+        );
+    }
+
+    #[test]
+    fn time_current_time_millis_advances_after_sleep() {
+        assert_eq!(
+            run_bootstrap_int(
+                "TimePrimitivesTest.class",
+                "currentTimeMillisAdvancesAfterSleep",
+                "()I",
+            ),
+            1,
+        );
     }
 
     // ---- Phase 29: Networking helpers and integration tests ----
