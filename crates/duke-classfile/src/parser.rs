@@ -31,7 +31,7 @@ impl<'a> Cursor<'a> {
         Self { data, pos: 0 }
     }
 
-    /// Current read position.
+    // Current read position.
     const fn position(&self) -> usize {
         self.pos
     }
@@ -131,9 +131,9 @@ pub fn parse(bytes: &[u8]) -> ParseResult<ClassFile> {
     let mut cursor = Cursor::new(bytes);
     let mut class_file = parse_class_file(&mut cursor)?;
 
-    /// ⚡ Bolt: Removed expensive `class_file.constant_pool.clone()` allocation.
-    /// Rust allows disjoint borrowing, so we can borrow `constant_pool` immutably
-    /// while mutably borrowing `attributes`, `fields`, and `methods`.
+    // ⚡ Bolt: Removed expensive `class_file.constant_pool.clone()` allocation.
+    // Rust allows disjoint borrowing, so we can borrow `constant_pool` immutably
+    // while mutably borrowing `attributes`, `fields`, and `methods`.
 
     // Resolve raw attribute bytes into typed variants now that we have the full CP.
     let pool = &class_file.constant_pool;
