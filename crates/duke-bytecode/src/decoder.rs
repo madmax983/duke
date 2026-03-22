@@ -552,6 +552,39 @@ mod tests {
     }
 
     #[test]
+    fn test_decoder_coverage_additional() {
+        let code = vec![
+            op::CASTORE,
+            op::SASTORE,
+            op::RET,
+            0x01,
+            op::PUTFIELD,
+            0x00,
+            0x01,
+            op::MULTIANEWARRAY,
+            0x00,
+            0x02,
+            0x03,
+        ];
+        let instrs = decode(&code).unwrap();
+        assert_eq!(instrs.len(), 5);
+        assert_eq!(instrs[0].1, Instruction::Castore);
+        assert_eq!(instrs[1].1, Instruction::Sastore);
+        assert_eq!(instrs[2].1, Instruction::Ret(1));
+        assert_eq!(
+            instrs[3].1,
+            Instruction::Putfield(duke_classfile::CpIndex(1))
+        );
+        assert_eq!(
+            instrs[4].1,
+            Instruction::Multianewarray {
+                index: duke_classfile::CpIndex(2),
+                dimensions: 3
+            }
+        );
+    }
+
+    #[test]
     fn test_decoder_spot_checks6() {
         // Iconst5, Dload3
         let code = vec![0x08, 0x29];
