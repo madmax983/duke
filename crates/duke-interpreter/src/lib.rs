@@ -2345,6 +2345,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 }
 
+macro_rules! extract_print_arg {
+    ($args:expr, $pat:pat => $expr:expr, $expected:literal) => {
+        match $args.get(1) {
+            Some($pat) => $expr,
+            _ => {
+                return Err(VmError::TypeMismatch {
+                    expected: $expected,
+                    got: "other",
+                });
+            }
+        }
+    };
+}
+
 fn native_println_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2376,15 +2390,7 @@ fn native_println_int(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Int(v) => *v, "Int");
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -3645,15 +3651,7 @@ fn native_print_int(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Int(v) => *v, "Int");
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -3668,15 +3666,7 @@ fn native_println_long(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Long(v) => *v, "Long");
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -3687,15 +3677,7 @@ fn native_println_float(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Float(v) => *v, "Float");
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -3706,15 +3688,7 @@ fn native_println_double(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Double(v) => *v, "Double");
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -3725,15 +3699,7 @@ fn native_println_boolean(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(boolean)",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Int(v) => *v != 0, "Int(boolean)");
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -3744,15 +3710,7 @@ fn native_println_char(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(char)",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Int(v) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'), "Int(char)");
     writeln!(out, "{val}").ok();
     Ok(None)
 }
@@ -3837,15 +3795,7 @@ fn native_print_long(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Long(v) => *v, "Long");
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -3856,15 +3806,7 @@ fn native_print_float(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Float(v) => *v, "Float");
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -3875,15 +3817,7 @@ fn native_print_double(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Double(v) => *v, "Double");
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -3894,15 +3828,7 @@ fn native_print_boolean(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(boolean)",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Int(v) => *v != 0, "Int(boolean)");
     write!(out, "{val}").ok();
     Ok(None)
 }
@@ -3913,15 +3839,7 @@ fn native_print_char(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(char)",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_print_arg!(args, Slot::Int(v) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'), "Int(char)");
     write!(out, "{val}").ok();
     Ok(None)
 }

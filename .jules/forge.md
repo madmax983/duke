@@ -20,3 +20,7 @@
 **[Preserving Jump Tables in Refactors]
 **Learning:** Breaking a massive `match` statement in a hot path (like a bytecode decoder) into multiple sequential helper functions ruins the compiler's ability to generate an O(1) jump table, causing a severe performance regression.
 **Action:** When fixing `clippy::too_many_lines` on a massive `match`, keep the massive `match` statement intact and use `#[allow(clippy::too_many_lines)]`. Only extract the complex logic *inside* specific arms (like `TABLESWITCH` or `LOOKUPSWITCH`) into helper functions.
+
+**[Extracting Native Print Boilerplate]
+**Learning:** Generating full function signatures inside `macro_rules!` (e.g. `define_native_print!`) breaks IDE navigability ("Go to Definition") and readability, even if it saves lines.
+**Action:** When deduplicating boilerplate across multiple functions in Rust (e.g., argument extraction in `duke-interpreter` native functions), prefer using inline `macro_rules!` macros (e.g., `extract_print_arg!`) to handle the repetitive inner logic rather than generating entire function signatures. This preserves IDE features and keeps function signatures explicit.
