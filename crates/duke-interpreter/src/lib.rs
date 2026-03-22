@@ -27433,6 +27433,46 @@ mod tests {
     }
 
     #[test]
+    fn process_builder_applies_working_directory() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "processBuilderAppliesWorkingDirectory",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                "java".to_string(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected ProcessBuilder.directory working directory support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_runtime_exec_applies_working_directory() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "runtimeExecAppliesWorkingDirectory",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                "java".to_string(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected Runtime.exec working directory support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
     fn process_pipe_stdin_to_child_round_trips() {
         let result = run_bootstrap_with_string_args(
             "ProcessManagementTest.class",
