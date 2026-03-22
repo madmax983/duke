@@ -27665,6 +27665,27 @@ mod tests {
     }
 
     #[test]
+    fn time_nano_time_returns_positive_elapsed_duration() {
+        let delta = run_bootstrap_long("TimePrimitivesTest.class", "nanoTimeDeltaAfterSleep", "()J");
+        assert!(
+            delta >= 1_000_000,
+            "expected at least 1 ms in nanos, got {delta}"
+        );
+    }
+
+    #[test]
+    fn time_nano_time_supports_java_duration_math() {
+        assert_eq!(
+            run_bootstrap_int_completion(
+                "TimePrimitivesTest.class",
+                "nanoTimeSupportsDurationMath",
+                "()I",
+            ),
+            1,
+        );
+    }
+
+    #[test]
     fn time_system_time_to_epoch_millis_converts_forward_values() {
         let sample = std::time::UNIX_EPOCH + std::time::Duration::from_millis(1_234);
         assert_eq!(system_time_to_epoch_millis(sample), 1_234);
