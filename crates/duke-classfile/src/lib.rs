@@ -18,6 +18,7 @@
 pub mod access_flags;
 pub mod error;
 pub mod parser;
+/// Data structures representing the components of a JVM class file.
 pub mod types;
 
 pub use error::{ParseError, ParseResult};
