@@ -5,7 +5,7 @@
 
 use std::process;
 
-use duke_bytecode::decode;
+use duke_bytecode::{decode, generate_mermaid_cfg};
 use duke_classfile::{
     ClassFile, parse,
     types::{AttributeData, CpEntry, CpIndex},
@@ -198,6 +198,7 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke load <ClassName>");
+        eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
@@ -223,6 +224,12 @@ fn main() {
     // Dispatch `load` before trying to read a file.
     if args.len() >= 3 && args[1] == "load" {
         load_and_dump(&args[2]);
+        return;
+    }
+
+    // Dispatch `cfg`: dump control flow graph for a method.
+    if args.len() >= 4 && args[1] == "cfg" {
+        dump_cfg(&args[2], &args[3]);
         return;
     }
 
@@ -594,6 +601,44 @@ fn run_jar(
 // ---------------------------------------------------------------------------
 // Dump
 // ---------------------------------------------------------------------------
+
+fn dump_cfg(path: &str, method_name: &str) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("duke: cannot read '{path}': {e}");
+        process::exit(1);
+    });
+    let cf = parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error: {e}");
+        process::exit(1);
+    });
+
+    let target = cf
+        .methods
+        .iter()
+        .find(|m| {
+            let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize) else {
+                return false;
+            };
+            s.as_str() == method_name
+        })
+        .unwrap_or_else(|| {
+            eprintln!("duke: method '{method_name}' not found");
+            process::exit(1);
+        });
+
+    for attr in &target.attributes {
+        if let AttributeData::Code(code) = &attr.data {
+            let instructions = decode(&code.code).unwrap_or_else(|e| {
+                eprintln!("duke: decode error: {e}");
+                process::exit(1);
+            });
+            println!("{}", generate_mermaid_cfg(&instructions));
+            return;
+        }
+    }
+    eprintln!("duke: method '{method_name}' has no code attribute");
+    process::exit(1);
+}
 
 fn dump_class_file(cf: &ClassFile) {
     let this_name = resolve_class_name(cf, cf.this_class);
