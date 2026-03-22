@@ -67,6 +67,20 @@ pub struct HeapObject {
 }
 
 #[derive(Debug)]
+pub struct HostProcessHandle {
+    child: std::process::Child,
+    exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpawnedProcessIds {
+    pub process_id: i32,
+    pub stdin_id: i32,
+    pub stdout_id: i32,
+    pub stderr_id: i32,
+}
+
+#[derive(Debug)]
 /// A handle to a native file managed by the VM on behalf of Java I/O classes.
 pub enum HostFileHandle {
     /// A file opened for reading.
@@ -83,6 +97,14 @@ pub enum HostFileHandle {
     ZipArchive(duke_loader::ZipReader),
     /// An in-memory byte buffer (e.g. decompressed ZIP entry for `InputStream`).
     ByteBuffer(std::io::Cursor<Vec<u8>>),
+    /// An owned child process plus any cached exit status.
+    Process(HostProcessHandle),
+    /// The stdout pipe of a child process.
+    ProcessStdout(std::process::ChildStdout),
+    /// The stderr pipe of a child process.
+    ProcessStderr(std::process::ChildStderr),
+    /// The stdin pipe of a child process.
+    ProcessStdin(std::process::ChildStdin),
 }
 
 /// The generational object heap.
@@ -295,6 +317,8 @@ impl Heap {
             HostFileHandle::Reader(f) => f,
             HostFileHandle::SocketReader(s) => s,
             HostFileHandle::ByteBuffer(cursor) => cursor,
+            HostFileHandle::ProcessStdout(stdout) => stdout,
+            HostFileHandle::ProcessStderr(stderr) => stderr,
             _ => {
                 return Err(VmError::JavaException {
                     class_name: "java/io/IOException".into(),
@@ -325,6 +349,7 @@ impl Heap {
         let writer: &mut dyn Write = match handle {
             HostFileHandle::Writer(f) => f,
             HostFileHandle::SocketWriter(s) => s,
+            HostFileHandle::ProcessStdin(stdin) => stdin,
             _ => {
                 return Err(VmError::JavaException {
                     class_name: "java/io/IOException".into(),
@@ -345,6 +370,170 @@ impl Heap {
         if id > 0 {
             self.host_files.remove(&id);
         }
+    }
+
+    const fn next_host_handle_id(&mut self) -> i32 {
+        let id = self.next_host_file_id;
+        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
+        id
+    }
+
+    /// Spawns a child process on the host OS with fully piped stdio.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the command is empty, cannot be spawned, or any
+    /// of the expected pipes are unavailable.
+    pub fn spawn_host_process(
+        &mut self,
+        command: &[String],
+        cwd: Option<&std::path::Path>,
+    ) -> VmResult<SpawnedProcessIds> {
+        if command.is_empty() {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        }
+
+        let mut builder = std::process::Command::new(&command[0]);
+        builder.args(&command[1..]);
+        builder.stdin(std::process::Stdio::piped());
+        builder.stdout(std::process::Stdio::piped());
+        builder.stderr(std::process::Stdio::piped());
+        if let Some(cwd) = cwd {
+            builder.current_dir(cwd);
+        }
+
+        let mut child = builder.spawn().map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        })?;
+        let Some(stdin) = child.stdin.take() else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        };
+        let Some(stdout) = child.stdout.take() else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        };
+        let Some(stderr) = child.stderr.take() else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        };
+
+        let process_id = self.next_host_handle_id();
+        let stdin_id = self.next_host_handle_id();
+        let stdout_id = self.next_host_handle_id();
+        let stderr_id = self.next_host_handle_id();
+
+        self.host_files.insert(
+            process_id,
+            HostFileHandle::Process(HostProcessHandle {
+                child,
+                exit_code: None,
+            }),
+        );
+        self.host_files
+            .insert(stdin_id, HostFileHandle::ProcessStdin(stdin));
+        self.host_files
+            .insert(stdout_id, HostFileHandle::ProcessStdout(stdout));
+        self.host_files
+            .insert(stderr_id, HostFileHandle::ProcessStderr(stderr));
+
+        Ok(SpawnedProcessIds {
+            process_id,
+            stdin_id,
+            stdout_id,
+            stderr_id,
+        })
+    }
+
+    #[cfg(unix)]
+    fn exit_status_code(status: std::process::ExitStatus) -> i32 {
+        use std::os::unix::process::ExitStatusExt;
+
+        status
+            .code()
+            .unwrap_or_else(|| status.signal().map_or(-1, |signal| 128 + signal))
+    }
+
+    #[cfg(not(unix))]
+    fn exit_status_code(status: std::process::ExitStatus) -> i32 {
+        status.code().unwrap_or(-1)
+    }
+
+    fn process_handle_mut(&mut self, id: i32) -> VmResult<&mut HostProcessHandle> {
+        match self.host_files.get_mut(&id) {
+            Some(HostFileHandle::Process(process)) => Ok(process),
+            _ => Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            }),
+        }
+    }
+
+    /// Blocks until the child process exits and returns its cached exit code.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the process id is invalid or waiting fails.
+    pub fn wait_host_process(&mut self, id: i32) -> VmResult<i32> {
+        let process = self.process_handle_mut(id)?;
+        if let Some(code) = process.exit_code {
+            return Ok(code);
+        }
+        let status = process.child.wait().map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        })?;
+        let code = Self::exit_status_code(status);
+        process.exit_code = Some(code);
+        Ok(code)
+    }
+
+    /// Returns the child's exit code if it has already terminated.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the process id is invalid or querying status fails.
+    pub fn try_host_process_exit_value(&mut self, id: i32) -> VmResult<Option<i32>> {
+        let process = self.process_handle_mut(id)?;
+        if let Some(code) = process.exit_code {
+            return Ok(Some(code));
+        }
+        let status = process
+            .child
+            .try_wait()
+            .map_err(|_| VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            })?;
+        let Some(status) = status else {
+            return Ok(None);
+        };
+        let code = Self::exit_status_code(status);
+        process.exit_code = Some(code);
+        Ok(Some(code))
+    }
+
+    /// Requests child termination if the process is still alive.
+    ///
+    /// # Errors
+    /// Returns `IOException` if the process id is invalid or the kill operation fails.
+    pub fn destroy_host_process(&mut self, id: i32) -> VmResult<()> {
+        let process = self.process_handle_mut(id)?;
+        if process.exit_code.is_some() {
+            return Ok(());
+        }
+        if let Some(status) = process
+            .child
+            .try_wait()
+            .map_err(|_| VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            })?
+        {
+            process.exit_code = Some(Self::exit_status_code(status));
+            return Ok(());
+        }
+        process.child.kill().map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        })
     }
 
     /// Opens a ZIP/JAR archive on the host OS, parses and indexes it.

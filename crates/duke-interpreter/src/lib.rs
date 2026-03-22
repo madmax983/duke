@@ -215,6 +215,267 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(output_stream_ctx);
 
+    let process_ctx = ClassContext {
+        class_name: "java/lang/Process".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(process_ctx);
+
+    let process_impl_ctx = ClassContext {
+        class_name: "java/lang/ProcessImpl".to_string(),
+        super_class: Some("java/lang/Process".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "pid".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "stdinFd".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "stdoutFd".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "stderrFd".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(process_impl_ctx);
+    registry.natives_mut().register(
+        "java/lang/ProcessImpl",
+        "getInputStream",
+        "()Ljava/io/InputStream;",
+        native_process_get_input_stream,
+    );
+    registry.natives_mut().register(
+        "java/lang/ProcessImpl",
+        "getErrorStream",
+        "()Ljava/io/InputStream;",
+        native_process_get_error_stream,
+    );
+    registry.natives_mut().register(
+        "java/lang/ProcessImpl",
+        "getOutputStream",
+        "()Ljava/io/OutputStream;",
+        native_process_get_output_stream,
+    );
+    registry.natives_mut().register(
+        "java/lang/ProcessImpl",
+        "waitFor",
+        "()I",
+        native_process_wait_for,
+    );
+    registry.natives_mut().register(
+        "java/lang/ProcessImpl",
+        "exitValue",
+        "()I",
+        native_process_exit_value,
+    );
+    registry.natives_mut().register(
+        "java/lang/ProcessImpl",
+        "destroy",
+        "()V",
+        native_process_destroy,
+    );
+
+    let process_builder_ctx = ClassContext {
+        class_name: "java/lang/ProcessBuilder".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "command".to_string(),
+                descriptor: "[Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "directory".to_string(),
+                descriptor: "Ljava/io/File;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(process_builder_ctx);
+    registry.natives_mut().register(
+        "java/lang/ProcessBuilder",
+        "<init>",
+        "([Ljava/lang/String;)V",
+        native_process_builder_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/ProcessBuilder",
+        "directory",
+        "(Ljava/io/File;)Ljava/lang/ProcessBuilder;",
+        native_process_builder_directory,
+    );
+    registry.natives_mut().register(
+        "java/lang/ProcessBuilder",
+        "start",
+        "()Ljava/lang/Process;",
+        native_process_builder_start,
+    );
+
+    let runtime_ctx = ClassContext {
+        class_name: "java/lang/Runtime".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(runtime_ctx);
+    registry.natives_mut().register(
+        "java/lang/Runtime",
+        "getRuntime",
+        "()Ljava/lang/Runtime;",
+        native_runtime_get_runtime,
+    );
+    registry.natives_mut().register(
+        "java/lang/Runtime",
+        "exec",
+        "([Ljava/lang/String;)Ljava/lang/Process;",
+        native_runtime_exec_array,
+    );
+    registry.natives_mut().register(
+        "java/lang/Runtime",
+        "exec",
+        "([Ljava/lang/String;[Ljava/lang/String;Ljava/io/File;)Ljava/lang/Process;",
+        native_runtime_exec_array_dir,
+    );
+
+    let process_input_stream_ctx = ClassContext {
+        class_name: "duke/process/ProcessInputStream".to_string(),
+        super_class: Some("java/io/InputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(process_input_stream_ctx);
+    registry.natives_mut().register(
+        "duke/process/ProcessInputStream",
+        "read",
+        "()I",
+        native_file_input_stream_read,
+    );
+    registry.natives_mut().register(
+        "duke/process/ProcessInputStream",
+        "read",
+        "([B)I",
+        native_file_input_stream_read_bytes,
+    );
+    registry.natives_mut().register(
+        "duke/process/ProcessInputStream",
+        "close",
+        "()V",
+        native_file_input_stream_close,
+    );
+
+    let process_error_stream_ctx = ClassContext {
+        class_name: "duke/process/ProcessErrorStream".to_string(),
+        super_class: Some("java/io/InputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(process_error_stream_ctx);
+    registry.natives_mut().register(
+        "duke/process/ProcessErrorStream",
+        "read",
+        "()I",
+        native_file_input_stream_read,
+    );
+    registry.natives_mut().register(
+        "duke/process/ProcessErrorStream",
+        "read",
+        "([B)I",
+        native_file_input_stream_read_bytes,
+    );
+    registry.natives_mut().register(
+        "duke/process/ProcessErrorStream",
+        "close",
+        "()V",
+        native_file_input_stream_close,
+    );
+
+    let process_output_stream_ctx = ClassContext {
+        class_name: "duke/process/ProcessOutputStream".to_string(),
+        super_class: Some("java/io/OutputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fd".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(process_output_stream_ctx);
+    registry.natives_mut().register(
+        "duke/process/ProcessOutputStream",
+        "write",
+        "(I)V",
+        native_file_output_stream_write,
+    );
+    registry.natives_mut().register(
+        "duke/process/ProcessOutputStream",
+        "write",
+        "([B)V",
+        native_file_output_stream_write_bytes,
+    );
+    registry.natives_mut().register(
+        "duke/process/ProcessOutputStream",
+        "close",
+        "()V",
+        native_file_output_stream_close,
+    );
+
     let file_input_stream_ctx = ClassContext {
         class_name: "java/io/FileInputStream".to_string(),
         super_class: Some("java/io/InputStream".to_string()),
@@ -966,6 +1227,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(illegal_argument_ctx);
+
+    let illegal_thread_state_ctx = ClassContext {
+        class_name: "java/lang/IllegalThreadStateException".to_string(),
+        super_class: Some("java/lang/IllegalArgumentException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(illegal_thread_state_ctx);
 
     let reflective_operation_ctx = ClassContext {
         class_name: "java/lang/ReflectiveOperationException".to_string(),
@@ -2143,21 +2417,29 @@ fn path_from_string_slot(
     Ok(std::path::PathBuf::from(path))
 }
 
+fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> VmResult<String> {
+    heap.get(string_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)
+}
+
+fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> VmResult<std::path::PathBuf> {
+    let path_ref = match heap.get(file_ref)?.fields.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    Ok(std::path::PathBuf::from(string_value_from_ref(
+        heap, path_ref,
+    )?))
+}
+
 fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<std::path::PathBuf> {
     let this_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(VmError::NullPointerException),
     };
-    let path_ref = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let path = heap
-        .get(path_ref)?
-        .string_value
-        .clone()
-        .ok_or(VmError::NullPointerException)?;
-    Ok(std::path::PathBuf::from(path))
+    file_path_from_ref(this_ref, heap)
 }
 
 fn native_file_init(
@@ -12637,6 +12919,259 @@ fn native_hashset_is_empty(
         Some(Slot::Int(_)) => Ok(Some(Slot::Int(0))),
         _ => Ok(Some(Slot::Int(1))),
     }
+}
+
+const PROCESS_ID_FIELD: usize = 0;
+const PROCESS_STDIN_FIELD: usize = 1;
+const PROCESS_STDOUT_FIELD: usize = 2;
+const PROCESS_STDERR_FIELD: usize = 3;
+
+fn string_array_from_slot(slot: Slot, heap: &duke_gc::Heap) -> VmResult<Vec<String>> {
+    let Slot::Reference(Some(array_ref)) = slot else {
+        return Err(VmError::NullPointerException);
+    };
+    let elements = heap.get(array_ref)?.fields.clone();
+    elements
+        .into_iter()
+        .map(|element| match element {
+            Slot::Reference(Some(string_ref)) => string_value_from_ref(heap, string_ref),
+            _ => Err(VmError::NullPointerException),
+        })
+        .collect()
+}
+
+fn optional_file_path_from_slot(
+    slot: Slot,
+    heap: &duke_gc::Heap,
+) -> VmResult<Option<std::path::PathBuf>> {
+    match slot {
+        Slot::Reference(Some(file_ref)) => Ok(Some(file_path_from_ref(file_ref, heap)?)),
+        Slot::Reference(None) => Ok(None),
+        _ => Err(VmError::NullPointerException),
+    }
+}
+
+fn allocate_process_impl(
+    heap: &mut duke_gc::Heap,
+    ids: duke_gc::SpawnedProcessIds,
+) -> VmResult<Option<Slot>> {
+    let process_ref = heap.allocate("java/lang/ProcessImpl".to_string(), 4);
+    let process_obj = heap.get_mut(process_ref)?;
+    process_obj.fields[PROCESS_ID_FIELD] = Slot::Int(ids.process_id);
+    process_obj.fields[PROCESS_STDIN_FIELD] = Slot::Int(ids.stdin_id);
+    process_obj.fields[PROCESS_STDOUT_FIELD] = Slot::Int(ids.stdout_id);
+    process_obj.fields[PROCESS_STDERR_FIELD] = Slot::Int(ids.stderr_id);
+    Ok(Some(Slot::Reference(Some(process_ref))))
+}
+
+fn spawn_process_impl(
+    heap: &mut duke_gc::Heap,
+    command: &[String],
+    cwd: Option<&std::path::Path>,
+) -> VmResult<Option<Slot>> {
+    let ids = heap.spawn_host_process(command, cwd)?;
+    allocate_process_impl(heap, ids)
+}
+
+fn process_field_id_from_this(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    field_idx: usize,
+) -> VmResult<i32> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    match heap.get(this_ref)?.fields.get(field_idx) {
+        Some(Slot::Int(id)) if *id > 0 => Ok(*id),
+        _ => Err(VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        }),
+    }
+}
+
+fn allocate_process_stream(
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+    handle_id: i32,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = heap.allocate(class_name.to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(handle_id);
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+fn native_process_builder_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let command_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let builder_obj = heap.get_mut(this_ref)?;
+    if builder_obj.fields.len() < 2 {
+        return Err(VmError::InvalidRef { address: this_ref });
+    }
+    builder_obj.fields[0] = command_slot;
+    builder_obj.fields[1] = Slot::Reference(None);
+    Ok(None)
+}
+
+fn native_process_builder_directory(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let directory_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let builder_obj = heap.get_mut(this_ref)?;
+    if builder_obj.fields.len() < 2 {
+        return Err(VmError::InvalidRef { address: this_ref });
+    }
+    builder_obj.fields[1] = directory_slot;
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+fn native_process_builder_start(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(VmError::NullPointerException),
+    };
+    let builder_obj = heap.get(this_ref)?;
+    let command_slot = builder_obj
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let directory_slot = builder_obj
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let command = string_array_from_slot(command_slot, heap)?;
+    let cwd = optional_file_path_from_slot(directory_slot, heap)?;
+    spawn_process_impl(heap, &command, cwd.as_deref())
+}
+
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+fn native_runtime_get_runtime(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let runtime_ref = heap.allocate("java/lang/Runtime".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(runtime_ref))))
+}
+
+fn native_runtime_exec_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(_))) => {}
+        _ => return Err(VmError::NullPointerException),
+    }
+    let command =
+        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+    spawn_process_impl(heap, &command, None)
+}
+
+fn native_runtime_exec_array_dir(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(_))) => {}
+        _ => return Err(VmError::NullPointerException),
+    }
+    let command =
+        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+    let cwd =
+        optional_file_path_from_slot(args.get(3).copied().unwrap_or(Slot::Reference(None)), heap)?;
+    spawn_process_impl(heap, &command, cwd.as_deref())
+}
+
+fn native_process_get_input_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stdout_id = process_field_id_from_this(args, heap, PROCESS_STDOUT_FIELD)?;
+    allocate_process_stream(heap, "duke/process/ProcessInputStream", stdout_id)
+}
+
+fn native_process_get_error_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stderr_id = process_field_id_from_this(args, heap, PROCESS_STDERR_FIELD)?;
+    allocate_process_stream(heap, "duke/process/ProcessErrorStream", stderr_id)
+}
+
+fn native_process_get_output_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stdin_id = process_field_id_from_this(args, heap, PROCESS_STDIN_FIELD)?;
+    allocate_process_stream(heap, "duke/process/ProcessOutputStream", stdin_id)
+}
+
+fn native_process_wait_for(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
+    Ok(Some(Slot::Int(heap.wait_host_process(process_id)?)))
+}
+
+fn native_process_exit_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
+    let Some(exit_code) = heap.try_host_process_exit_value(process_id)? else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalThreadStateException".into(),
+        });
+    };
+    Ok(Some(Slot::Int(exit_code)))
+}
+
+fn native_process_destroy(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
+    heap.destroy_host_process(process_id)?;
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------
@@ -26844,6 +27379,175 @@ mod tests {
             run_bootstrap_int("ReflectionTest.class", "targetExceptionIsWrapped", "()I"),
             1
         );
+    }
+
+    // ---- Phase 32: Process management fixture coverage ----
+
+    fn repo_root_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf()
+    }
+
+    fn host_process_command() -> String {
+        if cfg!(windows) {
+            "powershell".to_string()
+        } else {
+            "sh".to_string()
+        }
+    }
+
+    #[test]
+    fn process_spawn_and_read_stdout_returns_expected_sum() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "spawnAndReadStdout",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                host_process_command(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected ProcessBuilder.start stdout support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_runtime_exec_reads_stdout_and_exit_code() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "runtimeExecReadsStdout",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                host_process_command(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected Runtime.exec stdout support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_builder_applies_working_directory() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "processBuilderAppliesWorkingDirectory",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                host_process_command(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected ProcessBuilder.directory working directory support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_runtime_exec_applies_working_directory() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "runtimeExecAppliesWorkingDirectory",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                host_process_command(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected Runtime.exec working directory support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_pipe_stdin_to_child_round_trips() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "pipeStdinToChild",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                host_process_command(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected child stdin/stdout pipe support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_read_error_stream_returns_expected_sum() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "readErrorStream",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                host_process_command(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected child stderr pipe support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_destroy_terminates_sleeping_child() {
+        let result = run_bootstrap_with_string_args(
+            "ProcessManagementTest.class",
+            "destroySleepingChild",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I",
+            &[
+                host_process_command(),
+                fixtures_dir().to_string_lossy().into_owned(),
+                repo_root_dir().to_string_lossy().into_owned(),
+            ],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected Process.destroy and exitValue support; current Duke failed with {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn process_missing_executable_raises_io_exception() {
+        let result = run_bootstrap_int(
+            "ProcessManagementTest.class",
+            "missingExecutableRaisesIoException",
+            "()I",
+        );
+        assert_eq!(result, 1);
     }
 
     // ---- Phase 29: Networking helpers and integration tests ----
