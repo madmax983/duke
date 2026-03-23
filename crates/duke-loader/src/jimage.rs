@@ -148,7 +148,13 @@ impl JImageReader {
             });
         }
 
-        let index = build_index(&data, locations_offset, ls, strings_offset);
+        let index = build_index(
+            &data,
+            locations_offset,
+            ls,
+            strings_offset,
+            resource_count as usize,
+        );
 
         Ok(Self {
             data,
@@ -298,13 +304,20 @@ fn parse_header(data: &[u8]) -> LoadResult<(u32, u32, u32, u32)> {
 // Location index builder
 // ---------------------------------------------------------------------------
 
+/// Builds the path→resource index for the jimage.
+///
+/// **Optimization:** Takes the parsed `capacity` (`resource_count`) directly
+/// from the header to preallocate the `HashMap`. The JDK `lib/modules` file
+/// typically contains tens of thousands of resources. Preallocating the index
+/// prevents numerous intermediate allocations and rehashing passes during startup.
 fn build_index(
     data: &[u8],
     locs_offset: usize,
     locs_size: usize,
     str_offset: usize,
+    capacity: usize,
 ) -> HashMap<String, ResourceInfo> {
-    let mut index = HashMap::new();
+    let mut index = HashMap::with_capacity(capacity);
     let mut pos = locs_offset;
     let locs_end = locs_offset + locs_size;
 
@@ -512,7 +525,7 @@ mod tests {
         locs.push(attr_end());
 
         let (data, locs_offset, locs_size, str_offset) = make_build_index_data(&locs);
-        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        let index = build_index(&data, locs_offset, locs_size, str_offset, 1);
 
         assert_eq!(index.len(), 1);
         let info = index.get("/mod/Foo").expect("expected /mod/Foo in index");
@@ -536,7 +549,7 @@ mod tests {
         locs.push(attr_end());
 
         let (data, locs_offset, locs_size, str_offset) = make_build_index_data(&locs);
-        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        let index = build_index(&data, locs_offset, locs_size, str_offset, 1);
 
         let info = index.get("/mod/Foo").expect("expected /mod/Foo in index");
         assert_eq!(info.compressed, 5, "compressed attribute must be stored");
@@ -557,7 +570,7 @@ mod tests {
         locs.push(attr_end());
 
         let (data, locs_offset, locs_size, str_offset) = make_build_index_data(&locs);
-        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        let index = build_index(&data, locs_offset, locs_size, str_offset, 0);
         assert!(
             index.is_empty(),
             "entry with uncompressed=0 should be skipped"
@@ -592,7 +605,7 @@ mod tests {
         // data.len() = 9 + 6 = 15; pos+len for last attr = (9+4+1) + 1 = 15 == data.len()
         let (locs_offset, locs_size, str_offset) = (9, 6, 0);
 
-        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        let index = build_index(&data, locs_offset, locs_size, str_offset, 1);
         let info = index
             .get("/mod/Foo")
             .expect("exact-fit attribute must be read into index");
@@ -623,7 +636,7 @@ mod tests {
         let (locs_offset, locs_size, str_offset) = (9, locs.len(), 0);
 
         // Must not panic, and entry must not be indexed (BASE never set → path empty)
-        let index = build_index(&data, locs_offset, locs_size, str_offset);
+        let index = build_index(&data, locs_offset, locs_size, str_offset, 0);
         assert!(
             index.is_empty(),
             "truncated attribute stream should produce empty index"
@@ -640,7 +653,7 @@ mod tests {
         //   header_byte = 0x09 = (ATTR_MODULE<<3)|(2-1) = 0x08|0x01 → kind=1, len=2
         // locs_offset=0, locs_size=2, str_offset=2, data.len()=2
         let data = vec![0x09u8, 0x42];
-        let index = build_index(&data, 0, 2, 2);
+        let index = build_index(&data, 0, 2, 2, 0);
         assert!(
             index.is_empty(),
             "truncated len=2 at pos=1 must not panic and should be empty"
