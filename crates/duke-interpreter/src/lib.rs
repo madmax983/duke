@@ -6986,7 +6986,14 @@ fn activate_method_state(
 enum ExecutionOutcome {
     Returned(Option<Slot>),
     ThreadAction(NativeThreadAction),
+    /// The thread has exhausted its instruction quantum and should yield so
+    /// other threads can make progress.
+    Yield,
 }
+
+/// Default number of bytecode instructions a thread may execute before
+/// yielding the VM lock, enabling fair interleaving of Java threads.
+const DEFAULT_THREAD_QUANTUM: usize = 1024;
 
 fn finish_native_call(
     native_control: &mut NativeControl,
@@ -7267,11 +7274,13 @@ pub fn execute_class(
         descriptor,
         args,
     )?;
-    match run_execution(&mut state, registry, loader, heap, stdout, true)? {
+    match run_execution(&mut state, registry, loader, heap, stdout, true, None)? {
         ExecutionOutcome::Returned(result) => Ok(result),
-        ExecutionOutcome::ThreadAction(_) => Err(VmError::Unimplemented {
-            mnemonic: "thread action requires execute_class_to_completion",
-        }),
+        ExecutionOutcome::ThreadAction(_) | ExecutionOutcome::Yield => {
+            Err(VmError::Unimplemented {
+                mnemonic: "thread action requires execute_class_to_completion",
+            })
+        }
     }
 }
 
@@ -7296,6 +7305,7 @@ fn run_execution(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     gc_allowed: bool,
+    quantum: Option<usize>,
 ) -> VmResult<ExecutionOutcome> {
     let ExecutionState {
         current_class,
@@ -7312,7 +7322,14 @@ fn run_execution(
         current_method,
     } = state;
 
+    let mut remaining = quantum.unwrap_or(usize::MAX);
+
     loop {
+        if remaining == 0 {
+            return Ok(ExecutionOutcome::Yield);
+        }
+        remaining = remaining.saturating_sub(1);
+
         let (pc, instr) = {
             let Some(&(pc, ref instr)) = instructions.get(*idx) else {
                 return Err(VmError::FellOffEnd);
@@ -10261,6 +10278,7 @@ fn run_thread_to_completion(
             heap,
             output,
             *live_workers == 0,
+            Some(DEFAULT_THREAD_QUANTUM),
         )?;
         drop(shared_guard);
 
@@ -10268,6 +10286,11 @@ fn run_thread_to_completion(
             ExecutionOutcome::Returned(_) => return Ok(()),
             ExecutionOutcome::ThreadAction(action) => {
                 handle_thread_action(action, shared, runtime, loader)?;
+            }
+            ExecutionOutcome::Yield => {
+                // Release the lock (already dropped above) and give other
+                // threads a chance to acquire it before we loop back.
+                std::thread::yield_now();
             }
         }
     }
@@ -10438,6 +10461,7 @@ where
             heap,
             output,
             *live_workers == 0,
+            Some(DEFAULT_THREAD_QUANTUM),
         )?;
         drop(shared_guard);
 
@@ -10445,6 +10469,9 @@ where
             ExecutionOutcome::Returned(result) => break Ok(result),
             ExecutionOutcome::ThreadAction(action) => {
                 handle_thread_action(action, &shared, &runtime, &loader)?;
+            }
+            ExecutionOutcome::Yield => {
+                std::thread::yield_now();
             }
         }
     };
@@ -19497,6 +19524,51 @@ mod tests {
                 "missing expected worker output {expected}: {lines:?}"
             );
         }
+    }
+
+    #[test]
+    fn concurrency_two_busy_workers_interleave() {
+        let result =
+            run_bootstrap_with_output("ConcurrencyTest.class", "twoWorkersBusyLoop", "()I");
+
+        assert!(
+            result.is_ok(),
+            "expected busy-loop concurrency test to pass; failed with {result:?}"
+        );
+        let (value, lines) = result.unwrap();
+        assert_eq!(
+            value,
+            Some(Slot::Int(2)),
+            "twoWorkersBusyLoop should return 2"
+        );
+
+        // Each worker prints 4 checkpoint lines (WORK_ITERATIONS / PRINT_INTERVAL = 4).
+        assert_eq!(
+            lines.len(),
+            8,
+            "two workers with 4 checkpoints each = 8 lines; got {lines:?}"
+        );
+
+        // Verify all expected lines are present.
+        for worker in 0..2 {
+            for checkpoint in 1..=4 {
+                let expected = format!("{worker}:{checkpoint}");
+                assert!(
+                    lines.iter().any(|l| l == &expected),
+                    "missing output line {expected}: {lines:?}"
+                );
+            }
+        }
+
+        // Check interleaving: find the first line from worker 1 and the last
+        // line from worker 0.  With true concurrency the first worker-1 marker
+        // should appear before the last worker-0 marker.
+        let first_w1 = lines.iter().position(|l| l.starts_with("1:"));
+        let last_w0 = lines.iter().rposition(|l| l.starts_with("0:"));
+        assert!(
+            first_w1.is_some() && last_w0.is_some() && first_w1.unwrap() < last_w0.unwrap(),
+            "expected interleaved execution between workers; output order was: {lines:?}"
+        );
     }
 
     // ---------------------------------------------------------------------------
