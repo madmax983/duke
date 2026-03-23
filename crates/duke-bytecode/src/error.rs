@@ -1,8 +1,24 @@
 //! `duke-bytecode::error` — [`DecodeError`] and [`VerifyError`]
+//!
+//! This module contains the canonical error types returned by the decoder
+//! and structural verifier. The errors represent malformed bytecode streams
+//! that violate the JVM class file specification.
 
 use thiserror::Error;
 
 /// Errors produced by the bytecode decoder.
+///
+/// These errors occur when the raw bytes of a method's `Code` attribute
+/// cannot be safely transformed into a sequence of typed `Instruction`s.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::error::DecodeError;
+///
+/// let err = DecodeError::UnexpectedEof { pc: 10 };
+/// assert_eq!(err.to_string(), "unexpected end of bytecode at pc=10");
+/// ```
 #[derive(Debug, Error)]
 pub enum DecodeError {
     #[error("unexpected end of bytecode at pc={pc}")]
@@ -37,6 +53,22 @@ pub enum DecodeError {
 pub type DecodeResult<T> = Result<T, DecodeError>;
 
 /// Errors produced by the structural bytecode verifier.
+///
+/// These errors occur when a decoded instruction stream is structurally
+/// unsound, such as pushing more values than the maximum stack size allows
+/// or popping from an empty stack.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::error::VerifyError;
+///
+/// let err = VerifyError::StackOverflow { pc: 5, depth: 3, max_stack: 2 };
+/// assert_eq!(
+///     err.to_string(),
+///     "stack overflow at pc=5: depth would be 3 but max_stack=2"
+/// );
+/// ```
 #[derive(Debug, Error)]
 pub enum VerifyError {
     #[error("stack overflow at pc={pc}: depth would be {depth} but max_stack={max_stack}")]

@@ -12,11 +12,29 @@ use duke_classfile::CpIndex;
 
 /// Decode a bytecode sequence from a `Code` attribute into typed instructions.
 ///
+/// This performs the first pass over a raw byte stream, resolving variable-length
+/// instruction operands into a typed [`Instruction`] enum paired with its original
+/// byte offset (`pc`).
+///
 /// # Errors
 ///
 /// Returns [`DecodeError`] if the bytecode is structurally malformed (truncated
 /// operands, unknown opcodes, invalid `wide` prefix target, bad array type).
 /// Never panics.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{decode, Instruction};
+///
+/// // iconst_1 (0x04), ireturn (0xAC)
+/// let raw_code = [0x04, 0xAC];
+///
+/// let decoded = decode(&raw_code).unwrap();
+/// assert_eq!(decoded.len(), 2);
+/// assert_eq!(decoded[0], (0, Instruction::Iconst1));
+/// assert_eq!(decoded[1], (1, Instruction::Ireturn));
+/// ```
 pub fn decode(code: &[u8]) -> DecodeResult<Vec<(usize, Instruction)>> {
     let mut cursor = Cursor::new(code);
     // ⚡ Bolt: Pre-allocate capacity for the decoded instructions vector to avoid
