@@ -2357,6 +2357,45 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 }
 
+#[inline]
+fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => Ok(*r),
+        _ => Err(VmError::NullPointerException),
+    }
+}
+
+#[inline]
+fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<i32> {
+    match heap.get(obj_ref)?.fields.first() {
+        Some(Slot::Int(id)) => Ok(*id),
+        _ => Err(VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        }),
+    }
+}
+
+#[inline]
+fn extract_io_fd_at(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<i32> {
+    match heap.get(obj_ref)?.fields.get(idx) {
+        Some(Slot::Int(id)) => Ok(*id),
+        _ => Err(VmError::JavaException {
+            class_name: "java/io/IOException".into(),
+        }),
+    }
+}
+
+#[inline]
+fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
+    match args.get(idx) {
+        Some(Slot::Int(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Int",
+            got: "other",
+        }),
+    }
+}
+
 macro_rules! extract_print_arg {
     ($args:expr, $pat:pat => $expr:expr, $expected:literal) => {
         match $args.get(1) {
@@ -2453,10 +2492,7 @@ fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> VmResult<std::path
 }
 
 fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<std::path::PathBuf> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     file_path_from_ref(this_ref, heap)
 }
 
@@ -2466,10 +2502,7 @@ fn native_file_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let path_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let file_obj = heap.get_mut(this_ref)?;
     let Some(path_field) = file_obj.fields.first_mut() else {
@@ -2510,10 +2543,7 @@ fn native_file_is_directory(
 }
 
 fn file_stream_id_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i32> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => Ok(*id),
         _ => Err(VmError::JavaException {
@@ -2528,10 +2558,7 @@ fn native_file_input_stream_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let path = path_from_string_slot(args, 1, heap)?;
     let file_id = heap.open_host_input_file(&path)?;
     let stream_obj = heap.get_mut(this_ref)?;
@@ -2559,10 +2586,7 @@ fn native_file_input_stream_read_bytes(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
-    let array_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let array_ref = extract_ref_arg(args, 1)?;
     let len = heap.get(array_ref)?.fields.len();
     if len == 0 {
         return Ok(Some(Slot::Int(0)));
@@ -2591,18 +2615,8 @@ fn native_file_input_stream_close(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let file_id = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(id)) => *id,
-        _ => {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
-            });
-        }
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let file_id = extract_io_fd(heap, this_ref)?;
     heap.close_host_file(file_id);
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
@@ -2618,10 +2632,7 @@ fn native_file_output_stream_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let path = path_from_string_slot(args, 1, heap)?;
     let file_id = heap.open_host_output_file(&path)?;
     let stream_obj = heap.get_mut(this_ref)?;
@@ -2639,15 +2650,7 @@ fn native_file_output_stream_write(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
-    let value = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let value = extract_int_arg(args, 1)?;
     heap.write_host_file_byte(file_id, value)?;
     Ok(None)
 }
@@ -2659,10 +2662,7 @@ fn native_file_output_stream_write_bytes(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
-    let array_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let array_ref = extract_ref_arg(args, 1)?;
     let bytes = heap.get(array_ref)?.fields.clone();
     for byte in bytes {
         let Slot::Int(value) = byte else {
@@ -2682,18 +2682,8 @@ fn native_file_output_stream_close(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let file_id = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(id)) => *id,
-        _ => {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
-            });
-        }
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let file_id = extract_io_fd(heap, this_ref)?;
     heap.close_host_file(file_id);
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
@@ -2712,10 +2702,7 @@ fn native_server_socket_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let port = match args.get(1) {
         Some(Slot::Int(p)) => *p,
         _ => {
@@ -2744,10 +2731,7 @@ fn native_server_socket_accept(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let server_fd = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => *id,
         _ => {
@@ -2771,10 +2755,7 @@ fn native_server_socket_get_local_port(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(port)) => Ok(Some(Slot::Int(*port))),
         _ => Err(VmError::JavaException {
@@ -2790,10 +2771,7 @@ fn native_server_socket_close(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let fd = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => *id,
         Some(Slot::Int(_)) => return Ok(None), // already closed — idempotent
@@ -2817,10 +2795,7 @@ fn native_socket_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let host = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap
             .get(*r)?
@@ -2856,10 +2831,7 @@ fn native_socket_get_input_stream(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let fd_read = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => *id,
         _ => {
@@ -2880,10 +2852,7 @@ fn native_socket_get_output_stream(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let fd_write = match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(id)) if *id > 0 => *id,
         _ => {
@@ -2904,26 +2873,9 @@ fn native_socket_close(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let fd_read = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(id)) => *id,
-        _ => {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        }
-    };
-    let fd_write = match heap.get(this_ref)?.fields.get(1) {
-        Some(Slot::Int(id)) => *id,
-        _ => {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        }
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fd_read = extract_io_fd(heap, this_ref)?;
+    let fd_write = extract_io_fd_at(heap, this_ref, 1)?;
     heap.close_host_file(fd_read);
     heap.close_host_file(fd_write);
     let obj = heap.get_mut(this_ref)?;
@@ -2941,14 +2893,8 @@ fn native_zip_file_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let path_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let path_ref = extract_ref_arg(args, 1)?;
     let path_str = heap
         .get(path_ref)?
         .string_value
@@ -2969,22 +2915,9 @@ fn native_zip_file_get_entry(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let name_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let fd = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(id)) => *id,
-        _ => {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        }
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let fd = extract_io_fd(heap, this_ref)?;
     let entry_name = heap
         .get(name_ref)?
         .string_value
@@ -3015,22 +2948,9 @@ fn native_zip_file_get_input_stream(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let entry_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let fd = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(id)) => *id,
-        _ => {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        }
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let entry_ref = extract_ref_arg(args, 1)?;
+    let fd = extract_io_fd(heap, this_ref)?;
     // Get entry name from the ZipEntry object.
     let name_slot_ref = match heap.get(entry_ref)?.fields.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -3058,10 +2978,7 @@ fn native_zip_file_close(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let fd = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) => *id,
         _ => return Ok(None),
@@ -3080,18 +2997,8 @@ fn native_zip_file_size(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let fd = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(id)) => *id,
-        _ => {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        }
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fd = extract_io_fd(heap, this_ref)?;
     let count = heap.zip_entry_count(fd)?;
     Ok(Some(Slot::Int(count as i32)))
 }
@@ -3103,10 +3010,7 @@ fn native_zip_entry_get_name(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(heap.get(this_ref)?.fields[0]))
 }
 
@@ -3117,10 +3021,7 @@ fn native_zip_entry_get_compressed_size(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let fields = &heap.get(this_ref)?.fields;
     let lo = match fields[1] {
         Slot::Int(v) => v,
@@ -3141,10 +3042,7 @@ fn native_zip_entry_get_size(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let fields = &heap.get(this_ref)?.fields;
     let lo = match fields[3] {
         Slot::Int(v) => v,
@@ -3165,10 +3063,7 @@ fn native_zip_entry_get_method(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(heap.get(this_ref)?.fields[5]))
 }
 
@@ -3180,10 +3075,7 @@ fn native_string_length(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     let len = obj.string_value.as_ref().map_or(0, String::len);
     Ok(Some(Slot::Int(len as i32)))
@@ -3196,10 +3088,7 @@ fn native_string_equals(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Ok(Some(Slot::Int(0))),
@@ -3220,10 +3109,7 @@ fn native_string_char_at(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let index = match args.get(1) {
         Some(Slot::Int(i)) => *i,
         _ => {
@@ -3267,10 +3153,7 @@ fn native_object_tostring(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap_object_to_string(heap.get(this_ref)?, this_ref);
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
@@ -3283,10 +3166,7 @@ fn native_object_clone(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     let cloned_class = obj.class_name.clone();
     let cloned_fields = obj.fields.clone();
@@ -3323,10 +3203,7 @@ fn native_enum_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let name_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let ordinal = match args.get(2) {
         Some(Slot::Int(v)) => *v,
@@ -3347,10 +3224,7 @@ fn native_enum_ordinal(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.get(1) {
         Some(Slot::Int(v)) => Ok(Some(Slot::Int(*v))),
@@ -3365,10 +3239,7 @@ fn native_enum_name(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.first() {
         Some(slot @ Slot::Reference(_)) => Ok(Some(*slot)),
@@ -3385,14 +3256,8 @@ fn native_enum_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let class_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let name_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let class_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
     let target_name = heap.get(name_ref)?.string_value.clone().unwrap_or_default();
     let enum_class_name = heap
         .get(class_ref)?
@@ -3428,10 +3293,7 @@ fn native_class_get_name(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let class_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     let name_ref = heap.allocate_string(internal_name_to_binary_name(&internal_name));
     Ok(Some(Slot::Reference(Some(name_ref))))
@@ -3444,10 +3306,7 @@ fn native_class_for_name(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let name_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let name_ref = extract_ref_arg(args, 0)?;
     let binary_name = heap
         .get(name_ref)?
         .string_value
@@ -3473,10 +3332,7 @@ fn native_class_get_declared_methods(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let class_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&internal_name)?;
     let method_refs = reflected
@@ -3506,10 +3362,7 @@ fn native_class_get_declared_fields(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let class_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&internal_name)?;
     let field_refs = reflected
@@ -3537,10 +3390,7 @@ fn native_reflect_method_get_name(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let method_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let method_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_name_slot(heap, method_ref)?))
 }
 
@@ -3550,10 +3400,7 @@ fn native_reflect_field_get_name(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let field_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let field_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_name_slot(heap, field_ref)?))
 }
 
@@ -3564,10 +3411,7 @@ fn native_reflect_method_invoke(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let method_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let method_ref = extract_ref_arg(args, 0)?;
     let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let invoke_arg_slots =
         reflection_array_elements(heap, args.get(2).copied().unwrap_or(Slot::Reference(None)))?;
@@ -3615,15 +3459,7 @@ fn native_string_value_of_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_int_arg(args, 0)?;
     let s = val.to_string();
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
@@ -3940,10 +3776,7 @@ fn native_thread_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
@@ -3956,10 +3789,7 @@ fn native_thread_init_runnable(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = target;
@@ -3973,10 +3803,7 @@ fn native_thread_start(
     _out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let thread_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let thread_ref = extract_ref_arg(args, 0)?;
     control.request(NativeThreadAction::Start { thread_ref });
     Ok(None)
 }
@@ -3987,10 +3814,7 @@ fn native_thread_join(
     _out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let thread_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let thread_ref = extract_ref_arg(args, 0)?;
     let thread = heap.get(thread_ref)?;
     let Some(Slot::Int(thread_id)) = thread.fields.get(THREAD_ID_SLOT) else {
         return Ok(None);
@@ -4033,10 +3857,7 @@ fn native_string_substring(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
 
     let begin = match args.get(1) {
         Some(Slot::Int(v)) => *v as usize,
@@ -4071,10 +3892,7 @@ fn native_string_substring_range(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
 
     let begin = match args.get(1) {
         Some(Slot::Int(v)) => *v as usize,
@@ -4117,10 +3935,7 @@ fn native_string_indexof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
 
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -4150,10 +3965,7 @@ fn native_string_contains(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
 
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -4181,10 +3993,7 @@ fn native_string_isempty(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     let s = obj.string_value.as_deref().unwrap_or_default();
     Ok(Some(Slot::Int(i32::from(s.is_empty()))))
@@ -4249,15 +4058,9 @@ fn native_string_startswith(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let prefix_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let prefix_ref = extract_ref_arg(args, 1)?;
     let prefix = heap
         .get(prefix_ref)?
         .string_value
@@ -4273,15 +4076,9 @@ fn native_string_endswith(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let suffix_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let suffix_ref = extract_ref_arg(args, 1)?;
     let suffix = heap
         .get(suffix_ref)?
         .string_value
@@ -4297,10 +4094,7 @@ fn native_string_trim(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let trimmed = s.trim().to_string();
     let r = heap.allocate_string(trimmed);
@@ -4315,10 +4109,7 @@ fn native_string_tochararray(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let chars: Vec<char> = s.chars().collect();
     let arr_ref = heap.allocate("[C".to_string(), chars.len());
@@ -4361,15 +4152,7 @@ fn native_integer_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -4382,10 +4165,7 @@ fn native_integer_intvalue(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
@@ -4397,15 +4177,7 @@ fn native_integer_tostring_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_int_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -4572,10 +4344,7 @@ fn native_string_concat(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s1 = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let other_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -4646,10 +4415,7 @@ fn native_string_format(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fmt_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let fmt_ref = extract_ref_arg(args, 0)?;
     let fmt = heap.get(fmt_ref)?.string_value.clone().unwrap_or_default();
 
     let arr_len = match args.get(1) {
@@ -4738,10 +4504,7 @@ fn native_string_touppercase(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s.to_uppercase());
     Ok(Some(Slot::Reference(Some(r))))
@@ -4754,10 +4517,7 @@ fn native_string_tolowercase(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s.to_lowercase());
     Ok(Some(Slot::Reference(Some(r))))
@@ -4771,10 +4531,7 @@ fn native_string_replace_char(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = match args.get(1) {
         Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
@@ -4806,10 +4563,7 @@ fn native_string_replace_charsequence(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let target_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -4853,10 +4607,7 @@ fn native_string_split(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let delim_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
@@ -4890,10 +4641,7 @@ fn native_string_hashcode(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let mut h: i32 = 0;
     for ch in s.chars() {
@@ -4922,24 +4670,8 @@ fn native_math_max_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(a.max(b))))
 }
 
@@ -4950,24 +4682,8 @@ fn native_math_min_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(a.min(b))))
 }
 
@@ -4978,15 +4694,7 @@ fn native_math_abs_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_int_arg(args, 0)?;
     Ok(Some(Slot::Int(a.wrapping_abs())))
 }
 
@@ -5301,10 +5009,7 @@ fn native_long_longvalue(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
@@ -5410,10 +5115,7 @@ fn native_double_doublevalue(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
@@ -11651,10 +11353,7 @@ fn native_sb_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     obj.string_value = Some(String::new());
     Ok(None)
@@ -11667,10 +11366,7 @@ fn native_sb_init_string(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let init_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
         _ => String::new(),
@@ -11687,10 +11383,7 @@ fn native_sb_append_string(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let append_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
         _ => "null".to_string(),
@@ -11709,19 +11402,8 @@ fn native_sb_append_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = extract_int_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -11736,10 +11418,7 @@ fn native_sb_append_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Long(v)) => *v,
         _ => {
@@ -11763,10 +11442,7 @@ fn native_sb_append_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Double(v)) => *v,
         _ => {
@@ -11790,10 +11466,7 @@ fn native_sb_append_float(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Float(v)) => *v,
         _ => {
@@ -11817,10 +11490,7 @@ fn native_sb_append_boolean(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Int(v)) => *v != 0,
         _ => false,
@@ -11839,10 +11509,7 @@ fn native_sb_append_char(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
         _ => '\0',
@@ -11861,10 +11528,7 @@ fn native_sb_tostring(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let content = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(content);
     Ok(Some(Slot::Reference(Some(r))))
@@ -11877,10 +11541,7 @@ fn native_sb_length(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let len = heap
         .get(this_ref)?
         .string_value
@@ -12021,10 +11682,7 @@ fn native_char_charvalue(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
@@ -12040,10 +11698,7 @@ fn native_arraylist_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
     Ok(None)
 }
@@ -12055,10 +11710,7 @@ fn native_arraylist_add(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
@@ -12077,10 +11729,7 @@ fn native_arraylist_get(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let idx = match args.get(1) {
         Some(Slot::Int(i)) => *i as usize,
         _ => {
@@ -12108,10 +11757,7 @@ fn native_arraylist_size(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.first() {
         Some(Slot::Int(sz)) => Ok(Some(Slot::Int(*sz))),
@@ -12126,10 +11772,7 @@ fn native_arraylist_iterator(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let iter_ref = heap.allocate("duke/util/ArrayListIterator".to_string(), 2);
     {
         let iter_obj = heap.get_mut(iter_ref)?;
@@ -12151,10 +11794,7 @@ fn array_list_sort(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     // args[0] = ArrayList ref, args[1] = Comparator (null = natural ordering)
-    let list_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let list_ref = extract_ref_arg(args, 0)?;
 
     // Fix 1: use the correct error variant for unsupported non-null Comparator.
     if !matches!(args.get(1), Some(Slot::Reference(None)) | None) {
@@ -12266,10 +11906,7 @@ fn native_collections_sort(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     // args[0] = List ref
-    let list_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let list_ref = extract_ref_arg(args, 0)?;
     // Dispatch on the actual runtime class so any List implementation works.
     let class_name = heap.get(list_ref)?.class_name.clone();
     ops.invoke(
@@ -12305,10 +11942,7 @@ fn native_arraylist_iter_hasnext(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let iter_obj = heap.get(this_ref)?;
     let list_ref = match iter_obj.fields.first() {
         Some(Slot::Reference(Some(r))) => *r,
@@ -12333,10 +11967,7 @@ fn native_arraylist_iter_next(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let (list_ref, cursor) = {
         let iter_obj = heap.get(this_ref)?;
         let lr = match iter_obj.fields.first() {
@@ -12417,10 +12048,7 @@ fn native_arrays_fill_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let arr_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let arr_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Int(v)) => Slot::Int(*v),
         _ => Slot::Int(0),
@@ -12439,10 +12067,7 @@ fn native_arrays_fill_object(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let arr_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let arr_ref = extract_ref_arg(args, 0)?;
     let val = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
@@ -12458,10 +12083,7 @@ fn native_arrays_copyof_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let src_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let src_ref = extract_ref_arg(args, 0)?;
     let new_len = match args.get(1) {
         Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
@@ -12483,10 +12105,7 @@ fn native_arrays_copyof_object(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let src_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let src_ref = extract_ref_arg(args, 0)?;
     let new_len = match args.get(1) {
         Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
         Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
@@ -12508,10 +12127,7 @@ fn native_arrays_sort_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let arr_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let arr_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(arr_ref)?;
     obj.fields.sort_by(|a, b| match (a, b) {
         (Slot::Int(x), Slot::Int(y)) => x.cmp(y),
@@ -12561,10 +12177,7 @@ fn native_hashmap_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.is_empty() {
         obj.fields.push(Slot::Int(0));
@@ -12582,10 +12195,7 @@ fn native_hashmap_put(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
     // Clone fields to release the immutable borrow before mutating.
@@ -12615,10 +12225,7 @@ fn native_hashmap_get(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -12635,10 +12242,7 @@ fn native_hashmap_contains_key(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -12656,10 +12260,7 @@ fn native_hashmap_size(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => Ok(Some(Slot::Int(*n))),
         _ => Ok(Some(Slot::Int(0))),
@@ -12674,10 +12275,7 @@ fn native_hashmap_remove(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -12706,10 +12304,7 @@ fn native_hashmap_is_empty(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(0)) => Ok(Some(Slot::Int(1))),
         Some(Slot::Int(_)) => Ok(Some(Slot::Int(0))),
@@ -12724,10 +12319,7 @@ fn native_hashmap_get_or_default(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
@@ -12760,10 +12352,7 @@ fn native_hashset_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.is_empty() {
         obj.fields.push(Slot::Int(0));
@@ -12781,10 +12370,7 @@ fn native_hashset_add(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
     // fields[0] = size, fields[1..] = elements
@@ -12808,10 +12394,7 @@ fn native_hashset_contains(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -12830,10 +12413,7 @@ fn native_hashset_remove(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -12859,10 +12439,7 @@ fn native_hashset_size(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => Ok(Some(Slot::Int(*n))),
         _ => Ok(Some(Slot::Int(0))),
@@ -12876,10 +12453,7 @@ fn native_hashset_is_empty(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(0)) => Ok(Some(Slot::Int(1))),
         Some(Slot::Int(_)) => Ok(Some(Slot::Int(0))),
@@ -12944,10 +12518,7 @@ fn process_field_id_from_this(
     heap: &duke_gc::Heap,
     field_idx: usize,
 ) -> VmResult<i32> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.get(field_idx) {
         Some(Slot::Int(id)) if *id > 0 => Ok(*id),
         _ => Err(VmError::JavaException {
@@ -12972,10 +12543,7 @@ fn native_process_builder_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let command_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
@@ -12992,10 +12560,7 @@ fn native_process_builder_directory(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let directory_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
@@ -13011,10 +12576,7 @@ fn native_process_builder_start(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let this_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let this_ref = extract_ref_arg(args, 0)?;
     let builder_obj = heap.get(this_ref)?;
     let command_slot = builder_obj
         .fields
@@ -24016,6 +23578,88 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(r, Slot::Int(0));
+    }
+
+    // ---- native argument extraction helper coverage ----
+
+    #[test]
+    fn test_extract_ref_arg_success() {
+        let args = vec![Slot::Reference(Some(42))];
+        assert_eq!(extract_ref_arg(&args, 0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_ref_arg_null() {
+        let args = vec![Slot::Reference(None)];
+        assert!(matches!(
+            extract_ref_arg(&args, 0).unwrap_err(),
+            VmError::NullPointerException
+        ));
+    }
+
+    #[test]
+    fn test_extract_ref_arg_type_mismatch() {
+        let args = vec![Slot::Int(1)];
+        assert!(matches!(
+            extract_ref_arg(&args, 0).unwrap_err(),
+            VmError::NullPointerException
+        ));
+    }
+
+    #[test]
+    fn test_extract_int_arg_success() {
+        let args = vec![Slot::Int(42)];
+        assert_eq!(extract_int_arg(&args, 0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_int_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_int_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Int",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_io_fd_success() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(42);
+        assert_eq!(extract_io_fd(&heap, r).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_io_fd_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Reference(Some(1));
+        assert!(matches!(
+            extract_io_fd(&heap, r).unwrap_err(),
+            VmError::JavaException { .. }
+        ));
+    }
+
+    #[test]
+    fn test_extract_io_fd_at_success() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 2);
+        heap.get_mut(r).unwrap().fields[1] = Slot::Int(42);
+        assert_eq!(extract_io_fd_at(&heap, r, 1).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_io_fd_at_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 2);
+        heap.get_mut(r).unwrap().fields[1] = Slot::Reference(Some(1));
+        assert!(matches!(
+            extract_io_fd_at(&heap, r, 1).unwrap_err(),
+            VmError::JavaException { .. }
+        ));
     }
 
     // ---- execute_class: Newarray init for Long/Float/Double ----
