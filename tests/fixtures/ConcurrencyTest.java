@@ -7,11 +7,13 @@
  */
 public final class ConcurrencyTest {
 
-    /** Number of busy-loop iterations each worker performs. */
-    private static final int WORK_ITERATIONS = 8000;
+    /** Number of busy-loop iterations each worker performs.  Must be large
+     *  enough so that each worker spans many scheduling quanta, giving the
+     *  time-slicing scheduler plenty of opportunities to interleave. */
+    private static final int WORK_ITERATIONS = 40000;
 
     /** Workers print a marker every PRINT_INTERVAL iterations. */
-    private static final int PRINT_INTERVAL = 2000;
+    private static final int PRINT_INTERVAL = 10000;
 
     static final class BusyWorker implements Runnable {
         private final int id;
