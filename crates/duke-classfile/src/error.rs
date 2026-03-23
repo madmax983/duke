@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// Errors that can occur while parsing a JVM `.class` file.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum ParseError {
     /// Expected more bytes to parse but reached the end of the file.
     #[error("unexpected end of input at offset {offset}")]
     UnexpectedEof {
@@ -94,6 +94,4 @@ pub enum Error {
 }
 
 /// Convenience alias.
-pub type Result<T> = std::result::Result<T, Error>;
-pub type ParseError = Error;
-pub type ParseResult<T> = Result<T>;
+pub type ParseResult<T> = Result<T, ParseError>;

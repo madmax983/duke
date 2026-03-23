@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// Errors that can occur when locating or reading `.class` files.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum LoadError {
     /// The class file could not be found in the current search path.
     ///
     /// For example, `java/lang/Object` does not exist in any loader.
@@ -58,6 +58,4 @@ pub enum Error {
 }
 
 /// Convenience alias for `Result<T, LoadError>`.
-pub type Result<T> = std::result::Result<T, Error>;
-pub type LoadError = Error;
-pub type LoadResult<T> = Result<T>;
+pub type LoadResult<T> = Result<T, LoadError>;
