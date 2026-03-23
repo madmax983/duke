@@ -23580,6 +23580,88 @@ mod tests {
         assert_eq!(r, Slot::Int(0));
     }
 
+    // ---- native argument extraction helper coverage ----
+
+    #[test]
+    fn test_extract_ref_arg_success() {
+        let args = vec![Slot::Reference(Some(42))];
+        assert_eq!(extract_ref_arg(&args, 0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_ref_arg_null() {
+        let args = vec![Slot::Reference(None)];
+        assert!(matches!(
+            extract_ref_arg(&args, 0).unwrap_err(),
+            VmError::NullPointerException
+        ));
+    }
+
+    #[test]
+    fn test_extract_ref_arg_type_mismatch() {
+        let args = vec![Slot::Int(1)];
+        assert!(matches!(
+            extract_ref_arg(&args, 0).unwrap_err(),
+            VmError::NullPointerException
+        ));
+    }
+
+    #[test]
+    fn test_extract_int_arg_success() {
+        let args = vec![Slot::Int(42)];
+        assert_eq!(extract_int_arg(&args, 0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_int_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_int_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Int",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_io_fd_success() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Int(42);
+        assert_eq!(extract_io_fd(&heap, r).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_io_fd_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 1);
+        heap.get_mut(r).unwrap().fields[0] = Slot::Reference(Some(1));
+        assert!(matches!(
+            extract_io_fd(&heap, r).unwrap_err(),
+            VmError::JavaException { .. }
+        ));
+    }
+
+    #[test]
+    fn test_extract_io_fd_at_success() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 2);
+        heap.get_mut(r).unwrap().fields[1] = Slot::Int(42);
+        assert_eq!(extract_io_fd_at(&heap, r, 1).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_io_fd_at_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let r = heap.allocate("java/lang/Object".to_string(), 2);
+        heap.get_mut(r).unwrap().fields[1] = Slot::Reference(Some(1));
+        assert!(matches!(
+            extract_io_fd_at(&heap, r, 1).unwrap_err(),
+            VmError::JavaException { .. }
+        ));
+    }
+
     // ---- execute_class: Newarray init for Long/Float/Double ----
 
     #[test]
