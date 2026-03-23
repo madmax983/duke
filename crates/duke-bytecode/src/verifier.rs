@@ -17,6 +17,10 @@ use crate::{
 
 /// Verify a decoded instruction stream structurally.
 ///
+/// Ensures the basic integrity of a parsed method's instructions before
+/// interpretation. This prevents stack underflows or invalid variable access
+/// during execution.
+///
 /// # Parameters
 ///
 /// - `instructions`: output of [`crate::decoder::decode`]
@@ -26,6 +30,24 @@ use crate::{
 /// # Errors
 ///
 /// Returns the first [`VerifyError`] encountered.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{verify, Instruction};
+///
+/// let code = [(0, Instruction::Iconst1), (1, Instruction::Ireturn)];
+/// // Valid: max_stack=1, max_locals=0
+/// assert!(verify(&code, 1, 0).is_ok());
+/// ```
+///
+/// ```
+/// use duke_bytecode::{verify, Instruction};
+///
+/// let bad_code = [(0, Instruction::Iload0), (1, Instruction::Ireturn)];
+/// // Invalid: max_locals=0 means iload_0 will read out of bounds
+/// assert!(verify(&bad_code, 1, 0).is_err());
+/// ```
 pub fn verify(
     instructions: &[(usize, Instruction)],
     max_stack: u16,
