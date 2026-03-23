@@ -16,7 +16,7 @@ use thiserror::Error;
 /// assert_eq!(err.to_string(), "integer division by zero");
 /// ```
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum VmError {
+pub enum Error {
     /// Pushed more items onto the stack than its `max_stack` allows.
     #[error("operand stack overflow")]
     StackOverflow,
@@ -187,4 +187,6 @@ pub enum VmError {
 /// assert!(might_fail(true).is_err());
 /// assert_eq!(might_fail(false).unwrap(), 42);
 /// ```
-pub type VmResult<T> = Result<T, VmError>;
+pub type Result<T> = std::result::Result<T, Error>;
+pub type VmError = Error;
+pub type VmResult<T> = Result<T>;
