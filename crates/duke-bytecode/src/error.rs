@@ -20,6 +20,15 @@ use thiserror::Error;
 /// assert_eq!(err.to_string(), "unexpected end of bytecode at pc=10");
 /// ```
 #[derive(Debug, Error)]
+pub enum Error {
+    #[error("Decode error: {0}")]
+    Decode(#[from] DecodeError),
+
+    #[error("Verify error: {0}")]
+    Verify(#[from] VerifyError),
+}
+
+#[derive(Debug, Error)]
 pub enum DecodeError {
     #[error("unexpected end of bytecode at pc={pc}")]
     UnexpectedEof { pc: usize },
@@ -50,7 +59,7 @@ pub enum DecodeError {
     },
 }
 
-pub type DecodeResult<T> = Result<T, DecodeError>;
+pub type DecodeResult<T> = std::result::Result<T, DecodeError>;
 
 /// Errors produced by the structural bytecode verifier.
 ///
@@ -92,4 +101,5 @@ pub enum VerifyError {
     NonEmptyStackOnReturn { pc: usize, depth: usize },
 }
 
-pub type VerifyResult<T> = Result<T, VerifyError>;
+pub type VerifyResult<T> = std::result::Result<T, VerifyError>;
+pub type Result<T> = std::result::Result<T, Error>;

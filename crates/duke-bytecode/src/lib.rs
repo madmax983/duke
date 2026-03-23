@@ -17,7 +17,7 @@ pub mod verifier;
 
 pub use cfg::generate_mermaid_cfg;
 pub use decoder::decode;
-pub use error::{DecodeError, DecodeResult, VerifyError, VerifyResult};
+pub use error::{Error, DecodeError, DecodeResult, VerifyError, VerifyResult, Result};
 pub use instruction::Instruction;
 pub use verifier::verify;
 

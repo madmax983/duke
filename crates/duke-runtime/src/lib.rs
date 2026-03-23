@@ -12,7 +12,7 @@ pub mod error;
 pub mod frame;
 pub mod slot;
 
-pub use error::{VmError, VmResult};
+pub use error::{Error, VmError, VmResult, Result};
 pub use frame::Frame;
 pub use slot::Slot;
 
