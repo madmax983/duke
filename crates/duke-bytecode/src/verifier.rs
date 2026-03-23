@@ -465,6 +465,7 @@ mod tests {
     use crate::instruction::ArrayType;
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_stack_effect_coverage() {
         assert_eq!(stack_effect(&Instruction::Nop), (0, 0));
         assert_eq!(stack_effect(&Instruction::Lload0), (0, 1));
@@ -487,7 +488,9 @@ mod tests {
         assert_eq!(stack_effect(&Instruction::Goto(0)), (0, 0));
         assert_eq!(stack_effect(&Instruction::Jsr(0)), (0, 1));
         assert_eq!(stack_effect(&Instruction::Ret(0)), (0, 0));
+        assert_eq!(stack_effect(&Instruction::RetW(0)), (0, 0));
         assert_eq!(stack_effect(&Instruction::Return), (0, 0));
+        assert_eq!(stack_effect(&Instruction::IloadW(0)), (0, 1));
         assert_eq!(stack_effect(&Instruction::Ireturn), (1, 0));
         assert_eq!(
             stack_effect(&Instruction::Getstatic(duke_classfile::CpIndex(1))),
@@ -532,6 +535,44 @@ mod tests {
             (1, 1)
         );
         assert_eq!(stack_effect(&Instruction::Monitorenter), (1, 0));
+        assert_eq!(stack_effect(&Instruction::DupX1), (2, 3));
+        assert_eq!(stack_effect(&Instruction::Dup2X1), (3, 5));
+        assert_eq!(stack_effect(&Instruction::Dup), (1, 2));
+        assert_eq!(
+            stack_effect(&Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 0,
+                offsets: vec![],
+            }),
+            (1, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Lookupswitch {
+                default: 0,
+                pairs: vec![],
+            }),
+            (1, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Invokeinterface {
+                index: duke_classfile::CpIndex(1),
+                count: 1,
+            }),
+            (1, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Invokedynamic(duke_classfile::CpIndex(1))),
+            (0, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Instanceof(duke_classfile::CpIndex(1))),
+            (1, 1)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Anewarray(duke_classfile::CpIndex(1))),
+            (1, 1)
+        );
     }
 
     #[test]
