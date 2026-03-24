@@ -397,11 +397,31 @@ fn build_index(
 ///
 /// If `parent` is empty: `"/module/base.extension"`.
 /// If `extension` is empty: `"/module/parent/base"`.
+///
+/// **Optimization:** Exact string capacity is calculated and preallocated.
+/// This prevents multiple intermediate heap reallocations when building paths
+/// for tens of thousands of jimage resources during startup.
 fn build_jimage_path(module: &str, parent: &str, base: &str, extension: &str) -> String {
     if module.is_empty() || base.is_empty() {
         return String::new();
     }
-    let mut path = format!("/{module}/");
+
+    let parent_len = if parent.is_empty() {
+        0
+    } else {
+        parent.len() + 1
+    };
+    let ext_len = if extension.is_empty() {
+        0
+    } else {
+        extension.len() + 1
+    };
+    let cap = 1 + module.len() + 1 + parent_len + base.len() + ext_len;
+
+    let mut path = String::with_capacity(cap);
+    path.push('/');
+    path.push_str(module);
+    path.push('/');
     if !parent.is_empty() {
         path.push_str(parent);
         path.push('/');
