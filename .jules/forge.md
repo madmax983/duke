@@ -24,3 +24,7 @@
 **[Extracting Native Print Boilerplate]
 **Learning:** Generating full function signatures inside `macro_rules!` (e.g. `define_native_print!`) breaks IDE navigability ("Go to Definition") and readability, even if it saves lines.
 **Action:** When deduplicating boilerplate across multiple functions in Rust (e.g., argument extraction in `duke-interpreter` native functions), prefer using inline `macro_rules!` macros (e.g., `extract_print_arg!`) to handle the repetitive inner logic rather than generating entire function signatures. This preserves IDE features and keeps function signatures explicit.
+
+**[Extracting Native Argument Boilerplate]
+**Learning:** Found widespread, repetitive `match args.get(X)` blocks in native functions (e.g., `native_file_output_stream_write`) used to extract integers or references, returning `VmError::TypeMismatch` or `NullPointerException` on failure. This creates unnecessary pyramids of doom.
+**Action:** Replace manual `match` blocks with the existing `extract_int_arg(args, X)?` and `extract_ref_arg(args, X)?` helpers to flatten logic and enforce idiomatic error propagation.
