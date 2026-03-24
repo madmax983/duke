@@ -18935,6 +18935,7 @@ mod tests {
 
     #[test]
     fn threading_havoc_fast_fail_slow_thread_does_not_panic() {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let ctx = load_class_context("ThreadingTest.class");
         let entry_class = ctx.class_name.clone();
         let mut registry = ClassRegistry::new();
@@ -18944,7 +18945,6 @@ mod tests {
         let loader = fixtures_loader();
         let mut out: Vec<u8> = Vec::new();
 
-        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         COUNTER.store(0, std::sync::atomic::Ordering::SeqCst);
 
         registry
