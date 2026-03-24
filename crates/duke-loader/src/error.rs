@@ -3,6 +3,44 @@
 use thiserror::Error;
 
 /// Errors that can occur when locating or reading `.class` files.
+///
+/// # Examples
+///
+/// Demonstrating the formatting for various loading failures:
+///
+/// ```
+/// use duke_loader::LoadError;
+///
+/// assert_eq!(
+///     LoadError::NotFound { name: "java/lang/Object".into() }.to_string(),
+///     "class not found: java/lang/Object"
+/// );
+///
+/// assert_eq!(
+///     LoadError::Io { path: "rt.jar".into(), source: std::io::Error::from(std::io::ErrorKind::NotFound) }.to_string(),
+///     "I/O error reading 'rt.jar': entity not found"
+/// );
+///
+/// assert_eq!(
+///     LoadError::JImageFormat { msg: "invalid magic".into() }.to_string(),
+///     "jimage format error: invalid magic"
+/// );
+///
+/// assert_eq!(
+///     LoadError::Decompress { name: "/java.base/java/lang/Object.class".into() }.to_string(),
+///     "jimage decompression error for '/java.base/java/lang/Object.class'"
+/// );
+///
+/// assert_eq!(
+///     LoadError::ZipFormat { msg: "missing EOCD".into() }.to_string(),
+///     "ZIP format error: missing EOCD"
+/// );
+///
+/// assert_eq!(
+///     LoadError::ZipCrc32 { name: "Main.class".into(), expected: 0xCAFEBABE, actual: 0xDEADBEEF }.to_string(),
+///     "ZIP CRC32 mismatch for 'Main.class': expected 0xcafebabe, got 0xdeadbeef"
+/// );
+/// ```
 #[derive(Debug, Error)]
 pub enum LoadError {
     /// The class file could not be found in the current search path.
@@ -58,4 +96,21 @@ pub enum LoadError {
 }
 
 /// Convenience alias for `Result<T, LoadError>`.
+///
+/// # Examples
+///
+/// ```
+/// use duke_loader::{LoadError, LoadResult};
+///
+/// fn find_class(exists: bool) -> LoadResult<Vec<u8>> {
+///     if exists {
+///         Ok(vec![0xCA, 0xFE, 0xBA, 0xBE])
+///     } else {
+///         Err(LoadError::NotFound { name: "HelloWorld".into() })
+///     }
+/// }
+///
+/// assert!(find_class(true).is_ok());
+/// assert!(find_class(false).is_err());
+/// ```
 pub type LoadResult<T> = Result<T, LoadError>;

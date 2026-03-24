@@ -1,4 +1,13 @@
 //! `duke-runtime::error` — Runtime errors
+//!
+//! This module defines the [`VmError`] enum, which represents all possible failure modes
+//! during JVM bytecode execution within a specific [`crate::Frame`].
+//!
+//! The JVM execution state revolves around manipulating data stored in [`crate::Slot`]s.
+//! Many errors defined here correspond to invalid manipulation of these slots, such as
+//! popping from an empty stack ([`VmError::StackUnderflow`]), pushing past the maximum
+//! frame capacity ([`VmError::StackOverflow`]), or expecting an `int` slot but finding
+//! a `float` slot ([`VmError::TypeMismatch`]).
 
 use thiserror::Error;
 
@@ -6,14 +15,76 @@ use thiserror::Error;
 ///
 /// # Examples
 ///
+/// Demonstrating how to instantiate and format the various error types:
+///
 /// ```
 /// use duke_runtime::VmError;
 ///
-/// let err = VmError::NullPointerException;
-/// assert_eq!(err.to_string(), "null pointer dereference");
+/// // Stack operations
+/// assert_eq!(VmError::StackOverflow.to_string(), "operand stack overflow");
+/// assert_eq!(VmError::StackUnderflow.to_string(), "operand stack underflow");
 ///
-/// let err = VmError::DivisionByZero;
-/// assert_eq!(err.to_string(), "integer division by zero");
+/// // Local variables
+/// assert_eq!(
+///     VmError::LocalOutOfBounds { index: 5, max_locals: 3 }.to_string(),
+///     "local variable index 5 out of bounds (max_locals=3)"
+/// );
+///
+/// // Math and Execution Control
+/// assert_eq!(VmError::DivisionByZero.to_string(), "integer division by zero");
+/// assert_eq!(VmError::InvalidBranchTarget { pc: 100 }.to_string(), "invalid branch target: pc=100");
+/// assert_eq!(VmError::FellOffEnd.to_string(), "fell off end of bytecode without a return instruction");
+/// assert_eq!(VmError::SystemExit { code: 1 }.to_string(), "System.exit(1)");
+///
+/// // Type and Validation Errors
+/// assert_eq!(
+///     VmError::TypeMismatch { expected: "int", got: "float" }.to_string(),
+///     "type mismatch: expected int, got float"
+/// );
+/// assert_eq!(
+///     VmError::Unimplemented { mnemonic: "invoke_dynamic" }.to_string(),
+///     "unimplemented instruction: invoke_dynamic"
+/// );
+/// assert_eq!(VmError::InvalidCpIndex { index: 42 }.to_string(), "invalid constant pool index 42");
+/// assert_eq!(VmError::InvalidMethodref { index: 12 }.to_string(), "constant pool index 12 is not a valid Methodref");
+/// assert_eq!(VmError::InvalidFieldref { index: 9 }.to_string(), "constant pool index 9 is not a valid Fieldref");
+///
+/// // Resolution Errors
+/// assert_eq!(
+///     VmError::MethodNotFound { name: "foo".into(), descriptor: "()V".into() }.to_string(),
+///     "method not found: foo()V"
+/// );
+/// assert_eq!(
+///     VmError::ClassNotFound { name: "java/lang/Missing".into() }.to_string(),
+///     "class not found: java/lang/Missing"
+/// );
+///
+/// // Object and Memory Errors
+/// assert_eq!(VmError::NullPointerException.to_string(), "null pointer dereference");
+/// assert_eq!(VmError::InvalidRef { address: 0xDEADBEEF }.to_string(), "invalid heap reference: address=3735928559");
+/// assert_eq!(
+///     VmError::ArrayIndexOutOfBounds { index: 5, length: 3 }.to_string(),
+///     "array index 5 out of bounds for length 3"
+/// );
+/// assert_eq!(VmError::NegativeArraySize { size: -1 }.to_string(), "negative array size: -1");
+///
+/// // Java Specific Errors
+/// assert_eq!(
+///     VmError::JavaException { class_name: "java/lang/RuntimeException".into() }.to_string(),
+///     "java exception: java/lang/RuntimeException"
+/// );
+/// assert_eq!(
+///     VmError::ClassCastException { from: "java/lang/Object".into(), to: "java/lang/String".into() }.to_string(),
+///     "class cast exception: java/lang/Object cannot be cast to java/lang/String"
+/// );
+/// assert_eq!(
+///     VmError::InstantiationError { class_name: "java/lang/Number".into() }.to_string(),
+///     "InstantiationError: cannot instantiate abstract class java/lang/Number"
+/// );
+/// assert_eq!(
+///     VmError::AbstractMethodError { class_name: "java/lang/Number".into(), method_name: "intValue".into() }.to_string(),
+///     "AbstractMethodError: java/lang/Number.intValue"
+/// );
 /// ```
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum VmError {
