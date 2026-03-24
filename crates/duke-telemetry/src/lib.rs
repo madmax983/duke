@@ -321,6 +321,51 @@ impl ClassInitDagStore {
             duration_ns,
         });
     }
+
+    /// Export the initialization DAG to a Graphviz DOT format string.
+    #[must_use]
+    pub fn to_dot(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        writeln!(&mut out, "digraph ClassInitDag {{").unwrap();
+        for ev in &self.events {
+            let triggered_by = if ev.triggered_by.is_empty() {
+                "<entry>"
+            } else {
+                &ev.triggered_by
+            };
+            writeln!(
+                &mut out,
+                "    \"{}\" -> \"{}\" [label=\"{}ns\"];",
+                triggered_by, ev.class, ev.duration_ns
+            )
+            .unwrap();
+        }
+        writeln!(&mut out, "}}").unwrap();
+        out
+    }
+
+    /// Export the initialization DAG to a Mermaid flowchart string.
+    #[must_use]
+    pub fn to_mermaid(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::new();
+        writeln!(&mut out, "graph TD;").unwrap();
+        for ev in &self.events {
+            let triggered_by = if ev.triggered_by.is_empty() {
+                "<entry>"
+            } else {
+                &ev.triggered_by
+            };
+            writeln!(
+                &mut out,
+                "    \"{}\" -->|{}ns| \"{}\";",
+                triggered_by, ev.duration_ns, ev.class
+            )
+            .unwrap();
+        }
+        out
+    }
 }
 
 // -- exception_flow --------------------------------------------------------------
@@ -749,6 +794,31 @@ impl TelemetryStore {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn class_init_dag_to_dot() {
+        let mut store = ClassInitDagStore::default();
+        store.record("java/lang/String", "java/lang/System", 500);
+        store.record("java/lang/Object", "", 100);
+
+        let dot = store.to_dot();
+        assert!(dot.contains("digraph ClassInitDag {"));
+        assert!(dot.contains("\"java/lang/System\" -> \"java/lang/String\" [label=\"500ns\"];"));
+        assert!(dot.contains("\"<entry>\" -> \"java/lang/Object\" [label=\"100ns\"];"));
+        assert!(dot.contains('}'));
+    }
+
+    #[test]
+    fn class_init_dag_to_mermaid() {
+        let mut store = ClassInitDagStore::default();
+        store.record("java/lang/String", "java/lang/System", 500);
+        store.record("java/lang/Object", "", 100);
+
+        let mermaid = store.to_mermaid();
+        assert!(mermaid.contains("graph TD;"));
+        assert!(mermaid.contains("\"java/lang/System\" -->|500ns| \"java/lang/String\";"));
+        assert!(mermaid.contains("\"<entry>\" -->|100ns| \"java/lang/Object\";"));
+    }
+
     use super::*;
 
     #[test]
