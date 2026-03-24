@@ -3,6 +3,29 @@ use duke_runtime::Slot;
 use std::fmt::Write;
 
 /// Generates a Mermaid JS graph of the heap.
+///
+/// This provides a visual representation of all objects currently allocated
+/// in the heap, separated into young and old generations. Fields containing
+/// references to other objects will be drawn as edges between nodes, allowing
+/// you to trace the object graph.
+///
+/// # Examples
+///
+/// ```
+/// use duke_gc::Heap;
+/// use duke_runtime::Slot;
+///
+/// let mut heap = Heap::new();
+/// let str_ref = heap.allocate_string("Hello".to_string());
+/// let obj_ref = heap.allocate("java/lang/Object".to_string(), 1);
+/// heap.write_field(obj_ref, 0, Slot::Reference(Some(str_ref))).unwrap();
+///
+/// let mermaid = heap.dump_mermaid();
+/// assert!(mermaid.starts_with("graph TD\n"));
+/// assert!(mermaid.contains("java/lang/Object"));
+/// assert!(mermaid.contains("java/lang/String \\\"Hello\\\""));
+/// ```
+#[must_use]
 pub fn dump_mermaid(heap: &Heap) -> String {
     let mut out = String::new();
     out.push_str("graph TD\n");
