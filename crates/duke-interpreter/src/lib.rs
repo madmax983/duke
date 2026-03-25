@@ -4033,16 +4033,24 @@ fn native_file_output_stream_write_bytes(
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let array_ref = extract_ref_arg(args, 1)?;
-    let bytes = heap.get(array_ref)?.fields.clone();
-    for byte in bytes {
-        let Slot::Int(value) = byte else {
+    // ⚡ Bolt: Removed unnecessary `.clone()` on the byte array and drastically
+    // reduced heap lookups/writes.
+    // We fetch the values once, map them to a small byte array, and then call
+    // `write_host_file_bytes` to perform a single IO write syscall.
+    let mut out_buf = Vec::new();
+    let fields = &heap.get(array_ref)?.fields;
+    out_buf.reserve_exact(fields.len());
+    for slot in fields {
+        let Slot::Int(value) = *slot else {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
                 got: "other",
             });
         };
-        heap.write_host_file_byte(file_id, value)?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        out_buf.push(value as u8);
     }
+    heap.write_host_file_bytes(file_id, &out_buf)?;
     Ok(None)
 }
 

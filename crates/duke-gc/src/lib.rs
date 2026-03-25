@@ -536,6 +536,29 @@ impl Heap {
         })
     }
 
+    /// Write multiple bytes to the host file at once.
+    pub fn write_host_file_bytes(&mut self, id: i32, buf: &[u8]) -> VmResult<()> {
+        let Some(handle) = self.host_files.get_mut(&id) else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        };
+        let writer: &mut dyn Write = match handle {
+            HostFileHandle::Writer(f) => f,
+            HostFileHandle::SocketWriter(s) => s,
+            HostFileHandle::ProcessStdin(stdin) => stdin,
+            _ => {
+                return Err(VmError::JavaException {
+                    class_name: "java/io/IOException".to_string(),
+                });
+            }
+        };
+
+        writer.write_all(buf).map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        })
+    }
+
     /// Opens a ZIP/JAR archive on the host OS, parses and indexes it.
     ///
     /// # Errors
