@@ -1,1 +1,3 @@
-cargo test --workspace
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+cargo fmt --all

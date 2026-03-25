@@ -9919,10 +9919,14 @@ fn join_java_thread(
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
 ) -> VmResult<()> {
+    let mut errors: Vec<VmError> = Vec::new();
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap();
             if runtime.handles.is_empty() {
+                if let Some(first_err) = errors.into_iter().next() {
+                    return Err(first_err);
+                }
                 return Ok(());
             }
             runtime
@@ -9934,7 +9938,8 @@ fn wait_for_all_java_threads(
 
         for handle in handles {
             match handle.join() {
-                Ok(result) => result?,
+                Ok(Err(err)) => errors.push(err),
+                Ok(Ok(())) => {}
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }
@@ -27634,3 +27639,35 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+
+#[cfg(test)]
+mod havoc_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn threading_havoc_wait_for_all_java_threads_arc_panic() {
+        let runtime = Arc::new(Mutex::new(CompletionRuntime::default()));
+
+        // We use thread::spawn that returns VmResult<()>
+        let handle1 = thread::spawn(|| -> VmResult<()> { Err(VmError::DivisionByZero) });
+
+        let handle2 = thread::spawn(|| -> VmResult<()> {
+            thread::sleep(Duration::from_millis(100));
+            Ok(())
+        });
+
+        // Add handles to the runtime map
+        runtime.lock().unwrap().handles.insert(1, handle1);
+        runtime.lock().unwrap().handles.insert(2, handle2);
+
+        // Run wait_for_all_java_threads
+        let result = wait_for_all_java_threads(&runtime);
+        assert!(result.is_err());
+
+        // Check that handles map is indeed empty
+        assert!(runtime.lock().unwrap().handles.is_empty());
+    }
+}
