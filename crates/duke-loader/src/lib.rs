@@ -18,7 +18,7 @@ pub mod zip;
 
 pub use bootstrap::{BootstrapLoader, ClasspathEntry};
 pub use directory::DirectoryLoader;
-pub use error::{LoadError, LoadResult};
+pub use error::{Error, LoadError, LoadResult, Result};
 pub use jimage::JImageReader;
 pub use manifest::parse_main_class;
 pub use zip::{ZipEntryInfo, ZipLoader, ZipReader};
