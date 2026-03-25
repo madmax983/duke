@@ -397,11 +397,29 @@ fn build_index(
 ///
 /// If `parent` is empty: `"/module/base.extension"`.
 /// If `extension` is empty: `"/module/parent/base"`.
+///
+/// ⚡ Bolt: Pre-calculates the exact required string capacity to completely
+/// eliminate intermediate heap reallocations when building paths during the
+/// high-frequency jimage header parsing hot path.
 fn build_jimage_path(module: &str, parent: &str, base: &str, extension: &str) -> String {
     if module.is_empty() || base.is_empty() {
         return String::new();
     }
-    let mut path = format!("/{module}/");
+
+    // Calculate exact capacity:
+    // "/module/" (module.len() + 2) + "base" (base.len())
+    let mut capacity = module.len() + base.len() + 2;
+    if !parent.is_empty() {
+        capacity += parent.len() + 1; // "parent/"
+    }
+    if !extension.is_empty() {
+        capacity += extension.len() + 1; // ".extension"
+    }
+
+    let mut path = String::with_capacity(capacity);
+    path.push('/');
+    path.push_str(module);
+    path.push('/');
     if !parent.is_empty() {
         path.push_str(parent);
         path.push('/');
