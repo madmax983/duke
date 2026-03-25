@@ -14055,11 +14055,12 @@ fn join_java_thread(
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
 ) -> VmResult<()> {
+    let mut first_error = None;
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap();
             if runtime.handles.is_empty() {
-                return Ok(());
+                return first_error.unwrap_or(Ok(()));
             }
             runtime
                 .handles
@@ -14070,7 +14071,11 @@ fn wait_for_all_java_threads(
 
         for handle in handles {
             match handle.join() {
-                Ok(result) => result?,
+                Ok(result) => {
+                    if let Err(e) = result {
+                        first_error.get_or_insert(Err(e));
+                    }
+                }
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }
@@ -24915,6 +24920,56 @@ mod tests {
     }
 
     // ---- Phase 28: Threading ----
+
+    #[test]
+    fn threading_havoc_fast_fail_slow_thread_does_not_panic() {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let ctx = load_class_context("ThreadingTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        COUNTER.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        registry
+            .natives_mut()
+            .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+                let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if count == 0 {
+                    // First thread to call sleep fails immediately
+                    Err(VmError::Unimplemented {
+                        mnemonic: "Test early failure",
+                    })
+                } else {
+                    // Other threads take a long time to sleep, so they will be still running
+                    // if wait_for_all_java_threads returns early.
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    Ok(None)
+                }
+            });
+
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            "spawnAndJoinTen",
+            "()I",
+            &[],
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::Unimplemented {
+                mnemonic: "Test early failure"
+            })
+        ));
+    }
 
     #[test]
     fn threading_havoc_wait_for_all_java_threads_error_path() {
