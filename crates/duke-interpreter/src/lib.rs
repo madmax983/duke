@@ -18710,7 +18710,8 @@ mod tests {
             matches!(
                 err,
                 VmError::MethodNotFound { ref name, ref descriptor }
-                if name == "AbstractBase.missingMethod" && descriptor == "()Ljava/lang/Object;"
+                if name == "java/lang/Class.missingMethod"
+                    && descriptor == "()Ljava/lang/Object;"
             ),
             "expected MethodNotFound for missing invokevirtual target, got {err:?}"
         );
