@@ -446,7 +446,9 @@ fn read_str(data: &[u8], str_offset: usize, idx: u64) -> &str {
     let Ok(idx_usize) = usize::try_from(idx) else {
         return "";
     };
-    let start = str_offset + idx_usize;
+    let Some(start) = str_offset.checked_add(idx_usize) else {
+        return "";
+    };
     if start >= data.len() {
         return "";
     }
@@ -495,6 +497,16 @@ mod tests {
 
     fn attr_end() -> u8 {
         0x00
+    }
+
+    #[test]
+    fn read_str_rejects_index_overflow() {
+        let data = b"some data here ";
+        let str_offset = usize::MAX;
+        let idx = 1;
+        // Should return empty string, not panic on `str_offset + idx_usize`.
+        let s = read_str(data, str_offset, idx);
+        assert_eq!(s, "");
     }
 
     // -----------------------------------------------------------------------
