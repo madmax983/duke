@@ -589,6 +589,28 @@ mod tests {
     }
 
     #[test]
+    fn test_stack_effect_math() {
+        assert_eq!(stack_effect(&Instruction::Imul), (2, 1));
+    }
+
+    #[test]
+    fn test_check_locals_ret() {
+        let instructions = vec![(0, Instruction::Ret(5)), (2, Instruction::Return)];
+        let res = verify(&instructions, 1, 5); // max locals is 5, index 5 is out of bounds
+        assert!(matches!(
+            res,
+            Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+        ));
+
+        let instructions_w = vec![(0, Instruction::RetW(10)), (3, Instruction::Return)];
+        let res_w = verify(&instructions_w, 1, 10);
+        assert!(matches!(
+            res_w,
+            Err(VerifyError::LocalOutOfBounds { index: 10, .. })
+        ));
+    }
+
+    #[test]
     fn test_verifier_local_oob() {
         let instructions = vec![(0, Instruction::Iload(5)), (2, Instruction::Return)];
         let res = verify(&instructions, 1, 5); // max locals is 5, index 5 is out of bounds
