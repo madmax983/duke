@@ -249,7 +249,7 @@ impl ZipReader {
 /// ```
 pub struct ZipLoader {
     reader: ZipReader,
-    nested_libs: Vec<ZipLoader>,
+    nested_libs: Vec<Self>,
 }
 
 impl ZipLoader {
@@ -305,14 +305,14 @@ impl ClassLoader for ZipLoader {
         ] {
             match self.reader.read_entry(&entry_name) {
                 Ok(bytes) => return Ok(bytes),
-                Err(LoadError::NotFound { .. }) => continue,
+                Err(LoadError::NotFound { .. }) => {}
                 Err(other) => return Err(other),
             }
         }
         for nested_lib in &self.nested_libs {
             match nested_lib.find_class(name) {
                 Ok(bytes) => return Ok(bytes),
-                Err(LoadError::NotFound { .. }) => continue,
+                Err(LoadError::NotFound { .. }) => {}
                 Err(other) => return Err(other),
             }
         }
@@ -344,7 +344,10 @@ fn is_nested_boot_inf_lib_archive(entry_name: &str) -> bool {
     let Some(suffix) = entry_name.strip_prefix("BOOT-INF/lib/") else {
         return false;
     };
-    suffix.ends_with(".jar") || suffix.ends_with(".zip")
+    Path::new(suffix)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"))
 }
 
 // ───────────────────────────────────────────────────────────────────────────
