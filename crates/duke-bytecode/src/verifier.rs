@@ -626,4 +626,33 @@ mod tests {
             Err(VerifyError::LocalOutOfBounds { index: 10, .. })
         ));
     }
+
+    #[test]
+    fn test_verifier_local_oob_iinc() {
+        let instructions = vec![
+            (0, Instruction::Iinc { index: 5, value: 1 }),
+            (3, Instruction::Return),
+        ];
+        let res = verify(&instructions, 1, 5);
+        assert!(matches!(
+            res,
+            Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+        ));
+
+        let instructions_wide = vec![
+            (
+                0,
+                Instruction::IincW {
+                    index: 10,
+                    value: 1,
+                },
+            ),
+            (4, Instruction::Return),
+        ];
+        let res = verify(&instructions_wide, 1, 10);
+        assert!(matches!(
+            res,
+            Err(VerifyError::LocalOutOfBounds { index: 10, .. })
+        ));
+    }
 }
