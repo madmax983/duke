@@ -704,6 +704,94 @@ mod tests {
         assert_eq!(crc32_checksum(b"123456789"), 0xCBF4_3926);
     }
 
+    #[test]
+    fn zip_open_io_error() {
+        let err = ZipReader::open(Path::new("/does/not/exist/ever/zip.zip")).unwrap_err();
+        assert!(matches!(err, LoadError::Io { .. }));
+    }
+
+    #[test]
+    fn local_header_truncated() {
+        let zip = build_stored_zip("test.txt", b"data");
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+
+        // Corrupt the local header offset to point near the end of the file
+        let info = reader.get_entry("test.txt").unwrap();
+        let mut corrupted_info = info.clone();
+        corrupted_info.local_header_offset = (reader.data.len() - 10) as u64;
+
+        let err = reader.read_entry_info(&corrupted_info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("is truncated"));
+        }
+    }
+
+    #[test]
+    fn local_header_bad_signature() {
+        let mut zip = build_stored_zip("test.txt", b"data");
+        // Corrupt the local header signature (first 4 bytes)
+        zip[0] ^= 0xFF;
+
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+        let info = reader.get_entry("test.txt").unwrap();
+
+        let err = reader.read_entry_info(info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("expected local header signature"));
+        }
+    }
+
+    #[test]
+    fn data_extends_past_eof() {
+        let zip = build_stored_zip("test.txt", b"data");
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+
+        let info = reader.get_entry("test.txt").unwrap();
+        let mut corrupted_info = info.clone();
+        corrupted_info.compressed_size = (reader.data.len() + 10) as u64;
+
+        let err = reader.read_entry_info(&corrupted_info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("data extends past end of archive"));
+        }
+    }
+
+    #[test]
+    fn unsupported_compression_method() {
+        let zip = build_stored_zip("test.txt", b"data");
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+
+        let info = reader.get_entry("test.txt").unwrap();
+        let mut corrupted_info = info.clone();
+        corrupted_info.compression_method = 99; // 99 is unsupported
+
+        let err = reader.read_entry_info(&corrupted_info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("unsupported compression method"));
+        }
+    }
+
+    #[test]
+    fn deflate_error() {
+        let mut zip = build_deflated_zip("test.txt", b"data that will be compressed");
+        // Corrupt the DEFLATE stream data
+        // Local header ends at 30 + filename_len(8) = 38
+        zip[38] ^= 0xFF;
+
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+        let info = reader.get_entry("test.txt").unwrap();
+
+        let err = reader.read_entry_info(info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("failed to deflate entry"));
+        }
+    }
+
     // ── ZipReader from bytes ─────────────────────────────────────────────
 
     #[test]
