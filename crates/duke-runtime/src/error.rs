@@ -145,6 +145,15 @@ pub enum VmError {
         name: String,
     },
 
+    /// A plain class name matched multiple loaded definitions from different loaders.
+    #[error("ambiguous class name: {name} matches {matches:?}")]
+    AmbiguousClassName {
+        /// The ambiguous binary/internal name that was requested.
+        name: String,
+        /// The exact loaded class keys that matched.
+        matches: Vec<String>,
+    },
+
     /// `System.exit()` was called, signaling VM termination.
     #[error("System.exit({code})")]
     SystemExit {

@@ -249,6 +249,7 @@ impl ZipReader {
 /// ```
 pub struct ZipLoader {
     reader: ZipReader,
+    nested_libs: Vec<Self>,
 }
 
 impl ZipLoader {
@@ -264,9 +265,7 @@ impl ZipLoader {
     /// * The file is not a structurally valid ZIP archive (missing End of Central Directory).
     /// * The archive uses unsupported features (like ZIP64 or encryption).
     pub fn open(path: &Path) -> LoadResult<Self> {
-        Ok(Self {
-            reader: ZipReader::open(path)?,
-        })
+        Self::from_reader(ZipReader::open(path)?)
     }
 
     /// Access the underlying reader.
@@ -288,18 +287,67 @@ impl ZipLoader {
     pub const fn reader(&self) -> &ZipReader {
         &self.reader
     }
+
+    fn from_reader(reader: ZipReader) -> LoadResult<Self> {
+        let nested_libs = nested_boot_inf_lib_loaders(&reader)?;
+        Ok(Self {
+            reader,
+            nested_libs,
+        })
+    }
 }
 
 impl ClassLoader for ZipLoader {
     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
-        let entry_name = format!("{name}.class");
-        self.reader.read_entry(&entry_name).map_err(|e| match e {
-            LoadError::NotFound { .. } => LoadError::NotFound {
-                name: name.to_string(),
-            },
-            other => other,
+        for entry_name in [
+            format!("{name}.class"),
+            format!("BOOT-INF/classes/{name}.class"),
+        ] {
+            match self.reader.read_entry(&entry_name) {
+                Ok(bytes) => return Ok(bytes),
+                Err(LoadError::NotFound { .. }) => {}
+                Err(other) => return Err(other),
+            }
+        }
+        for nested_lib in &self.nested_libs {
+            match nested_lib.find_class(name) {
+                Ok(bytes) => return Ok(bytes),
+                Err(LoadError::NotFound { .. }) => {}
+                Err(other) => return Err(other),
+            }
+        }
+        Err(LoadError::NotFound {
+            name: name.to_string(),
         })
     }
+}
+
+fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> LoadResult<Vec<ZipLoader>> {
+    let mut nested_entry_names: Vec<String> = reader
+        .entry_names()
+        .filter(|name| is_nested_boot_inf_lib_archive(name))
+        .map(str::to_owned)
+        .collect();
+    nested_entry_names.sort_unstable();
+
+    let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
+    for entry_name in nested_entry_names {
+        let nested_bytes = reader.read_entry(&entry_name)?;
+        nested_libs.push(ZipLoader::from_reader(ZipReader::from_bytes(
+            nested_bytes,
+        )?)?);
+    }
+    Ok(nested_libs)
+}
+
+fn is_nested_boot_inf_lib_archive(entry_name: &str) -> bool {
+    let Some(suffix) = entry_name.strip_prefix("BOOT-INF/lib/") else {
+        return false;
+    };
+    Path::new(suffix)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"))
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -775,6 +823,57 @@ mod tests {
         let loader = ZipLoader::open(&tmp).expect("should open");
         let err = loader.find_class("Missing").unwrap_err();
         assert!(matches!(err, LoadError::NotFound { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_finds_class_in_boot_inf_classes() {
+        let fake_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 65];
+        let zip = build_multi_entry_zip(&[("BOOT-INF/classes/com/example/App.class", &fake_class)]);
+
+        let tmp = std::env::temp_dir().join("duke_test_boot_inf_classes.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let bytes = loader
+            .find_class("com/example/App")
+            .expect("should find class in BOOT-INF/classes");
+        assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_finds_class_in_nested_boot_inf_lib_jar() {
+        let fake_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 65];
+        let nested_jar = build_multi_entry_zip(&[("com/example/Dependency.class", &fake_class)]);
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+
+        let tmp = std::env::temp_dir().join("duke_test_boot_inf_lib.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let bytes = loader
+            .find_class("com/example/Dependency")
+            .expect("should find class in nested BOOT-INF/lib jar");
+        assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_prefers_boot_inf_classes_before_nested_libs() {
+        let app_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 65];
+        let nested_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 66];
+        let nested_jar = build_multi_entry_zip(&[("com/example/App.class", &nested_class)]);
+        let outer_zip = build_multi_entry_zip(&[
+            ("BOOT-INF/classes/com/example/App.class", &app_class),
+            ("BOOT-INF/lib/dependency.jar", &nested_jar),
+        ]);
+
+        let tmp = std::env::temp_dir().join("duke_test_boot_inf_precedence.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let bytes = loader
+            .find_class("com/example/App")
+            .expect("should prefer BOOT-INF/classes");
+        assert_eq!(bytes, app_class);
         std::fs::remove_file(&tmp).ok();
     }
 }

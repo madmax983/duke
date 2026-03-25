@@ -420,6 +420,8 @@ fn exec_method(
         }
         Err(VmError::SystemExit { code }) => Some(code),
         Err(e) => {
+            emit_mermaid_heap(&heap, mermaid_dest);
+            emit_telemetry(&registry, telemetry);
             eprintln!("duke: runtime error: {e}");
             process::exit(1);
         }
@@ -499,6 +501,8 @@ fn run_main(
         Ok(_) => None,
         Err(VmError::SystemExit { code }) => Some(code),
         Err(e) => {
+            emit_mermaid_heap(&heap, mermaid_dest);
+            emit_telemetry(&registry, telemetry);
             eprintln!("duke: runtime error: {e}");
             process::exit(1);
         }
@@ -552,6 +556,8 @@ fn run_jar(
     let mut registry = ClassRegistry::new();
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
+    let jar_code_source = std::fs::canonicalize(jar).unwrap_or_else(|_| jar.to_path_buf());
+    registry.set_default_code_source(jar_code_source.to_string_lossy().to_string());
 
     // Pre-load the entry class from the JAR.
     if !registry
@@ -588,6 +594,8 @@ fn run_jar(
         Ok(_) => None,
         Err(VmError::SystemExit { code }) => Some(code),
         Err(e) => {
+            emit_mermaid_heap(&heap, mermaid_dest);
+            emit_telemetry(&registry, telemetry);
             eprintln!("duke: runtime error: {e}");
             process::exit(1);
         }
