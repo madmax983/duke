@@ -2213,6 +2213,36 @@ mod tests {
             if class_name == "java/io/IOException"
         ));
     }
+
+    #[test]
+    fn write_host_file_bytes_writes_to_file() {
+        let mut heap = Heap::new();
+        let path = std::env::temp_dir().join("duke_gc_test_write_bytes.txt");
+        let file_id = heap
+            .open_host_output_file(&path)
+            .expect("open output file");
+
+        let buf = b"Hello, World!";
+        heap.write_host_file_bytes(file_id, buf)
+            .expect("write host file bytes");
+        heap.close_host_file(file_id);
+
+        let content = std::fs::read_to_string(&path).expect("read file");
+        assert_eq!(content, "Hello, World!");
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn write_host_file_bytes_invalid_fd_returns_error() {
+        let mut heap = Heap::new();
+        let buf = b"Test";
+        let err = heap.write_host_file_bytes(9999, buf).unwrap_err();
+        assert!(matches!(
+            err,
+            duke_runtime::VmError::JavaException { ref class_name }
+            if class_name == "java/io/IOException"
+        ));
+    }
 }
 #[cfg(test)]
 mod fuzz;
