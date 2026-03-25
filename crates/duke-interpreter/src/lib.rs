@@ -4073,15 +4073,7 @@ fn native_server_socket_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let port = match args.get(1) {
-        Some(Slot::Int(p)) => *p,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let port = extract_int_arg(args, 1)?;
     let addr = format!("0.0.0.0:{port}");
     let server_id = heap.bind_server_socket(&addr)?;
     let actual_port = heap.server_socket_local_port(server_id)?;
@@ -4174,15 +4166,7 @@ fn native_socket_init(
             .ok_or(VmError::NullPointerException)?,
         _ => return Err(VmError::NullPointerException),
     };
-    let port = match args.get(2) {
-        Some(Slot::Int(p)) => *p,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let port = extract_int_arg(args, 2)?;
     let addr = format!("{host}:{port}");
     let (reader_id, writer_id) = heap.connect_socket(&addr)?;
     let obj = heap.get_mut(this_ref)?;
@@ -4644,15 +4628,7 @@ fn native_string_char_at(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let index = match args.get(1) {
-        Some(Slot::Int(i)) => *i,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let index = extract_int_arg(args, 1)?;
     let obj = heap.get(this_ref)?;
     let s = obj.string_value.as_deref().unwrap_or("");
     let ch = s
@@ -6920,15 +6896,7 @@ fn native_string_substring(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let begin = match args.get(1) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let begin = extract_int_arg(args, 1)? as usize;
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
@@ -6955,24 +6923,8 @@ fn native_string_substring_range(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let begin = match args.get(1) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let end = match args.get(2) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let begin = extract_int_arg(args, 1)? as usize;
+    let end = extract_int_arg(args, 2)? as usize;
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
@@ -6998,16 +6950,7 @@ fn native_string_indexof(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let target_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let target_ref = extract_ref_arg(args, 1)?;
     // Fetch objects from heap in one go to keep borrows short
     let this_obj = heap.get(this_ref)?;
     let target_obj = heap.get(target_ref)?;
@@ -7028,16 +6971,7 @@ fn native_string_contains(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let target_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let target_ref = extract_ref_arg(args, 1)?;
     // Fetch objects from heap in one go to keep borrows short
     let this_obj = heap.get(this_ref)?;
     let target_obj = heap.get(target_ref)?;
@@ -7503,16 +7437,7 @@ fn native_string_concat(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s1 = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let other_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let other_ref = extract_ref_arg(args, 1)?;
     let s2 = heap
         .get(other_ref)?
         .string_value
@@ -7722,31 +7647,13 @@ fn native_string_replace_charsequence(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let target_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let target_ref = extract_ref_arg(args, 1)?;
     let target = heap
         .get(target_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let replacement_ref = match args.get(2) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let replacement_ref = extract_ref_arg(args, 2)?;
     let replacement = heap
         .get(replacement_ref)?
         .string_value
@@ -7766,16 +7673,7 @@ fn native_string_split(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let delim_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let delim_ref = extract_ref_arg(args, 1)?;
     let delim = heap
         .get(delim_ref)?
         .string_value
@@ -16649,15 +16547,7 @@ fn native_arraylist_get(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let idx = match args.get(1) {
-        Some(Slot::Int(i)) => *i as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let idx = extract_int_arg(args, 1)? as usize;
     let obj = heap.get(this_ref)?;
     obj.fields.get(idx + 1).map_or_else(
         || {
