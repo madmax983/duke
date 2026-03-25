@@ -3798,6 +3798,21 @@ fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<std::pat
     file_path_from_ref(this_ref, heap)
 }
 
+fn archive_path_from_slot(
+    heap: &duke_gc::Heap,
+    archive_ref: u64,
+    slot_idx: usize,
+) -> VmResult<Option<String>> {
+    let Some(file_ref) = archive_ref_from_slot(heap, archive_ref, slot_idx)? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        file_path_from_ref(file_ref, heap)?
+            .to_string_lossy()
+            .to_string(),
+    ))
+}
+
 fn boot_archive_path_from_ref(
     registry: &ClassRegistry,
     heap: &duke_gc::Heap,
@@ -3807,33 +3822,11 @@ fn boot_archive_path_from_ref(
     match archive_class.as_str() {
         "org/springframework/boot/loader/launch/JarFileArchive" => {
             let file_slot = field_slot_idx(registry, &archive_class, "file")?;
-            match heap.get(archive_ref)?.fields.get(file_slot).copied() {
-                Some(Slot::Reference(Some(file_ref))) => Ok(Some(
-                    file_path_from_ref(file_ref, heap)?
-                        .to_string_lossy()
-                        .to_string(),
-                )),
-                Some(Slot::Reference(None)) | None => Ok(None),
-                Some(_) => Err(VmError::TypeMismatch {
-                    expected: "Reference",
-                    got: "other",
-                }),
-            }
+            archive_path_from_slot(heap, archive_ref, file_slot)
         }
         "org/springframework/boot/loader/launch/ExplodedArchive" => {
             let root_slot = field_slot_idx(registry, &archive_class, "rootDirectory")?;
-            match heap.get(archive_ref)?.fields.get(root_slot).copied() {
-                Some(Slot::Reference(Some(file_ref))) => Ok(Some(
-                    file_path_from_ref(file_ref, heap)?
-                        .to_string_lossy()
-                        .to_string(),
-                )),
-                Some(Slot::Reference(None)) | None => Ok(None),
-                Some(_) => Err(VmError::TypeMismatch {
-                    expected: "Reference",
-                    got: "other",
-                }),
-            }
+            archive_path_from_slot(heap, archive_ref, root_slot)
         }
         _ => Ok(None),
     }
@@ -3854,10 +3847,19 @@ fn launched_class_loader_archive_path(
         "org/springframework/boot/loader/launch/LaunchedClassLoader",
         "rootArchive",
     )?;
-    match heap.get(loader_ref)?.fields.get(root_archive_slot).copied() {
-        Some(Slot::Reference(Some(archive_ref))) => {
-            boot_archive_path_from_ref(registry, heap, archive_ref)
-        }
+    let Some(archive_ref) = archive_ref_from_slot(heap, loader_ref, root_archive_slot)? else {
+        return Ok(None);
+    };
+    boot_archive_path_from_ref(registry, heap, archive_ref)
+}
+
+fn archive_ref_from_slot(
+    heap: &duke_gc::Heap,
+    obj_ref: u64,
+    slot_idx: usize,
+) -> VmResult<Option<u64>> {
+    match heap.get(obj_ref)?.fields.get(slot_idx).copied() {
+        Some(Slot::Reference(Some(r))) => Ok(Some(r)),
         Some(Slot::Reference(None)) | None => Ok(None),
         Some(_) => Err(VmError::TypeMismatch {
             expected: "Reference",
