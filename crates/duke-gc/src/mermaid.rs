@@ -1,3 +1,10 @@
+//! Heap Serialization to Mermaid JS format.
+//!
+//! This module exports the JVM's memory object graph into a [Mermaid JS](https://mermaid.js.org/)
+//! directed graph (`graph TD`). The visualization explicitly captures both generational regions
+//! (young vs. old generation) and the edges formed by object fields referencing other objects,
+//! providing a visual overview of allocations and reference structures.
+
 use crate::{Heap, OLD_BIT};
 use duke_runtime::Slot;
 use std::fmt::Write;

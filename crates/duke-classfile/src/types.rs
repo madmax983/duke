@@ -1,3 +1,14 @@
+//! Structural types representing a parsed JVM Class File.
+//!
+//! This module contains the typed structures resulting from parsing a `.class` file.
+//! These structures strictly adhere to the JVM SE 21 Specification (§4), representing
+//! the constant pool, class hierarchy, fields, methods, and attributes.
+//!
+//! # Concepts
+//! - [`ClassFile`]: The root structure containing all parsed data for a single class.
+//! - [`CpEntry`]: The variants of a constant pool entry (e.g., `Utf8`, `Methodref`).
+//! - [`AttributeInfo`]: The typed and untyped attributes attached to classes, methods, and fields.
+
 use crate::access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 
 /// Newtype wrapper for constant pool indices (1-based per JVM spec).
