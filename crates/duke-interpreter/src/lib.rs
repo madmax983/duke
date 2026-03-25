@@ -4319,9 +4319,8 @@ fn native_jar_file_get_manifest(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = extract_io_fd(heap, this_ref)?;
-    let manifest_bytes = match heap.zip_read_entry(fd, "META-INF/MANIFEST.MF") {
-        Ok(bytes) => bytes,
-        Err(_) => return Ok(Some(Slot::Reference(None))),
+    let Ok(manifest_bytes) = heap.zip_read_entry(fd, "META-INF/MANIFEST.MF") else {
+        return Ok(Some(Slot::Reference(None)));
     };
     let manifest_ref = allocate_manifest_from_bytes(heap, &manifest_bytes)?;
     Ok(Some(Slot::Reference(Some(manifest_ref))))
@@ -5067,7 +5066,7 @@ fn path_to_file_url(path: &std::path::Path) -> String {
     format!("file://{normalized}")
 }
 
-fn decode_pct_hex(byte: u8) -> Option<u8> {
+const fn decode_pct_hex(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),
@@ -5255,6 +5254,7 @@ fn native_paths_get(
     Ok(Some(Slot::Reference(Some(path_ref))))
 }
 
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
 fn native_posix_file_permissions_as_file_attribute(
     _args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -5308,8 +5308,9 @@ fn native_attributes_get_value(
     let manifest_text = string_value_from_ref(heap, raw_ref)?;
     let key = string_value_from_ref(heap, key_ref)?;
     let result = manifest_attribute_value(manifest_text.as_bytes(), &key)
-        .map(|value| Slot::Reference(Some(heap.allocate_string(value))))
-        .unwrap_or(Slot::Reference(None));
+        .map_or(Slot::Reference(None), |value| {
+            Slot::Reference(Some(heap.allocate_string(value)))
+        });
     Ok(Some(result))
 }
 
@@ -5634,7 +5635,7 @@ fn native_boot_launched_class_loader_init(
                 "rootArchive",
             )?;
             let loader_obj = heap.get_mut(this_ref)?;
-            loader_obj.fields[exploded_slot] = Slot::Int(if exploded == 0 { 0 } else { 1 });
+            loader_obj.fields[exploded_slot] = Slot::Int(i32::from(exploded != 0));
             loader_obj.fields[root_archive_slot] = Slot::Reference(Some(archive_ref));
             Ok(None)
         }
@@ -5913,7 +5914,6 @@ fn native_class_new_instance(
         vec![Slot::Reference(Some(instance_ref))],
     ) {
         Ok(_) => Ok(Some(Slot::Reference(Some(instance_ref)))),
-        Err(err @ VmError::JavaException { .. }) => Err(err),
         Err(err) => Err(err),
     }
 }
@@ -6166,7 +6166,8 @@ fn native_reflect_method_get_parameter_count(
 ) -> VmResult<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
     let method = reflected_method_handle(heap, method_ref)?;
-    Ok(Some(Slot::Int(parse_arg_count(&method.descriptor) as i32)))
+    let count = i32::try_from(parse_arg_count(&method.descriptor)).unwrap_or(i32::MAX);
+    Ok(Some(Slot::Int(count)))
 }
 
 fn native_reflect_executable_get_parameter_types(
@@ -6255,9 +6256,8 @@ fn native_reflect_field_get(
         ops.ensure_class_initialized(heap, output, &field.declaring_class_key)?;
         ops.read_static_field(&field.declaring_class_key, &field.field_name)?
     } else {
-        let target_ref = match target_slot {
-            Slot::Reference(Some(reference)) => reference,
-            _ => return Err(VmError::NullPointerException),
+        let Slot::Reference(Some(target_ref)) = target_slot else {
+            return Err(VmError::NullPointerException);
         };
         ops.read_instance_field(
             heap,
@@ -6301,9 +6301,8 @@ fn native_reflect_field_set(
         return Ok(None);
     }
 
-    let target_ref = match target_slot {
-        Slot::Reference(Some(reference)) => reference,
-        _ => return Err(VmError::NullPointerException),
+    let Slot::Reference(Some(target_ref)) = target_slot else {
+        return Err(VmError::NullPointerException);
     };
     ops.write_instance_field(
         heap,
@@ -6693,12 +6692,12 @@ fn system_property_overrides() -> &'static std::sync::Mutex<HashMap<String, Stri
 }
 
 fn system_property_value(key: &str) -> Option<String> {
-    if let Some(value) = system_property_overrides()
+    let override_value = system_property_overrides()
         .lock()
         .expect("system property overrides mutex poisoned")
         .get(key)
-        .cloned()
-    {
+        .cloned();
+    if let Some(value) = override_value {
         return Some(value);
     }
     match key {
@@ -6738,10 +6737,9 @@ fn native_system_get_property(
 ) -> VmResult<Option<Slot>> {
     let key_ref = extract_ref_arg(args, 0)?;
     let key = string_value_from_ref(heap, key_ref)?;
-    let result = match system_property_value(&key) {
-        Some(value) => Slot::Reference(Some(heap.allocate_string(value))),
-        None => Slot::Reference(None),
-    };
+    let result = system_property_value(&key).map_or(Slot::Reference(None), |value| {
+        Slot::Reference(Some(heap.allocate_string(value)))
+    });
     Ok(Some(result))
 }
 
@@ -6760,10 +6758,9 @@ fn native_system_set_property(
         .lock()
         .expect("system property overrides mutex poisoned")
         .insert(key, value);
-    let result = match previous {
-        Some(previous) => Slot::Reference(Some(heap.allocate_string(previous))),
-        None => Slot::Reference(None),
-    };
+    let result = previous.map_or(Slot::Reference(None), |previous| {
+        Slot::Reference(Some(heap.allocate_string(previous)))
+    });
     Ok(Some(result))
 }
 
@@ -6775,10 +6772,10 @@ fn native_system_get_property_with_default(
 ) -> VmResult<Option<Slot>> {
     let key_ref = extract_ref_arg(args, 0)?;
     let key = string_value_from_ref(heap, key_ref)?;
-    let result = match system_property_value(&key) {
-        Some(value) => Slot::Reference(Some(heap.allocate_string(value))),
-        None => args.get(1).copied().unwrap_or(Slot::Reference(None)),
-    };
+    let result = system_property_value(&key).map_or_else(
+        || args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        |value| Slot::Reference(Some(heap.allocate_string(value))),
+    );
     Ok(Some(result))
 }
 
@@ -7290,7 +7287,7 @@ fn native_integer_tohexstring_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = extract_int_arg(args, 0)? as u32;
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     let r = heap.allocate_string(format!("{val:x}"));
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7302,7 +7299,7 @@ fn native_integer_tooctalstring_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = extract_int_arg(args, 0)? as u32;
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     let r = heap.allocate_string(format!("{val:o}"));
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7314,7 +7311,7 @@ fn native_integer_tobinarystring_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = extract_int_arg(args, 0)? as u32;
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     let r = heap.allocate_string(format!("{val:b}"));
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7326,7 +7323,7 @@ fn native_integer_tounsignedlong_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = extract_int_arg(args, 0)? as u32;
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     Ok(Some(Slot::Long(i64::from(val))))
 }
 
@@ -7337,8 +7334,8 @@ fn native_integer_compareunsigned_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = extract_int_arg(args, 0)? as u32;
-    let b = extract_int_arg(args, 1)? as u32;
+    let a = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
+    let b = u32::from_ne_bytes(extract_int_arg(args, 1)?.to_ne_bytes());
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8260,7 +8257,7 @@ fn native_long_tohexstring_static(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
-        Some(Slot::Long(v)) => *v as u64,
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Long",
@@ -8280,7 +8277,7 @@ fn native_long_tooctalstring_static(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
-        Some(Slot::Long(v)) => *v as u64,
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Long",
@@ -8300,7 +8297,7 @@ fn native_long_tobinarystring_static(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let val = match args.first() {
-        Some(Slot::Long(v)) => *v as u64,
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Long",
@@ -8320,7 +8317,7 @@ fn native_long_compareunsigned_static(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let a = match args.first() {
-        Some(Slot::Long(v)) => *v as u64,
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Long",
@@ -8329,7 +8326,7 @@ fn native_long_compareunsigned_static(
         }
     };
     let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v as u64,
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Long",
@@ -8639,7 +8636,9 @@ fn parse_i32_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmRe
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
-    Ok(val as i32)
+    i32::try_from(val).map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })
 }
 
 fn parse_i64_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i64> {
@@ -8650,7 +8649,9 @@ fn parse_i64_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmRe
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
-    Ok(val as i64)
+    i64::try_from(val).map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })
 }
 
 fn parse_i128_decode(s: &str) -> VmResult<i128> {
@@ -8712,7 +8713,7 @@ fn extract_parse_radix_arg(args: &[Slot], index: usize) -> VmResult<u32> {
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
-    Ok(radix as u32)
+    Ok(u32::try_from(radix).unwrap_or(0))
 }
 
 fn native_byte_parsebyte(
@@ -10377,6 +10378,7 @@ struct InterpreterCallbackOps<'a> {
     loader: &'a dyn ClassLoader,
 }
 
+#[allow(clippy::too_many_arguments, clippy::option_option)]
 fn callback_invoke_registered_lambda(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -12551,88 +12553,85 @@ fn run_execution(
                         if allow_lambda_dispatch {
                             let arg_count = parse_arg_count(&callee_desc);
                             let stack_len = frame.stack_len();
-                            if stack_len > arg_count {
-                                if let Some(ref actual_class) = virtual_start
-                                    && let Some(lambda_info) =
-                                        registry.get_lambda(actual_class).cloned()
-                                    && callee_name == lambda_info.sam_method
-                                {
-                                    // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+                            if stack_len > arg_count
+                                && let Some(ref actual_class) = virtual_start
+                                && let Some(lambda_info) =
+                                    registry.get_lambda(actual_class).cloned()
+                                && callee_name == lambda_info.sam_method
+                            {
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
 
-                                    let mut sam_args = vec![Slot::Int(0); arg_count];
+                                let mut sam_args = vec![Slot::Int(0); arg_count];
 
-                                    for i in (0..arg_count).rev() {
-                                        sam_args[i] = frame.pop()?;
-                                    }
-                                    let this_slot = frame.pop()?;
-                                    let this_ref = match &this_slot {
-                                        Slot::Reference(Some(r)) => *r,
-                                        _ => return Err(VmError::NullPointerException),
+                                for i in (0..arg_count).rev() {
+                                    sam_args[i] = frame.pop()?;
+                                }
+                                let this_slot = frame.pop()?;
+                                let this_ref = match &this_slot {
+                                    Slot::Reference(Some(r)) => *r,
+                                    _ => return Err(VmError::NullPointerException),
+                                };
+
+                                let obj = heap.get(this_ref)?;
+                                let mut impl_args: Vec<Slot> = Vec::new();
+                                for i in 0..lambda_info.captured_count {
+                                    impl_args.push(obj.fields[i]);
+                                }
+                                impl_args.extend(sam_args.iter().copied());
+
+                                let _ = registry.ensure_loaded_from(
+                                    &lambda_info.impl_class,
+                                    Some(current_class.as_str()),
+                                    loader,
+                                );
+                                let impl_class_key = registry.class_key_from_source(
+                                    &lambda_info.impl_class,
+                                    Some(current_class.as_str()),
+                                );
+
+                                let resolved = resolve_method_in_hierarchy(
+                                    registry,
+                                    loader,
+                                    &impl_class_key,
+                                    &lambda_info.impl_method,
+                                    &lambda_info.impl_desc,
+                                );
+                                if let Some((dispatch_class, impl_idx)) = resolved {
+                                    let (callee_pc_to_idx, callee_frame) = {
+                                        let ctx = registry.get(&dispatch_class)?;
+                                        let max_locals =
+                                            usize::from(ctx.methods[impl_idx].max_locals);
+                                        let max_stack =
+                                            usize::from(ctx.methods[impl_idx].max_stack);
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                                        locals_buf.resize(max_locals, Slot::Int(0));
+                                        for (i, slot) in impl_args.into_iter().enumerate() {
+                                            locals_buf[i] = slot;
+                                        }
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                        (pci, f)
                                     };
-
-                                    let obj = heap.get(this_ref)?;
-                                    let mut impl_args: Vec<Slot> = Vec::new();
-                                    for i in 0..lambda_info.captured_count {
-                                        impl_args.push(obj.fields[i]);
-                                    }
-                                    impl_args.extend(sam_args.iter().copied());
-
-                                    let _ = registry.ensure_loaded_from(
-                                        &lambda_info.impl_class,
-                                        Some(current_class.as_str()),
-                                        loader,
-                                    );
-                                    let impl_class_key = registry.class_key_from_source(
-                                        &lambda_info.impl_class,
-                                        Some(current_class.as_str()),
-                                    );
-
-                                    let resolved = resolve_method_in_hierarchy(
+                                    activate_method_state(
+                                        frame,
+                                        method_idx,
+                                        pc_to_idx,
+                                        instructions,
+                                        current_class,
+                                        call_stack,
                                         registry,
-                                        loader,
-                                        &impl_class_key,
-                                        &lambda_info.impl_method,
-                                        &lambda_info.impl_desc,
-                                    );
-                                    if let Some((dispatch_class, impl_idx)) = resolved {
-                                        let (callee_pc_to_idx, callee_frame) = {
-                                            let ctx = registry.get(&dispatch_class)?;
-                                            let max_locals =
-                                                usize::from(ctx.methods[impl_idx].max_locals);
-                                            let max_stack =
-                                                usize::from(ctx.methods[impl_idx].max_stack);
-                                            let pci = std::sync::Arc::clone(
-                                                &ctx.methods[impl_idx].pc_to_idx,
-                                            );
-                                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                                            locals_buf.resize(max_locals, Slot::Int(0));
-                                            for (i, slot) in impl_args.into_iter().enumerate() {
-                                                locals_buf[i] = slot;
-                                            }
-                                            let f = Frame::from_pool_bufs(
-                                                locals_buf, stack_buf, max_stack,
-                                            );
-                                            (pci, f)
-                                        };
-                                        activate_method_state(
-                                            frame,
-                                            method_idx,
-                                            pc_to_idx,
-                                            instructions,
-                                            current_class,
-                                            call_stack,
-                                            registry,
-                                            dispatch_class,
-                                            impl_idx,
-                                            callee_pc_to_idx,
-                                            callee_frame,
-                                            *idx + 1,
-                                            #[cfg(feature = "telemetry")]
-                                            current_method,
-                                        )?;
-                                        *idx = 0;
-                                        continue;
-                                    }
+                                        dispatch_class,
+                                        impl_idx,
+                                        callee_pc_to_idx,
+                                        callee_frame,
+                                        *idx + 1,
+                                        #[cfg(feature = "telemetry")]
+                                        current_method,
+                                    )?;
+                                    *idx = 0;
+                                    continue;
                                 }
                             }
                         }
@@ -17438,14 +17437,11 @@ fn native_hashset_init_from_collection(
             "()[Ljava/lang/Object;",
             vec![Slot::Reference(Some(collection_ref))],
         )?;
-        let array_ref = match array_slot {
-            Some(Slot::Reference(Some(array_ref))) => array_ref,
-            _ => {
-                return Err(VmError::TypeMismatch {
-                    expected: "Reference",
-                    got: "other",
-                });
-            }
+        let Some(Slot::Reference(Some(array_ref))) = array_slot else {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
         };
         patch_forwarded_ref_if_needed(heap, &mut this_ref);
         heap.get(array_ref)?.fields.clone()
@@ -18797,6 +18793,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         use duke_classfile::types::CpIndex;
         use std::collections::HashMap;
@@ -18908,11 +18905,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn registered_native_overrides_loaded_bytecode_method() {
         use duke_classfile::types::CpIndex;
         use std::collections::HashMap;
         use std::sync::Arc;
 
+        #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
         fn native_value(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -19019,11 +19018,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         use duke_classfile::types::CpIndex;
         use std::collections::HashMap;
         use std::sync::Arc;
 
+        #[allow(clippy::unnecessary_wraps)] // must match CallbackNativeHandler signature
         fn native_value(
             _args: &[Slot],
             _heap: &mut duke_gc::Heap,
@@ -19295,6 +19296,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn hashset_iterator_supports_invokeinterface_iteration() {
         use duke_classfile::types::CpIndex;
         use std::collections::HashMap;
@@ -34817,6 +34819,7 @@ mod tests {
             .join("fixtures")
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn test_zip_crc32(data: &[u8]) -> u32 {
         const TABLE: [u32; 256] = {
             let mut table = [0_u32; 256];
@@ -35247,6 +35250,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn class_protection_domain_chain_resolves_back_to_file() {
         let mut registry = ClassRegistry::new();
         let mut heap = duke_gc::Heap::new();
@@ -35335,7 +35339,7 @@ mod tests {
             Some(Slot::Reference(Some(r))) => r,
             other => panic!("expected code source reference, got {other:?}"),
         };
-        let url_ref = match get_location(
+        let code_source_location_ref = match get_location(
             &[Slot::Reference(Some(code_source_ref))],
             &mut heap,
             &mut sink,
@@ -35346,8 +35350,8 @@ mod tests {
             Some(Slot::Reference(Some(r))) => r,
             other => panic!("expected URL reference, got {other:?}"),
         };
-        let uri_ref = match url_to_uri(
-            &[Slot::Reference(Some(url_ref))],
+        let code_source_uri_ref = match url_to_uri(
+            &[Slot::Reference(Some(code_source_location_ref))],
             &mut heap,
             &mut sink,
             &mut control,
@@ -35358,7 +35362,7 @@ mod tests {
             other => panic!("expected URI reference, got {other:?}"),
         };
         let path_ref = match path_of(
-            &[Slot::Reference(Some(uri_ref))],
+            &[Slot::Reference(Some(code_source_uri_ref))],
             &mut heap,
             &mut sink,
             &mut control,
@@ -35866,7 +35870,7 @@ mod tests {
             .fields
             .iter()
             .skip(1)
-            .filter_map(|slot| slot.as_reference())
+            .filter_map(Slot::as_reference)
             .map(|url_ref| string_backed_object_value(&heap, url_ref).unwrap())
             .collect();
         assert_eq!(urls.len(), 2);
@@ -36041,7 +36045,7 @@ mod tests {
             .fields
             .iter()
             .skip(1)
-            .filter_map(|slot| slot.as_reference())
+            .filter_map(Slot::as_reference)
             .map(|url_ref| string_backed_object_value(&heap, url_ref).unwrap())
             .collect();
         assert_eq!(urls.len(), 2);
@@ -36164,6 +36168,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn native_class_for_name_with_loader_uses_loader_archive_not_global_default_code_source() {
         let loader =
             duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
@@ -36280,6 +36285,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn native_reflect_method_invoke_runs_boot_archive_main() {
         let loader =
             duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
@@ -37074,6 +37080,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn native_class_get_class_loader_returns_boot_launched_loader_for_loaded_app_class() {
         let loader =
             duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
@@ -37438,6 +37445,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn boot_nested_dependency_inherits_launched_runtime_loader() {
         let boot_loader =
             duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
@@ -37774,6 +37782,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn boot_launcher_pre_main_sequence_preserves_archive_field() {
         let loader =
             duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
@@ -38057,6 +38066,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn boot_create_class_loader_preserves_archive_field_on_large_archive() {
         let loader =
             duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))

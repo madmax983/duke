@@ -96,7 +96,7 @@ pub struct ClassRegistry {
     lambdas: HashMap<String, LambdaInfo>,
     /// Monotonic counter for generating unique lambda class names.
     lambda_counter: u64,
-    /// Default code source path used for lightweight ProtectionDomain emulation.
+    /// Default code source path used for lightweight `ProtectionDomain` emulation.
     default_code_source: Option<String>,
     /// ZIP/JAR-backed class loaders keyed by their stable archive path.
     archive_loaders: HashMap<String, Arc<dyn ClassLoader + Send + Sync>>,
@@ -327,6 +327,9 @@ impl ClassRegistry {
     }
 
     /// Ensure a class is loaded using the same archive/classpath provenance as `source_class`.
+    ///
+    /// # Errors
+    /// Returns [`VmError`] if the selected loader fails to parse, link, or resolve the requested class.
     pub fn ensure_loaded_from(
         &mut self,
         name: &str,
@@ -348,11 +351,17 @@ impl ClassRegistry {
     }
 
     /// Ensure a class is loaded from a specific archive path and record that provenance.
+    ///
+    /// # Errors
+    /// Returns [`VmError`] if the selected archive loader fails to parse, link, or resolve the requested class.
     pub fn ensure_loaded_with_code_source(&mut self, name: &str, path: &str) -> VmResult<bool> {
         self.ensure_loaded_with_provenance(name, path, None)
     }
 
     /// Ensure a class is loaded from a specific archive path and runtime loader.
+    ///
+    /// # Errors
+    /// Returns [`VmError`] if the selected archive loader fails to parse, link, or resolve the requested class.
     pub fn ensure_loaded_with_provenance(
         &mut self,
         name: &str,
@@ -409,7 +418,7 @@ impl ClassRegistry {
                 runtime_loader,
             ));
         }
-        ctx.class_name = class_key.clone();
+        ctx.class_name.clone_from(&class_key);
         ctx.super_class = resolved_super_class;
         ctx.interfaces = resolved_interfaces;
         self.classes.insert(class_key.clone(), ctx);
@@ -522,6 +531,9 @@ pub trait CallbackOps {
     fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo>;
 
     /// Ensure the named class has completed initialization, including `<clinit>`.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be loaded or if initialization fails.
     fn ensure_class_initialized(
         &mut self,
         _heap: &mut duke_gc::Heap,
@@ -535,11 +547,17 @@ pub trait CallbackOps {
     ///
     /// Duke currently uses a coarse default path while bootstrapping richer
     /// class provenance support.
+    ///
+    /// # Errors
+    /// Returns an error if class provenance lookup fails.
     fn code_source_for_class(&mut self, _class: &str) -> VmResult<Option<String>> {
         Ok(None)
     }
 
     /// Load `class` using the specific runtime `ClassLoader` object identified by `loader_ref`.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be loaded or linked under that runtime loader.
     fn ensure_loaded_with_runtime_loader(
         &mut self,
         _heap: &duke_gc::Heap,
@@ -550,11 +568,17 @@ pub trait CallbackOps {
     }
 
     /// Resolve an instance field slot for the named class.
+    ///
+    /// # Errors
+    /// Returns an error if the field cannot be resolved.
     fn instance_field_slot(&mut self, _class: &str, _field_name: &str) -> VmResult<usize> {
         Err(VmError::InvalidFieldref { index: 0 })
     }
 
     /// Read an instance field from `object_ref`, validating it against the declaring class.
+    ///
+    /// # Errors
+    /// Returns an error if the field cannot be resolved or read.
     fn read_instance_field(
         &mut self,
         _heap: &duke_gc::Heap,
@@ -566,6 +590,9 @@ pub trait CallbackOps {
     }
 
     /// Write an instance field on `object_ref`, validating it against the declaring class.
+    ///
+    /// # Errors
+    /// Returns an error if the field cannot be resolved or written.
     fn write_instance_field(
         &mut self,
         _heap: &mut duke_gc::Heap,
@@ -578,11 +605,17 @@ pub trait CallbackOps {
     }
 
     /// Read a static field from the named class.
+    ///
+    /// # Errors
+    /// Returns an error if the field cannot be resolved or read.
     fn read_static_field(&mut self, _class: &str, _field_name: &str) -> VmResult<Slot> {
         Err(VmError::InvalidFieldref { index: 0 })
     }
 
     /// Write a static field on the named class.
+    ///
+    /// # Errors
+    /// Returns an error if the field cannot be resolved or written.
     fn write_static_field(
         &mut self,
         _class: &str,
@@ -593,16 +626,25 @@ pub trait CallbackOps {
     }
 
     /// Return the runtime `java/lang/ClassLoader` object for `class`, if known.
+    ///
+    /// # Errors
+    /// Returns an error if runtime loader provenance lookup fails.
     fn runtime_loader_for_class(&mut self, _class: &str) -> VmResult<Option<u64>> {
         Ok(None)
     }
 
     /// Return the deterministic class identity key for `class` in the current runtime.
+    ///
+    /// # Errors
+    /// Returns an error if class identity resolution fails.
     fn class_key_for_loaded_class(&mut self, class: &str) -> VmResult<String> {
         Ok(class.to_string())
     }
 
     /// Return the deterministic class identity key for `class` under the given runtime loader.
+    ///
+    /// # Errors
+    /// Returns an error if class identity resolution fails under that loader.
     fn class_key_for_runtime_loader(
         &mut self,
         _heap: &duke_gc::Heap,
@@ -613,6 +655,9 @@ pub trait CallbackOps {
     }
 
     /// Return the deterministic class identity key for `class` as seen from `source_class`.
+    ///
+    /// # Errors
+    /// Returns an error if class identity resolution fails for the source provenance.
     fn class_key_from_source(
         &mut self,
         class: &str,
@@ -622,6 +667,9 @@ pub trait CallbackOps {
     }
 
     /// Allocate a new heap instance for the named class, applying normal class initialization.
+    ///
+    /// # Errors
+    /// Returns an error if allocation or class initialization fails.
     fn allocate_instance(
         &mut self,
         _heap: &mut duke_gc::Heap,
