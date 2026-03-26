@@ -1094,6 +1094,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_imports, unused_mut)]
     fn test_emit_mermaid_clinit_file() {
         use super::emit_mermaid_clinit;
         use duke_interpreter::ClassRegistry;
