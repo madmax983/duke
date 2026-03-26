@@ -9,3 +9,7 @@
 **Unified Error Handling Types**
 **Tangle:** Each crate (`duke-bytecode`, `duke-classfile`, `duke-loader`, `duke-runtime`) had its own named error type (`DecodeError`, `VerifyError`, `ParseError`, `LoadError`, `VmError`) and result type. This led to an inconsistent API surface and "Trait Pollution" across the workspace when handling cross-crate failures.
 **Blueprint:** Standardized error types across modules by renaming crate-specific errors to `crate::Error` and `crate::Result<T>` using `thiserror`. Combined `DecodeError` and `VerifyError` into a centralized `duke_bytecode::Error` enum. Aliased the old names to maintain backward compatibility and avoid breaking the public API ("The Facade").
+
+**Refactoring the Duke Interpreter Tests Blob**
+**Tangle:** The `crates/duke-interpreter/src/lib.rs` file had grown into a massive "Blob" anti-pattern (over 38,000 lines), primarily due to an inline `mod tests` block that contained over 20,000 lines of tests. This made the file incredibly hard to navigate and violated the single responsibility principle.
+**Blueprint:** Extracted the entire `tests` module into a new `crates/duke-interpreter/src/tests.rs` file and updated `lib.rs` to include it via `#[cfg(test)] mod tests;`. This drastically reduced the size of `lib.rs` while maintaining all test functionality and coverage.
