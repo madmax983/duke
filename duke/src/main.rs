@@ -1084,4 +1084,45 @@ mod tests {
         // It shouldn't panic, but print an error to stderr (handled by the branch we want to cover)
         emit_mermaid_heap(&heap, Some(MermaidDest::File(path.to_string())));
     }
+
+    #[test]
+    fn test_emit_mermaid_clinit_stdout() {
+        use super::emit_mermaid_clinit;
+        use duke_interpreter::ClassRegistry;
+        let registry = ClassRegistry::new();
+        emit_mermaid_clinit(&registry, Some(MermaidDest::Stdout));
+    }
+
+    #[test]
+    fn test_emit_mermaid_clinit_file() {
+        use super::emit_mermaid_clinit;
+        use duke_interpreter::ClassRegistry;
+        use std::fs;
+        let mut registry = ClassRegistry::new();
+        #[cfg(feature = "telemetry")]
+        registry
+            .telemetry
+            .class_init_dag
+            .record("java/lang/Object", "", 100);
+
+        let path = "test_clinit_output.mmd";
+        emit_mermaid_clinit(&registry, Some(MermaidDest::File(path.to_string())));
+
+        #[cfg(feature = "telemetry")]
+        {
+            let content = fs::read_to_string(path).unwrap();
+            assert!(content.contains("graph TD"));
+            fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_emit_mermaid_clinit_file_error() {
+        use super::emit_mermaid_clinit;
+        use duke_interpreter::ClassRegistry;
+        let registry = ClassRegistry::new();
+        // Trying to write to a directory should trigger an IO error
+        let path = ".";
+        emit_mermaid_clinit(&registry, Some(MermaidDest::File(path.to_string())));
+    }
 }
