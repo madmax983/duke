@@ -3764,10 +3764,7 @@ fn path_from_string_slot(
     idx: usize,
     heap: &duke_gc::Heap,
 ) -> VmResult<std::path::PathBuf> {
-    let path_ref = match args.get(idx) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let path_ref = extract_ref_arg(args, idx)?;
     let path = heap
         .get(path_ref)?
         .string_value
@@ -4160,14 +4157,12 @@ fn native_socket_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let host = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap
-            .get(*r)?
-            .string_value
-            .clone()
-            .ok_or(VmError::NullPointerException)?,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let host_ref = extract_ref_arg(args, 1)?;
+    let host = heap
+        .get(host_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)?;
     let port = extract_int_arg(args, 2)?;
     let addr = format!("{host}:{port}");
     let (reader_id, writer_id) = heap.connect_socket(&addr)?;
@@ -4609,9 +4604,8 @@ fn native_string_equals(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let other_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Ok(Some(Slot::Int(0))),
+    let Ok(other_ref) = extract_ref_arg(args, 1) else {
+        return Ok(Some(Slot::Int(0)));
     };
     // Fetch objects from heap in one go to keep borrows short
     let this_obj = heap.get(this_ref)?;
@@ -4675,10 +4669,7 @@ fn native_object_equals(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let equal = match args.get(1) {
-        Some(Slot::Reference(Some(other_ref))) => this_ref == *other_ref,
-        _ => false,
-    };
+    let equal = extract_ref_arg(args, 1) == Ok(this_ref);
     Ok(Some(Slot::Int(i32::from(equal))))
 }
 
@@ -6195,15 +6186,7 @@ fn native_reflection_member_set_accessible(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let member_ref = extract_ref_arg(args, 0)?;
-    let accessible = match args.get(1) {
-        Some(Slot::Int(value)) => *value != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let accessible = extract_int_arg(args, 1)? != 0;
     heap.write_field(
         member_ref,
         REFLECTION_MEMBER_ACCESSIBLE_FIELD,
@@ -7041,10 +7024,7 @@ fn native_string_compareto_object(
         Some(s) => str_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => str_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = str_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
 }
 
@@ -7295,10 +7275,7 @@ fn native_integer_compareto(
         Some(s) => int_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => int_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = int_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -7617,24 +7594,8 @@ fn native_string_replace_char(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let old_char = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let new_char = match args.get(2) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
+    let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
     let result = s.replace(old_char, &new_char.to_string());
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
@@ -8257,10 +8218,7 @@ fn native_long_compareto(
         Some(s) => long_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => long_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = long_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8375,10 +8333,7 @@ fn native_float_compareto(
         Some(s) => float_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => float_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = float_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
 
@@ -8450,10 +8405,7 @@ fn native_boolean_compareto(
         Some(s) => bool_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => bool_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = bool_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8714,10 +8666,7 @@ fn native_byte_compareto(
         Some(s) => byte_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => byte_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = byte_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8819,10 +8768,7 @@ fn native_short_compareto(
         Some(s) => short_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => short_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = short_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8845,10 +8791,7 @@ fn native_char_compareto(
         Some(s) => char_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => char_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = char_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -16927,10 +16870,7 @@ fn native_double_compareto(
         Some(s) => double_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => double_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = double_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
