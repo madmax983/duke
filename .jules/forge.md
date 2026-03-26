@@ -28,3 +28,7 @@
 **[Extracting Native Argument Boilerplate]
 **Learning:** Found widespread, repetitive `match args.get(X)` blocks in native functions (e.g., `native_file_output_stream_write`) used to extract integers or references, returning `VmError::TypeMismatch` or `NullPointerException` on failure. This creates unnecessary pyramids of doom.
 **Action:** Replace manual `match` blocks with the existing `extract_int_arg(args, X)?` and `extract_ref_arg(args, X)?` helpers to flatten logic and enforce idiomatic error propagation.
+
+**[Extracting Repeated Code]
+**Learning:** Found nested and duplicated logic when attempting to extract file slot path references from an archive reference `match heap.get...` block inside `boot_archive_path_from_ref` and `launched_class_loader_archive_path`.
+**Action:** Created `archive_ref_from_slot` and `archive_path_from_slot` helpers utilizing early returns (guard clauses via `let Some(...) = ... else { return ... }`) to avoid deep match nesting.
