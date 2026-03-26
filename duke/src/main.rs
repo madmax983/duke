@@ -206,8 +206,7 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     result
 }
 
-fn main() {
-    let mut args: Vec<String> = std::env::args().collect();
+fn run_app(mut args: Vec<String>) {
     let telemetry = extract_telemetry_flag(&mut args);
     let mermaid_dest = extract_mermaid_heap_flag(&mut args);
     let mermaid_clinit_dest = extract_mermaid_clinit_flag(&mut args);
@@ -302,6 +301,10 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+fn main() {
+    run_app(std::env::args().collect());
 }
 
 /// Emit Mermaid JS heap graph to the configured destination (stdout or file).
@@ -808,31 +811,42 @@ mod cfg_tests {
     }
 
     #[test]
-    fn test_main_dispatch_to_run_main() {
+    fn test_run_app_dispatch_to_run_main() {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("../tests/fixtures/HelloWorld.class");
-        let args = vec![p.to_string_lossy().to_string()];
-        super::run_main(&args, None, None, None, None);
+        let args = vec![
+            "duke".to_string(),
+            "run".to_string(),
+            p.to_string_lossy().to_string(),
+        ];
+        super::run_app(args);
     }
 
     #[test]
-    fn test_main_dispatch_to_exec_method() {
+    fn test_run_app_dispatch_to_exec_method() {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("../tests/fixtures/Arithmetic.class");
         let args = vec![
+            "duke".to_string(),
+            "exec".to_string(),
             p.to_string_lossy().to_string(),
             "add".to_string(),
             "2".to_string(),
             "3".to_string(),
         ];
-        super::exec_method(&args, None, None, None, None);
+        super::run_app(args);
     }
 
     #[test]
-    fn test_main_dispatch_to_run_jar() {
+    fn test_run_app_dispatch_to_run_jar() {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("../tests/fixtures/hello.jar");
-        super::run_jar(p.to_string_lossy().as_ref(), &[], None, None, None, None);
+        let args = vec![
+            "duke".to_string(),
+            "-jar".to_string(),
+            p.to_string_lossy().to_string(),
+        ];
+        super::run_app(args);
     }
 }
 
