@@ -197,5 +197,9 @@ pub enum Error {
 /// assert_eq!(might_fail(false).unwrap(), 42);
 /// ```
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Compatibility alias for [`enum@Error`], to avoid naming conflicts with `std::error::Error`.
 pub type VmError = Error;
+
+/// Compatibility alias for [`Result`], a specialized `Result` type for `duke_runtime` operations.
 pub type VmResult<T> = Result<T>;
