@@ -810,63 +810,29 @@ mod cfg_tests {
     #[test]
     fn test_main_dispatch_to_run_main() {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../target/debug/duke");
-        if !p.exists() {
-            // Under `cargo test`, the binary might not be built or found at this exact path.
-            // The unit tests for `super::run_main` etc. provide the core coverage.
-            return;
-        }
-
-        let mut fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        fixture.push("../tests/fixtures/HelloWorld.class");
-
-        let output = std::process::Command::new(&p)
-            .arg("run")
-            .arg(fixture.to_string_lossy().as_ref())
-            .output()
-            .unwrap_or_else(|_| panic!("failed to execute process {p:?}"));
-        assert!(output.status.success());
+        p.push("../tests/fixtures/HelloWorld.class");
+        let args = vec![p.to_string_lossy().to_string()];
+        super::run_main(&args, None, None, None, None);
     }
 
     #[test]
     fn test_main_dispatch_to_exec_method() {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../target/debug/duke");
-        if !p.exists() {
-            return;
-        }
-
-        let mut fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        fixture.push("../tests/fixtures/Arithmetic.class");
-
-        let output = std::process::Command::new(&p)
-            .arg("exec")
-            .arg(fixture.to_string_lossy().as_ref())
-            .arg("add")
-            .arg("2")
-            .arg("3")
-            .output()
-            .unwrap_or_else(|_| panic!("failed to execute process {p:?}"));
-        assert!(output.status.success());
+        p.push("../tests/fixtures/Arithmetic.class");
+        let args = vec![
+            p.to_string_lossy().to_string(),
+            "add".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+        ];
+        super::exec_method(&args, None, None, None, None);
     }
 
     #[test]
     fn test_main_dispatch_to_run_jar() {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../target/debug/duke");
-        if !p.exists() {
-            return;
-        }
-
-        let mut fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        fixture.push("../tests/fixtures/hello.jar");
-
-        let output = std::process::Command::new(&p)
-            .arg("-jar")
-            .arg(fixture.to_string_lossy().as_ref())
-            .output()
-            .unwrap_or_else(|_| panic!("failed to execute process {p:?}"));
-        assert!(output.status.success());
+        p.push("../tests/fixtures/hello.jar");
+        super::run_jar(p.to_string_lossy().as_ref(), &[], None, None, None, None);
     }
 }
 
