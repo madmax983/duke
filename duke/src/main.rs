@@ -778,6 +778,41 @@ mod cfg_tests {
             Some(MermaidDest::Stdout)
         );
     }
+
+    #[test]
+    fn test_exec_method_happy_path() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/Arithmetic.class");
+        let args = vec![
+            p.to_string_lossy().to_string(),
+            "add".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+        ];
+        super::exec_method(&args, None, None, None, None);
+    }
+
+    #[test]
+    fn test_run_main_happy_path() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+        let args = vec![p.to_string_lossy().to_string()];
+        super::run_main(&args, None, None, None, None);
+    }
+
+    #[test]
+    fn test_run_jar_happy_path() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/hello.jar");
+        super::run_jar(
+            p.to_string_lossy().as_ref(),
+            &[],
+            None,
+            None,
+            None,
+            None,
+        );
+    }
 }
 
 fn dump_class_file(cf: &ClassFile) {
