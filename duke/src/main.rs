@@ -171,6 +171,24 @@ fn extract_mermaid_heap_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
     result
 }
 
+/// Strip `--mermaid-clinit[=path]` from `args` and return the configured destination.
+#[allow(dead_code)]
+fn extract_mermaid_clinit_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
+    let mut result = None;
+    args.retain(|arg| {
+        if arg == "--mermaid-clinit" {
+            result = Some(MermaidDest::Stdout);
+            false
+        } else if let Some(path) = arg.strip_prefix("--mermaid-clinit=") {
+            result = Some(MermaidDest::File(path.to_string()));
+            false
+        } else {
+            true
+        }
+    });
+    result
+}
+
 /// Strip `--telemetry[=path]` from `args` and return the configured destination.
 fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     let mut result = None;
@@ -192,6 +210,7 @@ fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);
     let mermaid_dest = extract_mermaid_heap_flag(&mut args);
+    let mermaid_clinit_dest = extract_mermaid_clinit_flag(&mut args);
     let jdk_home = extract_jdk_flag(&mut args);
     let jar_path = extract_jar_flag(&mut args);
 
@@ -217,6 +236,7 @@ fn main() {
             &remaining_args,
             telemetry,
             mermaid_dest,
+            mermaid_clinit_dest,
             jdk_home.as_deref(),
         );
         return;
@@ -236,13 +256,25 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref());
+        exec_method(
+            &args[2..],
+            telemetry,
+            mermaid_dest,
+            mermaid_clinit_dest,
+            jdk_home.as_deref(),
+        );
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref());
+        run_main(
+            &args[2..],
+            telemetry,
+            mermaid_dest,
+            mermaid_clinit_dest,
+            jdk_home.as_deref(),
+        );
         return;
     }
 
@@ -283,6 +315,32 @@ fn emit_mermaid_heap(heap: &Heap, dest: Option<MermaidDest>) {
                 eprintln!("duke: failed to write mermaid heap to '{path}': {e}");
             }
         }
+    }
+}
+
+/// Emit Mermaid JS clinit DAG to the configured destination (stdout or file).
+#[cfg(feature = "telemetry")]
+fn emit_mermaid_clinit(registry: &ClassRegistry, dest: Option<MermaidDest>) {
+    let Some(dest) = dest else { return };
+    let mermaid_str = registry.telemetry.class_init_dag.to_mermaid();
+    match dest {
+        MermaidDest::Stdout => println!("{mermaid_str}"),
+        MermaidDest::File(path) => {
+            if let Err(e) = std::fs::write(&path, &mermaid_str) {
+                eprintln!("duke: failed to write mermaid clinit to '{path}': {e}");
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "telemetry"))]
+#[allow(clippy::needless_pass_by_value)]
+fn emit_mermaid_clinit(_registry: &ClassRegistry, dest: Option<MermaidDest>) {
+    if dest.is_some() {
+        eprintln!(
+            "duke: --mermaid-clinit flag requires the 'telemetry' feature \
+             (rebuild with --features telemetry)"
+        );
     }
 }
 
@@ -340,6 +398,7 @@ fn exec_method(
     args: &[String],
     telemetry: Option<TelemetryDest>,
     mermaid_dest: Option<MermaidDest>,
+    mermaid_clinit_dest: Option<MermaidDest>,
     jdk_home: Option<&str>,
 ) {
     if args.len() < 2 {
@@ -421,12 +480,14 @@ fn exec_method(
         Err(VmError::SystemExit { code }) => Some(code),
         Err(e) => {
             emit_mermaid_heap(&heap, mermaid_dest);
+            emit_mermaid_clinit(&registry, mermaid_clinit_dest);
             emit_telemetry(&registry, telemetry);
             eprintln!("duke: runtime error: {e}");
             process::exit(1);
         }
     };
     emit_mermaid_heap(&heap, mermaid_dest);
+    emit_mermaid_clinit(&registry, mermaid_clinit_dest);
     emit_telemetry(&registry, telemetry);
     if let Some(code) = exit_code {
         process::exit(code);
@@ -444,6 +505,7 @@ fn run_main(
     args: &[String],
     telemetry: Option<TelemetryDest>,
     mermaid_dest: Option<MermaidDest>,
+    mermaid_clinit_dest: Option<MermaidDest>,
     jdk_home: Option<&str>,
 ) {
     if args.is_empty() {
@@ -502,12 +564,14 @@ fn run_main(
         Err(VmError::SystemExit { code }) => Some(code),
         Err(e) => {
             emit_mermaid_heap(&heap, mermaid_dest);
+            emit_mermaid_clinit(&registry, mermaid_clinit_dest);
             emit_telemetry(&registry, telemetry);
             eprintln!("duke: runtime error: {e}");
             process::exit(1);
         }
     };
     emit_mermaid_heap(&heap, mermaid_dest);
+    emit_mermaid_clinit(&registry, mermaid_clinit_dest);
     emit_telemetry(&registry, telemetry);
     if let Some(code) = exit_code {
         process::exit(code);
@@ -526,6 +590,7 @@ fn run_jar(
     string_args: &[&str],
     telemetry: Option<TelemetryDest>,
     mermaid_dest: Option<MermaidDest>,
+    mermaid_clinit_dest: Option<MermaidDest>,
     jdk_home: Option<&str>,
 ) {
     let jar = std::path::Path::new(jar_path);
@@ -595,12 +660,14 @@ fn run_jar(
         Err(VmError::SystemExit { code }) => Some(code),
         Err(e) => {
             emit_mermaid_heap(&heap, mermaid_dest);
+            emit_mermaid_clinit(&registry, mermaid_clinit_dest);
             emit_telemetry(&registry, telemetry);
             eprintln!("duke: runtime error: {e}");
             process::exit(1);
         }
     };
     emit_mermaid_heap(&heap, mermaid_dest);
+    emit_mermaid_clinit(&registry, mermaid_clinit_dest);
     emit_telemetry(&registry, telemetry);
     if let Some(code) = exit_code {
         process::exit(code);
@@ -917,7 +984,39 @@ fn format_cp_entry(cf: &ClassFile, entry: &CpEntry) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MermaidDest, extract_mermaid_heap_flag};
+    use super::{MermaidDest, extract_mermaid_clinit_flag, extract_mermaid_heap_flag};
+
+    #[test]
+    fn test_extract_mermaid_clinit_flag_none() {
+        let mut args = vec!["duke".to_string(), "run".to_string()];
+        let res = extract_mermaid_clinit_flag(&mut args);
+        assert_eq!(res, None);
+        assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_mermaid_clinit_flag_stdout() {
+        let mut args = vec![
+            "duke".to_string(),
+            "--mermaid-clinit".to_string(),
+            "run".to_string(),
+        ];
+        let res = extract_mermaid_clinit_flag(&mut args);
+        assert_eq!(res, Some(MermaidDest::Stdout));
+        assert_eq!(args.len(), 2); // the flag itself is removed
+    }
+
+    #[test]
+    fn test_extract_mermaid_clinit_flag_file() {
+        let mut args = vec![
+            "duke".to_string(),
+            "--mermaid-clinit=output.mmd".to_string(),
+            "run".to_string(),
+        ];
+        let res = extract_mermaid_clinit_flag(&mut args);
+        assert_eq!(res, Some(MermaidDest::File("output.mmd".to_string())));
+        assert_eq!(args.len(), 2); // the flag itself is removed
+    }
 
     #[test]
     fn test_extract_mermaid_heap_flag_none() {
