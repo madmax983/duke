@@ -3698,6 +3698,39 @@ fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
     }
 }
 
+#[inline]
+fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
+    match args.get(idx) {
+        Some(Slot::Long(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Long",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
+    match args.get(idx) {
+        Some(Slot::Float(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Float",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
+    match args.get(idx) {
+        Some(Slot::Double(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Double",
+            got: "other",
+        }),
+    }
+}
+
 macro_rules! extract_print_arg {
     ($args:expr, $pat:pat => $expr:expr, $expected:literal) => {
         match $args.get(1) {
@@ -7288,15 +7321,7 @@ fn native_string_value_of_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7308,15 +7333,7 @@ fn native_string_value_of_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7328,15 +7345,7 @@ fn native_string_value_of_float(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7746,15 +7755,7 @@ fn native_math_sqrt(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.sqrt())))
 }
 
@@ -7765,24 +7766,8 @@ fn native_math_pow(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.powf(b))))
 }
 
@@ -7793,15 +7778,7 @@ fn native_math_floor(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.floor())))
 }
 
@@ -7812,15 +7789,7 @@ fn native_math_ceil(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.ceil())))
 }
 
@@ -7832,15 +7801,7 @@ fn native_math_round_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Long(a.round() as i64)))
 }
 
@@ -7851,15 +7812,7 @@ fn native_math_abs_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
     Ok(Some(Slot::Long(a.wrapping_abs())))
 }
 
@@ -7870,15 +7823,7 @@ fn native_math_abs_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.abs())))
 }
 
@@ -7889,24 +7834,8 @@ fn native_math_max_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.max(b))))
 }
 
@@ -7917,24 +7846,8 @@ fn native_math_min_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.min(b))))
 }
 
@@ -7945,24 +7858,8 @@ fn native_math_max_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.max(b))))
 }
 
@@ -7973,24 +7870,8 @@ fn native_math_min_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.min(b))))
 }
 
@@ -8025,15 +7906,7 @@ fn native_long_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -8097,15 +7970,7 @@ fn native_long_tostring_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -8177,24 +8042,8 @@ fn native_long_compareunsigned_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = u64::from_ne_bytes(extract_long_arg(args, 0)?.to_ne_bytes());
+    let b = u64::from_ne_bytes(extract_long_arg(args, 1)?.to_ne_bytes());
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8255,15 +8104,7 @@ fn native_double_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 0)?;
     let r = heap.allocate("java/lang/Double".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Double(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -8289,15 +8130,7 @@ fn native_float_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 0)?;
     let r = heap.allocate("java/lang/Float".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Float(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -16186,15 +16019,7 @@ fn native_sb_append_long(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -16210,15 +16035,7 @@ fn native_sb_append_double(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -16234,15 +16051,7 @@ fn native_sb_append_float(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -29909,6 +29718,60 @@ mod tests {
             extract_int_arg(&args, 0).unwrap_err(),
             VmError::TypeMismatch {
                 expected: "Int",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_long_arg_success() {
+        let args = vec![Slot::Long(42)];
+        assert_eq!(extract_long_arg(&args, 0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_long_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_long_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Long",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_float_arg_success() {
+        let args = vec![Slot::Float(42.0)];
+        assert!((extract_float_arg(&args, 0).unwrap() - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_extract_float_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_float_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Float",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_double_arg_success() {
+        let args = vec![Slot::Double(42.0)];
+        assert!((extract_double_arg(&args, 0).unwrap() - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_extract_double_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_double_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Double",
                 got: "other"
             }
         ));
