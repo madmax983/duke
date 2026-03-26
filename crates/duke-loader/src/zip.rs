@@ -299,16 +299,30 @@ impl ZipLoader {
 
 impl ClassLoader for ZipLoader {
     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
-        for entry_name in [
-            format!("{name}.class"),
-            format!("BOOT-INF/classes/{name}.class"),
-        ] {
-            match self.reader.read_entry(&entry_name) {
-                Ok(bytes) => return Ok(bytes),
-                Err(LoadError::NotFound { .. }) => {}
-                Err(other) => return Err(other),
-            }
+        // Pre-allocate a single buffer large enough for the longest path
+        // "BOOT-INF/classes/".len() == 17, ".class".len() == 6. Total = 23
+        let mut entry_name = String::with_capacity(name.len() + 23);
+
+        // Try standard class path: {name}.class
+        entry_name.push_str(name);
+        entry_name.push_str(".class");
+        match self.reader.read_entry(&entry_name) {
+            Ok(bytes) => return Ok(bytes),
+            Err(LoadError::NotFound { .. }) => {}
+            Err(other) => return Err(other),
         }
+
+        // Try BOOT-INF path: BOOT-INF/classes/{name}.class
+        entry_name.clear();
+        entry_name.push_str("BOOT-INF/classes/");
+        entry_name.push_str(name);
+        entry_name.push_str(".class");
+        match self.reader.read_entry(&entry_name) {
+            Ok(bytes) => return Ok(bytes),
+            Err(LoadError::NotFound { .. }) => {}
+            Err(other) => return Err(other),
+        }
+
         for nested_lib in &self.nested_libs {
             match nested_lib.find_class(name) {
                 Ok(bytes) => return Ok(bytes),
