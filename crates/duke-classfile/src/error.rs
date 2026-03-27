@@ -95,5 +95,9 @@ pub enum Error {
 
 /// Convenience alias.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Specific alias for an [`enum@Error`] resulting from parsing.
 pub type ParseError = Error;
+
+/// Specific alias for a [`Result`] returned from parsing operations.
 pub type ParseResult<T> = Result<T>;
