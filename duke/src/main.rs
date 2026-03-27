@@ -5,8 +5,6 @@
 
 use std::process;
 
-mod deps;
-
 use duke_bytecode::{decode, generate_mermaid_cfg};
 use duke_classfile::{
     ClassFile, parse,
@@ -202,7 +200,6 @@ fn main() {
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
-        eprintln!("       duke deps <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
@@ -234,12 +231,6 @@ fn main() {
     // Dispatch `cfg`: dump control flow graph for a method.
     if args.len() >= 4 && args[1] == "cfg" {
         dump_cfg(&args[2], &args[3]);
-        return;
-    }
-
-    // Dispatch `deps`: dump class dependencies as a Mermaid graph.
-    if args.len() >= 3 && args[1] == "deps" {
-        deps::dump_dependencies(&args[2]);
         return;
     }
 
