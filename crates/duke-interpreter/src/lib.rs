@@ -8378,16 +8378,7 @@ fn parse_i128_decode(s: &str) -> VmResult<i128> {
 }
 
 fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> VmResult<String> {
-    let str_ref = match args.get(index) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let str_ref = extract_ref_arg(args, index)?;
     Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
 }
 
