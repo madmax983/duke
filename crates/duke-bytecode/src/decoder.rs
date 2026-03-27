@@ -479,6 +479,69 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_cursor_read_primitives() {
+        let data = [
+            0x7F, // read_i8: 127
+            0xFF, // read_i8: -1
+            0x12, 0x34, // read_u16: 4660
+            0xFF, 0xFE, // read_i16: -2
+            0x12, 0x34, 0x56, 0x78, // read_u32: 305419896
+            0xFF, 0xFF, 0xFF, 0xFD, // read_i32: -3
+            0xAB, 0xCD, // read_cp: CpIndex(0xABCD)
+        ];
+        let mut cursor = Cursor::new(&data);
+        assert_eq!(cursor.read_i8().unwrap(), 127);
+        assert_eq!(cursor.read_i8().unwrap(), -1);
+        assert_eq!(cursor.read_u16().unwrap(), 0x1234);
+        assert_eq!(cursor.read_i16().unwrap(), -2);
+        assert_eq!(cursor.read_u32().unwrap(), 0x1234_5678);
+        assert_eq!(cursor.read_i32().unwrap(), -3);
+        assert_eq!(cursor.read_cp().unwrap().0, 0xABCD);
+
+        assert!(!cursor.has_remaining());
+        assert!(matches!(
+            cursor.read_u8().unwrap_err(),
+            DecodeError::UnexpectedEof { pc: 16 }
+        ));
+    }
+
+    #[test]
+    fn test_cursor_align4() {
+        let data = [0; 10];
+        let mut cursor = Cursor::new(&data);
+        cursor.read_u8().unwrap();
+        assert_eq!(cursor.pos, 1);
+        cursor.align4();
+        assert_eq!(cursor.pos, 4);
+
+        cursor.read_u8().unwrap();
+        cursor.read_u8().unwrap();
+        assert_eq!(cursor.pos, 6);
+        cursor.align4();
+        assert_eq!(cursor.pos, 8);
+
+        cursor.align4(); // already aligned
+        assert_eq!(cursor.pos, 8);
+    }
+
+    #[test]
+    fn test_cursor_read_primitives_unexpected_eof() {
+        let data = [0x01];
+        let mut cursor = Cursor::new(&data);
+        assert!(matches!(
+            cursor.read_u16().unwrap_err(),
+            DecodeError::UnexpectedEof { pc: 1 }
+        ));
+
+        let data = [0x01, 0x02, 0x03];
+        let mut cursor = Cursor::new(&data);
+        assert!(matches!(
+            cursor.read_u32().unwrap_err(),
+            DecodeError::UnexpectedEof { pc: 3 }
+        ));
+    }
+
+    #[test]
     fn test_decoder_truncated_operands() {
         // Sipush needs 2 bytes, only 1 provided
         let code = [op::SIPUSH, 0x01];
