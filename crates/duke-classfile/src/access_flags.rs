@@ -14,9 +14,10 @@ bitflags! {
     /// assert!(flags.contains(ClassAccessFlags::PUBLIC));
     /// assert!(!flags.contains(ClassAccessFlags::ABSTRACT));
     ///
-    /// // trigger derive Debug, Clone, Copy, PartialEq, Eq
-    /// let cloned = flags.clone();
-    /// assert_eq!(flags, cloned);
+    /// // test derived traits
+    /// let flags2 = flags;
+    /// assert_eq!(flags, flags2);
+    /// assert_eq!(flags.clone(), flags);
     /// format!("{:?}", flags);
     /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,9 +55,10 @@ bitflags! {
     /// assert!(flags.contains(FieldAccessFlags::STATIC));
     /// assert!(!flags.contains(FieldAccessFlags::PUBLIC));
     ///
-    /// // trigger derive Debug, Clone, Copy, PartialEq, Eq
-    /// let cloned = flags.clone();
-    /// assert_eq!(flags, cloned);
+    /// // test derived traits
+    /// let flags2 = flags;
+    /// assert_eq!(flags, flags2);
+    /// assert_eq!(flags.clone(), flags);
     /// format!("{:?}", flags);
     /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,9 +96,10 @@ bitflags! {
     /// assert!(flags.contains(MethodAccessFlags::STATIC));
     /// assert!(!flags.contains(MethodAccessFlags::PRIVATE));
     ///
-    /// // trigger derive Debug, Clone, Copy, PartialEq, Eq
-    /// let cloned = flags.clone();
-    /// assert_eq!(flags, cloned);
+    /// // test derived traits
+    /// let flags2 = flags;
+    /// assert_eq!(flags, flags2);
+    /// assert_eq!(flags.clone(), flags);
     /// format!("{:?}", flags);
     /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
