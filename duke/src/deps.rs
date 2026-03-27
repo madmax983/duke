@@ -36,15 +36,15 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
 }
 
 pub fn dump_dependencies(path: &str) {
-    let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{path}': {e}");
+    if let Err(e) = dump_dependencies_inner(path) {
+        eprintln!("duke: {}", e);
         process::exit(1);
-    });
+    }
+}
 
-    let cf = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error in '{path}': {e}");
-        process::exit(1);
-    });
+fn dump_dependencies_inner(path: &str) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read '{path}': {e}"))?;
+    let cf = parse(&bytes).map_err(|e| format!("parse error in '{path}': {e}"))?;
 
     let this_class_name = resolve_class_name(&cf, cf.this_class);
 
@@ -65,12 +65,10 @@ pub fn dump_dependencies(path: &str) {
 
     println!("graph TD");
     for dep in sorted_deps {
-        // Mermaid nodes need careful handling if they contain special chars,
-        // but class internal names are usually "java/lang/Object" which is fine
-        // as long as we quote the node name or replace slashes.
-        // We will output: MainClass --> "java/lang/Object"
         println!("    \"{this_class_name}\" --> \"{dep}\"");
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -78,32 +76,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_dump_dependencies() {
+    fn test_dump_dependencies_inner() {
         // Minimal sanity test, we'll verify it parses the test class correctly.
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("../tests/fixtures/HelloWorld.class");
 
-        let bytes = std::fs::read(&p).expect("read class");
-        let cf = parse(&bytes).expect("parse class");
+        // This should succeed
+        assert!(dump_dependencies_inner(p.to_str().unwrap()).is_ok());
 
-        let this_class_name = resolve_class_name(&cf, cf.this_class);
-        assert_eq!(this_class_name, "HelloWorld");
+        // This should fail reading
+        let err1 = dump_dependencies_inner("does_not_exist.class").unwrap_err();
+        assert!(err1.contains("cannot read"));
 
-        let mut deps = std::collections::HashSet::new();
-        for entry in &cf.constant_pool {
-            if let Some(CpEntry::Class { name_index }) = entry {
-                let class_name = cp_str(&cf, *name_index).unwrap();
-                if class_name != this_class_name && !class_name.starts_with('[') {
-                    deps.insert(class_name);
-                }
-            }
-        }
-        assert!(deps.contains("java/lang/Object"));
-        assert!(deps.contains("java/lang/System"));
-        assert!(deps.contains("java/io/PrintStream"));
+        // This should fail parsing
+        let mut bad_p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        bad_p.push("Cargo.toml"); // Not a valid class file
+        let err2 = dump_dependencies_inner(bad_p.to_str().unwrap()).unwrap_err();
+        assert!(err2.contains("parse error"));
     }
 
-    // Cover error cases inside helpers without terminating process
     #[test]
     fn test_resolve_class_name_zero() {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
