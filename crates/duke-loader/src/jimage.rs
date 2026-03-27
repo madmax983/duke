@@ -317,7 +317,12 @@ fn build_index(
     str_offset: usize,
     capacity: usize,
 ) -> HashMap<String, ResourceInfo> {
-    let mut index = HashMap::with_capacity(capacity);
+    // The capacity comes from the jimage header which could be malicious.
+    // To prevent OOM crashes from huge allocations (e.g. 0x3FFFFFFF), we clamp it.
+    // Since each location entry requires at least one END byte (1 byte),
+    // the absolute maximum number of entries is `locs_size`.
+    let safe_capacity = capacity.min(locs_size);
+    let mut index = HashMap::with_capacity(safe_capacity);
     let mut pos = locs_offset;
     let locs_end = locs_offset + locs_size;
 
