@@ -1,1 +1,2 @@
-cargo test --workspace
+#!/bin/bash
+cargo test --doc -p duke-classfile

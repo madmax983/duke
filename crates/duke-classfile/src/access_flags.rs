@@ -13,6 +13,11 @@ bitflags! {
     /// let flags = ClassAccessFlags::PUBLIC | ClassAccessFlags::FINAL;
     /// assert!(flags.contains(ClassAccessFlags::PUBLIC));
     /// assert!(!flags.contains(ClassAccessFlags::ABSTRACT));
+    ///
+    /// // trigger derive Debug, Clone, Copy, PartialEq, Eq
+    /// let cloned = flags.clone();
+    /// assert_eq!(flags, cloned);
+    /// format!("{:?}", flags);
     /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct ClassAccessFlags: u16 {
@@ -48,6 +53,11 @@ bitflags! {
     /// let flags = FieldAccessFlags::PRIVATE | FieldAccessFlags::STATIC;
     /// assert!(flags.contains(FieldAccessFlags::STATIC));
     /// assert!(!flags.contains(FieldAccessFlags::PUBLIC));
+    ///
+    /// // trigger derive Debug, Clone, Copy, PartialEq, Eq
+    /// let cloned = flags.clone();
+    /// assert_eq!(flags, cloned);
+    /// format!("{:?}", flags);
     /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct FieldAccessFlags: u16 {
@@ -83,6 +93,11 @@ bitflags! {
     /// let flags = MethodAccessFlags::PUBLIC | MethodAccessFlags::STATIC;
     /// assert!(flags.contains(MethodAccessFlags::STATIC));
     /// assert!(!flags.contains(MethodAccessFlags::PRIVATE));
+    ///
+    /// // trigger derive Debug, Clone, Copy, PartialEq, Eq
+    /// let cloned = flags.clone();
+    /// assert_eq!(flags, cloned);
+    /// format!("{:?}", flags);
     /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct MethodAccessFlags: u16 {
