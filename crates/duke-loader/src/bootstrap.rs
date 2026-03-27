@@ -144,17 +144,8 @@ mod tests {
 
     #[test]
     fn test_classpath_entry_find_class_zip_delegation() {
-        // Use a unique temp directory. A Drop guard ensures cleanup on panic.
-        struct TempDir(std::path::PathBuf);
-        impl Drop for TempDir {
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.0);
-            }
-        }
-
         let root = std::env::temp_dir().join("duke_test_dir_zip_delegation");
         fs::create_dir_all(&root).unwrap();
-        let _guard = TempDir(root.clone());
         let zip_path = root.join("test.zip");
         create_dummy_zip(&zip_path);
 
@@ -165,6 +156,10 @@ mod tests {
             .find_class("java/lang/Missing")
             .expect_err("Class should not be found in empty zip");
         assert!(matches!(err, LoadError::NotFound { .. }));
+
+        // Drop the entry to release the file handle before attempting to delete the directory
+        drop(entry);
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
@@ -177,6 +172,7 @@ mod tests {
         let entry = classpath_entry_for(&zip_path).expect("Failed to create zip classpath entry");
         assert!(matches!(entry, ClasspathEntry::Zip(_)));
 
+        drop(entry);
         fs::remove_dir_all(&root).unwrap();
     }
 
