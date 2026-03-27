@@ -178,7 +178,7 @@ impl ZipReader {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
                 let mut decoder = flate2::read::DeflateDecoder::new(compressed);
-                let cap = usize::try_from(info.uncompressed_size).unwrap_or(0);
+                let cap = info.uncompressed_size as usize;
                 let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32));
                 decoder
                     .read_to_end(&mut buf)
