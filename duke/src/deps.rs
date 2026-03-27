@@ -102,4 +102,29 @@ mod tests {
         assert!(deps.contains("java/lang/System"));
         assert!(deps.contains("java/io/PrintStream"));
     }
+
+    // Cover error cases inside helpers without terminating process
+    #[test]
+    fn test_resolve_class_name_zero() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+        let bytes = std::fs::read(&p).unwrap();
+        let cf = parse(&bytes).unwrap();
+        // Index 0 returns "<none>"
+        assert_eq!(resolve_class_name(&cf, CpIndex(0)), "<none>");
+        // Index 1 (Methodref) returns "<not a class ref>"
+        assert_eq!(resolve_class_name(&cf, CpIndex(1)), "<not a class ref>");
+    }
+
+    #[test]
+    fn test_cp_str_invalid() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+        let bytes = std::fs::read(&p).unwrap();
+        let cf = parse(&bytes).unwrap();
+        // Out of bounds
+        assert_eq!(cp_str(&cf, CpIndex(999)), None);
+        // Not a utf8 entry
+        assert_eq!(cp_str(&cf, CpIndex(1)), None);
+    }
 }
