@@ -4,6 +4,22 @@ use bitflags::bitflags;
 
 bitflags! {
     /// Access flags for class declarations (§4.1, Table 4.1-B).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_classfile::access_flags::ClassAccessFlags;
+    ///
+    /// let flags = ClassAccessFlags::PUBLIC | ClassAccessFlags::FINAL;
+    /// assert!(flags.contains(ClassAccessFlags::PUBLIC));
+    /// assert!(!flags.contains(ClassAccessFlags::ABSTRACT));
+    ///
+    /// // test derived traits
+    /// let flags2 = flags;
+    /// assert_eq!(flags, flags2);
+    /// assert_eq!(flags.clone(), flags);
+    /// format!("{:?}", flags);
+    /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct ClassAccessFlags: u16 {
         /// Declared public; may be accessed from outside its package.
@@ -29,6 +45,22 @@ bitflags! {
 
 bitflags! {
     /// Access flags for field declarations (§4.5, Table 4.5-A).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_classfile::access_flags::FieldAccessFlags;
+    ///
+    /// let flags = FieldAccessFlags::PRIVATE | FieldAccessFlags::STATIC;
+    /// assert!(flags.contains(FieldAccessFlags::STATIC));
+    /// assert!(!flags.contains(FieldAccessFlags::PUBLIC));
+    ///
+    /// // test derived traits
+    /// let flags2 = flags;
+    /// assert_eq!(flags, flags2);
+    /// assert_eq!(flags.clone(), flags);
+    /// format!("{:?}", flags);
+    /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct FieldAccessFlags: u16 {
         /// Declared public; may be accessed from outside its package.
@@ -54,6 +86,22 @@ bitflags! {
 
 bitflags! {
     /// Access flags for method declarations (§4.6, Table 4.6-A).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_classfile::access_flags::MethodAccessFlags;
+    ///
+    /// let flags = MethodAccessFlags::PUBLIC | MethodAccessFlags::STATIC;
+    /// assert!(flags.contains(MethodAccessFlags::STATIC));
+    /// assert!(!flags.contains(MethodAccessFlags::PRIVATE));
+    ///
+    /// // test derived traits
+    /// let flags2 = flags;
+    /// assert_eq!(flags, flags2);
+    /// assert_eq!(flags.clone(), flags);
+    /// format!("{:?}", flags);
+    /// ```
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct MethodAccessFlags: u16 {
         /// Declared public; may be accessed from outside its package.

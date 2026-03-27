@@ -12,10 +12,41 @@
 use crate::access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 
 /// Newtype wrapper for constant pool indices (1-based per JVM spec).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::types::CpIndex;
+///
+/// let index = CpIndex(42);
+/// assert_eq!(index.0, 42);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CpIndex(pub u16);
 
 /// Parsed top-level class file structure (JVM spec §4.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::types::{ClassFile, CpIndex};
+/// use duke_classfile::access_flags::ClassAccessFlags;
+///
+/// let class_file = ClassFile {
+///     minor_version: 0,
+///     major_version: 65, // Java 21
+///     constant_pool: vec![None], // 1-based index, index 0 is unused
+///     access_flags: ClassAccessFlags::PUBLIC,
+///     this_class: CpIndex(1),
+///     super_class: CpIndex(0), // java/lang/Object
+///     interfaces: vec![],
+///     fields: vec![],
+///     methods: vec![],
+///     attributes: vec![],
+/// };
+///
+/// assert_eq!(class_file.major_version, 65);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ClassFile {
     /// Minor version of the class file format.
