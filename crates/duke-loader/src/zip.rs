@@ -178,7 +178,8 @@ impl ZipReader {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
                 let mut decoder = flate2::read::DeflateDecoder::new(compressed);
-                let mut buf = Vec::with_capacity(info.uncompressed_size as usize);
+                let cap = info.uncompressed_size as usize;
+                let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32));
                 decoder
                     .read_to_end(&mut buf)
                     .map_err(|_| LoadError::ZipFormat {
@@ -1017,5 +1018,39 @@ mod tests {
             .expect("should prefer BOOT-INF/classes");
         assert_eq!(bytes, app_class);
         std::fs::remove_file(&tmp).ok();
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::HashMap;
+
+    proptest! {
+        #[test]
+        fn fuzz_zip_reader_read_entry_info(
+            uncompressed_size in any::<u64>()
+        ) {
+            let info = ZipEntryInfo {
+                name: "fuzz.txt".to_string(),
+                compression_method: METHOD_DEFLATED,
+                crc32: 0,
+                compressed_size: 0,
+                uncompressed_size,
+                local_header_offset: 0,
+            };
+
+            // Let's make a mock local header signature + empty filename/extra + empty data
+            let mut data = vec![0; 30];
+            data[0..4].copy_from_slice(&LOCAL_SIGNATURE.to_le_bytes());
+
+            let reader = ZipReader {
+                data,
+                index: HashMap::new(),
+            };
+
+            let _ = reader.read_entry_info(&info);
+        }
     }
 }
