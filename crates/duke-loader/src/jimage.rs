@@ -328,6 +328,7 @@ fn build_index(
     let mut pos = locs_offset;
     let locs_end = locs_offset + locs_size;
 
+    let mut path_buf = String::with_capacity(128);
     while pos < locs_end {
         // Decode all attributes for this location entry
         let mut module: u64 = 0;
@@ -380,11 +381,11 @@ fn build_index(
         let base_str = read_str(data, str_offset, base);
         let ext_str = read_str(data, str_offset, extension);
 
-        let mut path = String::new();
-        build_jimage_path(&mut path, mod_str, par_str, base_str, ext_str);
-        if !path.is_empty() {
+        path_buf.clear();
+        build_jimage_path(&mut path_buf, mod_str, par_str, base_str, ext_str);
+        if !path_buf.is_empty() {
             index.insert(
-                path,
+                path_buf.clone(),
                 ResourceInfo {
                     offset,
                     compressed,
