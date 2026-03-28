@@ -312,6 +312,10 @@ fn parse_header(data: &[u8]) -> LoadResult<(u32, u32, u32, u32)> {
 /// from the header to preallocate the `HashMap`. The JDK `lib/modules` file
 /// typically contains tens of thousands of resources. Preallocating the index
 /// prevents numerous intermediate allocations and rehashing passes during startup.
+///
+/// **Optimization:** A single mutable `String` buffer is hoisted outside the loop
+/// to build paths. This prevents thousands of `String::new()` heap allocations
+/// during parsing.
 fn build_index(
     data: &[u8],
     locs_offset: usize,
@@ -327,6 +331,7 @@ fn build_index(
     let mut index = HashMap::with_capacity(safe_capacity);
     let mut pos = locs_offset;
     let locs_end = locs_offset + locs_size;
+    let mut path = String::with_capacity(256);
 
     while pos < locs_end {
         // Decode all attributes for this location entry
@@ -380,11 +385,11 @@ fn build_index(
         let base_str = read_str(data, str_offset, base);
         let ext_str = read_str(data, str_offset, extension);
 
-        let mut path = String::new();
+        path.clear();
         build_jimage_path(&mut path, mod_str, par_str, base_str, ext_str);
         if !path.is_empty() {
             index.insert(
-                path,
+                path.clone(),
                 ResourceInfo {
                     offset,
                     compressed,
