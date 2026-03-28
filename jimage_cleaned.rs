@@ -254,10 +254,8 @@ const PROBE_MODULES: &[&str] = &[
 impl ClassLoader for JImageReader {
     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
         let (parent, base) = split_class_name(name);
-        let mut path = String::with_capacity(64);
         for module in PROBE_MODULES {
-            path.clear();
-            build_jimage_path(&mut path, module, parent, base, "class");
+            let path = build_jimage_path(module, parent, base, "class");
             if self.index.contains_key(&path) {
                 return self.read_resource(&path);
             }
@@ -375,8 +373,7 @@ fn build_index(
         let base_str = read_str(data, str_offset, base);
         let ext_str = read_str(data, str_offset, extension);
 
-        let mut path = String::new();
-        build_jimage_path(&mut path, mod_str, par_str, base_str, ext_str);
+        let path = build_jimage_path(mod_str, par_str, base_str, ext_str);
         if !path.is_empty() {
             index.insert(
                 path,
@@ -404,9 +401,9 @@ fn build_index(
 /// **Optimization:** Exact string capacity is calculated and preallocated.
 /// This prevents multiple intermediate heap reallocations when building paths
 /// for tens of thousands of jimage resources during startup.
-fn build_jimage_path(path: &mut String, module: &str, parent: &str, base: &str, extension: &str) {
+fn build_jimage_path(module: &str, parent: &str, base: &str, extension: &str) -> String {
     if module.is_empty() || base.is_empty() {
-        return;
+        return String::new();
     }
 
     let parent_len = if parent.is_empty() {
@@ -421,7 +418,7 @@ fn build_jimage_path(path: &mut String, module: &str, parent: &str, base: &str, 
     };
     let cap = 1 + module.len() + 1 + parent_len + base.len() + ext_len;
 
-    path.reserve(cap);
+    let mut path = String::with_capacity(cap);
     path.push('/');
     path.push_str(module);
     path.push('/');
@@ -434,6 +431,7 @@ fn build_jimage_path(path: &mut String, module: &str, parent: &str, base: &str, 
         path.push('.');
         path.push_str(extension);
     }
+    path
 }
 
 /// Split `"java/lang/Object"` into `("java/lang", "Object")`.
@@ -748,17 +746,13 @@ mod tests {
     #[test]
     fn build_jimage_path_empty_module_returns_empty() {
         // module="" → return "". Mutant `&&` only returns "" if BOTH empty.
-        let mut path = String::new();
-        build_jimage_path(&mut path, "", "parent", "base", "ext");
-        assert!(path.is_empty());
+        assert!(build_jimage_path("", "parent", "base", "ext").is_empty());
     }
 
     #[test]
     fn build_jimage_path_empty_base_returns_empty() {
         // base="" → return "". Mutant `&&` only returns "" if BOTH empty.
-        let mut path = String::new();
-        build_jimage_path(&mut path, "module", "parent", "", "ext");
-        assert!(path.is_empty());
+        assert!(build_jimage_path("module", "parent", "", "ext").is_empty());
     }
 
     // -----------------------------------------------------------------------

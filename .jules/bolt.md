@@ -5,3 +5,7 @@
 **[Repeated string formatting in Hot Paths]
 **Learning:** [Using `format!` inside loops or hot paths (e.g. `ZipLoader::find_class`) causes repeated heap allocations which can severely degrade performance.]
 **Action:** [Always pre-allocate a single mutable buffer with `String::with_capacity()` and reuse it across iterations using `.clear()` and `.push_str()` instead of repeated `format!` calls.]
+
+**JImageReader String Buffer Reuse**
+**Learning:** In hot loops like `JImageReader::find_class` where a dynamic string path is constructed multiple times per lookup attempt (e.g., across `PROBE_MODULES`), returning a new `String` directly causes a huge allocation bottleneck.
+**Action:** Extract the `String` allocation to the outer scope using `String::with_capacity` and pass a mutable reference (`&mut String`) to path-building methods. Use `.clear()` in the loop prior to mutating the buffer, eliminating per-loop memory allocations while retaining safety.
