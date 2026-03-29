@@ -3736,6 +3736,11 @@ fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
     }
 }
 
+#[inline]
+fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
+    args.get(idx).copied().unwrap_or(Slot::Reference(None))
+}
+
 macro_rules! extract_print_arg {
     ($args:expr, $pat:pat => $expr:expr, $expected:literal) => {
         match $args.get(1) {
