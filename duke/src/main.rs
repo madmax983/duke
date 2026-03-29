@@ -5,6 +5,8 @@
 
 use std::process;
 
+mod html;
+
 use duke_bytecode::{decode, generate_mermaid_cfg};
 use duke_classfile::{
     ClassFile,
@@ -200,6 +202,7 @@ fn main() {
     if jar_path.is_none() && args.len() < 2 {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
+        eprintln!("       duke html <classfile.class> [output.html]");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
@@ -228,6 +231,17 @@ fn main() {
     // Dispatch `load` before trying to read a file.
     if args.len() >= 3 && args[1] == "load" {
         load_and_dump(&args[2]);
+        return;
+    }
+
+    // Dispatch `html`: output HTML report for class.
+    if args.len() >= 3 && args[1] == "html" {
+        let output_path = if args.len() >= 4 {
+            Some(args[3].as_str())
+        } else {
+            None
+        };
+        dump_html(&args[2], output_path);
         return;
     }
 
@@ -615,6 +629,28 @@ fn run_jar(
 // Dump
 // ---------------------------------------------------------------------------
 
+fn dump_html(path: &str, output_path: Option<&str>) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("duke: cannot read '{path}': {e}");
+        process::exit(1);
+    });
+    let cf = parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error: {e}");
+        process::exit(1);
+    });
+
+    let html_content = html::generate_html_report(&cf);
+    if let Some(out) = output_path {
+        std::fs::write(out, html_content).unwrap_or_else(|e| {
+            eprintln!("duke: cannot write to '{out}': {e}");
+            process::exit(1);
+        });
+        println!("Report written to {out}");
+    } else {
+        println!("{html_content}");
+    }
+}
+
 fn dump_cfg(path: &str, method_name: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -714,6 +750,30 @@ mod cfg_tests {
             extract_mermaid_heap_flag(&mut args),
             Some(MermaidDest::Stdout)
         );
+    }
+
+    #[test]
+    fn test_dump_html() {
+        // Find HelloWorld.class in tests/fixtures
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+
+        // Write HTML to a temp file
+        let temp_dir = std::env::temp_dir();
+        let out_path = temp_dir.join("test_dump_html.html");
+
+        // Test with output path
+        dump_html(p.to_str().unwrap(), Some(out_path.to_str().unwrap()));
+        let html_content = std::fs::read_to_string(&out_path).unwrap();
+        assert!(html_content.contains("<!DOCTYPE html>"));
+        assert!(html_content.contains("Duke Class Report: HelloWorld"));
+
+        // Clean up
+        std::fs::remove_file(out_path).unwrap();
+
+        // Also test without output path (writes to stdout). We can't easily capture stdout here
+        // but we can ensure it doesn't panic.
+        dump_html(p.to_str().unwrap(), None);
     }
 }
 
