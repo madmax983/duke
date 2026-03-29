@@ -474,6 +474,13 @@ mod tests {
         assert_eq!(stack_effect(&Instruction::Lastore), (3, 0));
         assert_eq!(stack_effect(&Instruction::Pop2), (2, 0));
         assert_eq!(stack_effect(&Instruction::Dup2X2), (4, 6));
+        assert_eq!(stack_effect(&Instruction::DupX2), (3, 4));
+        assert_eq!(stack_effect(&Instruction::Dup2), (2, 4));
+        assert_eq!(stack_effect(&Instruction::Istore0), (1, 0));
+        assert_eq!(stack_effect(&Instruction::Istore1), (1, 0));
+        assert_eq!(stack_effect(&Instruction::Istore2), (1, 0));
+        assert_eq!(stack_effect(&Instruction::Istore3), (1, 0));
+        assert_eq!(stack_effect(&Instruction::IstoreW(0)), (1, 0));
         assert_eq!(stack_effect(&Instruction::Swap), (2, 2));
         assert_eq!(stack_effect(&Instruction::Iadd), (2, 1));
         assert_eq!(stack_effect(&Instruction::Dneg), (1, 1));
