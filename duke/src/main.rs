@@ -747,6 +747,30 @@ mod cfg_tests {
             Some(MermaidDest::Stdout)
         );
     }
+
+    #[test]
+    fn test_dump_html() {
+        // Find HelloWorld.class in tests/fixtures
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+
+        // Write HTML to a temp file
+        let temp_dir = std::env::temp_dir();
+        let out_path = temp_dir.join("test_dump_html.html");
+
+        // Test with output path
+        dump_html(p.to_str().unwrap(), Some(out_path.to_str().unwrap()));
+        let html_content = std::fs::read_to_string(&out_path).unwrap();
+        assert!(html_content.contains("<!DOCTYPE html>"));
+        assert!(html_content.contains("Duke Class Report: HelloWorld"));
+
+        // Clean up
+        std::fs::remove_file(out_path).unwrap();
+
+        // Also test without output path (writes to stdout). We can't easily capture stdout here
+        // but we can ensure it doesn't panic.
+        dump_html(p.to_str().unwrap(), None);
+    }
 }
 
 fn dump_class_file(cf: &ClassFile) {

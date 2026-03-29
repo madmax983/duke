@@ -56,10 +56,7 @@ pub fn generate_html_report(cf: &ClassFile) -> String {
         &mut out,
         "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
     );
-    let _ = writeln!(
-        &mut out,
-        "  <title>Duke Class Report: {this_name}</title>"
-    );
+    let _ = writeln!(&mut out, "  <title>Duke Class Report: {this_name}</title>");
     let _ = writeln!(&mut out, "  <style>");
     let _ = writeln!(
         &mut out,
@@ -140,10 +137,7 @@ pub fn generate_html_report(cf: &ClassFile) -> String {
         let _ = writeln!(&mut out, "    <ul>");
         for idx in &cf.interfaces {
             let intf_name = escape_html(resolve_class_name(cf, *idx));
-            let _ = writeln!(
-                &mut out,
-                "      <li><code>{intf_name}</code></li>"
-            );
+            let _ = writeln!(&mut out, "      <li><code>{intf_name}</code></li>");
         }
         let _ = writeln!(&mut out, "    </ul>");
     }
@@ -190,10 +184,7 @@ pub fn generate_html_report(cf: &ClassFile) -> String {
         let name = escape_html(name_str);
         let desc = escape_html(desc_str);
 
-        let _ = writeln!(
-            &mut out,
-            "  <div class=\"method\">"
-        );
+        let _ = writeln!(&mut out, "  <div class=\"method\">");
         let _ = writeln!(
             &mut out,
             "    <h3><code>{name}{desc}{ctor_label}</code></h3>"
@@ -288,5 +279,113 @@ mod tests {
         let html = generate_html_report(&cf);
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("<title>Duke Class Report: &lt;none&gt;</title>"));
+    }
+
+    #[test]
+    fn test_generate_html_report_complex_class() {
+        use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
+        use duke_classfile::types::{
+            AttributeData, AttributeInfo, CodeAttribute, FieldInfo, MethodInfo,
+        };
+
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None, // 0 is reserved
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }), // 1
+                Some(CpEntry::Utf8("java/lang/Object".to_string())), // 2
+                Some(CpEntry::Class {
+                    name_index: CpIndex(4),
+                }), // 3
+                Some(CpEntry::Utf8("MyClass<>&".to_string())), // 4
+                Some(CpEntry::Class {
+                    name_index: CpIndex(6),
+                }), // 5
+                Some(CpEntry::Utf8("java/lang/Runnable".to_string())), // 6
+                Some(CpEntry::Utf8("myField".to_string())), // 7
+                Some(CpEntry::Utf8("I".to_string())), // 8
+                Some(CpEntry::Utf8("myMethod".to_string())), // 9
+                Some(CpEntry::Utf8("()V".to_string())), // 10
+                Some(CpEntry::Utf8("<init>".to_string())), // 11
+                Some(CpEntry::Utf8("<clinit>".to_string())), // 12
+                Some(CpEntry::Utf8("run".to_string())), // 13
+            ],
+            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(3),
+            super_class: CpIndex(1),
+            interfaces: vec![CpIndex(5)],
+            fields: vec![FieldInfo {
+                access_flags: FieldAccessFlags::PRIVATE,
+                name_index: CpIndex(7),
+                descriptor_index: CpIndex(8),
+                attributes: vec![],
+            }],
+            methods: vec![
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PUBLIC,
+                    name_index: CpIndex(9),
+                    descriptor_index: CpIndex(10),
+                    attributes: vec![AttributeInfo {
+                        name_index: CpIndex(0), // Dummy
+                        data: AttributeData::Code(CodeAttribute {
+                            max_stack: 1,
+                            max_locals: 1,
+                            code: vec![0xb1], // return
+                            exception_table: vec![],
+                            attributes: vec![],
+                        }),
+                    }],
+                },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PUBLIC,
+                    name_index: CpIndex(11), // <init>
+                    descriptor_index: CpIndex(10),
+                    attributes: vec![],
+                },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::STATIC,
+                    name_index: CpIndex(12), // <clinit>
+                    descriptor_index: CpIndex(10),
+                    attributes: vec![],
+                },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PUBLIC,
+                    name_index: CpIndex(13), // run (invalid code to trigger decode error)
+                    descriptor_index: CpIndex(10),
+                    attributes: vec![AttributeInfo {
+                        name_index: CpIndex(0),
+                        data: AttributeData::Code(CodeAttribute {
+                            max_stack: 1,
+                            max_locals: 1,
+                            code: vec![0xfe], // Invalid opcode IMPDEP1
+                            exception_table: vec![],
+                            attributes: vec![],
+                        }),
+                    }],
+                },
+            ],
+            attributes: vec![],
+        };
+        let html = generate_html_report(&cf);
+
+        // Assertions for escape_html and resolve_class_name
+        assert!(html.contains("Duke Class Report: MyClass&lt;&gt;&amp;"));
+        assert!(html.contains("<code>java/lang/Object</code>"));
+        assert!(html.contains("<code>java/lang/Runnable</code>"));
+
+        // Assertions for fields
+        assert!(html.contains("<td><code>myField</code></td>"));
+
+        // Assertions for methods
+        assert!(html.contains("<h3><code>myMethod()V</code></h3>"));
+        assert!(html.contains("<h3><code>&lt;init&gt;()V (Constructor)</code></h3>"));
+        assert!(html.contains("<h3><code>&lt;clinit&gt;()V (Static Initializer)</code></h3>"));
+
+        // Assertions for decode success/error
+        assert!(html.contains("return")); // The mnemonic for 0xb1
+        assert!(html.contains("Decode Error:")); // For the invalid opcode
     }
 }
