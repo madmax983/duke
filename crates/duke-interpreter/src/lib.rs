@@ -5657,10 +5657,8 @@ fn native_class_get_declared_method(
     let class_key = class_key_from_ref(heap, class_ref)?;
     let method_name = string_value_from_ref(heap, name_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        extract_slot_arg(args, 2),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 2))?;
 
     let Some(method) = reflected.methods.into_iter().find(|method| {
         method.name == method_name
@@ -5694,10 +5692,8 @@ fn native_class_get_method(
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let method_name = string_value_from_ref(heap, name_ref)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        extract_slot_arg(args, 2),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 2))?;
 
     let Some((declaring_class, method)) =
         lookup_public_reflected_method(ops, &class_key, &method_name, &parameter_descriptor)?
@@ -5787,10 +5783,8 @@ fn native_class_get_declared_constructor(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        extract_slot_arg(args, 1),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, false)
     else {
@@ -5853,10 +5847,8 @@ fn native_class_get_constructor(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        extract_slot_arg(args, 1),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, true)
     else {
@@ -6314,8 +6306,7 @@ fn native_reflect_method_invoke(
 ) -> VmResult<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
     let target_slot = extract_slot_arg(args, 1);
-    let invoke_arg_slots =
-        reflection_array_elements(heap, extract_slot_arg(args, 2))?;
+    let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 2))?;
     let method = reflected_method_handle(heap, method_ref)?;
 
     if !method.is_public && !method.is_accessible {
@@ -6361,8 +6352,7 @@ fn native_reflect_constructor_new_instance(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let constructor_ref = extract_ref_arg(args, 0)?;
-    let invoke_arg_slots =
-        reflection_array_elements(heap, extract_slot_arg(args, 1))?;
+    let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 1))?;
     let constructor = reflected_method_handle(heap, constructor_ref)?;
 
     if !constructor.is_public && !constructor.is_accessible {
@@ -17416,8 +17406,7 @@ fn native_runtime_exec_array(
         Some(Slot::Reference(Some(_))) => {}
         _ => return Err(VmError::NullPointerException),
     }
-    let command =
-        string_array_from_slot(extract_slot_arg(args, 1), heap)?;
+    let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
     spawn_process_impl(heap, &command, None)
 }
 
@@ -17431,10 +17420,8 @@ fn native_runtime_exec_array_dir(
         Some(Slot::Reference(Some(_))) => {}
         _ => return Err(VmError::NullPointerException),
     }
-    let command =
-        string_array_from_slot(extract_slot_arg(args, 1), heap)?;
-    let cwd =
-        optional_file_path_from_slot(extract_slot_arg(args, 3), heap)?;
+    let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
+    let cwd = optional_file_path_from_slot(extract_slot_arg(args, 3), heap)?;
     spawn_process_impl(heap, &command, cwd.as_deref())
 }
 
