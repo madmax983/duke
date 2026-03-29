@@ -3678,6 +3678,11 @@ fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<i32> {
 }
 
 #[inline]
+fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
+    args.get(idx).copied().unwrap_or(Slot::Reference(None))
+}
+
+#[inline]
 fn extract_io_fd_at(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<i32> {
     match heap.get(obj_ref)?.fields.get(idx) {
         Some(Slot::Int(id)) => Ok(*id),
@@ -3905,7 +3910,7 @@ fn native_file_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let path_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let path_slot = extract_slot_arg(args, 1);
     let file_obj = heap.get_mut(this_ref)?;
     let Some(path_field) = file_obj.fields.first_mut() else {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -4779,11 +4784,8 @@ fn native_enum_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let name_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let ordinal = match args.get(2) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let name_slot = extract_slot_arg(args, 1);
+    let ordinal = extract_int_arg(args, 2).unwrap_or(0);
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.len() >= 2 {
         obj.fields[0] = name_slot;
@@ -4975,21 +4977,16 @@ fn native_class_for_name_with_loader(
         .clone()
         .ok_or(VmError::NullPointerException)?;
     let internal_name = binary_name_to_internal_name(&binary_name);
-    let (load_result, class_key) = match args.get(2) {
-        Some(Slot::Reference(Some(loader_ref))) => (
-            ops.ensure_loaded_with_runtime_loader(heap, *loader_ref, &internal_name),
-            ops.class_key_for_runtime_loader(heap, *loader_ref, &internal_name)?,
+    let (load_result, class_key) = match extract_ref_arg(args, 2) {
+        Ok(loader_ref) => (
+            ops.ensure_loaded_with_runtime_loader(heap, loader_ref, &internal_name),
+            ops.class_key_for_runtime_loader(heap, loader_ref, &internal_name)?,
         ),
-        Some(Slot::Reference(None)) | None => (
+        Err(VmError::NullPointerException) => (
             ops.ensure_loaded(&internal_name),
             ops.class_key_for_loaded_class(&internal_name)?,
         ),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
+        Err(e) => return Err(e),
     };
     match load_result {
         Ok(()) => {
@@ -5229,7 +5226,7 @@ fn native_paths_get(
 ) -> VmResult<Option<Slot>> {
     let first_ref = extract_ref_arg(args, 0)?;
     let mut path = std::path::PathBuf::from(string_value_from_ref(heap, first_ref)?);
-    let more_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let more_slot = extract_slot_arg(args, 1);
     match more_slot {
         Slot::Reference(Some(array_ref)) => {
             let segments = heap.get(array_ref)?.fields.clone();
@@ -5626,8 +5623,8 @@ fn native_boot_launched_class_loader_init(
     let exploded = extract_int_arg(args, 1)?;
     let archive_ref = extract_ref_arg(args, 2)?;
     let _ = extract_ref_arg(args, 3)?;
-    match args.get(4) {
-        Some(Slot::Reference(_)) => {
+    match extract_slot_arg(args, 4) {
+        Slot::Reference(_) => {
             let exploded_slot = ops.instance_field_slot(
                 "org/springframework/boot/loader/launch/LaunchedClassLoader",
                 "exploded",
@@ -5662,7 +5659,7 @@ fn native_class_get_declared_method(
     let reflected = ops.inspect_class(&class_key)?;
     let parameter_descriptor = parameter_descriptor_from_class_array(
         heap,
-        args.get(2).copied().unwrap_or(Slot::Reference(None)),
+        extract_slot_arg(args, 2),
     )?;
 
     let Some(method) = reflected.methods.into_iter().find(|method| {
@@ -5699,7 +5696,7 @@ fn native_class_get_method(
     let method_name = string_value_from_ref(heap, name_ref)?;
     let parameter_descriptor = parameter_descriptor_from_class_array(
         heap,
-        args.get(2).copied().unwrap_or(Slot::Reference(None)),
+        extract_slot_arg(args, 2),
     )?;
 
     let Some((declaring_class, method)) =
@@ -5792,7 +5789,7 @@ fn native_class_get_declared_constructor(
     let reflected = ops.inspect_class(&class_key)?;
     let parameter_descriptor = parameter_descriptor_from_class_array(
         heap,
-        args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        extract_slot_arg(args, 1),
     )?;
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, false)
@@ -5858,7 +5855,7 @@ fn native_class_get_constructor(
     let reflected = ops.inspect_class(&class_key)?;
     let parameter_descriptor = parameter_descriptor_from_class_array(
         heap,
-        args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        extract_slot_arg(args, 1),
     )?;
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, true)
@@ -6236,7 +6233,7 @@ fn native_reflect_field_get(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
-    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target_slot = extract_slot_arg(args, 1);
     let field = reflected_field_handle(heap, field_ref)?;
 
     if !field.is_public && !field.is_accessible {
@@ -6276,8 +6273,8 @@ fn native_reflect_field_set(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
-    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let target_slot = extract_slot_arg(args, 1);
+    let value_slot = extract_slot_arg(args, 2);
     let field = reflected_field_handle(heap, field_ref)?;
 
     if !field.is_public && !field.is_accessible {
@@ -6316,9 +6313,9 @@ fn native_reflect_method_invoke(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
-    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target_slot = extract_slot_arg(args, 1);
     let invoke_arg_slots =
-        reflection_array_elements(heap, args.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+        reflection_array_elements(heap, extract_slot_arg(args, 2))?;
     let method = reflected_method_handle(heap, method_ref)?;
 
     if !method.is_public && !method.is_accessible {
@@ -6365,7 +6362,7 @@ fn native_reflect_constructor_new_instance(
 ) -> VmResult<Option<Slot>> {
     let constructor_ref = extract_ref_arg(args, 0)?;
     let invoke_arg_slots =
-        reflection_array_elements(heap, args.get(1).copied().unwrap_or(Slot::Reference(None)))?;
+        reflection_array_elements(heap, extract_slot_arg(args, 1))?;
     let constructor = reflected_method_handle(heap, constructor_ref)?;
 
     if !constructor.is_public && !constructor.is_accessible {
@@ -6767,7 +6764,7 @@ fn native_system_get_property_with_default(
     let key_ref = extract_ref_arg(args, 0)?;
     let key = string_value_from_ref(heap, key_ref)?;
     let result = system_property_value(&key).map_or_else(
-        || args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        || extract_slot_arg(args, 1),
         |value| Slot::Reference(Some(heap.allocate_string(value))),
     );
     Ok(Some(result))
@@ -6845,7 +6842,7 @@ fn native_thread_init_runnable(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target = extract_slot_arg(args, 1);
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = target;
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
@@ -7488,8 +7485,8 @@ fn native_string_format(
     let fmt_ref = extract_ref_arg(args, 0)?;
     let fmt = heap.get(fmt_ref)?.string_value.clone().unwrap_or_default();
 
-    let arr_len = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.fields.len(),
+    let arr_len = match extract_slot_arg(args, 1) {
+        Slot::Reference(Some(r)) => heap.get(r)?.fields.len(),
         _ => 0,
     };
 
@@ -7538,9 +7535,9 @@ fn native_string_format(
             'n' => result.push('\n'),
             's' | 'd' | 'f' | 'x' | 'X' => {
                 let slot = if arg_idx < arr_len {
-                    match args.get(1) {
-                        Some(Slot::Reference(Some(r))) => heap
-                            .get(*r)?
+                    match extract_slot_arg(args, 1) {
+                        Slot::Reference(Some(r)) => heap
+                            .get(r)?
                             .fields
                             .get(arg_idx)
                             .copied()
@@ -7685,7 +7682,7 @@ fn native_string_tostring(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+    Ok(Some(extract_slot_arg(args, 0)))
 }
 
 // ---- Math natives ----
@@ -15958,8 +15955,8 @@ fn native_sb_init_string(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let init_str = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+    let init_str = match extract_slot_arg(args, 1) {
+        Slot::Reference(Some(r)) => heap.get(r)?.string_value.clone().unwrap_or_default(),
         _ => String::new(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -15975,8 +15972,8 @@ fn native_sb_append_string(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let append_str = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+    let append_str = match extract_slot_arg(args, 1) {
+        Slot::Reference(Some(r)) => heap.get(r)?.string_value.clone().unwrap_or_default(),
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -16058,10 +16055,7 @@ fn native_sb_append_boolean(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v != 0,
-        _ => false,
-    };
+    let val = extract_int_arg(args, 1).unwrap_or(0) != 0;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(if val { "true" } else { "false" });
@@ -16077,10 +16071,8 @@ fn native_sb_append_char(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
-        _ => '\0',
-    };
+    let val = extract_int_arg(args, 1).unwrap_or(0);
+    let val = char::from_u32(val.cast_unsigned()).unwrap_or('\0');
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push(val);
@@ -16278,7 +16270,7 @@ fn native_arraylist_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
         Some(Slot::Int(sz)) => *sz += 1,
@@ -16685,10 +16677,7 @@ fn native_arrays_fill_int(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => Slot::Int(*v),
-        _ => Slot::Int(0),
-    };
+    let val = Slot::Int(extract_int_arg(args, 1).unwrap_or(0));
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
         *slot = val;
@@ -16704,7 +16693,7 @@ fn native_arrays_fill_object(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let val = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let val = extract_slot_arg(args, 1);
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
         *slot = val;
@@ -16720,9 +16709,9 @@ fn native_arrays_copyof_int(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
-    let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+    let new_len = match extract_int_arg(args, 1) {
+        Ok(n) if n >= 0 => usize::try_from(n).unwrap_or(0),
+        Ok(n) => return Err(VmError::NegativeArraySize { size: n }),
         _ => 0,
     };
     let src_fields = heap.get(src_ref)?.fields.clone();
@@ -16742,9 +16731,9 @@ fn native_arrays_copyof_object(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
-    let new_len = match args.get(1) {
-        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+    let new_len = match extract_int_arg(args, 1) {
+        Ok(n) if n >= 0 => usize::try_from(n).unwrap_or(0),
+        Ok(n) => return Err(VmError::NegativeArraySize { size: n }),
         _ => 0,
     };
     let src_fields = heap.get(src_ref)?.fields.clone();
@@ -16848,8 +16837,8 @@ fn native_hashmap_put(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let val = extract_slot_arg(args, 2);
     // Clone fields to release the immutable borrow before mutating.
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -16878,7 +16867,7 @@ fn native_hashmap_get(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     Ok(Some(
@@ -16895,7 +16884,7 @@ fn native_hashmap_contains_key(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if find_hashmap_entry_index(&fields, &key, heap).is_some() {
@@ -16928,7 +16917,7 @@ fn native_hashmap_remove(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
@@ -16972,8 +16961,8 @@ fn native_hashmap_get_or_default(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let default = extract_slot_arg(args, 2);
     let fields = heap.get(this_ref)?.fields.clone();
 
     Ok(Some(
@@ -16994,7 +16983,7 @@ fn native_set_of(
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
     native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
 
-    match args.first().copied().unwrap_or(Slot::Reference(None)) {
+    match extract_slot_arg(args, 0) {
         Slot::Reference(Some(array_ref)) => {
             let elements = heap.get(array_ref)?.fields.clone();
             for element in elements {
@@ -17104,7 +17093,7 @@ fn native_hashset_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
     // fields[0] = size, fields[1..] = elements
     if find_hashset_entry_index(&fields, &element, heap).is_some() {
@@ -17128,7 +17117,7 @@ fn native_hashset_contains(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if find_hashset_entry_index(&fields, &element, heap).is_some() {
@@ -17147,7 +17136,7 @@ fn native_hashset_remove(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if let Some(i) = find_hashset_entry_index(&fields, &element, heap) {
@@ -17365,7 +17354,7 @@ fn native_process_builder_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let command_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let command_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -17382,7 +17371,7 @@ fn native_process_builder_directory(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let directory_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let directory_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -17399,16 +17388,8 @@ fn native_process_builder_start(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let builder_obj = heap.get(this_ref)?;
-    let command_slot = builder_obj
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let directory_slot = builder_obj
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let command_slot = extract_slot_arg(&builder_obj.fields, 0);
+    let directory_slot = extract_slot_arg(&builder_obj.fields, 1);
     let command = string_array_from_slot(command_slot, heap)?;
     let cwd = optional_file_path_from_slot(directory_slot, heap)?;
     spawn_process_impl(heap, &command, cwd.as_deref())
@@ -17436,7 +17417,7 @@ fn native_runtime_exec_array(
         _ => return Err(VmError::NullPointerException),
     }
     let command =
-        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+        string_array_from_slot(extract_slot_arg(args, 1), heap)?;
     spawn_process_impl(heap, &command, None)
 }
 
@@ -17451,9 +17432,9 @@ fn native_runtime_exec_array_dir(
         _ => return Err(VmError::NullPointerException),
     }
     let command =
-        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+        string_array_from_slot(extract_slot_arg(args, 1), heap)?;
     let cwd =
-        optional_file_path_from_slot(args.get(3).copied().unwrap_or(Slot::Reference(None)), heap)?;
+        optional_file_path_from_slot(extract_slot_arg(args, 3), heap)?;
     spawn_process_impl(heap, &command, cwd.as_deref())
 }
 
@@ -35582,9 +35563,8 @@ mod tests {
             ) -> VmResult<Option<Slot>> {
                 assert_eq!(method, "test");
                 assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
-                let entry_ref = match args.get(1) {
-                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
-                    other => panic!("expected archive entry arg, got {other:?}"),
+                let Ok(entry_ref) = extract_ref_arg(&args, 1) else {
+                    panic!("expected archive entry arg, got {:?}", args.get(1));
                 };
                 let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
                 let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();
@@ -35753,9 +35733,8 @@ mod tests {
             ) -> VmResult<Option<Slot>> {
                 assert_eq!(method, "test");
                 assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
-                let entry_ref = match args.get(1) {
-                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
-                    other => panic!("expected archive entry arg, got {other:?}"),
+                let Ok(entry_ref) = extract_ref_arg(&args, 1) else {
+                    panic!("expected archive entry arg, got {:?}", args.get(1));
                 };
                 let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
                 let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();

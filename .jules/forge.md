@@ -36,3 +36,7 @@
 **[Extracting Native Argument Boilerplate Strictness]
 **Learning:** Replacing manual `match args.get(X)` blocks with helpers like `extract_ref_arg(args, X)?` can subtly alter program behavior by changing the returned error variant (e.g., from `TypeMismatch` to `NullPointerException`) or overriding fallback logic (e.g., returning `false` or `0` on missing arguments).
 **Action:** When extracting argument boilerplate into helpers, always strictly verify that the helper's exact error and fallback semantics perfectly match the original `match` block logic to uphold the zero-behavior-change rule.
+
+**[Extracting Native Argument Boilerplate Strictness]
+**Learning:** Replacing manual `match args.get(X)` blocks with helpers like `extract_ref_arg(args, X)?` can subtly alter program behavior by changing the returned error variant (e.g., from `TypeMismatch` to `NullPointerException`) or overriding fallback logic (e.g., returning `false` or `0` on missing arguments).
+**Action:** When extracting argument boilerplate into helpers, always strictly verify that the helper's exact error and fallback semantics perfectly match the original `match` block logic to uphold the zero-behavior-change rule.
