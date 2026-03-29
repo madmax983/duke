@@ -539,3 +539,18 @@ pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&st
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_return_error_when_cp_index_is_zero() {
+        let pool = vec![];
+        let result = cp_utf8(&pool, CpIndex(0));
+        assert!(
+            matches!(result, Err(ParseError::CpIndexZero)),
+            "Expected ParseError::CpIndexZero, got {result:?}"
+        );
+    }
+}
