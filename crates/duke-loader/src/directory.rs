@@ -41,7 +41,25 @@ impl ClassLoader for DirectoryLoader {
     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
         let mut path = self.root.clone();
         // name is "java/lang/Object" — split on '/' to build OS path + ".class"
-        for component in name.split('/') {
+
+        // Prevent Windows absolute paths and directory traversal
+        if name.contains("..")
+            || name.contains('.')
+            || name.starts_with('/')
+            || name.starts_with('\\')
+            || name.contains(':')
+        {
+            return Err(LoadError::NotFound {
+                name: name.to_string(),
+            });
+        }
+
+        for component in name.split(['/', '\\']) {
+            if component.is_empty() {
+                return Err(LoadError::NotFound {
+                    name: name.to_string(),
+                });
+            }
             path.push(component);
         }
         path.set_extension("class");
@@ -49,5 +67,44 @@ impl ClassLoader for DirectoryLoader {
         std::fs::read(&path).map_err(|_| LoadError::NotFound {
             name: name.to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_prevent_directory_traversal() {
+        let root = std::env::temp_dir().join("duke_loader_tests");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let secret_file = root.parent().unwrap().join("secret.class");
+        std::fs::write(&secret_file, "SENSITIVE_DATA").unwrap();
+
+        let loader = DirectoryLoader::new(&root);
+
+        // Exploit: try to read outside root.
+        let result = loader.find_class("../secret");
+
+        std::fs::remove_file(&secret_file).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        // If it successfully reads "SENSITIVE_DATA", we have a vulnerability.
+        // Red Phase: Ensure that it returns an error instead!
+        assert!(
+            matches!(result, Err(LoadError::NotFound { .. })),
+            "Vulnerability triggered! Got {result:?}"
+        );
+    }
+
+    #[test]
+    fn should_prevent_absolute_paths_windows() {
+        let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
+        let result = loader.find_class("C:\\Windows\\System32\\cmd");
+        assert!(
+            matches!(result, Err(LoadError::NotFound { .. })),
+            "Vulnerability triggered! Got {result:?}"
+        );
     }
 }
