@@ -3673,11 +3673,6 @@ fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
 }
 
 #[inline]
-fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
-    args.get(idx).copied().unwrap_or(Slot::Reference(None))
-}
-
-#[inline]
 fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<i32> {
     match heap.get(obj_ref)?.fields.first() {
         Some(Slot::Int(id)) => Ok(*id),

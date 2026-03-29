@@ -6,6 +6,18 @@
 
 use thiserror::Error;
 
+/// General error enumeration encompassing both decoding and structural verification errors.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// Wrapping a [`DecodeError`].
+    #[error("Decode error: {0}")]
+    Decode(#[from] DecodeError),
+
+    /// Wrapping a [`VerifyError`].
+    #[error("Verify error: {0}")]
+    Verify(#[from] VerifyError),
+}
+
 /// Errors produced by the bytecode decoder.
 ///
 /// These errors occur when the raw bytes of a method's `Code` attribute
@@ -19,18 +31,6 @@ use thiserror::Error;
 /// let err = DecodeError::UnexpectedEof { pc: 10 };
 /// assert_eq!(err.to_string(), "unexpected end of bytecode at pc=10");
 /// ```
-/// General error enumeration encompassing both decoding and structural verification errors.
-#[derive(Debug, Error)]
-pub enum Error {
-    /// Wrapping a [`DecodeError`].
-    #[error("Decode error: {0}")]
-    Decode(#[from] DecodeError),
-
-    /// Wrapping a [`VerifyError`].
-    #[error("Verify error: {0}")]
-    Verify(#[from] VerifyError),
-}
-
 #[derive(Debug, Error)]
 pub enum DecodeError {
     /// Reached end of bytecode unexpectedly.
