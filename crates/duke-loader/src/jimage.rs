@@ -327,6 +327,8 @@ fn build_index(
     let mut index = HashMap::with_capacity(safe_capacity);
     let mut pos = locs_offset;
     let locs_end = locs_offset + locs_size;
+    // Hoist the path buffer allocation out of the loop.
+    let mut path = String::with_capacity(128);
 
     while pos < locs_end {
         // Decode all attributes for this location entry
@@ -380,11 +382,11 @@ fn build_index(
         let base_str = read_str(data, str_offset, base);
         let ext_str = read_str(data, str_offset, extension);
 
-        let mut path = String::new();
+        path.clear();
         build_jimage_path(&mut path, mod_str, par_str, base_str, ext_str);
         if !path.is_empty() {
             index.insert(
-                path,
+                path.clone(),
                 ResourceInfo {
                     offset,
                     compressed,
