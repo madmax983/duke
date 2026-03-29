@@ -7,7 +7,9 @@ use std::process;
 
 use duke_bytecode::{decode, generate_mermaid_cfg};
 use duke_classfile::{
-    ClassFile, parse,
+    ClassFile,
+    access_flags::MethodAccessFlags,
+    parse,
     types::{AttributeData, CpEntry, CpIndex},
 };
 use duke_gc::Heap;
@@ -202,6 +204,7 @@ fn main() {
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
+        eprintln!("       duke stub <classfile.class>");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --jdk=<path>        JDK home for loading real JDK classes");
@@ -265,6 +268,7 @@ fn main() {
 
     match subcommand {
         "dump" => dump_class_file(&class_file),
+        "stub" => generate_stubs(&class_file),
         other => {
             eprintln!("duke: unknown subcommand '{other}'");
             process::exit(1);
@@ -713,6 +717,75 @@ mod cfg_tests {
     }
 }
 
+fn generate_stubs(cf: &ClassFile) {
+    println!("{}", generate_native_stubs_code(cf));
+}
+
+use std::fmt::Write;
+
+#[must_use]
+pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
+    let mut out = String::new();
+    let class_name = resolve_class_name(cf, cf.this_class);
+
+    let mut native_methods = Vec::new();
+    for method in &cf.methods {
+        if method.access_flags.contains(MethodAccessFlags::NATIVE) {
+            let name = cp_str(cf, method.name_index)
+                .unwrap_or("<invalid>")
+                .to_string();
+            let desc = cp_str(cf, method.descriptor_index)
+                .unwrap_or("<invalid>")
+                .to_string();
+            native_methods.push((name, desc));
+        }
+    }
+
+    if native_methods.is_empty() {
+        return format!("// No native methods found in class {class_name}\n");
+    }
+
+    let _ = writeln!(out, "// Native stubs for class {class_name}\n");
+
+    // Generate register calls
+    out.push_str("pub fn register_natives(registry: &mut ClassRegistry) {\n");
+    for (name, desc) in &native_methods {
+        let fn_name = format!(
+            "native_{}_{}",
+            class_name.replace('/', "_"),
+            name.replace(['<', '>'], "")
+        );
+        let _ = writeln!(
+            out,
+            "    registry.natives_mut().register(\"{class_name}\", \"{name}\", \"{desc}\", {fn_name});"
+        );
+    }
+    out.push_str("}\n\n");
+
+    // Generate stub functions
+    for (name, desc) in &native_methods {
+        let fn_name = format!(
+            "native_{}_{}",
+            class_name.replace('/', "_"),
+            name.replace(['<', '>'], "")
+        );
+        let _ = write!(
+            out,
+            "fn {fn_name}(\n    args: &[Slot],\n    heap: &mut duke_gc::Heap,\n    out: &mut dyn std::io::Write,\n    control: &mut duke_interpreter::NativeControl,\n) -> duke_runtime::VmResult<Option<Slot>> {{\n"
+        );
+        let _ = writeln!(
+            out,
+            "    // TODO: Implement native method {class_name}.{name} {desc}"
+        );
+        out.push_str(
+            "    Err(duke_runtime::VmError::Unimplemented { mnemonic: \"native_stub\" })\n",
+        );
+        out.push_str("}\n\n");
+    }
+
+    out
+}
+
 fn dump_class_file(cf: &ClassFile) {
     let this_name = resolve_class_name(cf, cf.this_class);
     let super_name = resolve_class_name(cf, cf.super_class);
@@ -925,6 +998,51 @@ mod tests {
         let res = extract_mermaid_heap_flag(&mut args);
         assert_eq!(res, None);
         assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_generate_native_stubs_code() {
+        use duke_classfile::{
+            access_flags::{ClassAccessFlags, MethodAccessFlags},
+            types::{ClassFile, CpEntry, CpIndex, MethodInfo},
+        };
+
+        let cf = ClassFile {
+            minor_version: 0,
+            major_version: 52,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Utf8("java/lang/System".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(1),
+                }),
+                Some(CpEntry::Utf8("currentTimeMillis".to_string())),
+                Some(CpEntry::Utf8("()J".to_string())),
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(2),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![MethodInfo {
+                access_flags: MethodAccessFlags::PUBLIC | MethodAccessFlags::NATIVE,
+                name_index: CpIndex(3),
+                descriptor_index: CpIndex(4),
+                attributes: vec![],
+            }],
+            attributes: vec![],
+        };
+
+        let output = super::generate_native_stubs_code(&cf);
+
+        assert!(output.contains("// Native stubs for class java/lang/System"));
+        assert!(output.contains("registry.natives_mut().register(\"java/lang/System\", \"currentTimeMillis\", \"()J\", native_java_lang_System_currentTimeMillis);"));
+        assert!(output.contains("fn native_java_lang_System_currentTimeMillis("));
+        assert!(
+            output.contains(
+                "// TODO: Implement native method java/lang/System.currentTimeMillis ()J"
+            )
+        );
     }
 
     #[test]
