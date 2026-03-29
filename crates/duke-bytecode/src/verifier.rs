@@ -759,6 +759,9 @@ mod tests {
     #[test]
     fn test_stack_effect_math() {
         assert_eq!(stack_effect(&Instruction::Imul), (2, 1));
+        assert_eq!(stack_effect(&Instruction::DupX2), (3, 4));
+        assert_eq!(stack_effect(&Instruction::Dup2X2), (4, 6));
+        assert_eq!(stack_effect(&Instruction::Swap), (2, 2));
     }
 
     #[test]
@@ -776,6 +779,11 @@ mod tests {
             res_w,
             Err(VerifyError::LocalOutOfBounds { index: 10, .. })
         ));
+
+        // Test valid RetW
+        let instructions_w_valid = vec![(0, Instruction::RetW(10)), (3, Instruction::Return)];
+        let res_w_valid = verify(&instructions_w_valid, 1, 11);
+        assert!(res_w_valid.is_ok());
     }
 
     #[test]
@@ -822,5 +830,19 @@ mod tests {
             res,
             Err(VerifyError::LocalOutOfBounds { index: 10, .. })
         ));
+
+        // Test valid IincW
+        let instructions_wide_valid = vec![
+            (
+                0,
+                Instruction::IincW {
+                    index: 10,
+                    value: 1,
+                },
+            ),
+            (4, Instruction::Return),
+        ];
+        let res_valid = verify(&instructions_wide_valid, 1, 11);
+        assert!(res_valid.is_ok());
     }
 }
