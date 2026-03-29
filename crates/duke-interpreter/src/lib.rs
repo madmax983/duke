@@ -3660,6 +3660,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 }
 
 #[inline]
+fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
+    args.get(idx).copied().unwrap_or(Slot::Reference(None))
+}
+
+#[inline]
 fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
     match args.get(idx) {
         Some(Slot::Reference(Some(r))) => Ok(*r),
