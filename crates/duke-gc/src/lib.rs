@@ -951,14 +951,13 @@ impl Heap {
         let rs: Vec<usize> = self.remembered_set.iter().copied().collect();
         for old_idx in rs {
             if let Some(Some(obj)) = self.old.get(old_idx) {
-                let young_refs: Vec<usize> = obj
-                    .fields
-                    .iter()
-                    .filter_map(Slot::as_reference)
-                    .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| usize::try_from(r).unwrap())
-                    .collect();
-                worklist.extend(young_refs);
+                worklist.extend(
+                    obj.fields
+                        .iter()
+                        .filter_map(Slot::as_reference)
+                        .filter(|r| r & OLD_BIT == 0)
+                        .map(|r| usize::try_from(r).unwrap()),
+                );
             }
         }
 
@@ -989,14 +988,14 @@ impl Heap {
                 self.forward_map.insert(y_idx as u64, new_ref);
 
                 // Push young children onto worklist.
-                let children: Vec<usize> = from_obj
-                    .fields
-                    .iter()
-                    .filter_map(Slot::as_reference)
-                    .filter(|r| r & OLD_BIT == 0)
-                    .map(|r| usize::try_from(r).unwrap())
-                    .collect();
-                worklist.extend(children);
+                worklist.extend(
+                    from_obj
+                        .fields
+                        .iter()
+                        .filter_map(Slot::as_reference)
+                        .filter(|r| r & OLD_BIT == 0)
+                        .map(|r| usize::try_from(r).unwrap()),
+                );
             }
         }
 
@@ -2083,6 +2082,26 @@ mod tests {
             "old[0] must be swept: the young ref in Parent's fields must not mark it"
         );
         assert!(heap.get(parent_ref).is_ok(), "Parent must survive");
+    }
+
+    // ── Performance Tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn minor_gc_avoids_intermediate_allocs() {
+        let code = std::fs::read_to_string("src/lib.rs").unwrap();
+        // find the start of the minor_collect_prepare function
+        let start = code.find("pub fn minor_collect_prepare").unwrap();
+        let end = code[start..].find("pub fn minor_collect_finish").unwrap();
+        let function_body = &code[start..start + end];
+
+        assert!(
+            !function_body.contains("let young_refs: Vec<usize> ="),
+            "minor_collect_prepare should not collect into an intermediate vector for young_refs"
+        );
+        assert!(
+            !function_body.contains("let children: Vec<usize> ="),
+            "minor_collect_prepare should not collect into an intermediate vector for children"
+        );
     }
 
     // ── TCP socket tests (Task 1) ──────────────────────────────────────────────
