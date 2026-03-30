@@ -2,12 +2,14 @@
 //!
 //! # Modules
 //!
+//! - [`mod@cfg`] — Mermaid control flow graph generation
 //! - [`opcodes`] — All JVM opcode byte constants (JVM SE 21 §6.5)
 //! - [`instruction`] — Typed [`Instruction`] enum with decoded operands
 //! - [`decoder`] — Decode raw `Code` bytes → `Vec<(pc, Instruction)>`
 //! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
+/// Tools for generating control flow graphs from decoded bytecode.
 pub mod cfg;
 pub mod decoder;
 pub mod error;

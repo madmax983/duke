@@ -2,6 +2,33 @@ use std::fmt::Write;
 
 use crate::Instruction;
 
+/// Generates a Mermaid control flow graph (CFG) from a sequence of decoded instructions.
+///
+/// This exists to aid debugging and visualization by turning raw bytecode arrays
+/// into a visual flow chart. This is incredibly helpful when dealing with
+/// complex branching logic, `goto`s, and exception paths that are otherwise
+/// difficult to follow mentally.
+///
+/// # Examples
+///
+/// ```rust
+/// use duke_bytecode::cfg::generate_mermaid_cfg;
+/// use duke_bytecode::instruction::Instruction;
+///
+/// let instructions = vec![
+///     (0, Instruction::Iconst0),
+///     (1, Instruction::Ifeq(5)),
+///     (4, Instruction::Iconst1),
+///     (5, Instruction::Ireturn),
+///     (6, Instruction::Iconst2),
+///     (7, Instruction::Ireturn),
+/// ];
+/// let cfg = generate_mermaid_cfg(&instructions);
+///
+/// assert!(cfg.contains("graph TD"));
+/// assert!(cfg.contains("node1 -->|true| node6"));
+/// assert!(cfg.contains("node1 -->|false| node4"));
+/// ```
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {

@@ -66,17 +66,25 @@ pub struct HeapObject {
     pub(crate) forward: Option<u64>,
 }
 
+/// A handle to a native child process managed by the VM.
 #[derive(Debug)]
 pub struct HostProcessHandle {
+    /// The underlying OS child process handle.
     child: std::process::Child,
+    /// The exit code of the process if it has terminated.
     exit_code: Option<i32>,
 }
 
+/// The set of VM file descriptor IDs assigned to a newly spawned process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpawnedProcessIds {
+    /// The file descriptor ID for the process handle itself.
     pub process_id: i32,
+    /// The file descriptor ID for the child process's stdin pipe.
     pub stdin_id: i32,
+    /// The file descriptor ID for the child process's stdout pipe.
     pub stdout_id: i32,
+    /// The file descriptor ID for the child process's stderr pipe.
     pub stderr_id: i32,
 }
 

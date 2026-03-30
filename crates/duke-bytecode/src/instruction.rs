@@ -7,6 +7,7 @@
 use duke_classfile::CpIndex;
 
 /// Array type codes used by the `newarray` instruction (JVM spec §6.5).
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArrayType {
     Boolean = 4,
@@ -20,6 +21,7 @@ pub enum ArrayType {
 }
 
 impl ArrayType {
+    /// Converts a raw primitive array type byte (from bytecode) to an [`ArrayType`].
     #[must_use]
     pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
@@ -40,6 +42,7 @@ impl ArrayType {
 ///
 /// Wide-prefixed variants (e.g., `IloadW`) are represented as distinct variants
 /// so callers can exhaustively match without needing to track a separate `wide` flag.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     // -----------------------------------------------------------------------

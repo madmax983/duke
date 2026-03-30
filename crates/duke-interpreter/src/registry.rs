@@ -28,9 +28,18 @@ pub(crate) struct LambdaInfo {
 /// Threading side-channel requested by a native handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeThreadAction {
-    Start { thread_ref: u64 },
+    /// Start a new thread execution based on the given `java/lang/Thread` instance.
+    Start {
+        /// The object reference to the `java/lang/Thread` instance.
+        thread_ref: u64,
+    },
+    /// Put the current thread to sleep for the specified duration.
     Sleep(std::time::Duration),
-    Join { thread_id: i32 },
+    /// Block the current thread until the specified thread terminates.
+    Join {
+        /// The native thread ID to wait for.
+        thread_id: i32,
+    },
 }
 
 /// Per-invocation control state for native handlers.
@@ -54,27 +63,39 @@ impl NativeControl {
 /// Reflection metadata for one declared method discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedMethodInfo {
+    /// The name of the method.
     pub name: String,
+    /// The JVM type descriptor of the method.
     pub descriptor: String,
+    /// Whether the method has the `ACC_PUBLIC` access flag.
     pub is_public: bool,
+    /// Whether the method has the `ACC_STATIC` access flag.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedFieldInfo {
+    /// The name of the field.
     pub name: String,
+    /// The JVM type descriptor of the field.
     pub descriptor: String,
+    /// Whether the field has the `ACC_PUBLIC` access flag.
     pub is_public: bool,
+    /// Whether the field has the `ACC_STATIC` access flag.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one class discovered from the loader or registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedClassInfo {
+    /// The internal JVM name of the class (e.g., `java/lang/String`).
     pub internal_name: String,
+    /// The binary name of the class, using dots (e.g., `java.lang.String`).
     pub binary_name: String,
+    /// Metadata for all methods declared by this class.
     pub methods: Vec<ReflectedMethodInfo>,
+    /// Metadata for all fields declared by this class.
     pub fields: Vec<ReflectedFieldInfo>,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
