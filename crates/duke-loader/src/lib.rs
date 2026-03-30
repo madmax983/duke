@@ -183,3 +183,6 @@ mod tests {
 
 #[cfg(test)]
 mod proptest_open;
+
+#[cfg(test)]
+mod fuzz;
