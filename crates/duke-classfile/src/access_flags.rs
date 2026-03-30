@@ -5,6 +5,7 @@ use bitflags::bitflags;
 bitflags! {
     /// Access flags for class declarations (§4.1, Table 4.1-B).
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[allow(missing_docs)]
     pub struct ClassAccessFlags: u16 {
         const PUBLIC     = 0x0001;
         const FINAL      = 0x0010;
@@ -21,6 +22,7 @@ bitflags! {
 bitflags! {
     /// Access flags for field declarations (§4.5, Table 4.5-A).
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[allow(missing_docs)]
     pub struct FieldAccessFlags: u16 {
         const PUBLIC    = 0x0001;
         const PRIVATE   = 0x0002;
@@ -37,6 +39,7 @@ bitflags! {
 bitflags! {
     /// Access flags for method declarations (§4.6, Table 4.6-A).
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[allow(missing_docs)]
     pub struct MethodAccessFlags: u16 {
         const PUBLIC       = 0x0001;
         const PRIVATE      = 0x0002;

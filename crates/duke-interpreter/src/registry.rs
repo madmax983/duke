@@ -28,9 +28,18 @@ pub(crate) struct LambdaInfo {
 /// Threading side-channel requested by a native handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeThreadAction {
-    Start { thread_ref: u64 },
+    /// Start a new Java thread, passing the `java/lang/Thread` instance reference.
+    Start {
+        /// The heap reference to the thread instance.
+        thread_ref: u64,
+    },
+    /// Suspend the current thread for the specified duration.
     Sleep(std::time::Duration),
-    Join { thread_id: i32 },
+    /// Wait for the specified thread to terminate.
+    Join {
+        /// The unique ID of the thread to wait for.
+        thread_id: i32,
+    },
 }
 
 /// Per-invocation control state for native handlers.
@@ -54,27 +63,39 @@ impl NativeControl {
 /// Reflection metadata for one declared method discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedMethodInfo {
+    /// The name of the method (e.g. `println`).
     pub name: String,
+    /// The type descriptor of the method (e.g. `(Ljava/lang/String;)V`).
     pub descriptor: String,
+    /// True if the method has the `ACC_PUBLIC` flag.
     pub is_public: bool,
+    /// True if the method has the `ACC_STATIC` flag.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedFieldInfo {
+    /// The name of the field.
     pub name: String,
+    /// The type descriptor of the field.
     pub descriptor: String,
+    /// True if the field has the `ACC_PUBLIC` flag.
     pub is_public: bool,
+    /// True if the field has the `ACC_STATIC` flag.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one class discovered from the loader or registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedClassInfo {
+    /// The internal JVM name (e.g. `java/lang/String`).
     pub internal_name: String,
+    /// The binary Java name (e.g. `java.lang.String`).
     pub binary_name: String,
+    /// Metadata for all methods declared by this class.
     pub methods: Vec<ReflectedMethodInfo>,
+    /// Metadata for all fields declared by this class.
     pub fields: Vec<ReflectedFieldInfo>,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
