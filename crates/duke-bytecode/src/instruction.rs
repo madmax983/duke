@@ -9,17 +9,35 @@ use duke_classfile::CpIndex;
 /// Array type codes used by the `newarray` instruction (JVM spec §6.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArrayType {
+    /// Boolean array type (`T_BOOLEAN` = 4).
     Boolean = 4,
+    /// Char array type (`T_CHAR` = 5).
     Char = 5,
+    /// Float array type (`T_FLOAT` = 6).
     Float = 6,
+    /// Double array type (`T_DOUBLE` = 7).
     Double = 7,
+    /// Byte array type (`T_BYTE` = 8).
     Byte = 8,
+    /// Short array type (`T_SHORT` = 9).
     Short = 9,
+    /// Int array type (`T_INT` = 10).
     Int = 10,
+    /// Long array type (`T_LONG` = 11).
     Long = 11,
 }
 
 impl ArrayType {
+    /// Attempts to parse an `ArrayType` from a primitive `newarray` type code.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::instruction::ArrayType;
+    ///
+    /// assert_eq!(ArrayType::from_u8(4), Some(ArrayType::Boolean));
+    /// assert_eq!(ArrayType::from_u8(99), None); // Invalid type code
+    /// ```
     #[must_use]
     pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
@@ -41,6 +59,7 @@ impl ArrayType {
 /// Wide-prefixed variants (e.g., `IloadW`) are represented as distinct variants
 /// so callers can exhaustively match without needing to track a separate `wide` flag.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum Instruction {
     // -----------------------------------------------------------------------
     // Constants
@@ -194,8 +213,11 @@ pub enum Instruction {
     Ixor,
     Lxor,
     /// `iinc index const` — increment local by constant.
+    /// Increment local variable by a constant.
     Iinc {
+        /// The index of the local variable to increment.
         index: u8,
+        /// The signed byte value to add to the local variable.
         value: i8,
     },
 
@@ -247,15 +269,23 @@ pub enum Instruction {
     Goto(i16),
     Jsr(i16),
     Ret(u8),
+    /// A variable-length `tableswitch` instruction for contiguous `switch` cases.
     Tableswitch {
+        /// The default jump offset used if no match is found.
         default: i32,
+        /// The minimum index value in the jump table.
         low: i32,
+        /// The maximum index value in the jump table.
         high: i32,
+        /// The list of jump offsets, where `offsets[0]` corresponds to `low`.
         offsets: Vec<i32>,
     },
+    /// A variable-length `lookupswitch` instruction for sparse `switch` cases.
     Lookupswitch {
+        /// The default jump offset used if no match is found.
         default: i32,
-        pairs: Vec<(i32, i32)>, // (match_value, offset)
+        /// A sorted list of (`match_value`, `jump_offset`) pairs used for binary search.
+        pairs: Vec<(i32, i32)>,
     },
 
     // -----------------------------------------------------------------------
@@ -279,14 +309,21 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Method invocation
     // -----------------------------------------------------------------------
+    /// Invoke instance method; dispatch based on class.
     Invokevirtual(CpIndex),
+    /// Invoke instance method; special handling for superclass, private, and instance initialization method invocations.
     Invokespecial(CpIndex),
+    /// Invoke a class (static) method.
     Invokestatic(CpIndex),
     /// `invokeinterface index count` — `count` is the number of arguments.
+    /// Invoke interface method.
     Invokeinterface {
+        /// The index into the constant pool pointing to an `InterfaceMethodref`.
         index: CpIndex,
+        /// The number of arguments expected by the interface method.
         count: u8,
     },
+    /// Invoke a dynamically-computed call site.
     Invokedynamic(CpIndex),
 
     // -----------------------------------------------------------------------
@@ -305,8 +342,11 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Extended
     // -----------------------------------------------------------------------
+    /// Create new multidimensional array.
     Multianewarray {
+        /// The index into the constant pool pointing to a `Class` entry representing the array type.
         index: CpIndex,
+        /// The number of dimensions of the array to create.
         dimensions: u8,
     },
     Ifnull(i16),
@@ -328,8 +368,11 @@ pub enum Instruction {
     DstoreW(u16),
     AstoreW(u16),
     RetW(u16),
+    /// Increment local variable by a constant (wide index).
     IincW {
+        /// The wide index of the local variable to increment.
         index: u16,
+        /// The wide signed short value to add to the local variable.
         value: i16,
     },
 }

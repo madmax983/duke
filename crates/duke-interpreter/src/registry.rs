@@ -15,22 +15,43 @@ use crate::context::ClassContext;
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
 #[derive(Debug, Clone)]
 pub(crate) struct LambdaInfo {
+    /// The class name containing the implementation method.
     pub impl_class: String,
+    /// The name of the implementation method.
     pub impl_method: String,
+    /// The descriptor of the implementation method.
     pub impl_desc: String,
+    /// The kind of method handle (e.g., `invokeStatic`, `invokeVirtual`).
     pub impl_kind: u8,
+    /// The name of the single abstract method being implemented.
     pub sam_method: String,
+    /// The descriptor of the single abstract method being implemented.
     #[allow(dead_code)]
     pub sam_desc: String,
+    /// The number of arguments captured by the lambda.
     pub captured_count: usize,
 }
 
 /// Threading side-channel requested by a native handler.
+///
+/// Native handlers run outside the primary JVM event loop. When a native method
+/// like `Thread.start0()` or `Thread.sleep()` needs to perform a blocking or
+/// thread-lifecycle action, it yields this enum to the interpreter loop, which
+/// then manages the actual OS-level thread mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeThreadAction {
-    Start { thread_ref: u64 },
+    /// Request the VM to spawn a new background thread executing `Thread.run()`.
+    Start {
+        /// The `u64` reference ID of the `java/lang/Thread` object to start.
+        thread_ref: u64
+    },
+    /// Request the current thread to block for a specified duration.
     Sleep(std::time::Duration),
-    Join { thread_id: i32 },
+    /// Request the current thread to wait until another Java thread terminates.
+    Join {
+        /// The native thread ID (`eetop`) to wait for.
+        thread_id: i32
+    },
 }
 
 /// Per-invocation control state for native handlers.
@@ -54,27 +75,43 @@ impl NativeControl {
 /// Reflection metadata for one declared method discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedMethodInfo {
+    /// The name of the declared method (e.g., `"hashCode"`).
     pub name: String,
+    /// The method's descriptor (e.g., `"()I"`).
     pub descriptor: String,
+    /// `true` if the method is marked with `ACC_PUBLIC`.
     pub is_public: bool,
+    /// `true` if the method is marked with `ACC_STATIC`.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedFieldInfo {
+    /// The name of the declared field (e.g., `"value"`).
     pub name: String,
+    /// The field's descriptor (e.g., `"[B"`).
     pub descriptor: String,
+    /// `true` if the field is marked with `ACC_PUBLIC`.
     pub is_public: bool,
+    /// `true` if the field is marked with `ACC_STATIC`.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one class discovered from the loader or registry.
+///
+/// This provides the necessary information for native reflection methods
+/// (like `Class.getDeclaredMethods0`) to inspect a class structure without
+/// deeply accessing the internal `ClassContext` implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedClassInfo {
+    /// The internal JVM name of the class (e.g., `"java/lang/String"`).
     pub internal_name: String,
+    /// The binary name of the class suitable for `Class.getName()` (e.g., `"java.lang.String"`).
     pub binary_name: String,
+    /// A list of all methods explicitly declared by this class (excluding inherited ones).
     pub methods: Vec<ReflectedMethodInfo>,
+    /// A list of all fields explicitly declared by this class.
     pub fields: Vec<ReflectedFieldInfo>,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.

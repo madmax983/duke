@@ -8,6 +8,7 @@
 //! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
+/// Control flow graph generation.
 pub mod cfg;
 pub mod decoder;
 pub mod error;

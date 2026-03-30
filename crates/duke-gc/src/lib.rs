@@ -67,16 +67,22 @@ pub struct HeapObject {
 }
 
 #[derive(Debug)]
+/// Handle to a spawned host process.
 pub struct HostProcessHandle {
     child: std::process::Child,
     exit_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Process IDs of a spawned host process.
 pub struct SpawnedProcessIds {
+    /// Process ID.
     pub process_id: i32,
+    /// Stdin ID.
     pub stdin_id: i32,
+    /// Stdout ID.
     pub stdout_id: i32,
+    /// Stderr ID.
     pub stderr_id: i32,
 }
 

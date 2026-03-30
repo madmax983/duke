@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use crate::Instruction;
 
+/// Generate a mermaid control flow graph from bytecode instructions.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
