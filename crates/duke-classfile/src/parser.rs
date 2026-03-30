@@ -553,4 +553,48 @@ mod tests {
             "Expected ParseError::CpIndexZero, got {result:?}"
         );
     }
+
+    #[test]
+    fn should_return_error_when_cp_index_is_phantom_slot() {
+        let pool = vec![None, None]; // phantom slot
+        let result = cp_utf8(&pool, CpIndex(1));
+        assert!(
+            matches!(result, Err(ParseError::CpPhantomSlot { index: 1 })),
+            "Expected ParseError::CpPhantomSlot, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_cp_index_is_out_of_bounds_or_wrong_type() {
+        let pool = vec![None, Some(CpEntry::Integer(42))];
+        let result = cp_utf8(&pool, CpIndex(1));
+        assert!(
+            matches!(result, Err(ParseError::CpIndexOutOfBounds { index: 1, .. })),
+            "Expected ParseError::CpIndexOutOfBounds for wrong type, got {result:?}"
+        );
+
+        let result = cp_utf8(&pool, CpIndex(99));
+        assert!(
+            matches!(
+                result,
+                Err(ParseError::CpIndexOutOfBounds { index: 99, .. })
+            ),
+            "Expected ParseError::CpIndexOutOfBounds for missing index, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn should_return_i16_for_cursor() {
+        let mut cursor = Cursor::new(&[0xFF, 0xFE]);
+        let val = cursor.read_i16().unwrap();
+        assert_eq!(val, -2);
+    }
+
+    #[test]
+    fn should_return_remaining_bytes_for_cursor() {
+        let mut cursor = Cursor::new(&[0x01, 0x02, 0x03]);
+        assert_eq!(cursor.remaining(), 3);
+        cursor.read_u8().unwrap();
+        assert_eq!(cursor.remaining(), 2);
+    }
 }
