@@ -169,9 +169,9 @@ impl Heap {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            young: Vec::new(),
+            young: Vec::with_capacity(DEFAULT_YOUNG_CAPACITY),
             young_top: 0,
-            to_space: Vec::new(),
+            to_space: Vec::with_capacity(DEFAULT_YOUNG_CAPACITY),
             old: Vec::new(),
             old_free_list: Vec::new(),
             live_after_last_gc: 0,
@@ -734,7 +734,7 @@ impl Heap {
     /// Panics if a young-gen reference in `roots` cannot be converted to `usize`,
     /// which cannot happen on 64-bit targets since heap indices are always small.
     pub fn minor_collect_prepare(&mut self, roots: &[Slot]) {
-        self.to_space = Vec::new();
+        self.to_space = Vec::with_capacity(self.young_capacity);
         self.forward_map.clear();
 
         // Seed worklist with young refs from roots and remembered-set fields.
