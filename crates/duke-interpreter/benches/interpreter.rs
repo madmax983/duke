@@ -1,3 +1,6 @@
+//! Interpreter benchmarks
+
+#![allow(missing_docs)]
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
 use duke_loader::DirectoryLoader;

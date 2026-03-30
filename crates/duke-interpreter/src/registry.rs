@@ -34,10 +34,20 @@ pub(crate) struct LambdaInfo {
 
 /// Threading side-channel requested by a native handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Represents an action requested by a Java thread.
 pub enum NativeThreadAction {
-    Start { thread_ref: u64 },
+    /// Request to start a new Java thread.
+    Start {
+        /// The heap reference to the `java/lang/Thread` instance.
+        thread_ref: u64,
+    },
+    /// Request to sleep for a duration.
     Sleep(std::time::Duration),
-    Join { thread_id: i32 },
+    /// Request to join another thread.
+    Join {
+        /// The thread ID to join.
+        thread_id: i32,
+    },
 }
 
 /// Per-invocation control state for native handlers.
@@ -61,31 +71,46 @@ impl NativeControl {
 /// Reflection metadata for one declared method discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedMethodInfo {
+    /// Name of the method.
     pub name: String,
+    /// Method descriptor.
     pub descriptor: String,
+    /// True if the method is public.
     pub is_public: bool,
+    /// True if the method is static.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedFieldInfo {
+    /// Name of the field.
     pub name: String,
+    /// Field descriptor.
     pub descriptor: String,
+    /// True if the field is public.
     pub is_public: bool,
+    /// True if the field is static.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one class discovered from the loader or registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedClassInfo {
+    /// Internal name of the class.
     pub internal_name: String,
+    /// Binary name of the class.
     pub binary_name: String,
+    /// Super class name, if any.
     pub super_class: Option<String>,
+    /// List of implemented interfaces.
     pub interfaces: Vec<String>,
+    /// List of declared methods.
     pub methods: Vec<ReflectedMethodInfo>,
+    /// List of declared fields.
     pub fields: Vec<ReflectedFieldInfo>,
 }
+
 /// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
@@ -104,6 +129,7 @@ pub struct ClassRegistry {
     class_code_sources: HashMap<String, String>,
     /// Best-known runtime `java/lang/ClassLoader` object for each loaded class.
     class_runtime_loaders: HashMap<String, u64>,
+    /// Telemetry data collected during interpretation.
     #[cfg(feature = "telemetry")]
     pub telemetry: duke_telemetry::TelemetryStore,
 }

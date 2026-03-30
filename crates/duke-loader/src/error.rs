@@ -57,7 +57,11 @@ pub enum Error {
     },
 }
 
-/// Convenience alias for `Result<T, LoadError>`.
+/// Convenience alias for `Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Compatibility alias for `Error`.
 pub type LoadError = Error;
+
+/// Compatibility alias for `Result<T, LoadError>`.
 pub type LoadResult<T> = Result<T>;

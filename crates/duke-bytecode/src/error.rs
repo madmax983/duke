@@ -19,46 +19,97 @@ use thiserror::Error;
 /// let err = DecodeError::UnexpectedEof { pc: 10 };
 /// assert_eq!(err.to_string(), "unexpected end of bytecode at pc=10");
 /// ```
+/// General error enumeration that can occur when processing bytecode.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Decode-specific error.
     #[error("Decode error: {0}")]
     Decode(#[from] DecodeError),
 
+    /// Verify-specific error.
     #[error("Verify error: {0}")]
     Verify(#[from] VerifyError),
 }
 
+/// Errors occurring during decoding.
 #[derive(Debug, Error)]
 pub enum DecodeError {
+    /// Encountered unexpected EOF.
     #[error("unexpected end of bytecode at pc={pc}")]
-    UnexpectedEof { pc: usize },
+    UnexpectedEof {
+        /// Current PC where EOF happened.
+        pc: usize,
+    },
 
+    /// Encountered unknown opcode.
     #[error("unknown opcode {opcode:#04X} at pc={pc}")]
-    UnknownOpcode { pc: usize, opcode: u8 },
+    UnknownOpcode {
+        /// Current PC.
+        pc: usize,
+        /// Unknown opcode encountered.
+        opcode: u8,
+    },
 
+    /// Encountered invalid target opcode after `wide`.
     #[error("invalid wide target opcode {opcode:#04X} at pc={pc}")]
-    InvalidWideTarget { pc: usize, opcode: u8 },
+    InvalidWideTarget {
+        /// Current PC.
+        pc: usize,
+        /// The invalid opcode.
+        opcode: u8,
+    },
 
+    /// `tableswitch` has invalid bounds.
     #[error("tableswitch at pc={pc} has high ({high}) < low ({low})")]
-    InvalidTableswitch { pc: usize, low: i32, high: i32 },
+    InvalidTableswitch {
+        /// Current PC.
+        pc: usize,
+        /// Low bound.
+        low: i32,
+        /// High bound.
+        high: i32,
+    },
 
+    /// `lookupswitch` has invalid npairs.
     #[error("lookupswitch at pc={pc} has invalid npairs ({npairs})")]
-    InvalidLookupswitch { pc: usize, npairs: i32 },
+    InvalidLookupswitch {
+        /// Current PC.
+        pc: usize,
+        /// Invalid npairs value.
+        npairs: i32,
+    },
 
+    /// `newarray` has invalid type code.
     #[error("newarray at pc={pc} has invalid array type code {type_code}")]
-    InvalidNewarrayType { pc: usize, type_code: u8 },
+    InvalidNewarrayType {
+        /// Current PC.
+        pc: usize,
+        /// Invalid type code.
+        type_code: u8,
+    },
 
+    /// `invokeinterface` reserved bytes are not zero.
     #[error("invokeinterface at pc={pc} has non-zero reserved byte ({reserved})")]
-    InvalidInvokeinterfaceReserved { pc: usize, reserved: u8 },
+    InvalidInvokeinterfaceReserved {
+        /// Current PC.
+        pc: usize,
+        /// Non-zero reserved byte.
+        reserved: u8,
+    },
 
+    /// `invokedynamic` reserved bytes are not zero.
     #[error("invokedynamic at pc={pc} has non-zero reserved bytes ({reserved1}, {reserved2})")]
     InvalidInvokedynamicReserved {
+        /// Current PC.
         pc: usize,
+        /// First non-zero reserved byte.
         reserved1: u8,
+        /// Second non-zero reserved byte.
         reserved2: u8,
     },
 }
 
+/// Convenience alias for `Result<T, DecodeError>`.
 pub type DecodeResult<T> = std::result::Result<T, DecodeError>;
 
 /// Errors produced by the structural bytecode verifier.
@@ -80,28 +131,49 @@ pub type DecodeResult<T> = std::result::Result<T, DecodeError>;
 /// ```
 #[derive(Debug, Error)]
 pub enum VerifyError {
+    /// A stack overflow occurred during verification.
     #[error("stack overflow at pc={pc}: depth would be {depth} but max_stack={max_stack}")]
     StackOverflow {
+        /// Current PC where the overflow occurred.
         pc: usize,
+        /// The depth of the stack.
         depth: usize,
+        /// Maximum allowed stack size.
         max_stack: usize,
     },
 
+    /// A stack underflow occurred during verification.
     #[error("stack underflow at pc={pc}: tried to pop from empty stack")]
-    StackUnderflow { pc: usize },
+    StackUnderflow {
+        /// Current PC where the underflow occurred.
+        pc: usize,
+    },
 
+    /// An invalid local variable index was referenced.
     #[error("local variable index {index} at pc={pc} exceeds max_locals={max_locals}")]
     LocalOutOfBounds {
+        /// Current PC where out of bounds happened.
         pc: usize,
+        /// Local variable index referenced.
         index: usize,
+        /// Maximum amount of allowed local variables.
         max_locals: usize,
     },
 
+    /// Returning with a non-empty stack.
     #[error("non-empty stack on return at pc={pc}: {depth} value(s) remaining")]
-    NonEmptyStackOnReturn { pc: usize, depth: usize },
+    NonEmptyStackOnReturn {
+        /// Current PC where return happened.
+        pc: usize,
+        /// Depth of stack values remaining.
+        depth: usize,
+    },
 }
 
+/// Convenience alias for `Result<T, VerifyError>`.
 pub type VerifyResult<T> = std::result::Result<T, VerifyError>;
+
+/// Convenience alias for `Result<T, Error>`.
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
