@@ -1,0 +1,556 @@
+3662-#[inline]
+3663-fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
+3664:    match args.get(idx) {
+3665-        Some(Slot::Reference(Some(r))) => Ok(*r),
+3666-        _ => Err(VmError::NullPointerException),
+3667-    }
+3668-}
+3669-
+--
+3690-#[inline]
+3691-fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
+3692:    match args.get(idx) {
+3693-        Some(Slot::Int(v)) => Ok(*v),
+3694-        _ => Err(VmError::TypeMismatch {
+3695-            expected: "Int",
+3696-            got: "other",
+3697-        }),
+--
+3701-#[inline]
+3702-fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
+3703:    match args.get(idx) {
+3704-        Some(Slot::Long(v)) => Ok(*v),
+3705-        _ => Err(VmError::TypeMismatch {
+3706-            expected: "Long",
+3707-            got: "other",
+3708-        }),
+--
+3712-#[inline]
+3713-fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
+3714:    match args.get(idx) {
+3715-        Some(Slot::Float(v)) => Ok(*v),
+3716-        _ => Err(VmError::TypeMismatch {
+3717-            expected: "Float",
+3718-            got: "other",
+3719-        }),
+--
+3723-#[inline]
+3724-fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
+3725:    match args.get(idx) {
+3726-        Some(Slot::Double(v)) => Ok(*v),
+3727-        _ => Err(VmError::TypeMismatch {
+3728-            expected: "Double",
+3729-            got: "other",
+3730-        }),
+--
+3734-macro_rules! extract_print_arg {
+3735-    ($args:expr, $pat:pat => $expr:expr, $expected:literal) => {
+3736:        match $args.get(1) {
+3737-            Some($pat) => $expr,
+3738-            _ => {
+3739-                return Err(VmError::TypeMismatch {
+3740-                    expected: $expected,
+3741-                    got: "other",
+--
+3752-    _control: &mut NativeControl,
+3753-) -> VmResult<Option<Slot>> {
+3754:    let string_ref = match args.get(1) {
+3755-        Some(Slot::Reference(Some(r))) => *r,
+3756-        Some(Slot::Reference(None)) => {
+3757-            writeln!(out, "null").ok();
+3758-            return Ok(None);
+3759-        }
+--
+3906-) -> VmResult<Option<Slot>> {
+3907-    let this_ref = extract_ref_arg(args, 0)?;
+3908:    let path_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+3909-    let file_obj = heap.get_mut(this_ref)?;
+3910-    let Some(path_field) = file_obj.fields.first_mut() else {
+3911-        return Err(VmError::InvalidRef { address: this_ref });
+3912-    };
+3913-    *path_field = path_slot;
+--
+4780-) -> VmResult<Option<Slot>> {
+4781-    let this_ref = extract_ref_arg(args, 0)?;
+4782:    let name_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+4783:    let ordinal = match args.get(2) {
+4784-        Some(Slot::Int(v)) => *v,
+4785-        _ => 0,
+4786-    };
+4787-    let obj = heap.get_mut(this_ref)?;
+4788-    if obj.fields.len() >= 2 {
+--
+4976-        .ok_or(VmError::NullPointerException)?;
+4977-    let internal_name = binary_name_to_internal_name(&binary_name);
+4978:    let (load_result, class_key) = match args.get(2) {
+4979-        Some(Slot::Reference(Some(loader_ref))) => (
+4980-            ops.ensure_loaded_with_runtime_loader(heap, *loader_ref, &internal_name),
+4981-            ops.class_key_for_runtime_loader(heap, *loader_ref, &internal_name)?,
+4982-        ),
+4983-        Some(Slot::Reference(None)) | None => (
+--
+5230-    let first_ref = extract_ref_arg(args, 0)?;
+5231-    let mut path = std::path::PathBuf::from(string_value_from_ref(heap, first_ref)?);
+5232:    let more_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+5233-    match more_slot {
+5234-        Slot::Reference(Some(array_ref)) => {
+5235-            let segments = heap.get(array_ref)?.fields.clone();
+5236-            for segment in segments {
+5237-                let Slot::Reference(Some(segment_ref)) = segment else {
+--
+5627-    let archive_ref = extract_ref_arg(args, 2)?;
+5628-    let _ = extract_ref_arg(args, 3)?;
+5629:    match args.get(4) {
+5630-        Some(Slot::Reference(_)) => {
+5631-            let exploded_slot = ops.instance_field_slot(
+5632-                "org/springframework/boot/loader/launch/LaunchedClassLoader",
+5633-                "exploded",
+5634-            )?;
+--
+5663-    let parameter_descriptor = parameter_descriptor_from_class_array(
+5664-        heap,
+5665:        args.get(2).copied().unwrap_or(Slot::Reference(None)),
+5666-    )?;
+5667-
+5668-    let Some(method) = reflected.methods.into_iter().find(|method| {
+5669-        method.name == method_name
+5670-            && descriptor_parameter_part(&method.descriptor) == parameter_descriptor
+--
+5700-    let parameter_descriptor = parameter_descriptor_from_class_array(
+5701-        heap,
+5702:        args.get(2).copied().unwrap_or(Slot::Reference(None)),
+5703-    )?;
+5704-
+5705-    let Some((declaring_class, method)) =
+5706-        lookup_public_reflected_method(ops, &class_key, &method_name, &parameter_descriptor)?
+5707-    else {
+--
+5793-    let parameter_descriptor = parameter_descriptor_from_class_array(
+5794-        heap,
+5795:        args.get(1).copied().unwrap_or(Slot::Reference(None)),
+5796-    )?;
+5797-
+5798-    let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, false)
+5799-    else {
+5800-        return Err(VmError::JavaException {
+--
+5859-    let parameter_descriptor = parameter_descriptor_from_class_array(
+5860-        heap,
+5861:        args.get(1).copied().unwrap_or(Slot::Reference(None)),
+5862-    )?;
+5863-
+5864-    let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, true)
+5865-    else {
+5866-        return Err(VmError::JavaException {
+--
+6237-) -> VmResult<Option<Slot>> {
+6238-    let field_ref = extract_ref_arg(args, 0)?;
+6239:    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+6240-    let field = reflected_field_handle(heap, field_ref)?;
+6241-
+6242-    if !field.is_public && !field.is_accessible {
+6243-        return Err(VmError::JavaException {
+6244-            class_name: "java/lang/IllegalAccessException".to_string(),
+--
+6277-) -> VmResult<Option<Slot>> {
+6278-    let field_ref = extract_ref_arg(args, 0)?;
+6279:    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+6280:    let value_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+6281-    let field = reflected_field_handle(heap, field_ref)?;
+6282-
+6283-    if !field.is_public && !field.is_accessible {
+6284-        return Err(VmError::JavaException {
+6285-            class_name: "java/lang/IllegalAccessException".to_string(),
+--
+6317-) -> VmResult<Option<Slot>> {
+6318-    let method_ref = extract_ref_arg(args, 0)?;
+6319:    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+6320-    let invoke_arg_slots =
+6321:        reflection_array_elements(heap, args.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+6322-    let method = reflected_method_handle(heap, method_ref)?;
+6323-
+6324-    if !method.is_public && !method.is_accessible {
+6325-        return Err(VmError::JavaException {
+6326-            class_name: "java/lang/IllegalAccessException".to_string(),
+--
+6366-    let constructor_ref = extract_ref_arg(args, 0)?;
+6367-    let invoke_arg_slots =
+6368:        reflection_array_elements(heap, args.get(1).copied().unwrap_or(Slot::Reference(None)))?;
+6369-    let constructor = reflected_method_handle(heap, constructor_ref)?;
+6370-
+6371-    if !constructor.is_public && !constructor.is_accessible {
+6372-        return Err(VmError::JavaException {
+6373-            class_name: "java/lang/IllegalAccessException".to_string(),
+--
+6420-    _control: &mut NativeControl,
+6421-) -> VmResult<Option<Slot>> {
+6422:    let string_ref = match args.get(1) {
+6423-        Some(Slot::Reference(Some(r))) => *r,
+6424-        Some(Slot::Reference(None)) => {
+6425-            write!(out, "null").ok();
+6426-            return Ok(None);
+6427-        }
+--
+6566-    _control: &mut NativeControl,
+6567-) -> VmResult<Option<Slot>> {
+6568:    match args.get(1) {
+6569-        Some(Slot::Reference(Some(r))) => {
+6570-            let s = heap_object_to_string(heap.get(*r)?, *r);
+6571-            writeln!(out, "{s}").ok();
+6572-        }
+6573-        Some(Slot::Reference(None)) => {
+--
+6647-    _control: &mut NativeControl,
+6648-) -> VmResult<Option<Slot>> {
+6649:    match args.get(1) {
+6650-        Some(Slot::Reference(Some(r))) => {
+6651-            let s = heap_object_to_string(heap.get(*r)?, *r);
+6652-            write!(out, "{s}").ok();
+6653-        }
+6654-        Some(Slot::Reference(None)) => {
+--
+6768-    let key = string_value_from_ref(heap, key_ref)?;
+6769-    let result = system_property_value(&key).map_or_else(
+6770:        || args.get(1).copied().unwrap_or(Slot::Reference(None)),
+6771-        |value| Slot::Reference(Some(heap.allocate_string(value))),
+6772-    );
+6773-    Ok(Some(result))
+6774-}
+6775-
+--
+6846-) -> VmResult<Option<Slot>> {
+6847-    let this_ref = extract_ref_arg(args, 0)?;
+6848:    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+6849-    let this = heap.get_mut(this_ref)?;
+6850-    this.fields[THREAD_TARGET_SLOT] = target;
+6851-    this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+6852-    Ok(None)
+6853-}
+--
+7058-        None => return Err(VmError::NullPointerException),
+7059-    };
+7060:    let b = str_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+7061-    Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
+7062-}
+7063-
+7064-/// Native: `String.startsWith(String)` — check if string starts with prefix.
+7065-fn native_string_startswith(
+--
+7309-        None => return Err(VmError::NullPointerException),
+7310-    };
+7311:    let b = int_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+7312-    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+7313-}
+7314-
+7315-// ---- String.valueOf overloads ----
+7316-
+--
+7489-    let fmt = heap.get(fmt_ref)?.string_value.clone().unwrap_or_default();
+7490-
+7491:    let arr_len = match args.get(1) {
+7492-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.fields.len(),
+7493-        _ => 0,
+7494-    };
+7495-
+7496-    let mut result = String::new();
+--
+7539-            's' | 'd' | 'f' | 'x' | 'X' => {
+7540-                let slot = if arg_idx < arr_len {
+7541:                    match args.get(1) {
+7542-                        Some(Slot::Reference(Some(r))) => heap
+7543-                            .get(*r)?
+7544-                            .fields
+7545-                            .get(arg_idx)
+7546-                            .copied()
+--
+8068-        None => return Err(VmError::NullPointerException),
+8069-    };
+8070:    let b = long_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+8071-    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+8072-}
+8073-
+8074-// ---- Double class natives ----
+8075-
+--
+8167-        None => return Err(VmError::NullPointerException),
+8168-    };
+8169:    let b = float_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+8170-    Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
+8171-}
+8172-
+8173-/// Native: `Float.parseFloat(String)` — parses string to float.
+8174-fn native_float_parsefloat(
+--
+8239-        None => return Err(VmError::NullPointerException),
+8240-    };
+8241:    let b = bool_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+8242-    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+8243-}
+8244-
+8245-/// Native: `Boolean.parseBoolean(String)` — case-insensitive "true" → 1, else 0.
+8246-fn native_boolean_parseboolean(
+--
+8379-
+8380-fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> VmResult<String> {
+8381:    let str_ref = match args.get(index) {
+8382-        Some(Slot::Reference(Some(r))) => *r,
+8383-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+8384-        _ => {
+8385-            return Err(VmError::TypeMismatch {
+8386-                expected: "Reference",
+--
+8500-        None => return Err(VmError::NullPointerException),
+8501-    };
+8502:    let b = byte_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+8503-    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+8504-}
+8505-
+8506-fn native_short_parseshort(
+8507-    args: &[Slot],
+--
+8602-        None => return Err(VmError::NullPointerException),
+8603-    };
+8604:    let b = short_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+8605-    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+8606-}
+8607-
+8608-fn native_char_compareto(
+8609-    args: &[Slot],
+--
+8625-        None => return Err(VmError::NullPointerException),
+8626-    };
+8627:    let b = char_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+8628-    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+8629-}
+8630-
+8631-/// Execute a `StringConcatFactory` recipe: walk the recipe string, replacing
+8632-/// `\u{1}` placeholders with stringified dynamic args from the operand stack.
+--
+15968-) -> VmResult<Option<Slot>> {
+15969-    let this_ref = extract_ref_arg(args, 0)?;
+15970:    let init_str = match args.get(1) {
+15971-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+15972-        _ => String::new(),
+15973-    };
+15974-    let obj = heap.get_mut(this_ref)?;
+15975-    obj.string_value = Some(init_str);
+--
+15985-) -> VmResult<Option<Slot>> {
+15986-    let this_ref = extract_ref_arg(args, 0)?;
+15987:    let append_str = match args.get(1) {
+15988-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+15989-        _ => "null".to_string(),
+15990-    };
+15991-    let obj = heap.get_mut(this_ref)?;
+15992-    if let Some(ref mut buf) = obj.string_value {
+--
+16068-) -> VmResult<Option<Slot>> {
+16069-    let this_ref = extract_ref_arg(args, 0)?;
+16070:    let val = match args.get(1) {
+16071-        Some(Slot::Int(v)) => *v != 0,
+16072-        _ => false,
+16073-    };
+16074-    let obj = heap.get_mut(this_ref)?;
+16075-    if let Some(ref mut buf) = obj.string_value {
+--
+16087-) -> VmResult<Option<Slot>> {
+16088-    let this_ref = extract_ref_arg(args, 0)?;
+16089:    let val = match args.get(1) {
+16090-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
+16091-        _ => '\0',
+16092-    };
+16093-    let obj = heap.get_mut(this_ref)?;
+16094-    if let Some(ref mut buf) = obj.string_value {
+--
+16288-) -> VmResult<Option<Slot>> {
+16289-    let this_ref = extract_ref_arg(args, 0)?;
+16290:    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+16291-    let obj = heap.get_mut(this_ref)?;
+16292-    match obj.fields.first_mut() {
+16293-        Some(Slot::Int(sz)) => *sz += 1,
+16294-        _ => return Err(VmError::NullPointerException), // shouldn't happen; init sets fields[0]=Int(0)
+16295-    }
+--
+16446-
+16447-    // Fix 1: use the correct error variant for unsupported non-null Comparator.
+16448:    if !matches!(args.get(1), Some(Slot::Reference(None)) | None) {
+16449-        return Err(VmError::Unimplemented {
+16450-            mnemonic: "ArrayList.sort(non-null Comparator)",
+16451-        });
+16452-    }
+16453-
+--
+16680-        None => return Err(VmError::NullPointerException),
+16681-    };
+16682:    let b = double_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+16683-    // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
+16684-    Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
+16685-}
+16686-
+16687-// ---- Arrays natives ----
+--
+16695-) -> VmResult<Option<Slot>> {
+16696-    let arr_ref = extract_ref_arg(args, 0)?;
+16697:    let val = match args.get(1) {
+16698-        Some(Slot::Int(v)) => Slot::Int(*v),
+16699-        _ => Slot::Int(0),
+16700-    };
+16701-    let obj = heap.get_mut(arr_ref)?;
+16702-    for slot in &mut obj.fields {
+--
+16714-) -> VmResult<Option<Slot>> {
+16715-    let arr_ref = extract_ref_arg(args, 0)?;
+16716:    let val = args.get(1).copied().unwrap_or(Slot::Reference(None));
+16717-    let obj = heap.get_mut(arr_ref)?;
+16718-    for slot in &mut obj.fields {
+16719-        *slot = val;
+16720-    }
+16721-    Ok(None)
+--
+16730-) -> VmResult<Option<Slot>> {
+16731-    let src_ref = extract_ref_arg(args, 0)?;
+16732:    let new_len = match args.get(1) {
+16733-        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
+16734-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+16735-        _ => 0,
+16736-    };
+16737-    let src_fields = heap.get(src_ref)?.fields.clone();
+--
+16752-) -> VmResult<Option<Slot>> {
+16753-    let src_ref = extract_ref_arg(args, 0)?;
+16754:    let new_len = match args.get(1) {
+16755-        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
+16756-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+16757-        _ => 0,
+16758-    };
+16759-    let src_fields = heap.get(src_ref)?.fields.clone();
+--
+16858-) -> VmResult<Option<Slot>> {
+16859-    let this_ref = extract_ref_arg(args, 0)?;
+16860:    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+16861:    let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+16862-    // Clone fields to release the immutable borrow before mutating.
+16863-    let fields = heap.get(this_ref)?.fields.clone();
+16864-
+16865-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+16866-        let old = fields[i + 1];
+--
+16888-) -> VmResult<Option<Slot>> {
+16889-    let this_ref = extract_ref_arg(args, 0)?;
+16890:    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+16891-    let fields = heap.get(this_ref)?.fields.clone();
+16892-
+16893-    Ok(Some(
+16894-        find_hashmap_entry_index(&fields, &key, heap)
+16895-            .map_or(Slot::Reference(None), |i| fields[i + 1]),
+--
+16905-) -> VmResult<Option<Slot>> {
+16906-    let this_ref = extract_ref_arg(args, 0)?;
+16907:    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+16908-    let fields = heap.get(this_ref)?.fields.clone();
+16909-
+16910-    if find_hashmap_entry_index(&fields, &key, heap).is_some() {
+16911-        Ok(Some(Slot::Int(1)))
+16912-    } else {
+--
+16938-) -> VmResult<Option<Slot>> {
+16939-    let this_ref = extract_ref_arg(args, 0)?;
+16940:    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+16941-    let fields = heap.get(this_ref)?.fields.clone();
+16942-
+16943-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+16944-        let old_val = fields[i + 1];
+16945-        let obj = heap.get_mut(this_ref)?;
+--
+16982-) -> VmResult<Option<Slot>> {
+16983-    let this_ref = extract_ref_arg(args, 0)?;
+16984:    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+16985:    let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
+16986-    let fields = heap.get(this_ref)?.fields.clone();
+16987-
+16988-    Ok(Some(
+16989-        find_hashmap_entry_index(&fields, &key, heap).map_or(default, |i| fields[i + 1]),
+16990-    ))
+--
+17114-) -> VmResult<Option<Slot>> {
+17115-    let this_ref = extract_ref_arg(args, 0)?;
+17116:    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+17117-    let fields = heap.get(this_ref)?.fields.clone();
+17118-    // fields[0] = size, fields[1..] = elements
+17119-    if find_hashset_entry_index(&fields, &element, heap).is_some() {
+17120-        return Ok(Some(Slot::Int(0))); // duplicate
+17121-    }
+--
+17138-) -> VmResult<Option<Slot>> {
+17139-    let this_ref = extract_ref_arg(args, 0)?;
+17140:    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+17141-    let fields = heap.get(this_ref)?.fields.clone();
+17142-
+17143-    if find_hashset_entry_index(&fields, &element, heap).is_some() {
+17144-        Ok(Some(Slot::Int(1)))
+17145-    } else {
+--
+17157-) -> VmResult<Option<Slot>> {
+17158-    let this_ref = extract_ref_arg(args, 0)?;
+17159:    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+17160-    let fields = heap.get(this_ref)?.fields.clone();
+17161-
+17162-    if let Some(i) = find_hashset_entry_index(&fields, &element, heap) {
+17163-        let obj = heap.get_mut(this_ref)?;
+17164-        let last_idx = obj.fields.len() - 1;
+--
+17375-) -> VmResult<Option<Slot>> {
+17376-    let this_ref = extract_ref_arg(args, 0)?;
+17377:    let command_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+17378-    let builder_obj = heap.get_mut(this_ref)?;
+17379-    if builder_obj.fields.len() < 2 {
+17380-        return Err(VmError::InvalidRef { address: this_ref });
+17381-    }
+17382-    builder_obj.fields[0] = command_slot;
+--
+17392-) -> VmResult<Option<Slot>> {
+17393-    let this_ref = extract_ref_arg(args, 0)?;
+17394:    let directory_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+17395-    let builder_obj = heap.get_mut(this_ref)?;
+17396-    if builder_obj.fields.len() < 2 {
+17397-        return Err(VmError::InvalidRef { address: this_ref });
+17398-    }
+17399-    builder_obj.fields[1] = directory_slot;
+--
+17446-    }
+17447-    let command =
+17448:        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+17449-    spawn_process_impl(heap, &command, None)
+17450-}
+17451-
+17452-fn native_runtime_exec_array_dir(
+17453-    args: &[Slot],
+--
+17461-    }
+17462-    let command =
+17463:        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+17464-    let cwd =
+17465:        optional_file_path_from_slot(args.get(3).copied().unwrap_or(Slot::Reference(None)), heap)?;
+17466-    spawn_process_impl(heap, &command, cwd.as_deref())
+17467-}
+17468-
+17469-fn native_process_get_input_stream(
+17470-    args: &[Slot],
+--
+35592-                assert_eq!(method, "test");
+35593-                assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
+35594:                let entry_ref = match args.get(1) {
+35595-                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
+35596-                    other => panic!("expected archive entry arg, got {other:?}"),
+35597-                };
+35598-                let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
+35599-                let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();
+--
+35763-                assert_eq!(method, "test");
+35764-                assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
+35765:                let entry_ref = match args.get(1) {
+35766-                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
+35767-                    other => panic!("expected archive entry arg, got {other:?}"),
+35768-                };
+35769-                let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
+35770-                let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();

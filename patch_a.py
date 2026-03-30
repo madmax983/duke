@@ -1,20 +1,14 @@
 import re
 
 with open("crates/duke-interpreter/src/lib.rs", "r") as f:
-    text = f.read()
+    code = f.read()
 
-# I also noticed there are blocks like:
-# let a = match args.get(0) {
-#     Some(s) => ...val(s)?,
-#     None => return Err(VmError::NullPointerException),
-# };
-for val_fn in ["str_val", "int_val", "long_val", "float_val", "bool_val", "byte_val", "short_val", "char_val", "double_val"]:
-    old_a = f"""let a = match args.get(0) {{
-        Some(s) => {val_fn}(s)?,
-        None => return Err(VmError::NullPointerException),
-    }};"""
-    new_a = f"let a = {val_fn}(args.get(0).ok_or(VmError::NullPointerException)?)?;"
-    text = text.replace(old_a, new_a)
+# Replace match args.get(X) blocks for string ref extraction where there's no helper
+code = re.sub(
+    r'match args\.get\(([^)]+)\) \{\n\s*Some\(Slot::Reference\(Some\(([^)]+)\)\)\) => \*\2,\n\s*Some\(Slot::Reference\(None\)\) => return Err\(VmError::NullPointerException\),\n\s*_ => \{\n\s*return Err\(VmError::TypeMismatch \{\n\s*expected: "Reference",\n\s*got: "other",\n\s*\}\);\n\s*\}\n\s*\}',
+    r'extract_ref_arg(args, \1)?',
+    code
+)
 
 with open("crates/duke-interpreter/src/lib.rs", "w") as f:
-    f.write(text)
+    f.write(code)

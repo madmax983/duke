@@ -1,18 +1,14 @@
 import re
 
 with open("crates/duke-interpreter/src/lib.rs", "r") as f:
-    text = f.read()
+    code = f.read()
 
-count = 0
-for match in re.finditer(r'let\s+a\s*=\s*match\s+args\.get\(\s*(\d+)\s*\)\s*\{([^}]*)\};', text, re.DOTALL):
-    var = match.group(1)
-    idx = match.group(2)
-    body = match.group(2)
+# For extract_string_arg_value
+code = re.sub(
+    r'let str_ref = match args\.get\(([^)]+)\) \{[^{}]*Some\(Slot::Reference\(Some\(r\)\)\) => \*r,[^{}]*Some\(Slot::Reference\(None\)\) => return Err\(VmError::NullPointerException\),[^{}]*_ => \{[^{}]*return Err\(VmError::TypeMismatch \{[^{}]*expected: "Reference",[^{}]*got: "other",[^{}]*\}[^{}]*\);[^{}]*\}[^{}]*\};',
+    r'let str_ref = extract_ref_arg(args, \1)?;',
+    code
+)
 
-    if "NullPointerException" in body:
-        print(f"Match block at args.get({idx}) for a returns Err:")
-        print(match.group(0))
-        print("-" * 40)
-        count += 1
-
-print(f"Total found: {count}")
+with open("crates/duke-interpreter/src/lib.rs", "w") as f:
+    f.write(code)

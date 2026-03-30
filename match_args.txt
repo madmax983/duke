@@ -1,0 +1,167 @@
+3664:    match args.get(idx) {
+3665-        Some(Slot::Reference(Some(r))) => Ok(*r),
+3666-        _ => Err(VmError::NullPointerException),
+3667-    }
+3668-}
+3669-
+--
+3692:    match args.get(idx) {
+3693-        Some(Slot::Int(v)) => Ok(*v),
+3694-        _ => Err(VmError::TypeMismatch {
+3695-            expected: "Int",
+3696-            got: "other",
+3697-        }),
+--
+3703:    match args.get(idx) {
+3704-        Some(Slot::Long(v)) => Ok(*v),
+3705-        _ => Err(VmError::TypeMismatch {
+3706-            expected: "Long",
+3707-            got: "other",
+3708-        }),
+--
+3714:    match args.get(idx) {
+3715-        Some(Slot::Float(v)) => Ok(*v),
+3716-        _ => Err(VmError::TypeMismatch {
+3717-            expected: "Float",
+3718-            got: "other",
+3719-        }),
+--
+3725:    match args.get(idx) {
+3726-        Some(Slot::Double(v)) => Ok(*v),
+3727-        _ => Err(VmError::TypeMismatch {
+3728-            expected: "Double",
+3729-            got: "other",
+3730-        }),
+--
+3754:    let string_ref = match args.get(1) {
+3755-        Some(Slot::Reference(Some(r))) => *r,
+3756-        Some(Slot::Reference(None)) => {
+3757-            writeln!(out, "null").ok();
+3758-            return Ok(None);
+3759-        }
+--
+4783:    let ordinal = match args.get(2) {
+4784-        Some(Slot::Int(v)) => *v,
+4785-        _ => 0,
+4786-    };
+4787-    let obj = heap.get_mut(this_ref)?;
+4788-    if obj.fields.len() >= 2 {
+--
+4978:    let (load_result, class_key) = match args.get(2) {
+4979-        Some(Slot::Reference(Some(loader_ref))) => (
+4980-            ops.ensure_loaded_with_runtime_loader(heap, *loader_ref, &internal_name),
+4981-            ops.class_key_for_runtime_loader(heap, *loader_ref, &internal_name)?,
+4982-        ),
+4983-        Some(Slot::Reference(None)) | None => (
+--
+5629:    match args.get(4) {
+5630-        Some(Slot::Reference(_)) => {
+5631-            let exploded_slot = ops.instance_field_slot(
+5632-                "org/springframework/boot/loader/launch/LaunchedClassLoader",
+5633-                "exploded",
+5634-            )?;
+--
+6422:    let string_ref = match args.get(1) {
+6423-        Some(Slot::Reference(Some(r))) => *r,
+6424-        Some(Slot::Reference(None)) => {
+6425-            write!(out, "null").ok();
+6426-            return Ok(None);
+6427-        }
+--
+6568:    match args.get(1) {
+6569-        Some(Slot::Reference(Some(r))) => {
+6570-            let s = heap_object_to_string(heap.get(*r)?, *r);
+6571-            writeln!(out, "{s}").ok();
+6572-        }
+6573-        Some(Slot::Reference(None)) => {
+--
+6649:    match args.get(1) {
+6650-        Some(Slot::Reference(Some(r))) => {
+6651-            let s = heap_object_to_string(heap.get(*r)?, *r);
+6652-            write!(out, "{s}").ok();
+6653-        }
+6654-        Some(Slot::Reference(None)) => {
+--
+7491:    let arr_len = match args.get(1) {
+7492-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.fields.len(),
+7493-        _ => 0,
+7494-    };
+7495-
+7496-    let mut result = String::new();
+--
+7541:                    match args.get(1) {
+7542-                        Some(Slot::Reference(Some(r))) => heap
+7543-                            .get(*r)?
+7544-                            .fields
+7545-                            .get(arg_idx)
+7546-                            .copied()
+--
+8381:    let str_ref = match args.get(index) {
+8382-        Some(Slot::Reference(Some(r))) => *r,
+8383-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+8384-        _ => {
+8385-            return Err(VmError::TypeMismatch {
+8386-                expected: "Reference",
+--
+15970:    let init_str = match args.get(1) {
+15971-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+15972-        _ => String::new(),
+15973-    };
+15974-    let obj = heap.get_mut(this_ref)?;
+15975-    obj.string_value = Some(init_str);
+--
+15987:    let append_str = match args.get(1) {
+15988-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+15989-        _ => "null".to_string(),
+15990-    };
+15991-    let obj = heap.get_mut(this_ref)?;
+15992-    if let Some(ref mut buf) = obj.string_value {
+--
+16070:    let val = match args.get(1) {
+16071-        Some(Slot::Int(v)) => *v != 0,
+16072-        _ => false,
+16073-    };
+16074-    let obj = heap.get_mut(this_ref)?;
+16075-    if let Some(ref mut buf) = obj.string_value {
+--
+16089:    let val = match args.get(1) {
+16090-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
+16091-        _ => '\0',
+16092-    };
+16093-    let obj = heap.get_mut(this_ref)?;
+16094-    if let Some(ref mut buf) = obj.string_value {
+--
+16697:    let val = match args.get(1) {
+16698-        Some(Slot::Int(v)) => Slot::Int(*v),
+16699-        _ => Slot::Int(0),
+16700-    };
+16701-    let obj = heap.get_mut(arr_ref)?;
+16702-    for slot in &mut obj.fields {
+--
+16732:    let new_len = match args.get(1) {
+16733-        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
+16734-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+16735-        _ => 0,
+16736-    };
+16737-    let src_fields = heap.get(src_ref)?.fields.clone();
+--
+16754:    let new_len = match args.get(1) {
+16755-        Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
+16756-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+16757-        _ => 0,
+16758-    };
+16759-    let src_fields = heap.get(src_ref)?.fields.clone();
+--
+35594:                let entry_ref = match args.get(1) {
+35595-                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
+35596-                    other => panic!("expected archive entry arg, got {other:?}"),
+35597-                };
+35598-                let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
+35599-                let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();
+--
+35765:                let entry_ref = match args.get(1) {
+35766-                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
+35767-                    other => panic!("expected archive entry arg, got {other:?}"),
+35768-                };
+35769-                let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
+35770-                let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();
