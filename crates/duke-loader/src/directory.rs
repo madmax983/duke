@@ -1,3 +1,9 @@
+//! The `directory` module loads classes from standard filesystem directories.
+//!
+//! This module provides the [`DirectoryLoader`] which reads raw `.class` files
+//! directly from a specified root directory. It is primarily used to load
+//! application classes from the classpath.
+
 use std::path::{Path, PathBuf};
 
 use crate::{ClassLoader, LoadError, LoadResult};

@@ -1,3 +1,9 @@
+//! The `bootstrap` module provides the system bootstrap classloader.
+//!
+//! This module contains the [`BootstrapLoader`] which is responsible for resolving
+//! classes by first trying the JDK `jimage` (for standard library classes) and
+//! then falling back to classpath directories (for application classes).
+
 use std::path::Path;
 
 use crate::{ClassLoader, DirectoryLoader, JImageReader, LoadError, LoadResult};

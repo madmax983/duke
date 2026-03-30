@@ -1,3 +1,8 @@
+//! The `error` module contains class loading error definitions.
+//!
+//! This module defines the [`LoadError`] enum which represents errors that
+//! occur during class location, format parsing, or reading from the file system or `JImage`.
+
 use thiserror::Error;
 
 /// Errors that can occur when locating or reading `.class` files.

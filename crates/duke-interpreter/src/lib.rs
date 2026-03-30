@@ -5808,7 +5808,7 @@ impl ExecutionState {
     fn new(
         registry: &ClassRegistry,
         class_name: &str,
-        _method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         entry_idx: usize,
         args: &[Slot],
     ) -> VmResult<Self> {
@@ -5842,7 +5842,7 @@ impl ExecutionState {
             idx: 0,
             string_intern: HashMap::new(),
             #[cfg(feature = "telemetry")]
-            current_method: _method_name.to_string(),
+            current_method: method_name.to_string(),
         })
     }
 }
@@ -5926,7 +5926,7 @@ fn prepare_execution_state(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    method_name: &str,
+    #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
     descriptor: &str,
     args: &[Slot],
 ) -> VmResult<ExecutionState> {
@@ -6135,7 +6135,7 @@ pub fn execute_class(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    method_name: &str,
+    #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
     descriptor: &str,
     args: &[Slot],
 ) -> VmResult<Option<Slot>> {
@@ -9303,7 +9303,7 @@ pub fn execute_class_to_completion<L>(
     heap: &mut duke_gc::Heap,
     stdout: &mut dyn Write,
     class_name: &str,
-    method_name: &str,
+    #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
     descriptor: &str,
     args: &[Slot],
 ) -> VmResult<Option<Slot>>
@@ -9697,7 +9697,7 @@ fn resolve_method_in_hierarchy(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
     start_class: &str,
-    method_name: &str,
+    #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
     method_desc: &str,
 ) -> Option<(String, usize)> {
     let mut current = start_class.to_string();
@@ -11665,7 +11665,7 @@ mod tests {
 
     /// Parse and execute a static method from a `.class` file that takes `i32` args
     /// and returns an `i32`.
-    fn run_static_int(class_name: &str, method_name: &str, args: Vec<i32>) -> i32 {
+    fn run_static_int(class_name: &str, #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str, args: Vec<i32>) -> i32 {
         use duke_bytecode::decode;
         use duke_classfile::{
             parse,
@@ -11859,7 +11859,7 @@ mod tests {
         build_class_context(&cf)
     }
 
-    fn run_class_int(class_name: &str, method_name: &str, descriptor: &str, args: Vec<i32>) -> i32 {
+    fn run_class_int(class_name: &str, #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str, descriptor: &str, args: Vec<i32>) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();
         let mut registry = ClassRegistry::new();
@@ -12119,7 +12119,7 @@ mod tests {
 
     fn run_class_long(
         class_name: &str,
-        method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         descriptor: &str,
         args: Vec<i32>,
     ) -> i64 {
@@ -12158,7 +12158,7 @@ mod tests {
 
     fn run_class_double(
         class_name: &str,
-        method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         descriptor: &str,
         args: Vec<i32>,
     ) -> f64 {
@@ -12617,7 +12617,7 @@ mod tests {
     fn run_cross_class_int(
         class_files: &[&str],
         entry_class: &str,
-        method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         descriptor: &str,
         args: Vec<i32>,
     ) -> i32 {
@@ -15406,7 +15406,7 @@ mod tests {
     // ---- Phase 19: Enum integration tests ----
 
     /// Helper that loads a class, calls `bootstrap_stdlib`, and runs a static method.
-    fn run_bootstrap_int(class_name: &str, method_name: &str, descriptor: &str) -> i32 {
+    fn run_bootstrap_int(class_name: &str, #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str, descriptor: &str) -> i32 {
         let ctx = load_class_context(class_name);
         let entry_class = ctx.class_name.clone();
         let mut registry = ClassRegistry::new();
@@ -15434,7 +15434,7 @@ mod tests {
 
     fn run_bootstrap_with_string_args(
         class_name: &str,
-        method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         descriptor: &str,
         args: &[String],
     ) -> VmResult<Option<Slot>> {
@@ -15464,7 +15464,7 @@ mod tests {
 
     fn run_bootstrap_with_output(
         class_name: &str,
-        method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         descriptor: &str,
     ) -> VmResult<(Option<Slot>, Vec<String>)> {
         let ctx = load_class_context(class_name);
@@ -15519,7 +15519,7 @@ mod tests {
     #[cfg(feature = "telemetry")]
     fn run_fixture(
         class_name: &str,
-        method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         descriptor: &str,
     ) -> (Option<Slot>, ClassRegistry) {
         let ctx = load_class_context(class_name);
@@ -25312,7 +25312,7 @@ mod tests {
 
     fn run_bootstrap_with_slots(
         class_name: &str,
-        method_name: &str,
+        #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         descriptor: &str,
         args: &[Slot],
     ) -> VmResult<Option<Slot>> {
