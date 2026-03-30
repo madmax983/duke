@@ -805,6 +805,18 @@ fn generate_stubs(cf: &ClassFile) {
 
 use std::fmt::Write;
 
+/// Scans a parsed `ClassFile` for `native` methods and generates the corresponding Rust
+/// boilerplate required to register them with Duke's `ClassRegistry`.
+///
+/// This is typically used by the `duke stub` command to bootstrap implementations
+/// for new JDK classes, ensuring the signatures match the expected `NativeHandler` type.
+///
+/// # Examples
+///
+/// ```ignore
+/// let stubs = generate_native_stubs_code(&my_class_file);
+/// println!("{stubs}");
+/// ```
 #[must_use]
 pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
     let mut out = String::new();

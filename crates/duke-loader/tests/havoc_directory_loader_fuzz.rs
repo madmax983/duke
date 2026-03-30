@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use duke_loader::{ClassLoader, DirectoryLoader};
 use proptest::prelude::*;
 

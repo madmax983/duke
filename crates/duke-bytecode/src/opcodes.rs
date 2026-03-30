@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 //! JVM opcode byte constants (JVM SE 21, §6.5).
 //!
 //! Named exactly as in the spec (lowercase). Every defined opcode value is
