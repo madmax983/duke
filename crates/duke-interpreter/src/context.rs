@@ -109,7 +109,7 @@ pub struct FieldEntry {
 /// };
 /// assert!(handler.catch_type.is_some());
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExceptionEntry {
     /// Inclusive start PC of the try block where this handler becomes active.
     pub start_pc: u16,
