@@ -16,3 +16,7 @@
 **[Extracting Repeated Code]
 **Learning:** Found identical `while i + 1 < fields.len()` loops used to iterate over key-value pairs in HashMap natives, and similar logic in HashSet.
 **Action:** Extracted these loops into simple helper functions `find_hashmap_entry_index` and `find_hashset_entry_index` which return `Option<usize>`, simplifying five separate native functions and removing `mut i` boilerplate.
+
+**[Extracting Native Print Functions]
+**Learning:** Attempted to use `macro_rules!` to extract identical boilerplate for `native_print_*` and `native_println_*` functions. This violated the "Ask first" constraint for complex macros and failed compilation due to a hallucinated `cast_unsigned()` method when trying to clean up an `as u32` cast for clippy.
+**Action:** When constrained against macros, use small generic helper functions (e.g., passing a closure or function pointer for the formatting) instead of macros to enforce DRY without hiding logic. Also, remember `cast_unsigned` is not a standard Rust method for `i32`; stick to `as u32`.

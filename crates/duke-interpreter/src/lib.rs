@@ -1436,6 +1436,22 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 }
 
+
+fn write_slot<F>(args: &[Slot], out: &mut dyn Write, expected: &'static str, write_fn: F) -> VmResult<Option<Slot>>
+where
+    F: FnOnce(&Slot, &mut dyn Write) -> std::io::Result<bool>,
+{
+    match args.get(1) {
+        Some(val) => {
+            if write_fn(val, out).unwrap_or(false) {
+                Ok(None)
+            } else {
+                Err(VmError::TypeMismatch { expected, got: "other" })
+            }
+        }
+        None => Err(VmError::TypeMismatch { expected, got: "other" })
+    }
+}
 fn native_println_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1460,22 +1476,16 @@ fn native_println_string(
     Ok(None)
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_println_int(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Int", |s, out| match s {
+        Slot::Int(v) => writeln!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
@@ -2040,111 +2050,74 @@ fn native_print_int(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Int", |s, out| match s {
+        Slot::Int(v) => write!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
 // ---------------------------------------------------------------------------
 // println overloads (long, float, double, boolean, char, object)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_println_long(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Long", |s, out| match s {
+        Slot::Long(v) => writeln!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_println_float(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Float", |s, out| match s {
+        Slot::Float(v) => writeln!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_println_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Double", |s, out| match s {
+        Slot::Double(v) => writeln!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_println_boolean(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(boolean)",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Int(boolean)", |s, out| match s {
+        Slot::Int(v) => if *v != 0 { writeln!(out, "true") } else { writeln!(out, "false") }.map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_println_char(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(char)",
-                got: "other",
-            });
-        }
-    };
-    writeln!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Int(char)", |s, out| match s {
+        Slot::Int(v) => writeln!(out, "{}", char::from_u32(*v as u32).unwrap_or('?')).map(|_| true),
+        _ => Ok(false),
+    })
 }
 
 #[allow(clippy::cast_possible_wrap)]
@@ -2220,94 +2193,64 @@ fn native_println_object(
 // print overloads (long, float, double, boolean, char, object)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_print_long(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Long", |s, out| match s {
+        Slot::Long(v) => write!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_print_float(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Float", |s, out| match s {
+        Slot::Float(v) => write!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_print_double(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Double", |s, out| match s {
+        Slot::Double(v) => write!(out, "{v}").map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_print_boolean(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => *v != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(boolean)",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Int(boolean)", |s, out| match s {
+        Slot::Int(v) => if *v != 0 { write!(out, "true") } else { write!(out, "false") }.map(|_| true),
+        _ => Ok(false),
+    })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn native_print_char(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int(char)",
-                got: "other",
-            });
-        }
-    };
-    write!(out, "{val}").ok();
-    Ok(None)
+    write_slot(args, out, "Int(char)", |s, out| match s {
+        Slot::Int(v) => write!(out, "{}", char::from_u32(*v as u32).unwrap_or('?')).map(|_| true),
+        _ => Ok(false),
+    })
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
