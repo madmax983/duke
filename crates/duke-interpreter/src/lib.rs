@@ -9553,11 +9553,13 @@ fn join_java_thread(
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
 ) -> VmResult<()> {
+    let mut first_error = None;
+
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap();
             if runtime.handles.is_empty() {
-                return Ok(());
+                break;
             }
             runtime
                 .handles
@@ -9568,10 +9570,21 @@ fn wait_for_all_java_threads(
 
         for handle in handles {
             match handle.join() {
-                Ok(result) => result?,
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    if first_error.is_none() {
+                        first_error = Some(e);
+                    }
+                }
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }
+    }
+
+    if let Some(e) = first_error {
+        Err(e)
+    } else {
+        Ok(())
     }
 }
 
@@ -25971,6 +25984,49 @@ mod tests {
         );
         let output = String::from_utf8(out).unwrap();
         assert!(output.contains("Hello, World!"), "output was: {output}");
+    }
+
+    #[test]
+    fn havoc_wait_for_threads_panic() {
+        let ctx = load_class_context("ThreadingTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        fn mock_sleep(
+            _args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            _stdout: &mut dyn std::io::Write,
+            _control: &mut NativeControl,
+        ) -> VmResult<Option<Slot>> {
+            Err(VmError::Unimplemented {
+                mnemonic: "mock error",
+            })
+        }
+
+        // Mock java.lang.Thread.sleep
+        registry.natives_mut().register("java/lang/Thread", "sleep", "(J)V", mock_sleep);
+
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            "fireAndForgetStillFinishes",
+            "()I",
+            &[],
+        );
+
+        match result {
+            Err(VmError::Unimplemented { mnemonic }) if mnemonic == "mock error" => {}
+            other => panic!("Expected mock error, got {:?}", other),
+        }
     }
 
     #[test]
