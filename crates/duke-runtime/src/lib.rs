@@ -12,7 +12,7 @@ pub mod error;
 pub mod frame;
 pub mod slot;
 
-pub use error::{VmError, VmResult};
+pub use error::{Error, Result, VmError, VmResult};
 pub use frame::Frame;
 pub use slot::Slot;
 
@@ -117,6 +117,21 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_class_name_error_message() {
+        let e = VmError::AmbiguousClassName {
+            name: "HelloWorld".to_string(),
+            matches: vec![
+                "HelloWorld\0loader:1".to_string(),
+                "HelloWorld\0loader:2".to_string(),
+            ],
+        };
+        assert_eq!(
+            e.to_string(),
+            "ambiguous class name: HelloWorld matches [\"HelloWorld\\0loader:1\", \"HelloWorld\\0loader:2\"]"
+        );
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)]
     fn vm_error_display_messages() {
         let cases = vec![
@@ -204,6 +219,16 @@ mod tests {
                     name: "com/example/Missing".to_string(),
                 },
                 "class not found: com/example/Missing",
+            ),
+            (
+                VmError::AmbiguousClassName {
+                    name: "HelloWorld".to_string(),
+                    matches: vec![
+                        "HelloWorld\0loader:1".to_string(),
+                        "HelloWorld\0loader:2".to_string(),
+                    ],
+                },
+                "ambiguous class name: HelloWorld matches [\"HelloWorld\\0loader:1\", \"HelloWorld\\0loader:2\"]",
             ),
             (VmError::SystemExit { code: 42 }, "System.exit(42)"),
             (

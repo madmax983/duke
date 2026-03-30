@@ -954,6 +954,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()J",
         native_system_nano_time,
     );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "getProperty",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        native_system_get_property,
+    );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "getProperty",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        native_system_get_property_with_default,
+    );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "setProperty",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+        native_system_set_property,
+    );
 
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
     // java/lang/Object (root — no super)
@@ -971,6 +989,15 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry.register(object_ctx);
 
     // Object instance methods
+    registry
+        .natives_mut()
+        .register("java/lang/Object", "<init>", "()V", native_object_init);
+    registry.natives_mut().register(
+        "java/lang/Object",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        native_object_equals,
+    );
     registry.natives_mut().register(
         "java/lang/Object",
         "hashCode",
@@ -988,6 +1015,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "clone",
         "()Ljava/lang/Object;",
         native_object_clone,
+    );
+    registry.natives_mut().register(
+        "java/lang/Object",
+        "getClass",
+        "()Ljava/lang/Class;",
+        native_object_get_class,
     );
 
     // java/lang/Class — lightweight stub for class literals
@@ -1009,11 +1042,29 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)Ljava/lang/Class;",
         native_class_for_name,
     );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "forName",
+        "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;",
+        native_class_for_name_with_loader,
+    );
     registry.natives_mut().register(
         "java/lang/Class",
         "getName",
         "()Ljava/lang/String;",
         native_class_get_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getPackageName",
+        "()Ljava/lang/String;",
+        native_class_get_package_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "desiredAssertionStatus",
+        "()Z",
+        native_class_desired_assertion_status,
     );
     registry.natives_mut().register_callback(
         "java/lang/Class",
@@ -1026,6 +1077,407 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getDeclaredFields",
         "()[Ljava/lang/reflect/Field;",
         native_class_get_declared_fields,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getDeclaredConstructors",
+        "()[Ljava/lang/reflect/Constructor;",
+        native_class_get_declared_constructors,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getMethods",
+        "()[Ljava/lang/reflect/Method;",
+        native_class_get_methods,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getFields",
+        "()[Ljava/lang/reflect/Field;",
+        native_class_get_fields,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getConstructors",
+        "()[Ljava/lang/reflect/Constructor;",
+        native_class_get_constructors,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getDeclaredMethod",
+        "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;",
+        native_class_get_declared_method,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getDeclaredField",
+        "(Ljava/lang/String;)Ljava/lang/reflect/Field;",
+        native_class_get_declared_field,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getDeclaredConstructor",
+        "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;",
+        native_class_get_declared_constructor,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getMethod",
+        "(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;",
+        native_class_get_method,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getField",
+        "(Ljava/lang/String;)Ljava/lang/reflect/Field;",
+        native_class_get_field,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getConstructor",
+        "([Ljava/lang/Class;)Ljava/lang/reflect/Constructor;",
+        native_class_get_constructor,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "newInstance",
+        "()Ljava/lang/Object;",
+        native_class_new_instance,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getProtectionDomain",
+        "()Ljava/security/ProtectionDomain;",
+        native_class_get_protection_domain,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getClassLoader",
+        "()Ljava/lang/ClassLoader;",
+        native_class_get_class_loader,
+    );
+    registry.natives_mut().register(
+        "jdk/internal/misc/CDS",
+        "isDumpingClassList0",
+        "()Z",
+        native_false_boolean,
+    );
+    registry.natives_mut().register(
+        "jdk/internal/misc/CDS",
+        "isDumpingArchive0",
+        "()Z",
+        native_false_boolean,
+    );
+    registry.natives_mut().register(
+        "jdk/internal/misc/CDS",
+        "isSharingEnabled0",
+        "()Z",
+        native_false_boolean,
+    );
+    registry.natives_mut().register(
+        "jdk/internal/misc/CDS",
+        "getRandomSeedForDumping",
+        "()J",
+        native_zero_long,
+    );
+    registry.natives_mut().register(
+        "jdk/internal/misc/CDS",
+        "initializeFromArchive",
+        "(Ljava/lang/Class;)V",
+        native_void_noop,
+    );
+    registry.natives_mut().register(
+        "jdk/internal/misc/CDS",
+        "defineArchivedModules",
+        "(Ljava/lang/ClassLoader;Ljava/lang/ClassLoader;)V",
+        native_void_noop,
+    );
+    registry.natives_mut().register(
+        "jdk/internal/misc/CDS",
+        "logLambdaFormInvoker",
+        "(Ljava/lang/String;)V",
+        native_void_noop,
+    );
+
+    let protection_domain_ctx = ClassContext {
+        class_name: "java/security/ProtectionDomain".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "codeSource".to_string(),
+            descriptor: "Ljava/security/CodeSource;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(protection_domain_ctx);
+    registry.natives_mut().register(
+        "java/security/ProtectionDomain",
+        "getCodeSource",
+        "()Ljava/security/CodeSource;",
+        native_protection_domain_get_code_source,
+    );
+
+    let code_source_ctx = ClassContext {
+        class_name: "java/security/CodeSource".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "location".to_string(),
+            descriptor: "Ljava/net/URL;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(code_source_ctx);
+    registry.natives_mut().register(
+        "java/security/CodeSource",
+        "getLocation",
+        "()Ljava/net/URL;",
+        native_code_source_get_location,
+    );
+
+    let url_ctx = ClassContext {
+        class_name: "java/net/URL".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "spec".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(url_ctx);
+    registry.natives_mut().register(
+        "java/net/URL",
+        "toURI",
+        "()Ljava/net/URI;",
+        native_url_to_uri,
+    );
+    registry.natives_mut().register(
+        "java/net/URL",
+        "setURLStreamHandlerFactory",
+        "(Ljava/net/URLStreamHandlerFactory;)V",
+        native_url_set_url_stream_handler_factory,
+    );
+
+    let uri_ctx = ClassContext {
+        class_name: "java/net/URI".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "spec".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(uri_ctx);
+
+    let path_ctx = ClassContext {
+        class_name: "java/nio/file/Path".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "path".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(path_ctx);
+    registry.natives_mut().register(
+        "java/nio/file/Path",
+        "of",
+        "(Ljava/net/URI;)Ljava/nio/file/Path;",
+        native_path_of,
+    );
+    registry.natives_mut().register(
+        "java/nio/file/Path",
+        "toFile",
+        "()Ljava/io/File;",
+        native_path_to_file,
+    );
+    let paths_ctx = ClassContext {
+        class_name: "java/nio/file/Paths".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(paths_ctx);
+    registry.natives_mut().register(
+        "java/nio/file/Paths",
+        "get",
+        "(Ljava/lang/String;[Ljava/lang/String;)Ljava/nio/file/Path;",
+        native_paths_get,
+    );
+
+    let file_attribute_ctx = ClassContext {
+        class_name: "java/nio/file/attribute/FileAttribute".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(file_attribute_ctx);
+
+    let posix_owner_read_ref =
+        heap.allocate("java/nio/file/attribute/PosixFilePermission".to_string(), 0);
+    let posix_owner_write_ref =
+        heap.allocate("java/nio/file/attribute/PosixFilePermission".to_string(), 0);
+    let posix_owner_execute_ref =
+        heap.allocate("java/nio/file/attribute/PosixFilePermission".to_string(), 0);
+    let posix_file_permission_ctx = ClassContext {
+        class_name: "java/nio/file/attribute/PosixFilePermission".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "OWNER_READ".to_string(),
+                descriptor: "Ljava/nio/file/attribute/PosixFilePermission;".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "OWNER_WRITE".to_string(),
+                descriptor: "Ljava/nio/file/attribute/PosixFilePermission;".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "OWNER_EXECUTE".to_string(),
+                descriptor: "Ljava/nio/file/attribute/PosixFilePermission;".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![
+            Slot::Reference(Some(posix_owner_read_ref)),
+            Slot::Reference(Some(posix_owner_write_ref)),
+            Slot::Reference(Some(posix_owner_execute_ref)),
+        ],
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(posix_file_permission_ctx);
+
+    let posix_file_permissions_ctx = ClassContext {
+        class_name: "java/nio/file/attribute/PosixFilePermissions".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(posix_file_permissions_ctx);
+    registry.natives_mut().register(
+        "java/nio/file/attribute/PosixFilePermissions",
+        "asFileAttribute",
+        "(Ljava/util/Set;)Ljava/nio/file/attribute/FileAttribute;",
+        native_posix_file_permissions_as_file_attribute,
+    );
+    let boot_archive_entry_ctx = ClassContext {
+        class_name: "duke/boot/ArchiveEntry".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "directory".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["org/springframework/boot/loader/launch/Archive$Entry".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(boot_archive_entry_ctx);
+    registry.natives_mut().register(
+        "duke/boot/ArchiveEntry",
+        "name",
+        "()Ljava/lang/String;",
+        native_boot_archive_entry_name,
+    );
+    registry.natives_mut().register(
+        "duke/boot/ArchiveEntry",
+        "isDirectory",
+        "()Z",
+        native_boot_archive_entry_is_directory,
+    );
+    registry.natives_mut().register_callback(
+        "org/springframework/boot/loader/launch/JarFileArchive",
+        "getClassPathUrls",
+        "(Ljava/util/function/Predicate;Ljava/util/function/Predicate;)Ljava/util/Set;",
+        native_boot_jar_file_archive_get_class_path_urls,
+    );
+    registry.natives_mut().register(
+        "org/springframework/boot/loader/launch/Archive",
+        "getManifest",
+        "()Ljava/util/jar/Manifest;",
+        native_boot_archive_get_manifest,
+    );
+    registry.natives_mut().register(
+        "org/springframework/boot/loader/launch/JarFileArchive",
+        "getManifest",
+        "()Ljava/util/jar/Manifest;",
+        native_boot_jar_file_archive_get_manifest,
+    );
+    registry.natives_mut().register_callback(
+        "org/springframework/boot/loader/launch/ExplodedArchive",
+        "getClassPathUrls",
+        "(Ljava/util/function/Predicate;Ljava/util/function/Predicate;)Ljava/util/Set;",
+        native_boot_exploded_archive_get_class_path_urls,
+    );
+    registry.natives_mut().register(
+        "org/springframework/boot/loader/launch/ExplodedArchive",
+        "getManifest",
+        "()Ljava/util/jar/Manifest;",
+        native_boot_exploded_archive_get_manifest,
+    );
+    registry.natives_mut().register_callback(
+        "org/springframework/boot/loader/launch/LaunchedClassLoader",
+        "<init>",
+        "(ZLorg/springframework/boot/loader/launch/Archive;[Ljava/net/URL;Ljava/lang/ClassLoader;)V",
+        native_boot_launched_class_loader_init,
     );
 
     let reflect_method_ctx = ClassContext {
@@ -1059,9 +1511,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Z".to_string(),
                 is_static: false,
             },
+            FieldEntry {
+                name: "accessibleFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
-        instance_field_count: 5,
+        instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
@@ -1072,11 +1529,121 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_reflect_method_get_name,
     );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "getDeclaringClass",
+        "()Ljava/lang/Class;",
+        native_reflection_member_get_declaring_class,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Method",
+        "getReturnType",
+        "()Ljava/lang/Class;",
+        native_reflect_method_get_return_type,
+    );
     registry.natives_mut().register_callback(
         "java/lang/reflect/Method",
         "invoke",
         "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;",
         native_reflect_method_invoke,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "setAccessible",
+        "(Z)V",
+        native_reflection_member_set_accessible,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "getParameterCount",
+        "()I",
+        native_reflect_method_get_parameter_count,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Method",
+        "getParameterTypes",
+        "()[Ljava/lang/Class;",
+        native_reflect_executable_get_parameter_types,
+    );
+
+    let reflect_constructor_ctx = ClassContext {
+        class_name: "java/lang/reflect/Constructor".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "declaringClass".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "descriptor".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "publicFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "staticFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "accessibleFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 6,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(reflect_constructor_ctx);
+    registry.natives_mut().register(
+        "java/lang/reflect/Constructor",
+        "getName",
+        "()Ljava/lang/String;",
+        native_reflect_constructor_get_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Constructor",
+        "getDeclaringClass",
+        "()Ljava/lang/Class;",
+        native_reflection_member_get_declaring_class,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Constructor",
+        "setAccessible",
+        "(Z)V",
+        native_reflection_member_set_accessible,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Constructor",
+        "getParameterCount",
+        "()I",
+        native_reflect_method_get_parameter_count,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Constructor",
+        "getParameterTypes",
+        "()[Ljava/lang/Class;",
+        native_reflect_executable_get_parameter_types,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Constructor",
+        "newInstance",
+        "([Ljava/lang/Object;)Ljava/lang/Object;",
+        native_reflect_constructor_new_instance,
     );
 
     let reflect_field_ctx = ClassContext {
@@ -1110,9 +1677,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Z".to_string(),
                 is_static: false,
             },
+            FieldEntry {
+                name: "accessibleFlag".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
-        instance_field_count: 5,
+        instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
@@ -1122,6 +1694,36 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getName",
         "()Ljava/lang/String;",
         native_reflect_field_get_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "getDeclaringClass",
+        "()Ljava/lang/Class;",
+        native_reflection_member_get_declaring_class,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Field",
+        "getType",
+        "()Ljava/lang/Class;",
+        native_reflect_field_get_type,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Field",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_reflect_field_get,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Field",
+        "set",
+        "(Ljava/lang/Object;Ljava/lang/Object;)V",
+        native_reflect_field_set,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "setAccessible",
+        "(Z)V",
+        native_reflection_member_set_accessible,
     );
 
     let runnable_ctx = ClassContext {
@@ -1136,6 +1738,25 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(runnable_ctx);
+
+    let class_loader_ctx = ClassContext {
+        class_name: "java/lang/ClassLoader".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(class_loader_ctx);
+    registry.natives_mut().register(
+        "java/lang/ClassLoader",
+        "registerAsParallelCapable",
+        "()Z",
+        native_class_loader_register_as_parallel_capable,
+    );
 
     let thread_ctx = ClassContext {
         class_name: "java/lang/Thread".to_string(),
@@ -1169,6 +1790,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Runnable;)V",
         native_thread_init_runnable,
     );
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "currentThread",
+        "()Ljava/lang/Thread;",
+        native_thread_current_thread,
+    );
     registry
         .natives_mut()
         .register("java/lang/Thread", "start", "()V", native_thread_start);
@@ -1178,6 +1805,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Thread", "sleep", "(J)V", native_thread_sleep);
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "setContextClassLoader",
+        "(Ljava/lang/ClassLoader;)V",
+        native_void_noop,
+    );
 
     // java/lang/Throwable extends Object
     let throwable_ctx = ClassContext {
@@ -1198,6 +1831,15 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Throwable;)V",
         native_throwable_add_suppressed,
     );
+    registry
+        .natives_mut()
+        .register("java/lang/Throwable", "<init>", "()V", native_object_init);
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_object_init,
+    );
 
     // java/lang/Exception extends Throwable
     let exception_ctx = ClassContext {
@@ -1212,6 +1854,15 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(exception_ctx);
+    registry
+        .natives_mut()
+        .register("java/lang/Exception", "<init>", "()V", native_object_init);
+    registry.natives_mut().register(
+        "java/lang/Exception",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_object_init,
+    );
 
     // java/lang/RuntimeException extends Exception
     let rte_ctx = ClassContext {
@@ -1226,6 +1877,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(rte_ctx);
+    registry.natives_mut().register(
+        "java/lang/RuntimeException",
+        "<init>",
+        "()V",
+        native_object_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/RuntimeException",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_object_init,
+    );
 
     let illegal_argument_ctx = ClassContext {
         class_name: "java/lang/IllegalArgumentException".to_string(),
@@ -1279,6 +1942,32 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(class_not_found_ctx);
 
+    let no_such_method_ctx = ClassContext {
+        class_name: "java/lang/NoSuchMethodException".to_string(),
+        super_class: Some("java/lang/ReflectiveOperationException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(no_such_method_ctx);
+
+    let no_such_field_ctx = ClassContext {
+        class_name: "java/lang/NoSuchFieldException".to_string(),
+        super_class: Some("java/lang/ReflectiveOperationException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(no_such_field_ctx);
+
     let illegal_access_ctx = ClassContext {
         class_name: "java/lang/IllegalAccessException".to_string(),
         super_class: Some("java/lang/ReflectiveOperationException".to_string()),
@@ -1291,6 +1980,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(illegal_access_ctx);
+
+    let instantiation_ctx = ClassContext {
+        class_name: "java/lang/InstantiationException".to_string(),
+        super_class: Some("java/lang/ReflectiveOperationException".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(instantiation_ctx);
 
     let invocation_target_ctx = ClassContext {
         class_name: "java/lang/reflect/InvocationTargetException".to_string(),
@@ -1391,8 +2093,17 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "I".to_string(),
                 is_static: true,
             },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
         ],
-        static_fields: vec![Slot::Int(i32::MAX), Slot::Int(i32::MIN)],
+        static_fields: vec![
+            Slot::Int(i32::MAX),
+            Slot::Int(i32::MIN),
+            Slot::Reference(None),
+        ],
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
@@ -1403,6 +2114,30 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "parseInt",
         "(Ljava/lang/String;)I",
         native_integer_parseint,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "parseInt",
+        "(Ljava/lang/String;I)I",
+        native_integer_parseint_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "valueOf",
+        "(Ljava/lang/String;)Ljava/lang/Integer;",
+        native_integer_valueof_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "valueOf",
+        "(Ljava/lang/String;I)Ljava/lang/Integer;",
+        native_integer_valueof_string_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "decode",
+        "(Ljava/lang/String;)Ljava/lang/Integer;",
+        native_integer_decode,
     );
     registry.natives_mut().register(
         "java/lang/Integer",
@@ -1424,8 +2159,44 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Integer",
+        "toHexString",
+        "(I)Ljava/lang/String;",
+        native_integer_tohexstring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "toOctalString",
+        "(I)Ljava/lang/String;",
+        native_integer_tooctalstring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "toBinaryString",
+        "(I)Ljava/lang/String;",
+        native_integer_tobinarystring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "toUnsignedLong",
+        "(I)J",
+        native_integer_tounsignedlong_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "compareUnsigned",
+        "(II)I",
+        native_integer_compareunsigned_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
         "compareTo",
         "(Ljava/lang/Object;)I",
+        native_integer_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "compareTo",
+        "(Ljava/lang/Integer;)I",
         native_integer_compareto,
     );
 
@@ -1451,8 +2222,17 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "J".to_string(),
                 is_static: true,
             },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
         ],
-        static_fields: vec![Slot::Long(i64::MAX), Slot::Long(i64::MIN)],
+        static_fields: vec![
+            Slot::Long(i64::MAX),
+            Slot::Long(i64::MIN),
+            Slot::Reference(None),
+        ],
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
@@ -1463,6 +2243,30 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "parseLong",
         "(Ljava/lang/String;)J",
         native_long_parselong,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "parseLong",
+        "(Ljava/lang/String;I)J",
+        native_long_parselong_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "valueOf",
+        "(Ljava/lang/String;)Ljava/lang/Long;",
+        native_long_valueof_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "valueOf",
+        "(Ljava/lang/String;I)Ljava/lang/Long;",
+        native_long_valueof_string_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "decode",
+        "(Ljava/lang/String;)Ljava/lang/Long;",
+        native_long_decode,
     );
     registry.natives_mut().register(
         "java/lang/Long",
@@ -1481,8 +2285,38 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Long",
+        "toHexString",
+        "(J)Ljava/lang/String;",
+        native_long_tohexstring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "toOctalString",
+        "(J)Ljava/lang/String;",
+        native_long_tooctalstring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "toBinaryString",
+        "(J)Ljava/lang/String;",
+        native_long_tobinarystring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "compareUnsigned",
+        "(JJ)I",
+        native_long_compareunsigned_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
         "compareTo",
         "(Ljava/lang/Object;)I",
+        native_long_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "compareTo",
+        "(Ljava/lang/Long;)I",
         native_long_compareto,
     );
 
@@ -1523,6 +2357,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "D".to_string(),
                 is_static: true,
             },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
         ],
         static_fields: vec![
             Slot::Double(f64::MAX),
@@ -1530,6 +2369,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             Slot::Double(f64::NAN),
             Slot::Double(f64::INFINITY),
             Slot::Double(f64::NEG_INFINITY),
+            Slot::Reference(None),
         ],
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
@@ -1563,6 +2403,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Object;)I",
         native_double_compareto,
     );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "compareTo",
+        "(Ljava/lang/Double;)I",
+        native_double_compareto,
+    );
 
     // java/lang/Float — boxed float with value field
     let float_ctx = ClassContext {
@@ -1570,12 +2416,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "value".to_string(),
-            descriptor: "F".to_string(),
-            is_static: false,
-        }],
-        static_fields: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "F".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![Slot::Reference(None)],
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
@@ -1587,16 +2440,51 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)F",
         native_float_parsefloat,
     );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "valueOf",
+        "(F)Ljava/lang/Float;",
+        native_float_valueof,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "floatValue",
+        "()F",
+        native_float_floatvalue,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_float_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "compareTo",
+        "(Ljava/lang/Float;)I",
+        native_float_compareto,
+    );
 
-    // java/lang/Boolean — static utility
+    // java/lang/Boolean — boxed boolean + static utility
     let boolean_ctx = ClassContext {
         class_name: "java/lang/Boolean".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
-        instance_field_count: 0,
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![Slot::Reference(None)],
+        instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
     };
@@ -1607,6 +2495,188 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)Z",
         native_boolean_parseboolean,
     );
+    registry.natives_mut().register(
+        "java/lang/Boolean",
+        "valueOf",
+        "(Z)Ljava/lang/Boolean;",
+        native_boolean_valueof,
+    );
+    registry.natives_mut().register(
+        "java/lang/Boolean",
+        "booleanValue",
+        "()Z",
+        native_boolean_booleanvalue,
+    );
+    registry.natives_mut().register(
+        "java/lang/Boolean",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_boolean_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/Boolean",
+        "compareTo",
+        "(Ljava/lang/Boolean;)I",
+        native_boolean_compareto,
+    );
+
+    let byte_ctx = ClassContext {
+        class_name: "java/lang/Byte".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "B".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![Slot::Reference(None)],
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/Comparable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(byte_ctx);
+    registry.natives_mut().register(
+        "java/lang/Byte",
+        "parseByte",
+        "(Ljava/lang/String;)B",
+        native_byte_parsebyte,
+    );
+    registry.natives_mut().register(
+        "java/lang/Byte",
+        "parseByte",
+        "(Ljava/lang/String;I)B",
+        native_byte_parsebyte_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Byte",
+        "valueOf",
+        "(Ljava/lang/String;)Ljava/lang/Byte;",
+        native_byte_valueof_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/Byte",
+        "valueOf",
+        "(Ljava/lang/String;I)Ljava/lang/Byte;",
+        native_byte_valueof_string_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Byte",
+        "valueOf",
+        "(B)Ljava/lang/Byte;",
+        native_byte_valueof,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Byte", "byteValue", "()B", native_byte_bytevalue);
+    registry.natives_mut().register(
+        "java/lang/Byte",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_byte_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/Byte",
+        "compareTo",
+        "(Ljava/lang/Byte;)I",
+        native_byte_compareto,
+    );
+
+    let short_ctx = ClassContext {
+        class_name: "java/lang/Short".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "S".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![Slot::Reference(None)],
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/Comparable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(short_ctx);
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "parseShort",
+        "(Ljava/lang/String;)S",
+        native_short_parseshort,
+    );
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "parseShort",
+        "(Ljava/lang/String;I)S",
+        native_short_parseshort_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "valueOf",
+        "(Ljava/lang/String;)Ljava/lang/Short;",
+        native_short_valueof_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "valueOf",
+        "(Ljava/lang/String;I)Ljava/lang/Short;",
+        native_short_valueof_string_radix,
+    );
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "valueOf",
+        "(S)Ljava/lang/Short;",
+        native_short_valueof,
+    );
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "shortValue",
+        "()S",
+        native_short_shortvalue,
+    );
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_short_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/Short",
+        "compareTo",
+        "(Ljava/lang/Short;)I",
+        native_short_compareto,
+    );
+
+    let void_ctx = ClassContext {
+        class_name: "java/lang/Void".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "TYPE".to_string(),
+            descriptor: "Ljava/lang/Class;".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Reference(None)],
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(void_ctx);
 
     // java/lang/Math — static math utilities with PI and E constants
     let math_ctx = ClassContext {
@@ -1644,6 +2714,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Math", "abs", "(I)I", native_math_abs_int);
+    registry.natives_mut().register(
+        "java/lang/Math",
+        "floorMod",
+        "(II)I",
+        native_math_floor_mod_int,
+    );
     registry
         .natives_mut()
         .register("java/lang/Math", "sqrt", "(D)D", native_math_sqrt);
@@ -1824,12 +2900,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "value".to_string(),
-            descriptor: "C".to_string(),
-            is_static: false,
-        }],
-        static_fields: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "C".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "TYPE".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![Slot::Reference(None)],
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
@@ -1906,6 +2989,43 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()C",
         native_char_charvalue,
     );
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_char_compareto,
+    );
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "compareTo",
+        "(Ljava/lang/Character;)I",
+        native_char_compareto,
+    );
+
+    let collection_ctx = ClassContext {
+        class_name: "java/util/Collection".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(collection_ctx);
+    registry.natives_mut().register(
+        "java/util/Collection",
+        "toArray",
+        "()[Ljava/lang/Object;",
+        native_collection_to_array,
+    );
+    registry.natives_mut().register(
+        "java/util/Collection",
+        "toArray",
+        "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        native_collection_to_array_with_seed_array,
+    );
 
     // java/util/ArrayList — dynamic list backed by growable fields
     // fields[0] = size (Int), fields[1..] = elements (pushed dynamically)
@@ -1950,6 +3070,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/util/ArrayList", "size", "()I", native_arraylist_size);
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "toArray",
+        "()[Ljava/lang/Object;",
+        native_collection_to_array,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "toArray",
+        "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        native_collection_to_array_with_seed_array,
+    );
     registry.natives_mut().register(
         "java/util/ArrayList",
         "iterator",
@@ -2120,13 +3252,41 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Set".to_string(),
+            "java/util/Collection".to_string(),
+            "java/lang/Iterable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+    };
+    let set_ctx = ClassContext {
+        class_name: "java/util/Set".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
+    registry.register(set_ctx);
+    registry.natives_mut().register(
+        "java/util/Set",
+        "of",
+        "([Ljava/lang/Object;)Ljava/util/Set;",
+        native_set_of,
+    );
     registry.register(hashset_ctx);
     registry
         .natives_mut()
         .register("java/util/HashSet", "<init>", "()V", native_hashset_init);
+    registry.natives_mut().register_callback(
+        "java/util/HashSet",
+        "<init>",
+        "(Ljava/util/Collection;)V",
+        native_hashset_init_from_collection,
+    );
     registry.natives_mut().register(
         "java/util/HashSet",
         "add",
@@ -2153,6 +3313,66 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "isEmpty",
         "()Z",
         native_hashset_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_hashset_iterator,
+    );
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "toArray",
+        "()[Ljava/lang/Object;",
+        native_collection_to_array,
+    );
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "toArray",
+        "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        native_collection_to_array_with_seed_array,
+    );
+
+    let hashset_iter_ctx = ClassContext {
+        class_name: "duke/util/HashSetIterator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "set".to_string(),
+                descriptor: "Ljava/util/HashSet;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "index".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Iterator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(hashset_iter_ctx);
+    registry.natives_mut().register(
+        "duke/util/HashSetIterator",
+        "<init>",
+        "()V",
+        native_hashset_iter_init,
+    );
+    registry.natives_mut().register(
+        "duke/util/HashSetIterator",
+        "hasNext",
+        "()Z",
+        native_hashset_iter_hasnext,
+    );
+    registry.natives_mut().register(
+        "duke/util/HashSetIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        native_hashset_iter_next,
     );
 
     // java/util/Collections — static utility class
@@ -2319,6 +3539,88 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(jar_file_ctx);
+    registry.natives_mut().register(
+        "java/util/jar/JarFile",
+        "<init>",
+        "(Ljava/io/File;)V",
+        native_jar_file_init_from_file,
+    );
+    registry.natives_mut().register(
+        "java/util/jar/JarFile",
+        "<init>",
+        "(Ljava/io/File;ZILjava/lang/Runtime$Version;)V",
+        native_jar_file_init_with_mode_and_version,
+    );
+    registry.natives_mut().register(
+        "java/util/jar/JarFile",
+        "getManifest",
+        "()Ljava/util/jar/Manifest;",
+        native_jar_file_get_manifest,
+    );
+    registry.natives_mut().register(
+        "org/springframework/boot/loader/jar/NestedJarFile",
+        "getManifest",
+        "()Ljava/util/jar/Manifest;",
+        native_boot_nested_jar_file_get_manifest,
+    );
+    registry.natives_mut().register(
+        "org/springframework/boot/loader/net/protocol/jar/UrlJarFile",
+        "getManifest",
+        "()Ljava/util/jar/Manifest;",
+        native_boot_nested_jar_file_get_manifest,
+    );
+    registry.natives_mut().register(
+        "org/springframework/boot/loader/net/protocol/jar/UrlNestedJarFile",
+        "getManifest",
+        "()Ljava/util/jar/Manifest;",
+        native_boot_nested_jar_file_get_manifest,
+    );
+
+    let manifest_ctx = ClassContext {
+        class_name: "java/util/jar/Manifest".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "raw".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(manifest_ctx);
+    registry.natives_mut().register(
+        "java/util/jar/Manifest",
+        "getMainAttributes",
+        "()Ljava/util/jar/Attributes;",
+        native_manifest_get_main_attributes,
+    );
+
+    let attributes_ctx = ClassContext {
+        class_name: "java/util/jar/Attributes".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "raw".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(attributes_ctx);
+    registry.natives_mut().register(
+        "java/util/jar/Attributes",
+        "getValue",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        native_attributes_get_value,
+    );
 
     // ByteBufferInputStream — internal class for reading decompressed ZIP data.
     let byte_buffer_is_ctx = ClassContext {
@@ -2358,6 +3660,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 }
 
 #[inline]
+fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
+    args.get(idx).copied().unwrap_or(Slot::Reference(None))
+}
+
+#[inline]
 fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
     match args.get(idx) {
         Some(Slot::Reference(Some(r))) => Ok(*r),
@@ -2391,6 +3698,39 @@ fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
         Some(Slot::Int(v)) => Ok(*v),
         _ => Err(VmError::TypeMismatch {
             expected: "Int",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
+    match args.get(idx) {
+        Some(Slot::Long(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Long",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
+    match args.get(idx) {
+        Some(Slot::Float(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Float",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
+    match args.get(idx) {
+        Some(Slot::Double(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Double",
             got: "other",
         }),
     }
@@ -2462,10 +3802,7 @@ fn path_from_string_slot(
     idx: usize,
     heap: &duke_gc::Heap,
 ) -> VmResult<std::path::PathBuf> {
-    let path_ref = match args.get(idx) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let path_ref = extract_ref_arg(args, idx)?;
     let path = heap
         .get(path_ref)?
         .string_value
@@ -2496,6 +3833,76 @@ fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<std::pat
     file_path_from_ref(this_ref, heap)
 }
 
+fn archive_path_from_slot(
+    heap: &duke_gc::Heap,
+    archive_ref: u64,
+    slot_idx: usize,
+) -> VmResult<Option<String>> {
+    let Some(file_ref) = archive_ref_from_slot(heap, archive_ref, slot_idx)? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        file_path_from_ref(file_ref, heap)?
+            .to_string_lossy()
+            .to_string(),
+    ))
+}
+
+fn boot_archive_path_from_ref(
+    registry: &ClassRegistry,
+    heap: &duke_gc::Heap,
+    archive_ref: u64,
+) -> VmResult<Option<String>> {
+    let archive_class = heap.get(archive_ref)?.class_name.clone();
+    match archive_class.as_str() {
+        "org/springframework/boot/loader/launch/JarFileArchive" => {
+            let file_slot = field_slot_idx(registry, &archive_class, "file")?;
+            archive_path_from_slot(heap, archive_ref, file_slot)
+        }
+        "org/springframework/boot/loader/launch/ExplodedArchive" => {
+            let root_slot = field_slot_idx(registry, &archive_class, "rootDirectory")?;
+            archive_path_from_slot(heap, archive_ref, root_slot)
+        }
+        _ => Ok(None),
+    }
+}
+
+fn launched_class_loader_archive_path(
+    registry: &ClassRegistry,
+    heap: &duke_gc::Heap,
+    loader_ref: u64,
+) -> VmResult<Option<String>> {
+    if heap.get(loader_ref)?.class_name
+        != "org/springframework/boot/loader/launch/LaunchedClassLoader"
+    {
+        return Ok(None);
+    }
+    let root_archive_slot = field_slot_idx(
+        registry,
+        "org/springframework/boot/loader/launch/LaunchedClassLoader",
+        "rootArchive",
+    )?;
+    let Some(archive_ref) = archive_ref_from_slot(heap, loader_ref, root_archive_slot)? else {
+        return Ok(None);
+    };
+    boot_archive_path_from_ref(registry, heap, archive_ref)
+}
+
+fn archive_ref_from_slot(
+    heap: &duke_gc::Heap,
+    obj_ref: u64,
+    slot_idx: usize,
+) -> VmResult<Option<u64>> {
+    match heap.get(obj_ref)?.fields.get(slot_idx).copied() {
+        Some(Slot::Reference(Some(r))) => Ok(Some(r)),
+        Some(Slot::Reference(None)) | None => Ok(None),
+        Some(_) => Err(VmError::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
 fn native_file_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2503,7 +3910,7 @@ fn native_file_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let path_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let path_slot = extract_slot_arg(args, 1);
     let file_obj = heap.get_mut(this_ref)?;
     let Some(path_field) = file_obj.fields.first_mut() else {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -2703,15 +4110,7 @@ fn native_server_socket_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let port = match args.get(1) {
-        Some(Slot::Int(p)) => *p,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let port = extract_int_arg(args, 1)?;
     let addr = format!("0.0.0.0:{port}");
     let server_id = heap.bind_server_socket(&addr)?;
     let actual_port = heap.server_socket_local_port(server_id)?;
@@ -2796,23 +4195,13 @@ fn native_socket_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let host = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap
-            .get(*r)?
-            .string_value
-            .clone()
-            .ok_or(VmError::NullPointerException)?,
-        _ => return Err(VmError::NullPointerException),
-    };
-    let port = match args.get(2) {
-        Some(Slot::Int(p)) => *p,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let host_ref = extract_ref_arg(args, 1)?;
+    let host = heap
+        .get(host_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)?;
+    let port = extract_int_arg(args, 2)?;
     let addr = format!("{host}:{port}");
     let (reader_id, writer_id) = heap.connect_socket(&addr)?;
     let obj = heap.get_mut(this_ref)?;
@@ -2905,6 +4294,170 @@ fn native_zip_file_init(
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(fd);
     Ok(None)
+}
+
+/// Native: `JarFile.<init>(File)` — open and index a JAR archive from a File object.
+fn native_jar_file_init_from_file(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let file_ref = extract_ref_arg(args, 1)?;
+    let path = file_path_from_ref(file_ref, heap)?;
+    let fd = heap.open_host_zip(&path)?;
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields[0] = Slot::Int(fd);
+    Ok(None)
+}
+
+fn native_jar_file_init_with_mode_and_version(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let forwarded_args = match args {
+        [this_slot, file_slot, ..] => [*this_slot, *file_slot],
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "this,file",
+                got: "other",
+            });
+        }
+    };
+    native_jar_file_init_from_file(&forwarded_args, heap, out, control)
+}
+
+fn native_jar_file_get_manifest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fd = extract_io_fd(heap, this_ref)?;
+    let Ok(manifest_bytes) = heap.zip_read_entry(fd, "META-INF/MANIFEST.MF") else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let manifest_ref = allocate_manifest_from_bytes(heap, &manifest_bytes)?;
+    Ok(Some(Slot::Reference(Some(manifest_ref))))
+}
+
+fn native_boot_nested_jar_file_get_manifest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_jar_file_get_manifest(args, heap, out, control)
+}
+
+const BOOT_JAR_FILE_ARCHIVE_JAR_FILE_SLOT: usize = 1;
+const BOOT_EXPLODED_ARCHIVE_ROOT_DIRECTORY_SLOT: usize = 0;
+const BOOT_EXPLODED_ARCHIVE_MANIFEST_SLOT: usize = 2;
+
+fn allocate_manifest_from_bytes(heap: &mut duke_gc::Heap, bytes: &[u8]) -> VmResult<u64> {
+    let raw_ref = heap.allocate_string(String::from_utf8_lossy(bytes).into_owned());
+    let manifest_ref = heap.allocate("java/util/jar/Manifest".to_string(), 1);
+    heap.get_mut(manifest_ref)?.fields[0] = Slot::Reference(Some(raw_ref));
+    Ok(manifest_ref)
+}
+
+fn native_boot_jar_file_archive_get_manifest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let jar_file_ref = match heap
+        .get(this_ref)?
+        .fields
+        .get(BOOT_JAR_FILE_ARCHIVE_JAR_FILE_SLOT)
+        .copied()
+    {
+        Some(Slot::Reference(Some(jar_file_ref))) => jar_file_ref,
+        Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+        Some(_) => {
+            return Err(VmError::TypeMismatch {
+                expected: "reference",
+                got: "other",
+            });
+        }
+    };
+    native_jar_file_get_manifest(&[Slot::Reference(Some(jar_file_ref))], heap, out, control)
+}
+
+fn native_boot_archive_get_manifest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.class_name.as_str() {
+        "org/springframework/boot/loader/launch/JarFileArchive" => {
+            native_boot_jar_file_archive_get_manifest(args, heap, out, control)
+        }
+        "org/springframework/boot/loader/launch/ExplodedArchive" => {
+            native_boot_exploded_archive_get_manifest(args, heap, out, control)
+        }
+        _ => Err(VmError::MethodNotFound {
+            name: format!("{}.getManifest", heap.get(this_ref)?.class_name),
+            descriptor: "()Ljava/util/jar/Manifest;".to_string(),
+        }),
+    }
+}
+
+fn native_boot_exploded_archive_get_manifest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    if let Some(slot @ Slot::Reference(Some(_))) = heap
+        .get(this_ref)?
+        .fields
+        .get(BOOT_EXPLODED_ARCHIVE_MANIFEST_SLOT)
+        .copied()
+    {
+        return Ok(Some(slot));
+    }
+
+    let root_directory_ref = match heap
+        .get(this_ref)?
+        .fields
+        .get(BOOT_EXPLODED_ARCHIVE_ROOT_DIRECTORY_SLOT)
+        .copied()
+    {
+        Some(Slot::Reference(Some(root_directory_ref))) => root_directory_ref,
+        Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+        Some(_) => {
+            return Err(VmError::TypeMismatch {
+                expected: "reference",
+                got: "other",
+            });
+        }
+    };
+    let manifest_path = file_path_from_ref(root_directory_ref, heap)?.join("META-INF/MANIFEST.MF");
+    let manifest_bytes = match std::fs::read(&manifest_path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Some(Slot::Reference(None)));
+        }
+        Err(_) => {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        }
+    };
+    let manifest_ref = allocate_manifest_from_bytes(heap, &manifest_bytes)?;
+    heap.get_mut(this_ref)?.fields[BOOT_EXPLODED_ARCHIVE_MANIFEST_SLOT] =
+        Slot::Reference(Some(manifest_ref));
+    Ok(Some(Slot::Reference(Some(manifest_ref))))
 }
 
 /// Native: `ZipFile.getEntry(String) -> ZipEntry` — look up an entry by name.
@@ -3089,9 +4642,8 @@ fn native_string_equals(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let other_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Ok(Some(Slot::Int(0))),
+    let Ok(other_ref) = extract_ref_arg(args, 1) else {
+        return Ok(Some(Slot::Int(0)));
     };
     // Fetch objects from heap in one go to keep borrows short
     let this_obj = heap.get(this_ref)?;
@@ -3110,15 +4662,7 @@ fn native_string_char_at(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let index = match args.get(1) {
-        Some(Slot::Int(i)) => *i,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let index = extract_int_arg(args, 1)?;
     let obj = heap.get(this_ref)?;
     let s = obj.string_value.as_deref().unwrap_or("");
     let ch = s
@@ -3129,6 +4673,42 @@ fn native_string_char_at(
             length: s.len(),
         })?;
     Ok(Some(Slot::Int(ch as i32)))
+}
+
+/// Native: `Object.<init>()V` - root constructor is a no-op after null-checking `this`.
+fn native_object_init(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(None)
+}
+
+/// Native: `Object.getClass()` — returns a lightweight `Class` object for the runtime type.
+fn native_object_get_class(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let class_name = heap.get(this_ref)?.class_name.clone();
+    let class_ref = allocate_class_object(heap, &class_name)?;
+    Ok(Some(Slot::Reference(Some(class_ref))))
+}
+
+/// Native: `Object.equals(Object)` — default Java object identity comparison.
+fn native_object_equals(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let equal = extract_ref_arg(args, 1) == Ok(this_ref);
+    Ok(Some(Slot::Int(i32::from(equal))))
 }
 
 /// Native: `Object.hashCode()` — returns heap address as hash.
@@ -3204,7 +4784,7 @@ fn native_enum_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let name_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let name_slot = extract_slot_arg(args, 1);
     let ordinal = match args.get(2) {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -3299,6 +4879,66 @@ fn native_class_get_name(
     Ok(Some(Slot::Reference(Some(name_ref))))
 }
 
+fn native_class_get_package_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let package_name = if internal_name.starts_with('[') {
+        String::new()
+    } else {
+        internal_name
+            .rsplit_once('/')
+            .map_or_else(String::new, |(package, _)| package.replace('/', "."))
+    };
+    let package_ref = heap.allocate_string(package_name);
+    Ok(Some(Slot::Reference(Some(package_ref))))
+}
+
+/// Native: `Class.desiredAssertionStatus()` - Duke currently runs with assertions disabled.
+fn native_class_desired_assertion_status(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(0)))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn native_false_boolean(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(Slot::Int(0)))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn native_zero_long(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(Slot::Long(0)))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn native_void_noop(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
+}
+
 fn native_class_for_name(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3315,12 +4955,964 @@ fn native_class_for_name(
     let internal_name = binary_name_to_internal_name(&binary_name);
     match ops.ensure_loaded(&internal_name) {
         Ok(()) => {
-            let class_ref = allocate_class_object(heap, &internal_name)?;
+            let class_key = ops.class_key_for_loaded_class(&internal_name)?;
+            let class_ref = allocate_class_object(heap, &class_key)?;
             Ok(Some(Slot::Reference(Some(class_ref))))
         }
         Err(VmError::ClassNotFound { .. }) => Err(VmError::JavaException {
             class_name: "java/lang/ClassNotFoundException".to_string(),
         }),
+        Err(err) => Err(err),
+    }
+}
+
+fn native_class_for_name_with_loader(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 0)?;
+    let binary_name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)?;
+    let internal_name = binary_name_to_internal_name(&binary_name);
+    let (load_result, class_key) = match args.get(2) {
+        Some(Slot::Reference(Some(loader_ref))) => (
+            ops.ensure_loaded_with_runtime_loader(heap, *loader_ref, &internal_name),
+            ops.class_key_for_runtime_loader(heap, *loader_ref, &internal_name)?,
+        ),
+        Some(Slot::Reference(None)) | None => (
+            ops.ensure_loaded(&internal_name),
+            ops.class_key_for_loaded_class(&internal_name)?,
+        ),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    match load_result {
+        Ok(()) => {
+            let class_ref = allocate_class_object(heap, &class_key)?;
+            Ok(Some(Slot::Reference(Some(class_ref))))
+        }
+        Err(VmError::ClassNotFound { .. }) => Err(VmError::JavaException {
+            class_name: "java/lang/ClassNotFoundException".to_string(),
+        }),
+        Err(err) => Err(err),
+    }
+}
+
+fn native_class_get_class_loader(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    Ok(Some(Slot::Reference(
+        ops.runtime_loader_for_class(&class_key)?,
+    )))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn native_class_loader_register_as_parallel_capable(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(Slot::Int(1)))
+}
+
+fn allocate_string_backed_object(
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+    value: String,
+) -> VmResult<u64> {
+    let obj_ref = heap.allocate(class_name.to_string(), 1);
+    let value_ref = heap.allocate_string(value);
+    heap.get_mut(obj_ref)?.fields[0] = Slot::Reference(Some(value_ref));
+    Ok(obj_ref)
+}
+
+fn first_reference_field(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<Option<u64>> {
+    match heap.get(obj_ref)?.fields.first() {
+        Some(Slot::Reference(Some(r))) => Ok(Some(*r)),
+        Some(Slot::Reference(None)) => Ok(None),
+        _ => Err(VmError::NullPointerException),
+    }
+}
+
+fn string_backed_object_value(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<String> {
+    let Some(value_ref) = first_reference_field(heap, obj_ref)? else {
+        return Err(VmError::NullPointerException);
+    };
+    string_value_from_ref(heap, value_ref)
+}
+
+fn path_to_file_url(path: &std::path::Path) -> String {
+    let mut normalized = path.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        if let Some(stripped) = normalized.strip_prefix("//?/UNC/") {
+            normalized = format!("//{stripped}");
+        } else if let Some(stripped) = normalized.strip_prefix("//?/") {
+            normalized = stripped.to_string();
+        }
+    }
+    if cfg!(windows) && !normalized.starts_with('/') {
+        normalized.insert(0, '/');
+    }
+    format!("file://{normalized}")
+}
+
+const fn decode_pct_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) =
+                (decode_pct_hex(bytes[i + 1]), decode_pct_hex(bytes[i + 2]))
+        {
+            out.push(char::from((hi << 4) | lo));
+            i += 3;
+            continue;
+        }
+        out.push(char::from(bytes[i]));
+        i += 1;
+    }
+    out
+}
+
+fn file_url_to_path(url: &str) -> VmResult<std::path::PathBuf> {
+    let Some(rest) = url.strip_prefix("file://") else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalArgumentException".to_string(),
+        });
+    };
+    let decoded = percent_decode(rest);
+    if cfg!(windows) {
+        let trimmed = decoded.strip_prefix('/').unwrap_or(decoded.as_str());
+        Ok(std::path::PathBuf::from(trimmed.replace('/', "\\")))
+    } else {
+        Ok(std::path::PathBuf::from(decoded))
+    }
+}
+
+fn native_class_get_protection_domain(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let pd_ref = heap.allocate("java/security/ProtectionDomain".to_string(), 1);
+    let code_source_slot = if let Some(path) = ops.code_source_for_class(&class_key)? {
+        let url_ref = allocate_string_backed_object(
+            heap,
+            "java/net/URL",
+            path_to_file_url(std::path::Path::new(&path)),
+        )?;
+        let code_source_ref = heap.allocate("java/security/CodeSource".to_string(), 1);
+        heap.get_mut(code_source_ref)?.fields[0] = Slot::Reference(Some(url_ref));
+        Slot::Reference(Some(code_source_ref))
+    } else {
+        Slot::Reference(None)
+    };
+    heap.get_mut(pd_ref)?.fields[0] = code_source_slot;
+    Ok(Some(Slot::Reference(Some(pd_ref))))
+}
+
+fn native_protection_domain_get_code_source(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first() {
+        Some(slot @ Slot::Reference(_)) => Ok(Some(*slot)),
+        _ => Err(VmError::NullPointerException),
+    }
+}
+
+fn native_code_source_get_location(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first() {
+        Some(slot @ Slot::Reference(_)) => Ok(Some(*slot)),
+        _ => Err(VmError::NullPointerException),
+    }
+}
+
+fn native_url_to_uri(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let spec = string_backed_object_value(heap, this_ref)?;
+    let uri_ref = allocate_string_backed_object(heap, "java/net/URI", spec)?;
+    Ok(Some(Slot::Reference(Some(uri_ref))))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn native_url_set_url_stream_handler_factory(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
+}
+
+fn native_path_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let uri_ref = extract_ref_arg(args, 0)?;
+    let uri = string_backed_object_value(heap, uri_ref)?;
+    let path = file_url_to_path(&uri)?;
+    let path_ref = allocate_string_backed_object(
+        heap,
+        "java/nio/file/Path",
+        path.to_string_lossy().to_string(),
+    )?;
+    Ok(Some(Slot::Reference(Some(path_ref))))
+}
+
+fn native_path_to_file(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let path_slot = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .ok_or(VmError::NullPointerException)?;
+    let file_ref = heap.allocate("java/io/File".to_string(), 1);
+    heap.get_mut(file_ref)?.fields[0] = path_slot;
+    Ok(Some(Slot::Reference(Some(file_ref))))
+}
+
+fn native_paths_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let first_ref = extract_ref_arg(args, 0)?;
+    let mut path = std::path::PathBuf::from(string_value_from_ref(heap, first_ref)?);
+    let more_slot = extract_slot_arg(args, 1);
+    match more_slot {
+        Slot::Reference(Some(array_ref)) => {
+            let segments = heap.get(array_ref)?.fields.clone();
+            for segment in segments {
+                let Slot::Reference(Some(segment_ref)) = segment else {
+                    return Err(VmError::NullPointerException);
+                };
+                path.push(string_value_from_ref(heap, segment_ref)?);
+            }
+        }
+        Slot::Reference(None) => {}
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    }
+    let path_ref = allocate_string_backed_object(
+        heap,
+        "java/nio/file/Path",
+        path.to_string_lossy().into_owned(),
+    )?;
+    Ok(Some(Slot::Reference(Some(path_ref))))
+}
+
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+fn native_posix_file_permissions_as_file_attribute(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let attribute_ref = heap.allocate("java/nio/file/attribute/FileAttribute".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(attribute_ref))))
+}
+
+fn manifest_attribute_value(manifest_bytes: &[u8], key: &str) -> Option<String> {
+    let text = std::str::from_utf8(manifest_bytes).ok()?;
+    for line in text.lines() {
+        if let Some(value) = line.strip_prefix(key)
+            && let Some(value) = value.strip_prefix(':')
+        {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
+
+fn native_manifest_get_main_attributes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let manifest_ref = extract_ref_arg(args, 0)?;
+    let Some(Slot::Reference(Some(raw_ref))) = heap.get(manifest_ref)?.fields.first().copied()
+    else {
+        return Err(VmError::NullPointerException);
+    };
+    let attributes_ref = heap.allocate("java/util/jar/Attributes".to_string(), 1);
+    heap.get_mut(attributes_ref)?.fields[0] = Slot::Reference(Some(raw_ref));
+    Ok(Some(Slot::Reference(Some(attributes_ref))))
+}
+
+fn native_attributes_get_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let attributes_ref = extract_ref_arg(args, 0)?;
+    let key_ref = extract_ref_arg(args, 1)?;
+    let Some(Slot::Reference(Some(raw_ref))) = heap.get(attributes_ref)?.fields.first().copied()
+    else {
+        return Err(VmError::NullPointerException);
+    };
+    let manifest_text = string_value_from_ref(heap, raw_ref)?;
+    let key = string_value_from_ref(heap, key_ref)?;
+    let result = manifest_attribute_value(manifest_text.as_bytes(), &key)
+        .map_or(Slot::Reference(None), |value| {
+            Slot::Reference(Some(heap.allocate_string(value)))
+        });
+    Ok(Some(result))
+}
+
+const BOOT_ARCHIVE_ENTRY_NAME_SLOT: usize = 0;
+const BOOT_ARCHIVE_ENTRY_DIRECTORY_SLOT: usize = 1;
+
+#[cfg(test)]
+fn boot_archive_entry_name(heap: &duke_gc::Heap, entry_ref: u64) -> VmResult<String> {
+    let Some(Slot::Reference(Some(name_ref))) = heap
+        .get(entry_ref)?
+        .fields
+        .get(BOOT_ARCHIVE_ENTRY_NAME_SLOT)
+        .copied()
+    else {
+        return Err(VmError::NullPointerException);
+    };
+    string_value_from_ref(heap, name_ref)
+}
+
+fn boot_archive_entry_is_directory_flag(heap: &duke_gc::Heap, entry_ref: u64) -> VmResult<bool> {
+    match heap
+        .get(entry_ref)?
+        .fields
+        .get(BOOT_ARCHIVE_ENTRY_DIRECTORY_SLOT)
+        .copied()
+    {
+        Some(Slot::Int(value)) => Ok(value != 0),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Int",
+            got: "other",
+        }),
+    }
+}
+
+fn native_boot_archive_entry_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let entry_ref = extract_ref_arg(args, 0)?;
+    let Some(slot @ Slot::Reference(Some(_))) = heap
+        .get(entry_ref)?
+        .fields
+        .get(BOOT_ARCHIVE_ENTRY_NAME_SLOT)
+        .copied()
+    else {
+        return Err(VmError::NullPointerException);
+    };
+    Ok(Some(slot))
+}
+
+fn native_boot_archive_entry_is_directory(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let entry_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(
+        boot_archive_entry_is_directory_flag(heap, entry_ref)?,
+    ))))
+}
+
+fn boot_archive_hashset_add_url(
+    set_ref: u64,
+    url_spec: String,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<()> {
+    let url_ref = allocate_string_backed_object(heap, "java/net/URL", url_spec)?;
+    native_hashset_add(
+        &[
+            Slot::Reference(Some(set_ref)),
+            Slot::Reference(Some(url_ref)),
+        ],
+        heap,
+        out,
+        control,
+    )?;
+    Ok(())
+}
+
+fn allocate_boot_archive_entry(
+    heap: &mut duke_gc::Heap,
+    entry_name: &str,
+    is_directory: bool,
+) -> VmResult<u64> {
+    let entry_ref = heap.allocate("duke/boot/ArchiveEntry".to_string(), 2);
+    let name_ref = heap.allocate_string(entry_name.to_string());
+    let entry = heap.get_mut(entry_ref)?;
+    entry.fields[BOOT_ARCHIVE_ENTRY_NAME_SLOT] = Slot::Reference(Some(name_ref));
+    entry.fields[BOOT_ARCHIVE_ENTRY_DIRECTORY_SLOT] = Slot::Int(i32::from(is_directory));
+    Ok(entry_ref)
+}
+
+fn boot_archive_predicate_accepts(
+    predicate_ref: u64,
+    entry_name: &str,
+    is_directory: bool,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<bool> {
+    let predicate_class = heap.get(predicate_ref)?.class_name.clone();
+    let entry_ref = allocate_boot_archive_entry(heap, entry_name, is_directory)?;
+    match ops.invoke(
+        heap,
+        out,
+        &predicate_class,
+        "test",
+        "(Ljava/lang/Object;)Z",
+        vec![
+            Slot::Reference(Some(predicate_ref)),
+            Slot::Reference(Some(entry_ref)),
+        ],
+    )? {
+        Some(Slot::Int(value)) => Ok(value != 0),
+        Some(other) => Err(VmError::TypeMismatch {
+            expected: "Int",
+            got: match other {
+                Slot::Long(_) => "Long",
+                Slot::Float(_) => "Float",
+                Slot::Double(_) => "Double",
+                Slot::Reference(_) => "Reference",
+                Slot::ReturnAddress(_) => "ReturnAddress",
+                Slot::Int(_) => unreachable!(),
+            },
+        }),
+        None => Ok(false),
+    }
+}
+
+fn open_boot_archive_reader(path: &std::path::Path) -> VmResult<duke_loader::ZipReader> {
+    duke_loader::ZipReader::open(path).map_err(|err| match err {
+        duke_loader::LoadError::Io { .. } => VmError::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        },
+        _ => VmError::JavaException {
+            class_name: "java/util/zip/ZipException".to_string(),
+        },
+    })
+}
+
+fn archive_file_ref_at(heap: &duke_gc::Heap, archive_ref: u64, slot: usize) -> VmResult<u64> {
+    match heap.get(archive_ref)?.fields.get(slot).copied() {
+        Some(Slot::Reference(Some(file_ref))) => Ok(file_ref),
+        Some(Slot::Reference(None)) => Err(VmError::NullPointerException),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
+fn patch_forwarded_slot_if_needed(heap: &duke_gc::Heap, slot: &mut Slot) {
+    if heap.has_pending_forwards() {
+        heap.apply_forward(slot);
+    }
+}
+
+fn patch_forwarded_ref_if_needed(heap: &duke_gc::Heap, reference: &mut u64) {
+    let mut slot = Slot::Reference(Some(*reference));
+    patch_forwarded_slot_if_needed(heap, &mut slot);
+    if let Slot::Reference(Some(new_ref)) = slot {
+        *reference = new_ref;
+    }
+}
+
+fn native_boot_jar_file_archive_get_class_path_urls(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let archive_ref = extract_ref_arg(args, 0)?;
+    let include_predicate_ref = extract_ref_arg(args, 1)?;
+    let _ = extract_ref_arg(args, 2)?;
+    let archive_file_ref = archive_file_ref_at(heap, archive_ref, 0)?;
+    let archive_path = file_path_from_ref(archive_file_ref, heap)?;
+    let reader = open_boot_archive_reader(&archive_path)?;
+    let mut entry_names: Vec<String> = reader.entry_names().map(ToOwned::to_owned).collect();
+    entry_names.sort_unstable();
+
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+
+    for entry_name in entry_names {
+        let is_directory = entry_name.ends_with('/');
+        if boot_archive_predicate_accepts(
+            include_predicate_ref,
+            &entry_name,
+            is_directory,
+            heap,
+            out,
+            ops,
+        )? {
+            let url_spec = format!("jar:{}!/{}", path_to_file_url(&archive_path), entry_name);
+            boot_archive_hashset_add_url(set_ref, url_spec, heap, out, control)?;
+        }
+    }
+
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+fn list_directory_children_sorted(path: &std::path::Path) -> VmResult<Vec<std::path::PathBuf>> {
+    let iter = std::fs::read_dir(path).map_err(|_| VmError::JavaException {
+        class_name: "java/io/IOException".to_string(),
+    })?;
+    let mut children = Vec::new();
+    for entry in iter {
+        let entry = entry.map_err(|_| VmError::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        })?;
+        children.push(entry.path());
+    }
+    children.sort_by(|left, right| {
+        left.file_name()
+            .unwrap_or_default()
+            .cmp(right.file_name().unwrap_or_default())
+    });
+    Ok(children)
+}
+
+fn exploded_archive_relative_entry_name(
+    root_path: &std::path::Path,
+    entry_path: &std::path::Path,
+    is_directory: bool,
+) -> String {
+    let mut relative = entry_path
+        .strip_prefix(root_path)
+        .unwrap_or(entry_path)
+        .to_string_lossy()
+        .replace('\\', "/");
+    if is_directory && !relative.ends_with('/') {
+        relative.push('/');
+    }
+    relative
+}
+
+fn native_boot_exploded_archive_get_class_path_urls(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let archive_ref = extract_ref_arg(args, 0)?;
+    let include_predicate_ref = extract_ref_arg(args, 1)?;
+    let search_predicate_ref = extract_ref_arg(args, 2)?;
+    let root_directory_ref = archive_file_ref_at(heap, archive_ref, 0)?;
+    let root_path = file_path_from_ref(root_directory_ref, heap)?;
+
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+
+    let mut pending: VecDeque<std::path::PathBuf> = list_directory_children_sorted(&root_path)?
+        .into_iter()
+        .collect();
+    while let Some(entry_path) = pending.pop_front() {
+        let is_directory = entry_path.is_dir();
+        let entry_name =
+            exploded_archive_relative_entry_name(&root_path, &entry_path, is_directory);
+        if is_directory
+            && boot_archive_predicate_accepts(
+                search_predicate_ref,
+                &entry_name,
+                true,
+                heap,
+                out,
+                ops,
+            )?
+        {
+            let children = list_directory_children_sorted(&entry_path)?;
+            for child in children.into_iter().rev() {
+                pending.push_front(child);
+            }
+        }
+
+        if boot_archive_predicate_accepts(
+            include_predicate_ref,
+            &entry_name,
+            is_directory,
+            heap,
+            out,
+            ops,
+        )? {
+            boot_archive_hashset_add_url(
+                set_ref,
+                path_to_file_url(&entry_path),
+                heap,
+                out,
+                control,
+            )?;
+        }
+    }
+
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+fn native_boot_launched_class_loader_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let exploded = extract_int_arg(args, 1)?;
+    let archive_ref = extract_ref_arg(args, 2)?;
+    let _ = extract_ref_arg(args, 3)?;
+    match args.get(4) {
+        Some(Slot::Reference(_)) => {
+            let exploded_slot = ops.instance_field_slot(
+                "org/springframework/boot/loader/launch/LaunchedClassLoader",
+                "exploded",
+            )?;
+            let root_archive_slot = ops.instance_field_slot(
+                "org/springframework/boot/loader/launch/LaunchedClassLoader",
+                "rootArchive",
+            )?;
+            let loader_obj = heap.get_mut(this_ref)?;
+            loader_obj.fields[exploded_slot] = Slot::Int(i32::from(exploded != 0));
+            loader_obj.fields[root_archive_slot] = Slot::Reference(Some(archive_ref));
+            Ok(None)
+        }
+        _ => Err(VmError::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
+fn native_class_get_declared_method(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let method_name = string_value_from_ref(heap, name_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 2))?;
+
+    let Some(method) = reflected.methods.into_iter().find(|method| {
+        method.name == method_name
+            && descriptor_parameter_part(&method.descriptor) == parameter_descriptor
+    }) else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NoSuchMethodException".to_string(),
+        });
+    };
+
+    let method_ref = allocate_reflection_member_object(
+        heap,
+        "java/lang/reflect/Method",
+        &class_key,
+        &method.name,
+        &method.descriptor,
+        method.is_public,
+        method.is_static,
+    )?;
+    Ok(Some(Slot::Reference(Some(method_ref))))
+}
+
+fn native_class_get_method(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let method_name = string_value_from_ref(heap, name_ref)?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 2))?;
+
+    let Some((declaring_class, method)) =
+        lookup_public_reflected_method(ops, &class_key, &method_name, &parameter_descriptor)?
+    else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NoSuchMethodException".to_string(),
+        });
+    };
+
+    let method_ref = allocate_reflection_member_object(
+        heap,
+        "java/lang/reflect/Method",
+        &declaring_class,
+        &method.name,
+        &method.descriptor,
+        method.is_public,
+        method.is_static,
+    )?;
+    Ok(Some(Slot::Reference(Some(method_ref))))
+}
+
+fn lookup_reflected_constructor(
+    reflected: ReflectedClassInfo,
+    parameter_descriptor: &str,
+    public_only: bool,
+) -> Option<ReflectedMethodInfo> {
+    reflected.methods.into_iter().find(|method| {
+        method.name == "<init>"
+            && (!public_only || method.is_public)
+            && descriptor_parameter_part(&method.descriptor) == parameter_descriptor
+    })
+}
+
+fn reflected_constructors(
+    reflected: ReflectedClassInfo,
+    public_only: bool,
+) -> Vec<ReflectedMethodInfo> {
+    reflected
+        .methods
+        .into_iter()
+        .filter(|method| method.name == "<init>" && (!public_only || method.is_public))
+        .collect()
+}
+
+fn native_class_get_declared_field(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let field_name = string_value_from_ref(heap, name_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+
+    let Some(field) = reflected
+        .fields
+        .into_iter()
+        .find(|field| field.name == field_name)
+    else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NoSuchFieldException".to_string(),
+        });
+    };
+
+    let field_ref = allocate_reflection_member_object(
+        heap,
+        "java/lang/reflect/Field",
+        &class_key,
+        &field.name,
+        &field.descriptor,
+        field.is_public,
+        field.is_static,
+    )?;
+    Ok(Some(Slot::Reference(Some(field_ref))))
+}
+
+fn native_class_get_declared_constructor(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
+
+    let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, false)
+    else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NoSuchMethodException".to_string(),
+        });
+    };
+
+    let constructor_ref = allocate_reflection_member_object(
+        heap,
+        "java/lang/reflect/Constructor",
+        &class_key,
+        &constructor.name,
+        &constructor.descriptor,
+        constructor.is_public,
+        constructor.is_static,
+    )?;
+    Ok(Some(Slot::Reference(Some(constructor_ref))))
+}
+
+fn native_class_get_field(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let field_name = string_value_from_ref(heap, name_ref)?;
+
+    let Some((declaring_class, field)) =
+        lookup_public_reflected_field(ops, &class_key, &field_name)?
+    else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NoSuchFieldException".to_string(),
+        });
+    };
+
+    let field_ref = allocate_reflection_member_object(
+        heap,
+        "java/lang/reflect/Field",
+        &declaring_class,
+        &field.name,
+        &field.descriptor,
+        field.is_public,
+        field.is_static,
+    )?;
+    Ok(Some(Slot::Reference(Some(field_ref))))
+}
+
+fn native_class_get_constructor(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
+
+    let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, true)
+    else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NoSuchMethodException".to_string(),
+        });
+    };
+
+    let constructor_ref = allocate_reflection_member_object(
+        heap,
+        "java/lang/reflect/Constructor",
+        &class_key,
+        &constructor.name,
+        &constructor.descriptor,
+        constructor.is_public,
+        constructor.is_static,
+    )?;
+    Ok(Some(Slot::Reference(Some(constructor_ref))))
+}
+
+fn native_class_new_instance(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    let constructors = reflected_constructors(reflected, false);
+    let Some(constructor) = constructors
+        .iter()
+        .find(|constructor| constructor.descriptor == "()V")
+        .cloned()
+    else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/InstantiationException".to_string(),
+        });
+    };
+    if !constructor.is_public {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalAccessException".to_string(),
+        });
+    }
+
+    let instance_ref = ops.allocate_instance(heap, output, &class_key)?;
+    match ops.invoke(
+        heap,
+        output,
+        &class_key,
+        "<init>",
+        &constructor.descriptor,
+        vec![Slot::Reference(Some(instance_ref))],
+    ) {
+        Ok(_) => Ok(Some(Slot::Reference(Some(instance_ref)))),
         Err(err) => Err(err),
     }
 }
@@ -3333,8 +5925,8 @@ fn native_class_get_declared_methods(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
-    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&internal_name)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
     let method_refs = reflected
         .methods
         .into_iter()
@@ -3343,7 +5935,7 @@ fn native_class_get_declared_methods(
             allocate_reflection_member_object(
                 heap,
                 "java/lang/reflect/Method",
-                &reflected.internal_name,
+                &class_key,
                 &method.name,
                 &method.descriptor,
                 method.is_public,
@@ -3355,6 +5947,91 @@ fn native_class_get_declared_methods(
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
+fn native_class_get_declared_constructors(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    let constructor_refs = reflected_constructors(reflected, false)
+        .into_iter()
+        .map(|constructor| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Constructor",
+                &class_key,
+                &constructor.name,
+                &constructor.descriptor,
+                constructor.is_public,
+                constructor.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
+    let array_ref =
+        allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+fn native_class_get_methods(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let method_refs = collect_public_reflected_methods(ops, &class_key)?
+        .into_iter()
+        .map(|(declaring_class, method)| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Method",
+                &declaring_class,
+                &method.name,
+                &method.descriptor,
+                method.is_public,
+                method.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+fn native_class_get_constructors(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    let constructor_refs = reflected_constructors(reflected, true)
+        .into_iter()
+        .map(|constructor| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Constructor",
+                &class_key,
+                &constructor.name,
+                &constructor.descriptor,
+                constructor.is_public,
+                constructor.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
+    let array_ref =
+        allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
 fn native_class_get_declared_fields(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3363,8 +6040,8 @@ fn native_class_get_declared_fields(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
-    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&internal_name)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
     let field_refs = reflected
         .fields
         .into_iter()
@@ -3372,7 +6049,34 @@ fn native_class_get_declared_fields(
             allocate_reflection_member_object(
                 heap,
                 "java/lang/reflect/Field",
-                &reflected.internal_name,
+                &class_key,
+                &field.name,
+                &field.descriptor,
+                field.is_public,
+                field.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+fn native_class_get_fields(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let field_refs = collect_public_reflected_fields(ops, &class_key)?
+        .into_iter()
+        .map(|(declaring_class, field)| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Field",
+                &declaring_class,
                 &field.name,
                 &field.descriptor,
                 field.is_public,
@@ -3394,6 +6098,107 @@ fn native_reflect_method_get_name(
     Ok(Some(reflection_member_name_slot(heap, method_ref)?))
 }
 
+fn native_reflect_constructor_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let constructor_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(reflection_member_declaring_class_name_slot(
+        heap,
+        constructor_ref,
+    )?))
+}
+
+fn native_reflect_method_get_return_type(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let method_ref = extract_ref_arg(args, 0)?;
+    let method = reflected_method_handle(heap, method_ref)?;
+    Ok(Some(descriptor_class_slot_from_source(
+        heap,
+        ops,
+        method_return_descriptor(&method.descriptor),
+        Some(method.declaring_class_key.as_str()),
+    )?))
+}
+
+fn native_reflect_field_get_type(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let field_ref = extract_ref_arg(args, 0)?;
+    let field = reflected_field_handle(heap, field_ref)?;
+    Ok(Some(descriptor_class_slot_from_source(
+        heap,
+        ops,
+        &field.descriptor,
+        Some(field.declaring_class_key.as_str()),
+    )?))
+}
+
+fn native_reflection_member_get_declaring_class(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let member_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(reflection_member_declaring_class_slot(
+        heap, member_ref,
+    )?))
+}
+
+fn native_reflect_method_get_parameter_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let method_ref = extract_ref_arg(args, 0)?;
+    let method = reflected_method_handle(heap, method_ref)?;
+    let count = i32::try_from(parse_arg_count(&method.descriptor)).unwrap_or(i32::MAX);
+    Ok(Some(Slot::Int(count)))
+}
+
+fn native_reflect_executable_get_parameter_types(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let member_ref = extract_ref_arg(args, 0)?;
+    let member = reflected_method_handle(heap, member_ref)?;
+    let parameter_descriptors = parse_arg_descriptors(&member.descriptor);
+    let mut class_refs = Vec::with_capacity(parameter_descriptors.len());
+    for descriptor in parameter_descriptors {
+        let Slot::Reference(Some(class_ref)) = descriptor_class_slot_from_source(
+            heap,
+            ops,
+            &descriptor,
+            Some(member.declaring_class_key.as_str()),
+        )?
+        else {
+            return Err(VmError::TypeMismatch {
+                expected: "class reference",
+                got: "other",
+            });
+        };
+        class_refs.push(class_ref);
+    }
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/Class;", &class_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
 fn native_reflect_field_get_name(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3404,6 +6209,102 @@ fn native_reflect_field_get_name(
     Ok(Some(reflection_member_name_slot(heap, field_ref)?))
 }
 
+fn native_reflection_member_set_accessible(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let member_ref = extract_ref_arg(args, 0)?;
+    let accessible = extract_int_arg(args, 1)? != 0;
+    heap.write_field(
+        member_ref,
+        REFLECTION_MEMBER_ACCESSIBLE_FIELD,
+        Slot::Int(i32::from(accessible)),
+    )?;
+    Ok(None)
+}
+
+fn native_reflect_field_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let field_ref = extract_ref_arg(args, 0)?;
+    let target_slot = extract_slot_arg(args, 1);
+    let field = reflected_field_handle(heap, field_ref)?;
+
+    if !field.is_public && !field.is_accessible {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalAccessException".to_string(),
+        });
+    }
+
+    let field_type = field.descriptor.chars().next().unwrap_or('L');
+    let raw_value = if field.is_static {
+        ops.ensure_class_initialized(heap, output, &field.declaring_class_key)?;
+        ops.read_static_field(&field.declaring_class_key, &field.field_name)?
+    } else {
+        let Slot::Reference(Some(target_ref)) = target_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        ops.read_instance_field(
+            heap,
+            target_ref,
+            &field.declaring_class_key,
+            &field.field_name,
+        )?
+    };
+
+    Ok(Some(box_reflection_return_value(
+        heap,
+        field_type,
+        Some(raw_value),
+    )?))
+}
+
+fn native_reflect_field_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let field_ref = extract_ref_arg(args, 0)?;
+    let target_slot = extract_slot_arg(args, 1);
+    let value_slot = extract_slot_arg(args, 2);
+    let field = reflected_field_handle(heap, field_ref)?;
+
+    if !field.is_public && !field.is_accessible {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalAccessException".to_string(),
+        });
+    }
+
+    let field_type = field.descriptor.chars().next().unwrap_or('L');
+    let value = unbox_reflection_argument(heap, field_type, value_slot)?;
+
+    if field.is_static {
+        ops.ensure_class_initialized(heap, output, &field.declaring_class_key)?;
+        ops.write_static_field(&field.declaring_class_key, &field.field_name, value)?;
+        return Ok(None);
+    }
+
+    let Slot::Reference(Some(target_ref)) = target_slot else {
+        return Err(VmError::NullPointerException);
+    };
+    ops.write_instance_field(
+        heap,
+        target_ref,
+        &field.declaring_class_key,
+        &field.field_name,
+        value,
+    )?;
+    Ok(None)
+}
+
 fn native_reflect_method_invoke(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3412,12 +6313,11 @@ fn native_reflect_method_invoke(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
-    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let invoke_arg_slots =
-        reflection_array_elements(heap, args.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+    let target_slot = extract_slot_arg(args, 1);
+    let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 2))?;
     let method = reflected_method_handle(heap, method_ref)?;
 
-    if !method.is_public {
+    if !method.is_public && !method.is_accessible {
         return Err(VmError::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
@@ -3431,11 +6331,11 @@ fn native_reflect_method_invoke(
         method.is_static,
     )?;
 
-    ops.ensure_loaded(&method.declaring_internal_name)?;
+    ops.ensure_loaded(&method.declaring_class_key)?;
     match ops.invoke(
         heap,
         output,
-        &method.declaring_internal_name,
+        &method.declaring_class_key,
         &method.method_name,
         &method.descriptor,
         invoke_args,
@@ -3445,6 +6345,48 @@ fn native_reflect_method_invoke(
             descriptor_return_type(&method.descriptor),
             result,
         )?)),
+        Err(VmError::JavaException { .. }) => Err(VmError::JavaException {
+            class_name: "java/lang/reflect/InvocationTargetException".to_string(),
+        }),
+        Err(err) => Err(err),
+    }
+}
+
+fn native_reflect_constructor_new_instance(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let constructor_ref = extract_ref_arg(args, 0)?;
+    let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 1))?;
+    let constructor = reflected_method_handle(heap, constructor_ref)?;
+
+    if !constructor.is_public && !constructor.is_accessible {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalAccessException".to_string(),
+        });
+    }
+
+    let instance_ref = ops.allocate_instance(heap, output, &constructor.declaring_class_key)?;
+    let invoke_args = build_reflection_invoke_args(
+        heap,
+        Slot::Reference(Some(instance_ref)),
+        &constructor.descriptor,
+        invoke_arg_slots,
+        false,
+    )?;
+
+    match ops.invoke(
+        heap,
+        output,
+        &constructor.declaring_class_key,
+        &constructor.method_name,
+        &constructor.descriptor,
+        invoke_args,
+    ) {
+        Ok(_) => Ok(Some(Slot::Reference(Some(instance_ref)))),
         Err(VmError::JavaException { .. }) => Err(VmError::JavaException {
             class_name: "java/lang/reflect/InvocationTargetException".to_string(),
         }),
@@ -3731,6 +6673,101 @@ fn native_system_exit(
     Err(VmError::SystemExit { code })
 }
 
+static SYSTEM_PROPERTY_OVERRIDES: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
+    std::sync::OnceLock::new();
+
+fn system_property_overrides() -> &'static std::sync::Mutex<HashMap<String, String>> {
+    SYSTEM_PROPERTY_OVERRIDES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn system_property_value(key: &str) -> Option<String> {
+    let override_value = system_property_overrides()
+        .lock()
+        .expect("system property overrides mutex poisoned")
+        .get(key)
+        .cloned();
+    if let Some(value) = override_value {
+        return Some(value);
+    }
+    match key {
+        "java.io.tmpdir" => Some(std::env::temp_dir().to_string_lossy().into_owned()),
+        "file.separator" => Some(std::path::MAIN_SEPARATOR.to_string()),
+        "path.separator" => Some(if cfg!(windows) { ";" } else { ":" }.to_string()),
+        "line.separator" => Some(if cfg!(windows) { "\r\n" } else { "\n" }.to_string()),
+        "user.dir" => std::env::current_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned()),
+        "user.home" => std::env::var("USERPROFILE")
+            .ok()
+            .or_else(|| std::env::var("HOME").ok()),
+        "os.name" => Some(
+            if cfg!(windows) {
+                "Windows"
+            } else if cfg!(target_os = "macos") {
+                "Mac OS X"
+            } else if cfg!(target_os = "linux") {
+                "Linux"
+            } else {
+                std::env::consts::OS
+            }
+            .to_string(),
+        ),
+        "os.arch" => Some(std::env::consts::ARCH.to_string()),
+        "java.version" => Some("21".to_string()),
+        _ => None,
+    }
+}
+
+fn native_system_get_property(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let key_ref = extract_ref_arg(args, 0)?;
+    let key = string_value_from_ref(heap, key_ref)?;
+    let result = system_property_value(&key).map_or(Slot::Reference(None), |value| {
+        Slot::Reference(Some(heap.allocate_string(value)))
+    });
+    Ok(Some(result))
+}
+
+fn native_system_set_property(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let key_ref = extract_ref_arg(args, 0)?;
+    let value_ref = extract_ref_arg(args, 1)?;
+    let key = string_value_from_ref(heap, key_ref)?;
+    let value = string_value_from_ref(heap, value_ref)?;
+    let previous = system_property_value(&key);
+    system_property_overrides()
+        .lock()
+        .expect("system property overrides mutex poisoned")
+        .insert(key, value);
+    let result = previous.map_or(Slot::Reference(None), |previous| {
+        Slot::Reference(Some(heap.allocate_string(previous)))
+    });
+    Ok(Some(result))
+}
+
+fn native_system_get_property_with_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let key_ref = extract_ref_arg(args, 0)?;
+    let key = string_value_from_ref(heap, key_ref)?;
+    let result = system_property_value(&key).map_or_else(
+        || extract_slot_arg(args, 1),
+        |value| Slot::Reference(Some(heap.allocate_string(value))),
+    );
+    Ok(Some(result))
+}
+
 fn system_time_to_epoch_millis(now: std::time::SystemTime) -> i64 {
     now.duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| {
@@ -3770,6 +6807,19 @@ fn native_system_nano_time(
 const THREAD_TARGET_SLOT: usize = 0;
 const THREAD_ID_SLOT: usize = 1;
 
+fn native_thread_current_thread(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 2);
+    let thread = heap.get_mut(thread_ref)?;
+    thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
+    thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    Ok(Some(Slot::Reference(Some(thread_ref))))
+}
+
 fn native_thread_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3790,7 +6840,7 @@ fn native_thread_init_runnable(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target = extract_slot_arg(args, 1);
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = target;
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
@@ -3859,15 +6909,7 @@ fn native_string_substring(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let begin = match args.get(1) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let begin = extract_int_arg(args, 1)? as usize;
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
@@ -3894,24 +6936,8 @@ fn native_string_substring_range(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let begin = match args.get(1) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let end = match args.get(2) {
-        Some(Slot::Int(v)) => *v as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let begin = extract_int_arg(args, 1)? as usize;
+    let end = extract_int_arg(args, 2)? as usize;
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
@@ -3937,16 +6963,7 @@ fn native_string_indexof(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let target_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let target_ref = extract_ref_arg(args, 1)?;
     // Fetch objects from heap in one go to keep borrows short
     let this_obj = heap.get(this_ref)?;
     let target_obj = heap.get(target_ref)?;
@@ -3967,16 +6984,7 @@ fn native_string_contains(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
-    let target_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let target_ref = extract_ref_arg(args, 1)?;
     // Fetch objects from heap in one go to keep borrows short
     let this_obj = heap.get(this_ref)?;
     let target_obj = heap.get(target_ref)?;
@@ -4044,10 +7052,7 @@ fn native_string_compareto_object(
         Some(s) => str_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => str_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = str_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
 }
 
@@ -4128,20 +7133,18 @@ fn native_integer_parseint(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let str_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
-    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
-    let val: i32 = s.trim().parse().map_err(|_| VmError::JavaException {
-        class_name: "java/lang/NumberFormatException".to_string(),
-    })?;
+    let val = parse_bounded_i32_from_string_arg(args, heap, i32::MIN, i32::MAX)?;
+    Ok(Some(Slot::Int(val)))
+}
+
+/// Native: `Integer.parseInt(String,int)` — parses string to int with radix.
+fn native_integer_parseint_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_bounded_i32_from_string_and_radix_args(args, heap, i32::MIN, i32::MAX)?;
     Ok(Some(Slot::Int(val)))
 }
 
@@ -4155,6 +7158,45 @@ fn native_integer_valueof(
     let val = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.valueOf(String)` — parses and boxes int.
+fn native_integer_valueof_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_bounded_i32_from_string_arg(args, heap, i32::MIN, i32::MAX)?;
+    let r = heap.allocate("java/lang/Integer".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.valueOf(String,int)` — parses and boxes int with radix.
+fn native_integer_valueof_string_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_bounded_i32_from_string_and_radix_args(args, heap, i32::MIN, i32::MAX)?;
+    let r = heap.allocate("java/lang/Integer".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.decode(String)` — parses prefixed string and boxes int.
+fn native_integer_decode(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_i32_decode_from_string_arg(args, heap)?;
+    let r = heap.allocate("java/lang/Integer".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -4182,6 +7224,65 @@ fn native_integer_tostring_static(
     Ok(Some(Slot::Reference(Some(r))))
 }
 
+/// Native: `Integer.toHexString(int)` — unsigned lowercase hex string.
+fn native_integer_tohexstring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
+    let r = heap.allocate_string(format!("{val:x}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.toOctalString(int)` — unsigned octal string.
+fn native_integer_tooctalstring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
+    let r = heap.allocate_string(format!("{val:o}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.toBinaryString(int)` — unsigned binary string.
+fn native_integer_tobinarystring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
+    let r = heap.allocate_string(format!("{val:b}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Integer.toUnsignedLong(int)` — widen via unsigned 32-bit interpretation.
+fn native_integer_tounsignedlong_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
+    Ok(Some(Slot::Long(i64::from(val))))
+}
+
+/// Native: `Integer.compareUnsigned(int,int)` — compares ints as unsigned 32-bit values.
+fn native_integer_compareunsigned_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
+    let b = u32::from_ne_bytes(extract_int_arg(args, 1)?.to_ne_bytes());
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+}
+
 /// Native: `Integer.compareTo(Object)` — compares two boxed Integers.
 fn native_integer_compareto(
     args: &[Slot],
@@ -4202,10 +7303,7 @@ fn native_integer_compareto(
         Some(s) => int_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => int_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = int_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -4218,15 +7316,7 @@ fn native_string_value_of_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -4238,15 +7328,7 @@ fn native_string_value_of_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -4258,15 +7340,7 @@ fn native_string_value_of_float(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -4346,16 +7420,7 @@ fn native_string_concat(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s1 = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let other_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let other_ref = extract_ref_arg(args, 1)?;
     let s2 = heap
         .get(other_ref)?
         .string_value
@@ -4533,24 +7598,8 @@ fn native_string_replace_char(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let old_char = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let new_char = match args.get(2) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
+    let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
     let result = s.replace(old_char, &new_char.to_string());
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
@@ -4565,31 +7614,13 @@ fn native_string_replace_charsequence(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let target_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let target_ref = extract_ref_arg(args, 1)?;
     let target = heap
         .get(target_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let replacement_ref = match args.get(2) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let replacement_ref = extract_ref_arg(args, 2)?;
     let replacement = heap
         .get(replacement_ref)?
         .string_value
@@ -4609,16 +7640,7 @@ fn native_string_split(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let delim_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let delim_ref = extract_ref_arg(args, 1)?;
     let delim = heap
         .get(delim_ref)?
         .string_value
@@ -4698,6 +7720,27 @@ fn native_math_abs_int(
     Ok(Some(Slot::Int(a.wrapping_abs())))
 }
 
+/// Native: `Math.floorMod(int, int)` — remainder with the divisor's sign.
+fn native_math_floor_mod_int(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
+    if b == 0 {
+        return Err(VmError::DivisionByZero);
+    }
+    let remainder = a.wrapping_rem(b);
+    let floor_mod = if remainder != 0 && (remainder < 0) != (b < 0) {
+        remainder.wrapping_add(b)
+    } else {
+        remainder
+    };
+    Ok(Some(Slot::Int(floor_mod)))
+}
+
 // ---- Extended Math natives ----
 
 /// Native: `Math.sqrt(double)` — returns square root.
@@ -4707,15 +7750,7 @@ fn native_math_sqrt(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.sqrt())))
 }
 
@@ -4726,24 +7761,8 @@ fn native_math_pow(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.powf(b))))
 }
 
@@ -4754,15 +7773,7 @@ fn native_math_floor(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.floor())))
 }
 
@@ -4773,15 +7784,7 @@ fn native_math_ceil(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.ceil())))
 }
 
@@ -4793,15 +7796,7 @@ fn native_math_round_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Long(a.round() as i64)))
 }
 
@@ -4812,15 +7807,7 @@ fn native_math_abs_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
     Ok(Some(Slot::Long(a.wrapping_abs())))
 }
 
@@ -4831,15 +7818,7 @@ fn native_math_abs_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.abs())))
 }
 
@@ -4850,24 +7829,8 @@ fn native_math_max_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.max(b))))
 }
 
@@ -4878,24 +7841,8 @@ fn native_math_min_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.min(b))))
 }
 
@@ -4906,24 +7853,8 @@ fn native_math_max_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.max(b))))
 }
 
@@ -4934,24 +7865,8 @@ fn native_math_min_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.min(b))))
 }
 
@@ -4964,20 +7879,18 @@ fn native_long_parselong(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let str_ref = match args.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
-    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
-    let val: i64 = s.trim().parse().map_err(|_| VmError::JavaException {
-        class_name: "java/lang/NumberFormatException".to_string(),
-    })?;
+    let val = parse_i64_from_string_arg(args, heap)?;
+    Ok(Some(Slot::Long(val)))
+}
+
+/// Native: `Long.parseLong(String,int)` — parses string to long with radix.
+fn native_long_parselong_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_i64_from_string_and_radix_args(args, heap)?;
     Ok(Some(Slot::Long(val)))
 }
 
@@ -4988,15 +7901,46 @@ fn native_long_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/lang/Long".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.valueOf(String)` — parses and boxes long.
+fn native_long_valueof_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_i64_from_string_arg(args, heap)?;
+    let r = heap.allocate("java/lang/Long".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.valueOf(String,int)` — parses and boxes long with radix.
+fn native_long_valueof_string_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_i64_from_string_and_radix_args(args, heap)?;
+    let r = heap.allocate("java/lang/Long".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.decode(String)` — parses prefixed string and boxes long.
+fn native_long_decode(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_i64_decode_from_string_arg(args, heap)?;
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Long(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -5021,8 +7965,20 @@ fn native_long_tostring_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
+    let val = extract_long_arg(args, 0)?;
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.toHexString(long)` — unsigned lowercase hex string.
+fn native_long_tohexstring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
     let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
             return Err(VmError::TypeMismatch {
                 expected: "Long",
@@ -5030,8 +7986,60 @@ fn native_long_tostring_static(
             });
         }
     };
-    let r = heap.allocate_string(val.to_string());
+    let r = heap.allocate_string(format!("{val:x}"));
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.toOctalString(long)` — unsigned octal string.
+fn native_long_tooctalstring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(format!("{val:o}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.toBinaryString(long)` — unsigned binary string.
+fn native_long_tobinarystring_static(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = match args.first() {
+        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Long",
+                got: "other",
+            });
+        }
+    };
+    let r = heap.allocate_string(format!("{val:b}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Long.compareUnsigned(long,long)` — compares longs as unsigned 64-bit values.
+fn native_long_compareunsigned_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = u64::from_ne_bytes(extract_long_arg(args, 0)?.to_ne_bytes());
+    let b = u64::from_ne_bytes(extract_long_arg(args, 1)?.to_ne_bytes());
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
 /// Native: `Long.compareTo(Object)` — compares two boxed Longs.
@@ -5054,10 +8062,7 @@ fn native_long_compareto(
         Some(s) => long_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => long_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = long_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -5094,15 +8099,7 @@ fn native_double_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 0)?;
     let r = heap.allocate("java/lang/Double".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Double(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -5121,6 +8118,52 @@ fn native_double_doublevalue(
 }
 
 // ---- Float class native ----
+
+fn native_float_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = extract_float_arg(args, 0)?;
+    let r = heap.allocate("java/lang/Float".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Float(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_float_floatvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = heap.get(this_ref)?.fields[0];
+    Ok(Some(val))
+}
+
+fn native_float_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let float_val = |s: &Slot| -> VmResult<f32> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Float(n)) => Ok(*n),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = match args.first() {
+        Some(s) => float_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = float_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
+}
 
 /// Native: `Float.parseFloat(String)` — parses string to float.
 fn native_float_parsefloat(
@@ -5148,6 +8191,52 @@ fn native_float_parsefloat(
 
 // ---- Boolean class native ----
 
+fn native_boolean_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/lang/Boolean".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(i32::from(val != 0));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_boolean_booleanvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = heap.get(this_ref)?.fields[0];
+    Ok(Some(val))
+}
+
+fn native_boolean_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let bool_val = |s: &Slot| -> VmResult<bool> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Int(n)) => Ok(*n != 0),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = match args.first() {
+        Some(s) => bool_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = bool_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+}
+
 /// Native: `Boolean.parseBoolean(String)` — case-insensitive "true" → 1, else 0.
 fn native_boolean_parseboolean(
     args: &[Slot],
@@ -5167,6 +8256,362 @@ fn native_boolean_parseboolean(
             got: "other",
         }),
     }
+}
+
+fn parse_bounded_i32_from_string_arg(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    min: i32,
+    max: i32,
+) -> VmResult<i32> {
+    let s = extract_string_arg_value(args, 0, heap)?;
+    parse_bounded_i32_with_radix(&s, 10, min, max)
+}
+
+fn parse_bounded_i32_from_string_and_radix_args(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    min: i32,
+    max: i32,
+) -> VmResult<i32> {
+    let s = extract_string_arg_value(args, 0, heap)?;
+    let radix = extract_parse_radix_arg(args, 1)?;
+    parse_bounded_i32_with_radix(&s, radix, min, max)
+}
+
+fn parse_bounded_i32_with_radix(s: &str, radix: u32, min: i32, max: i32) -> VmResult<i32> {
+    let val = i32::from_str_radix(s.trim(), radix).map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })?;
+    if val < min || val > max {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NumberFormatException".to_string(),
+        });
+    }
+    Ok(val)
+}
+
+fn parse_i64_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i64> {
+    let s = extract_string_arg_value(args, 0, heap)?;
+    parse_i64_with_radix(&s, 10)
+}
+
+fn parse_i64_from_string_and_radix_args(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i64> {
+    let s = extract_string_arg_value(args, 0, heap)?;
+    let radix = extract_parse_radix_arg(args, 1)?;
+    parse_i64_with_radix(&s, radix)
+}
+
+fn parse_i64_with_radix(s: &str, radix: u32) -> VmResult<i64> {
+    i64::from_str_radix(s.trim(), radix).map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })
+}
+
+fn parse_i32_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i32> {
+    let s = extract_string_arg_value(args, 0, heap)?;
+    let val = parse_i128_decode(&s)?;
+    if val < i128::from(i32::MIN) || val > i128::from(i32::MAX) {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NumberFormatException".to_string(),
+        });
+    }
+    i32::try_from(val).map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })
+}
+
+fn parse_i64_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i64> {
+    let s = extract_string_arg_value(args, 0, heap)?;
+    let val = parse_i128_decode(&s)?;
+    if val < i128::from(i64::MIN) || val > i128::from(i64::MAX) {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NumberFormatException".to_string(),
+        });
+    }
+    i64::try_from(val).map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })
+}
+
+fn parse_i128_decode(s: &str) -> VmResult<i128> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NumberFormatException".to_string(),
+        });
+    }
+
+    let (negative, sign_len) = match trimmed.as_bytes().first() {
+        Some(b'+') => (false, 1),
+        Some(b'-') => (true, 1),
+        _ => (false, 0),
+    };
+
+    let rest = &trimmed[sign_len..];
+    let (radix, prefix_len) = if rest.starts_with("0x") || rest.starts_with("0X") {
+        (16, 2)
+    } else if rest.starts_with('#') {
+        (16, 1)
+    } else if rest.starts_with('0') && rest.len() > 1 {
+        (8, 1)
+    } else {
+        (10, 0)
+    };
+
+    let digits = &rest[prefix_len..];
+    if digits.is_empty() || digits.starts_with('+') || digits.starts_with('-') {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NumberFormatException".to_string(),
+        });
+    }
+
+    let magnitude = i128::from_str_radix(digits, radix).map_err(|_| VmError::JavaException {
+        class_name: "java/lang/NumberFormatException".to_string(),
+    })?;
+    Ok(if negative { -magnitude } else { magnitude })
+}
+
+fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> VmResult<String> {
+    let str_ref = extract_ref_arg(args, index)?;
+    Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
+}
+
+fn extract_parse_radix_arg(args: &[Slot], index: usize) -> VmResult<u32> {
+    let radix = extract_int_arg(args, index)?;
+    if !(2..=36).contains(&radix) {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/NumberFormatException".to_string(),
+        });
+    }
+    Ok(u32::try_from(radix).unwrap_or(0))
+}
+
+fn native_byte_parsebyte(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val =
+        parse_bounded_i32_from_string_arg(args, heap, i32::from(i8::MIN), i32::from(i8::MAX))?;
+    Ok(Some(Slot::Int(val)))
+}
+
+fn native_byte_parsebyte_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_bounded_i32_from_string_and_radix_args(
+        args,
+        heap,
+        i32::from(i8::MIN),
+        i32::from(i8::MAX),
+    )?;
+    Ok(Some(Slot::Int(val)))
+}
+
+fn native_byte_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/lang/Byte".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_byte_valueof_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val =
+        parse_bounded_i32_from_string_arg(args, heap, i32::from(i8::MIN), i32::from(i8::MAX))?;
+    let r = heap.allocate("java/lang/Byte".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_byte_valueof_string_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_bounded_i32_from_string_and_radix_args(
+        args,
+        heap,
+        i32::from(i8::MIN),
+        i32::from(i8::MAX),
+    )?;
+    let r = heap.allocate("java/lang/Byte".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_byte_bytevalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = heap.get(this_ref)?.fields[0];
+    Ok(Some(val))
+}
+
+fn native_byte_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let byte_val = |s: &Slot| -> VmResult<i32> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Int(n)) => Ok(*n),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = match args.first() {
+        Some(s) => byte_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = byte_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+}
+
+fn native_short_parseshort(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val =
+        parse_bounded_i32_from_string_arg(args, heap, i32::from(i16::MIN), i32::from(i16::MAX))?;
+    Ok(Some(Slot::Int(val)))
+}
+
+fn native_short_parseshort_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_bounded_i32_from_string_and_radix_args(
+        args,
+        heap,
+        i32::from(i16::MIN),
+        i32::from(i16::MAX),
+    )?;
+    Ok(Some(Slot::Int(val)))
+}
+
+fn native_short_valueof(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/lang/Short".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_short_valueof_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val =
+        parse_bounded_i32_from_string_arg(args, heap, i32::from(i16::MIN), i32::from(i16::MAX))?;
+    let r = heap.allocate("java/lang/Short".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_short_valueof_string_radix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = parse_bounded_i32_from_string_and_radix_args(
+        args,
+        heap,
+        i32::from(i16::MIN),
+        i32::from(i16::MAX),
+    )?;
+    let r = heap.allocate("java/lang/Short".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+fn native_short_shortvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = heap.get(this_ref)?.fields[0];
+    Ok(Some(val))
+}
+
+fn native_short_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let short_val = |s: &Slot| -> VmResult<i32> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Int(n)) => Ok(*n),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = match args.first() {
+        Some(s) => short_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = short_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+}
+
+fn native_char_compareto(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let char_val = |s: &Slot| -> VmResult<i32> {
+        match s {
+            Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
+                Some(Slot::Int(n)) => Ok(*n),
+                _ => Err(VmError::InvalidRef { address: *r }),
+            },
+            _ => Err(VmError::NullPointerException),
+        }
+    };
+    let a = match args.first() {
+        Some(s) => char_val(s)?,
+        None => return Err(VmError::NullPointerException),
+    };
+    let b = char_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
 /// Execute a `StringConcatFactory` recipe: walk the recipe string, replacing
@@ -6467,6 +9912,7 @@ fn ensure_initialized(
     }
     // Mark as initialized BEFORE running clinit to prevent infinite recursion.
     registry.mark_initialized(class_name);
+    initialize_primitive_wrapper_type_field(registry, heap, class_name)?;
 
     // Check if the class has a <clinit> method.
     let has_clinit = registry.get(class_name).is_ok_and(|ctx| {
@@ -6476,13 +9922,15 @@ fn ensure_initialized(
     });
 
     if has_clinit {
+        let class_loader = registry.class_loader(class_name).cloned();
+        let init_loader = class_loader.as_deref().map_or(loader, |v| v);
         // Run <clinit> by calling it through execute_class.
         #[cfg(feature = "telemetry")]
         #[allow(clippy::used_underscore_binding)]
         let _clinit_start = std::time::Instant::now();
         execute_class(
             registry,
-            loader,
+            init_loader,
             heap,
             stdout,
             class_name,
@@ -6497,6 +9945,44 @@ fn ensure_initialized(
             _clinit_start.elapsed().as_nanos() as u64,
         );
     }
+    Ok(())
+}
+
+fn primitive_wrapper_type_descriptor(class_name: &str) -> Option<&'static str> {
+    match class_name {
+        "java/lang/Boolean" => Some("Z"),
+        "java/lang/Byte" => Some("B"),
+        "java/lang/Character" => Some("C"),
+        "java/lang/Double" => Some("D"),
+        "java/lang/Float" => Some("F"),
+        "java/lang/Integer" => Some("I"),
+        "java/lang/Long" => Some("J"),
+        "java/lang/Short" => Some("S"),
+        "java/lang/Void" => Some("V"),
+        _ => None,
+    }
+}
+
+fn initialize_primitive_wrapper_type_field(
+    registry: &mut ClassRegistry,
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+) -> VmResult<()> {
+    let Some(descriptor) = primitive_wrapper_type_descriptor(class_name) else {
+        return Ok(());
+    };
+    let type_slot = {
+        let ctx = registry.get(class_name)?;
+        static_field_idx(ctx, "TYPE")?
+    };
+    if matches!(
+        registry.get(class_name)?.static_fields.get(type_slot),
+        Some(Slot::Reference(Some(_)))
+    ) {
+        return Ok(());
+    }
+    let class_ref = allocate_class_object(heap, descriptor)?;
+    registry.get_mut(class_name)?.static_fields[type_slot] = Slot::Reference(Some(class_ref));
     Ok(())
 }
 
@@ -6554,6 +10040,101 @@ struct InterpreterCallbackOps<'a> {
     loader: &'a dyn ClassLoader,
 }
 
+#[allow(clippy::too_many_arguments, clippy::option_option)]
+fn callback_invoke_registered_lambda(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    class: &str,
+    method: &str,
+    descriptor: &str,
+    args: &[Slot],
+) -> VmResult<Option<Option<Slot>>> {
+    let Some(lambda_info) = registry.get_lambda(class).cloned() else {
+        return Ok(None);
+    };
+    if method != lambda_info.sam_method || descriptor != lambda_info.sam_desc {
+        return Ok(None);
+    }
+
+    let this_ref = match args.first().copied() {
+        Some(Slot::Reference(Some(reference))) => reference,
+        Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+        Some(_) => {
+            return Err(VmError::TypeMismatch {
+                expected: "reference",
+                got: "other",
+            });
+        }
+    };
+    let lambda_object = heap.get(this_ref)?;
+    let mut impl_args =
+        Vec::with_capacity(lambda_info.captured_count + args.len().saturating_sub(1));
+    for capture_index in 0..lambda_info.captured_count {
+        let slot =
+            lambda_object
+                .fields
+                .get(capture_index)
+                .copied()
+                .ok_or(VmError::Unimplemented {
+                    mnemonic: "lambda capture missing",
+                })?;
+        impl_args.push(slot);
+    }
+    impl_args.extend_from_slice(&args[1..]);
+
+    let dispatch_class = match lambda_info.impl_kind {
+        6 | 7 => lambda_info.impl_class.clone(),
+        5 | 9 => match impl_args.first().copied() {
+            Some(Slot::Reference(Some(receiver_ref))) => {
+                let receiver_class = heap.get(receiver_ref)?.class_name.clone();
+                if has_registered_native_override(
+                    registry,
+                    &receiver_class,
+                    &lambda_info.impl_method,
+                    &lambda_info.impl_desc,
+                ) {
+                    receiver_class
+                } else if let Some((dispatch_class, _)) = resolve_method_in_hierarchy(
+                    registry,
+                    loader,
+                    &receiver_class,
+                    &lambda_info.impl_method,
+                    &lambda_info.impl_desc,
+                ) {
+                    dispatch_class
+                } else {
+                    lambda_info.impl_class.clone()
+                }
+            }
+            Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+            Some(_) => {
+                return Err(VmError::TypeMismatch {
+                    expected: "reference",
+                    got: "other",
+                });
+            }
+        },
+        _ => {
+            return Err(VmError::Unimplemented {
+                mnemonic: "unsupported lambda impl kind",
+            });
+        }
+    };
+
+    Ok(Some(execute_class(
+        registry,
+        loader,
+        heap,
+        output,
+        &dispatch_class,
+        &lambda_info.impl_method,
+        &lambda_info.impl_desc,
+        &impl_args,
+    )?))
+}
+
 impl CallbackOps for InterpreterCallbackOps<'_> {
     fn invoke(
         &mut self,
@@ -6564,6 +10145,18 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         descriptor: &str,
         args: Vec<Slot>,
     ) -> VmResult<Option<Slot>> {
+        if let Some(result) = callback_invoke_registered_lambda(
+            self.registry,
+            self.loader,
+            heap,
+            output,
+            class,
+            method,
+            descriptor,
+            &args,
+        )? {
+            return Ok(result);
+        }
         execute_class(
             self.registry,
             self.loader,
@@ -6577,6 +10170,11 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
     }
 
     fn ensure_loaded(&mut self, class: &str) -> VmResult<()> {
+        match self.registry.resolve_loaded_class_key(class) {
+            Ok(_) => return Ok(()),
+            Err(VmError::ClassNotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
         if self.registry.ensure_loaded(class, self.loader)? {
             Ok(())
         } else {
@@ -6588,6 +10186,153 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
 
     fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo> {
         inspect_reflected_class(self.registry, self.loader, class)
+    }
+
+    fn ensure_class_initialized(
+        &mut self,
+        heap: &mut duke_gc::Heap,
+        output: &mut dyn Write,
+        class: &str,
+    ) -> VmResult<()> {
+        self.ensure_loaded(class)?;
+        ensure_initialized(self.registry, self.loader, heap, output, class, "")
+    }
+
+    fn code_source_for_class(&mut self, class: &str) -> VmResult<Option<String>> {
+        Ok(self
+            .registry
+            .code_source_for_class(class)
+            .map(ToOwned::to_owned))
+    }
+
+    fn ensure_loaded_with_runtime_loader(
+        &mut self,
+        heap: &duke_gc::Heap,
+        loader_ref: u64,
+        class: &str,
+    ) -> VmResult<()> {
+        if let Some(path) = launched_class_loader_archive_path(self.registry, heap, loader_ref)? {
+            if self
+                .registry
+                .ensure_loaded_with_provenance(class, &path, Some(loader_ref))?
+            {
+                return Ok(());
+            }
+            return Err(VmError::ClassNotFound {
+                name: class.to_string(),
+            });
+        }
+        self.ensure_loaded(class)
+    }
+
+    fn instance_field_slot(&mut self, class: &str, field_name: &str) -> VmResult<usize> {
+        field_slot_idx(self.registry, class, field_name)
+    }
+
+    fn read_instance_field(
+        &mut self,
+        heap: &duke_gc::Heap,
+        object_ref: u64,
+        declaring_class: &str,
+        field_name: &str,
+    ) -> VmResult<Slot> {
+        let actual_class = heap.get(object_ref)?.class_name.clone();
+        if !is_assignable_from(
+            self.registry,
+            self.loader,
+            &actual_class,
+            declaring_class,
+            Some(declaring_class),
+        ) {
+            return Err(VmError::JavaException {
+                class_name: "java/lang/IllegalArgumentException".to_string(),
+            });
+        }
+        let slot = field_slot_idx(self.registry, declaring_class, field_name)?;
+        Ok(heap.get(object_ref)?.fields[slot])
+    }
+
+    fn write_instance_field(
+        &mut self,
+        heap: &mut duke_gc::Heap,
+        object_ref: u64,
+        declaring_class: &str,
+        field_name: &str,
+        value: Slot,
+    ) -> VmResult<()> {
+        let actual_class = heap.get(object_ref)?.class_name.clone();
+        if !is_assignable_from(
+            self.registry,
+            self.loader,
+            &actual_class,
+            declaring_class,
+            Some(declaring_class),
+        ) {
+            return Err(VmError::JavaException {
+                class_name: "java/lang/IllegalArgumentException".to_string(),
+            });
+        }
+        let slot = field_slot_idx(self.registry, declaring_class, field_name)?;
+        heap.write_field(object_ref, slot, value)?;
+        Ok(())
+    }
+
+    fn read_static_field(&mut self, class: &str, field_name: &str) -> VmResult<Slot> {
+        let slot = {
+            let ctx = self.registry.get(class)?;
+            static_field_idx(ctx, field_name)?
+        };
+        Ok(self.registry.get(class)?.static_fields[slot])
+    }
+
+    fn write_static_field(&mut self, class: &str, field_name: &str, value: Slot) -> VmResult<()> {
+        let slot = {
+            let ctx = self.registry.get(class)?;
+            static_field_idx(ctx, field_name)?
+        };
+        self.registry.get_mut(class)?.static_fields[slot] = value;
+        Ok(())
+    }
+
+    fn runtime_loader_for_class(&mut self, class: &str) -> VmResult<Option<u64>> {
+        Ok(self.registry.runtime_loader_for_class(class))
+    }
+
+    fn class_key_for_loaded_class(&mut self, class: &str) -> VmResult<String> {
+        self.registry.resolve_loaded_class_key(class)
+    }
+
+    fn class_key_for_runtime_loader(
+        &mut self,
+        heap: &duke_gc::Heap,
+        loader_ref: u64,
+        class: &str,
+    ) -> VmResult<String> {
+        if let Some(path) = launched_class_loader_archive_path(self.registry, heap, loader_ref)? {
+            return Ok(self.registry.class_key_from_provenance(
+                class,
+                Some(&path),
+                Some(loader_ref),
+            ));
+        }
+        self.class_key_for_loaded_class(class)
+    }
+
+    fn class_key_from_source(
+        &mut self,
+        class: &str,
+        source_class: Option<&str>,
+    ) -> VmResult<String> {
+        Ok(self.registry.class_key_from_source(class, source_class))
+    }
+
+    fn allocate_instance(
+        &mut self,
+        heap: &mut duke_gc::Heap,
+        output: &mut dyn Write,
+        class: &str,
+    ) -> VmResult<u64> {
+        allocate_reflection_instance(self.registry, self.loader, heap, output, class)
     }
 }
 
@@ -6724,19 +10469,33 @@ fn prepare_execution_state(
     descriptor: &str,
     args: &[Slot],
 ) -> VmResult<ExecutionState> {
+    let class_name = match registry.resolve_loaded_class_key(class_name) {
+        Ok(class_key) => class_key,
+        Err(VmError::ClassNotFound { .. }) => {
+            if !registry.ensure_loaded(class_name, loader)? {
+                return Err(VmError::ClassNotFound {
+                    name: class_name.to_string(),
+                });
+            }
+            registry.resolve_loaded_class_key(class_name)?
+        }
+        Err(err) => return Err(err),
+    };
     let entry_idx = {
-        let ctx = registry.get(class_name)?;
+        let ctx = registry.get(&class_name)?;
         ctx.methods
             .iter()
             .position(|m| m.name == method_name && m.descriptor == descriptor)
             .ok_or_else(|| VmError::MethodNotFound {
-                name: method_name.to_string(),
+                name: format!("{class_name}.{method_name}"),
                 descriptor: descriptor.to_string(),
             })?
     };
 
-    ensure_initialized(registry, loader, heap, stdout, class_name, "")?;
-    ExecutionState::new(registry, class_name, method_name, entry_idx, args)
+    let class_loader = registry.class_loader(&class_name).cloned();
+    let init_loader = class_loader.as_deref().map_or(loader, |v| v);
+    ensure_initialized(registry, init_loader, heap, stdout, &class_name, "")?;
+    ExecutionState::new(registry, &class_name, method_name, entry_idx, args)
 }
 
 #[cfg(feature = "telemetry")]
@@ -6936,10 +10695,7 @@ pub fn execute_class(
     // Fast path: if a native handler is registered for this class/method/descriptor,
     // dispatch it directly without requiring a ClassContext in the registry.
     // This handles both Simple natives and Callback natives at the top-level call site.
-    match registry
-        .natives_mut()
-        .get_kind(class_name, method_name, descriptor)
-    {
+    match lookup_registered_native_kind(registry, class_name, method_name, descriptor) {
         Some(HandlerKind::Simple(h)) => {
             let mut native_control = NativeControl::default();
             let result = h(args, heap, stdout, &mut native_control)?;
@@ -7039,6 +10795,22 @@ fn run_execution(
             (pc, instr.clone())
         };
 
+        if std::env::var_os("DUKE_TRACE_EXEC").is_some() {
+            let method_name = registry
+                .get(current_class)
+                .ok()
+                .and_then(|ctx| ctx.methods.get(*method_idx))
+                .map_or("<unknown>", |method| method.name.as_str());
+            eprintln!(
+                "duke: trace {}::{}@{} {} stack={}",
+                current_class,
+                method_name,
+                pc,
+                instr.mnemonic(),
+                frame.stack_len()
+            );
+        }
+
         macro_rules! jump {
             ($offset:expr) => {{
                 let target = (pc as i64).wrapping_add(i64::from($offset)) as usize;
@@ -7117,6 +10889,7 @@ fn run_execution(
                     &exc_table,
                     $throw_pc,
                     &exc_class_name,
+                    current_class,
                     registry,
                     loader,
                 );
@@ -7193,6 +10966,7 @@ fn run_execution(
                                 &caller_exc_table,
                                 caller_pc,
                                 &exc_class_name,
+                                current_class,
                                 registry,
                                 loader,
                             );
@@ -7285,10 +11059,32 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
-                registry.ensure_loaded(&callee_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &callee_class, current_class)?;
-                let callee_idx = {
-                    let ctx = registry.get(&callee_class)?;
+                let class_was_loaded = registry.ensure_loaded_from(
+                    &callee_class,
+                    Some(current_class.as_str()),
+                    loader,
+                )?;
+                let callee_class_key =
+                    registry.class_key_from_source(&callee_class, Some(current_class.as_str()));
+                if class_was_loaded {
+                    ensure_initialized(
+                        registry,
+                        loader,
+                        heap,
+                        stdout,
+                        &callee_class_key,
+                        current_class,
+                    )?;
+                }
+                let callee_idx = if has_registered_native_override(
+                    registry,
+                    &callee_class_key,
+                    &callee_name,
+                    &callee_desc,
+                ) {
+                    None
+                } else {
+                    let ctx = registry.get(&callee_class_key)?;
                     ctx.methods
                         .iter()
                         .position(|m| m.name == callee_name && m.descriptor == callee_desc)
@@ -7299,9 +11095,9 @@ fn run_execution(
                         dispatch_cache
                             .entry(current_class.clone())
                             .or_default()
-                            .insert(cp_idx.0, (callee_class.clone(), callee_idx, arg_count));
+                            .insert(cp_idx.0, (callee_class_key.clone(), callee_idx, arg_count));
                         let (callee_pc_to_idx, callee_frame) = {
-                            let ctx = registry.get(&callee_class)?;
+                            let ctx = registry.get(&callee_class_key)?;
                             let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                             let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                             let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
@@ -7327,7 +11123,7 @@ fn run_execution(
                             current_class,
                             call_stack,
                             registry,
-                            callee_class,
+                            callee_class_key,
                             callee_idx,
                             callee_pc_to_idx,
                             callee_frame,
@@ -7340,8 +11136,9 @@ fn run_execution(
                     }
                     None => {
                         // Check native registry before erroring.
-                        let handler_kind = registry.natives_mut().get_kind(
-                            &callee_class,
+                        let handler_kind = lookup_registered_native_kind(
+                            registry,
+                            &callee_class_key,
                             &callee_name,
                             &callee_desc,
                         );
@@ -7363,7 +11160,7 @@ fn run_execution(
                                     handler(&native_args, heap, stdout, &mut native_control);
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
-                                    &callee_class,
+                                    registry.internal_name_for_class(&callee_class_key),
                                     &callee_name,
                                     _native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
@@ -7413,7 +11210,7 @@ fn run_execution(
                                 };
                                 #[cfg(feature = "telemetry")]
                                 registry.telemetry.native_boundary.record_call(
-                                    &callee_class,
+                                    registry.internal_name_for_class(&callee_class_key),
                                     &callee_name,
                                     _native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
@@ -7440,7 +11237,10 @@ fn run_execution(
                             }
                             None => {
                                 return Err(VmError::MethodNotFound {
-                                    name: callee_name,
+                                    name: format!(
+                                        "{}.{callee_name}",
+                                        registry.internal_name_for_class(&callee_class_key)
+                                    ),
                                     descriptor: callee_desc,
                                 });
                             }
@@ -8182,23 +11982,32 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
-                registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
+                let target_class_key =
+                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
+                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                ensure_initialized(
+                    registry,
+                    loader,
+                    heap,
+                    stdout,
+                    &target_class_key,
+                    current_class,
+                )?;
                 // Walk the super chain to sum all instance field counts
                 // (e.g. Enum has 2 fields inherited by every enum subclass).
-                let field_count = total_instance_field_count(registry, &target_class);
+                let field_count = total_instance_field_count(registry, &target_class_key);
                 #[cfg(feature = "telemetry")]
                 registry.telemetry.object_lineage.record(
                     current_class,
                     current_method,
                     pc,
-                    &target_class,
+                    &target_class_key,
                 );
-                let r = heap.allocate(target_class.clone(), field_count);
+                let r = heap.allocate(target_class_key.clone(), field_count);
                 // Set reference/long/float/double fields to their JVM-spec defaults.
                 // heap.allocate initialises everything to Int(0), which is wrong
                 // for reference-typed fields (should be Reference(None)).
-                init_object_fields(registry, heap, r, &target_class);
+                init_object_fields(registry, heap, r, &target_class_key);
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
                     let roots = gather_roots(frame, call_stack, registry);
@@ -8213,9 +12022,11 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
+                let target_class_key =
+                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let r = frame.pop_ref()?;
-                registry.ensure_loaded(&target_class, loader)?;
-                let fidx = field_slot_idx(registry, &target_class, &field_name)?;
+                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
                 let val = heap.get(r)?.fields[fidx];
                 frame.push(val)?;
             }
@@ -8224,10 +12035,12 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
+                let target_class_key =
+                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let val = frame.pop()?;
                 let r = frame.pop_ref()?;
-                registry.ensure_loaded(&target_class, loader)?;
-                let fidx = field_slot_idx(registry, &target_class, &field_name)?;
+                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
                 heap.write_field(r, fidx, val)?;
             }
             Instruction::Getstatic(cp_idx) => {
@@ -8235,10 +12048,19 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
-                registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
-                let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
-                let val = registry.get(&target_class)?.static_fields[sidx];
+                let target_class_key =
+                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
+                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                ensure_initialized(
+                    registry,
+                    loader,
+                    heap,
+                    stdout,
+                    &target_class_key,
+                    current_class,
+                )?;
+                let sidx = static_field_idx(registry.get(&target_class_key)?, &field_name)?;
+                let val = registry.get(&target_class_key)?.static_fields[sidx];
                 frame.push(val)?;
             }
             Instruction::Putstatic(cp_idx) => {
@@ -8246,11 +12068,20 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
+                let target_class_key =
+                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let val = frame.pop()?;
-                registry.ensure_loaded(&target_class, loader)?;
-                ensure_initialized(registry, loader, heap, stdout, &target_class, current_class)?;
-                let sidx = static_field_idx(registry.get(&target_class)?, &field_name)?;
-                registry.get_mut(&target_class)?.static_fields[sidx] = val;
+                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                ensure_initialized(
+                    registry,
+                    loader,
+                    heap,
+                    stdout,
+                    &target_class_key,
+                    current_class,
+                )?;
+                let sidx = static_field_idx(registry.get(&target_class_key)?, &field_name)?;
+                registry.get_mut(&target_class_key)?.static_fields[sidx] = val;
             }
 
             // ---- Instance method dispatch ----
@@ -8310,40 +12141,82 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
+                let callee_class_key =
+                    registry.class_key_from_source(&callee_class, Some(current_class.as_str()));
                 // <clinit> (static initialiser) is not supported yet — skip silently.
                 if callee_name == "<clinit>" {
                     *idx += 1;
                     continue;
                 }
                 // Attempt to load the target class; soft-fail for unloadable.
-                let class_was_loaded = registry.ensure_loaded(&callee_class, loader)?;
-                let resolved = if class_was_loaded {
-                    resolve_method_in_hierarchy(
-                        registry,
-                        loader,
-                        &callee_class,
-                        &callee_name,
-                        &callee_desc,
-                    )
-                } else {
-                    None
-                };
-                let (dispatch_class, callee_idx) = match resolved {
-                    Some((cls, i)) => (cls, i),
-                    None => {
-                        // Check lambda dispatch before native fallback.
+                let class_was_loaded = registry.ensure_loaded_from(
+                    &callee_class,
+                    Some(current_class.as_str()),
+                    loader,
+                )?;
+                let virtual_start: Option<String> =
+                    if matches!(instr, Instruction::Invokevirtual(_)) {
                         let arg_count = parse_arg_count(&callee_desc);
                         let stack_len = frame.stack_len();
                         if stack_len > arg_count {
                             let this_pos = stack_len - arg_count - 1;
-                            let actual_class_opt =
-                                if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
-                                    heap.get(r).ok().map(|o| o.class_name.clone())
-                                } else {
-                                    None
-                                };
-
-                            if let Some(ref actual_class) = actual_class_opt
+                            if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
+                                heap.get(r).ok().map(|o| o.class_name.clone())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                let resolved = if let Some(runtime_class) = virtual_start.as_ref() {
+                    match resolve_method_in_hierarchy_lookup(
+                        registry,
+                        loader,
+                        runtime_class,
+                        &callee_name,
+                        &callee_desc,
+                    ) {
+                        MethodHierarchyLookup::Bytecode(class_name, method_idx) => {
+                            MethodHierarchyLookup::Bytecode(class_name, method_idx)
+                        }
+                        MethodHierarchyLookup::NativeOverride => {
+                            MethodHierarchyLookup::NativeOverride
+                        }
+                        MethodHierarchyLookup::Missing if class_was_loaded => {
+                            resolve_method_in_hierarchy_lookup(
+                                registry,
+                                loader,
+                                &callee_class_key,
+                                &callee_name,
+                                &callee_desc,
+                            )
+                        }
+                        MethodHierarchyLookup::Missing => MethodHierarchyLookup::Missing,
+                    }
+                } else if class_was_loaded {
+                    resolve_method_in_hierarchy_lookup(
+                        registry,
+                        loader,
+                        &callee_class_key,
+                        &callee_name,
+                        &callee_desc,
+                    )
+                } else {
+                    MethodHierarchyLookup::Missing
+                };
+                let allow_lambda_dispatch = matches!(resolved, MethodHierarchyLookup::Missing);
+                let (dispatch_class, callee_idx) = match resolved {
+                    MethodHierarchyLookup::Bytecode(cls, i) => (cls, i),
+                    MethodHierarchyLookup::NativeOverride | MethodHierarchyLookup::Missing => {
+                        // Check lambda dispatch before native fallback.
+                        if allow_lambda_dispatch {
+                            let arg_count = parse_arg_count(&callee_desc);
+                            let stack_len = frame.stack_len();
+                            if stack_len > arg_count
+                                && let Some(ref actual_class) = virtual_start
                                 && let Some(lambda_info) =
                                     registry.get_lambda(actual_class).cloned()
                                 && callee_name == lambda_info.sam_method
@@ -8368,12 +12241,20 @@ fn run_execution(
                                 }
                                 impl_args.extend(sam_args.iter().copied());
 
-                                let _ = registry.ensure_loaded(&lambda_info.impl_class, loader);
+                                let _ = registry.ensure_loaded_from(
+                                    &lambda_info.impl_class,
+                                    Some(current_class.as_str()),
+                                    loader,
+                                );
+                                let impl_class_key = registry.class_key_from_source(
+                                    &lambda_info.impl_class,
+                                    Some(current_class.as_str()),
+                                );
 
                                 let resolved = resolve_method_in_hierarchy(
                                     registry,
                                     loader,
-                                    &lambda_info.impl_class,
+                                    &impl_class_key,
                                     &lambda_info.impl_method,
                                     &lambda_info.impl_desc,
                                 );
@@ -8418,37 +12299,14 @@ fn run_execution(
                         }
                         // Check native registry, walking the super chain.
                         let native_handler_kind = {
-                            // For invokevirtual: first try the actual runtime class of
-                            // `this` so that subclass natives (e.g. duke/net/SocketInputStream
-                            // registered under read:()I) are found even when the call-site
-                            // declares the abstract base (java/io/InputStream).
-                            let virtual_start: Option<String> =
-                                if matches!(instr, Instruction::Invokevirtual(_)) {
-                                    let arg_count = parse_arg_count(&callee_desc);
-                                    let stack_len = frame.stack_len();
-                                    if stack_len > arg_count {
-                                        let this_pos = stack_len - arg_count - 1;
-                                        if let Ok(Slot::Reference(Some(r))) =
-                                            frame.peek_at(this_pos)
-                                        {
-                                            heap.get(r).ok().map(|o| o.class_name.clone())
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                };
-
                             let mut found = None;
 
                             // Walk from runtime class first (invokevirtual virtual dispatch).
                             if let Some(ref runtime_class) = virtual_start {
                                 let mut sc: Option<String> = Some(runtime_class.clone());
                                 while let Some(ref s) = sc {
-                                    if let Some(h) = registry.natives_mut().get_kind(
+                                    if let Some(h) = lookup_registered_native_kind(
+                                        registry,
                                         s,
                                         &callee_name,
                                         &callee_desc,
@@ -8462,8 +12320,9 @@ fn run_execution(
 
                             // Fall back to declared (callee_class) super chain.
                             if found.is_none() {
-                                found = registry.natives_mut().get_kind(
-                                    &callee_class,
+                                found = lookup_registered_native_kind(
+                                    registry,
+                                    &callee_class_key,
                                     &callee_name,
                                     &callee_desc,
                                 );
@@ -8471,18 +12330,19 @@ fn run_execution(
                             if found.is_none() {
                                 // Walk super chain for native lookup (e.g. Enum.ordinal
                                 // called via SimpleEnum$Color.ordinal).
-                                let start = if callee_class.starts_with('[') {
+                                let start = if callee_class_key.starts_with('[') {
                                     // Arrays inherit from Object.
                                     Some("java/lang/Object".to_string())
                                 } else {
                                     registry
-                                        .get(&callee_class)
+                                        .get(&callee_class_key)
                                         .ok()
                                         .and_then(|c| c.super_class.clone())
                                 };
                                 let mut sc = start;
                                 while let Some(ref s) = sc {
-                                    if let Some(h) = registry.natives_mut().get_kind(
+                                    if let Some(h) = lookup_registered_native_kind(
+                                        registry,
                                         s,
                                         &callee_name,
                                         &callee_desc,
@@ -8516,7 +12376,7 @@ fn run_execution(
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
-                                        &callee_class,
+                                        registry.internal_name_for_class(&callee_class_key),
                                         &callee_name,
                                         _native_start.elapsed().as_nanos() as u64,
                                         result.is_err(),
@@ -8527,7 +12387,7 @@ fn run_execution(
                                         registry.telemetry.dispatch_resolution.record(
                                             current_class,
                                             cp_idx.0,
-                                            &callee_class,
+                                            registry.internal_name_for_class(&callee_class_key),
                                             false,
                                         );
                                     }
@@ -8580,7 +12440,7 @@ fn run_execution(
                                 #[cfg(feature = "telemetry")]
                                 {
                                     registry.telemetry.native_boundary.record_call(
-                                        &callee_class,
+                                        registry.internal_name_for_class(&callee_class_key),
                                         &callee_name,
                                         _native_start.elapsed().as_nanos() as u64,
                                         result.is_err(),
@@ -8589,7 +12449,7 @@ fn run_execution(
                                         registry.telemetry.dispatch_resolution.record(
                                             current_class,
                                             cp_idx.0,
-                                            &callee_class,
+                                            registry.internal_name_for_class(&callee_class_key),
                                             false,
                                         );
                                     }
@@ -8615,14 +12475,27 @@ fn run_execution(
                                 continue;
                             }
                             None => {
-                                // Unloadable or missing — pop args + this and continue.
-                                let arg_count = parse_arg_count(&callee_desc);
-                                for _ in 0..arg_count {
-                                    frame.pop()?;
+                                if !class_was_loaded {
+                                    // Unloadable target — preserve legacy soft-fail behavior.
+                                    let arg_count = parse_arg_count(&callee_desc);
+                                    for _ in 0..arg_count {
+                                        frame.pop()?;
+                                    }
+                                    frame.pop()?; // pop `this`
+                                    *idx += 1;
+                                    continue;
                                 }
-                                frame.pop()?; // pop `this`
-                                *idx += 1;
-                                continue;
+                                return Err(VmError::MethodNotFound {
+                                    name: format!(
+                                        "{}.{callee_name}",
+                                        registry.internal_name_for_class(
+                                            virtual_start
+                                                .as_deref()
+                                                .unwrap_or(callee_class_key.as_str()),
+                                        )
+                                    ),
+                                    descriptor: callee_desc,
+                                });
                             }
                         }
                     }
@@ -8641,7 +12514,7 @@ fn run_execution(
                         current_class,
                         cp_idx.0,
                         &dispatch_class,
-                        dispatch_class != callee_class,
+                        dispatch_class != callee_class_key,
                     );
                 }
                 let (callee_pc_to_idx, callee_frame) = {
@@ -9061,7 +12934,13 @@ fn run_execution(
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
-                        if is_assignable_from(registry, loader, &actual, &target) {
+                        if is_assignable_from(
+                            registry,
+                            loader,
+                            &actual,
+                            &target,
+                            Some(current_class.as_str()),
+                        ) {
                             frame.push(slot)?;
                         } else {
                             return Err(VmError::ClassCastException {
@@ -9090,8 +12969,13 @@ fn run_execution(
                             resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
-                        let result =
-                            i32::from(is_assignable_from(registry, loader, &actual, &target));
+                        let result = i32::from(is_assignable_from(
+                            registry,
+                            loader,
+                            &actual,
+                            &target,
+                            Some(current_class.as_str()),
+                        ));
                         frame.push(Slot::Int(result))?;
                     }
                     _ => {
@@ -9254,7 +13138,11 @@ fn run_execution(
                         heap.get_mut(r)?.fields[i] = slot;
                     }
 
-                    let _ = registry.ensure_loaded(&impl_class, loader);
+                    let _ = registry.ensure_loaded_from(
+                        &impl_class,
+                        Some(current_class.as_str()),
+                        loader,
+                    );
 
                     frame.push(Slot::Reference(Some(r)))?;
                     if gc_allowed && heap.should_gc() {
@@ -9286,6 +13174,8 @@ fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
+                let callee_class_key =
+                    registry.class_key_from_source(&callee_class, Some(current_class.as_str()));
                 if callee_name == "<clinit>" {
                     *idx += 1;
                     continue;
@@ -9308,169 +13198,103 @@ fn run_execution(
                 .unwrap_or_else(|| callee_class.clone());
 
                 // Try to find the method on the actual class (walking hierarchy).
-                let resolved = resolve_method_in_hierarchy(
+                let resolved = match resolve_method_in_hierarchy_lookup(
                     registry,
                     loader,
                     &actual_class,
                     &callee_name,
                     &callee_desc,
-                );
-
-                let (dispatch_class, callee_idx) = if let Some(pair) = resolved {
-                    pair
-                } else {
-                    // Fall back to interface class hierarchy.
-                    let iface_resolved = resolve_method_in_hierarchy(
+                ) {
+                    MethodHierarchyLookup::Bytecode(class_name, method_idx) => {
+                        MethodHierarchyLookup::Bytecode(class_name, method_idx)
+                    }
+                    MethodHierarchyLookup::NativeOverride => MethodHierarchyLookup::NativeOverride,
+                    MethodHierarchyLookup::Missing => resolve_method_in_hierarchy_lookup(
                         registry,
                         loader,
-                        &callee_class,
+                        &callee_class_key,
                         &callee_name,
                         &callee_desc,
-                    );
-                    match iface_resolved {
-                        Some(pair) => pair,
-                        None => {
-                            // Check native registry — try actual class then interface class.
-                            let native_kind = registry
-                                .natives_mut()
-                                .get_kind(&actual_class, &callee_name, &callee_desc)
-                                .or_else(|| {
-                                    registry.natives_mut().get_kind(
-                                        &callee_class,
+                    ),
+                };
+                let allow_lambda_dispatch = matches!(resolved, MethodHierarchyLookup::Missing);
+
+                let (dispatch_class, callee_idx) =
+                    if let MethodHierarchyLookup::Bytecode(dispatch_class, callee_idx) = resolved {
+                        (dispatch_class, callee_idx)
+                    } else {
+                        // Check native registry — try actual class then interface class.
+                        let native_kind = lookup_registered_native_kind(
+                            registry,
+                            &actual_class,
+                            &callee_name,
+                            &callee_desc,
+                        )
+                        .or_else(|| {
+                            lookup_registered_native_kind(
+                                registry,
+                                &callee_class_key,
+                                &callee_name,
+                                &callee_desc,
+                            )
+                        });
+                        match native_kind {
+                            Some(HandlerKind::Simple(handler)) => {
+                                // Native path: collect args + this into a Vec<Slot>
+                                // for the handler(&[Slot], ...) signature.
+                                // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                                let mut callee_args = vec![Slot::Int(0); arg_count];
+
+                                for i in (0..arg_count).rev() {
+                                    callee_args[i] = frame.pop()?;
+                                }
+
+                                let this_slot = frame.pop()?;
+                                callee_args.insert(0, this_slot);
+                                #[cfg(feature = "telemetry")]
+                                let _native_start = std::time::Instant::now();
+                                let mut native_control = NativeControl::default();
+                                let result =
+                                    handler(&callee_args, heap, stdout, &mut native_control);
+                                #[cfg(feature = "telemetry")]
+                                {
+                                    registry.telemetry.native_boundary.record_call(
+                                        registry.internal_name_for_class(&callee_class_key),
                                         &callee_name,
-                                        &callee_desc,
-                                    )
-                                });
-                            match native_kind {
-                                Some(HandlerKind::Simple(handler)) => {
-                                    // Native path: collect args + this into a Vec<Slot>
-                                    // for the handler(&[Slot], ...) signature.
-                                    // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
-
-                                    let mut callee_args = vec![Slot::Int(0); arg_count];
-
-                                    for i in (0..arg_count).rev() {
-                                        callee_args[i] = frame.pop()?;
-                                    }
-
-                                    let this_slot = frame.pop()?;
-                                    callee_args.insert(0, this_slot);
-                                    #[cfg(feature = "telemetry")]
-                                    let _native_start = std::time::Instant::now();
-                                    let mut native_control = NativeControl::default();
-                                    let result =
-                                        handler(&callee_args, heap, stdout, &mut native_control);
-                                    #[cfg(feature = "telemetry")]
-                                    {
-                                        registry.telemetry.native_boundary.record_call(
-                                            &callee_class,
-                                            &callee_name,
-                                            _native_start.elapsed().as_nanos() as u64,
-                                            result.is_err(),
-                                        );
-                                        // Native interface methods skip the bytecode
-                                        // hierarchy walk — hierarchy_walk is always false here.
-                                        registry.telemetry.dispatch_resolution.record(
-                                            current_class,
-                                            cp_idx.0,
-                                            &actual_class,
-                                            false,
-                                        );
-                                    }
-                                    let result = match result {
-                                        Ok(result) => result,
-                                        Err(VmError::JavaException { class_name }) => {
-                                            let exception_ref = materialize_java_exception_object(
-                                                registry,
-                                                loader,
-                                                heap,
-                                                &class_name,
-                                            )?;
-                                            propagate_java_exception!(
-                                                class_name,
-                                                exception_ref,
-                                                pc
-                                            );
-                                        }
-                                        Err(err) => return Err(err),
-                                    };
-                                    if let Some(outcome) =
-                                        finish_native_call(&mut native_control, frame, idx, result)?
-                                    {
-                                        return Ok(outcome);
-                                    }
-                                    continue;
+                                        _native_start.elapsed().as_nanos() as u64,
+                                        result.is_err(),
+                                    );
+                                    // Native interface methods skip the bytecode
+                                    // hierarchy walk — hierarchy_walk is always false here.
+                                    registry.telemetry.dispatch_resolution.record(
+                                        current_class,
+                                        cp_idx.0,
+                                        &actual_class,
+                                        false,
+                                    );
                                 }
-                                Some(HandlerKind::Callback(handler)) => {
-                                    // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
-
-                                    let mut callee_args = vec![Slot::Int(0); arg_count];
-
-                                    for i in (0..arg_count).rev() {
-                                        callee_args[i] = frame.pop()?;
-                                    }
-                                    let this_slot = frame.pop()?;
-                                    callee_args.insert(0, this_slot);
-                                    #[cfg(feature = "telemetry")]
-                                    let _native_start = std::time::Instant::now();
-                                    let mut native_control = NativeControl::default();
-                                    let result = {
-                                        let mut callback_ops =
-                                            InterpreterCallbackOps { registry, loader };
-                                        handler(
-                                            &callee_args,
+                                let result = match result {
+                                    Ok(result) => result,
+                                    Err(VmError::JavaException { class_name }) => {
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
                                             heap,
-                                            stdout,
-                                            &mut native_control,
-                                            &mut callback_ops,
-                                        )
-                                    };
-                                    #[cfg(feature = "telemetry")]
-                                    {
-                                        registry.telemetry.native_boundary.record_call(
-                                            &callee_class,
-                                            &callee_name,
-                                            _native_start.elapsed().as_nanos() as u64,
-                                            result.is_err(),
-                                        );
-                                        registry.telemetry.dispatch_resolution.record(
-                                            current_class,
-                                            cp_idx.0,
-                                            &actual_class,
-                                            false,
-                                        );
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    let result = match result {
-                                        Ok(result) => result,
-                                        Err(VmError::JavaException { class_name }) => {
-                                            let exception_ref = materialize_java_exception_object(
-                                                registry,
-                                                loader,
-                                                heap,
-                                                &class_name,
-                                            )?;
-                                            propagate_java_exception!(
-                                                class_name,
-                                                exception_ref,
-                                                pc
-                                            );
-                                        }
-                                        Err(err) => return Err(err),
-                                    };
-                                    if let Some(outcome) =
-                                        finish_native_call(&mut native_control, frame, idx, result)?
-                                    {
-                                        return Ok(outcome);
-                                    }
-                                    continue;
+                                    Err(err) => return Err(err),
+                                };
+                                if let Some(outcome) =
+                                    finish_native_call(&mut native_control, frame, idx, result)?
+                                {
+                                    return Ok(outcome);
                                 }
-                                None => {} // fall through to lambda / no-op
+                                continue;
                             }
-                            // Check lambda registry for SAM dispatch.
-                            if let Some(lambda_info) = registry.get_lambda(&actual_class).cloned()
-                                && callee_name == lambda_info.sam_method
-                            {
-                                // Lambda path: collect args + this into a Vec<Slot>.
+                            Some(HandlerKind::Callback(handler)) => {
                                 // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
 
                                 let mut callee_args = vec![Slot::Int(0); arg_count];
@@ -9480,229 +13304,305 @@ fn run_execution(
                                 }
                                 let this_slot = frame.pop()?;
                                 callee_args.insert(0, this_slot);
-                                let this_ref = match &callee_args[0] {
-                                    Slot::Reference(Some(r)) => *r,
-                                    _ => return Err(VmError::NullPointerException),
+                                #[cfg(feature = "telemetry")]
+                                let _native_start = std::time::Instant::now();
+                                let mut native_control = NativeControl::default();
+                                let result = {
+                                    let mut callback_ops =
+                                        InterpreterCallbackOps { registry, loader };
+                                    handler(
+                                        &callee_args,
+                                        heap,
+                                        stdout,
+                                        &mut native_control,
+                                        &mut callback_ops,
+                                    )
                                 };
-                                let obj = heap.get(this_ref)?;
-                                let mut impl_args: Vec<Slot> = Vec::new();
-                                for i in 0..lambda_info.captured_count {
-                                    impl_args.push(obj.fields[i]);
+                                #[cfg(feature = "telemetry")]
+                                {
+                                    registry.telemetry.native_boundary.record_call(
+                                        registry.internal_name_for_class(&callee_class_key),
+                                        &callee_name,
+                                        _native_start.elapsed().as_nanos() as u64,
+                                        result.is_err(),
+                                    );
+                                    registry.telemetry.dispatch_resolution.record(
+                                        current_class,
+                                        cp_idx.0,
+                                        &actual_class,
+                                        false,
+                                    );
                                 }
-                                impl_args.extend(callee_args[1..].iter().copied());
-
-                                let _ = registry.ensure_loaded(&lambda_info.impl_class, loader);
-
-                                if lambda_info.impl_kind == 6 {
-                                    // invokeStatic dispatch
-                                    let resolved = resolve_method_in_hierarchy(
-                                        registry,
-                                        loader,
-                                        &lambda_info.impl_class,
-                                        &lambda_info.impl_method,
-                                        &lambda_info.impl_desc,
-                                    );
-                                    if let Some((dispatch_class, impl_idx)) = resolved {
-                                        let (callee_pc_to_idx, callee_frame) = {
-                                            let ctx = registry.get(&dispatch_class)?;
-                                            let max_locals =
-                                                usize::from(ctx.methods[impl_idx].max_locals);
-                                            let max_stack =
-                                                usize::from(ctx.methods[impl_idx].max_stack);
-                                            let pci = std::sync::Arc::clone(
-                                                &ctx.methods[impl_idx].pc_to_idx,
-                                            );
-                                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                                            locals_buf.resize(max_locals, Slot::Int(0));
-                                            for (i, slot) in impl_args.into_iter().enumerate() {
-                                                locals_buf[i] = slot;
-                                            }
-                                            let f = Frame::from_pool_bufs(
-                                                locals_buf, stack_buf, max_stack,
-                                            );
-                                            (pci, f)
-                                        };
-                                        activate_method_state(
-                                            frame,
-                                            method_idx,
-                                            pc_to_idx,
-                                            instructions,
-                                            current_class,
-                                            call_stack,
+                                let result = match result {
+                                    Ok(result) => result,
+                                    Err(VmError::JavaException { class_name }) => {
+                                        let exception_ref = materialize_java_exception_object(
                                             registry,
-                                            dispatch_class,
-                                            impl_idx,
-                                            callee_pc_to_idx,
-                                            callee_frame,
-                                            *idx + 1,
-                                            #[cfg(feature = "telemetry")]
-                                            current_method,
+                                            loader,
+                                            heap,
+                                            &class_name,
                                         )?;
-                                        *idx = 0;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
+                                    Err(err) => return Err(err),
+                                };
+                                if let Some(outcome) =
+                                    finish_native_call(&mut native_control, frame, idx, result)?
+                                {
+                                    return Ok(outcome);
+                                }
+                                continue;
+                            }
+                            None => {} // fall through to lambda / no-op
+                        }
+                        // Check lambda registry for SAM dispatch.
+                        if allow_lambda_dispatch
+                            && let Some(lambda_info) = registry.get_lambda(&actual_class).cloned()
+                            && callee_name == lambda_info.sam_method
+                        {
+                            // Lambda path: collect args + this into a Vec<Slot>.
+                            // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
+
+                            let mut callee_args = vec![Slot::Int(0); arg_count];
+
+                            for i in (0..arg_count).rev() {
+                                callee_args[i] = frame.pop()?;
+                            }
+                            let this_slot = frame.pop()?;
+                            callee_args.insert(0, this_slot);
+                            let this_ref = match &callee_args[0] {
+                                Slot::Reference(Some(r)) => *r,
+                                _ => return Err(VmError::NullPointerException),
+                            };
+                            let obj = heap.get(this_ref)?;
+                            let mut impl_args: Vec<Slot> = Vec::new();
+                            for i in 0..lambda_info.captured_count {
+                                impl_args.push(obj.fields[i]);
+                            }
+                            impl_args.extend(callee_args[1..].iter().copied());
+
+                            let _ = registry.ensure_loaded_from(
+                                &lambda_info.impl_class,
+                                Some(current_class.as_str()),
+                                loader,
+                            );
+                            let impl_class_key = registry.class_key_from_source(
+                                &lambda_info.impl_class,
+                                Some(current_class.as_str()),
+                            );
+
+                            if lambda_info.impl_kind == 6 {
+                                // invokeStatic dispatch
+                                let resolved = resolve_method_in_hierarchy(
+                                    registry,
+                                    loader,
+                                    &impl_class_key,
+                                    &lambda_info.impl_method,
+                                    &lambda_info.impl_desc,
+                                );
+                                if let Some((dispatch_class, impl_idx)) = resolved {
+                                    let (callee_pc_to_idx, callee_frame) = {
+                                        let ctx = registry.get(&dispatch_class)?;
+                                        let max_locals =
+                                            usize::from(ctx.methods[impl_idx].max_locals);
+                                        let max_stack =
+                                            usize::from(ctx.methods[impl_idx].max_stack);
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                                        locals_buf.resize(max_locals, Slot::Int(0));
+                                        for (i, slot) in impl_args.into_iter().enumerate() {
+                                            locals_buf[i] = slot;
+                                        }
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                        (pci, f)
+                                    };
+                                    activate_method_state(
+                                        frame,
+                                        method_idx,
+                                        pc_to_idx,
+                                        instructions,
+                                        current_class,
+                                        call_stack,
+                                        registry,
+                                        dispatch_class,
+                                        impl_idx,
+                                        callee_pc_to_idx,
+                                        callee_frame,
+                                        *idx + 1,
+                                        #[cfg(feature = "telemetry")]
+                                        current_method,
+                                    )?;
+                                    *idx = 0;
+                                    continue;
+                                }
+                            } else if lambda_info.impl_kind == 5 || lambda_info.impl_kind == 9 {
+                                // invokeVirtual / invokeInterface dispatch
+                                let impl_class_key = registry.class_key_from_source(
+                                    &lambda_info.impl_class,
+                                    Some(current_class.as_str()),
+                                );
+                                let resolved = resolve_method_in_hierarchy(
+                                    registry,
+                                    loader,
+                                    &impl_class_key,
+                                    &lambda_info.impl_method,
+                                    &lambda_info.impl_desc,
+                                );
+                                if let Some((dispatch_class, impl_idx)) = resolved {
+                                    let (callee_pc_to_idx, callee_frame) = {
+                                        let ctx = registry.get(&dispatch_class)?;
+                                        let max_locals =
+                                            usize::from(ctx.methods[impl_idx].max_locals);
+                                        let max_stack =
+                                            usize::from(ctx.methods[impl_idx].max_stack);
+                                        let pci =
+                                            std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                                        locals_buf.resize(max_locals, Slot::Int(0));
+                                        for (i, slot) in impl_args.into_iter().enumerate() {
+                                            locals_buf[i] = slot;
+                                        }
+                                        let f =
+                                            Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
+                                        (pci, f)
+                                    };
+                                    activate_method_state(
+                                        frame,
+                                        method_idx,
+                                        pc_to_idx,
+                                        instructions,
+                                        current_class,
+                                        call_stack,
+                                        registry,
+                                        dispatch_class,
+                                        impl_idx,
+                                        callee_pc_to_idx,
+                                        callee_frame,
+                                        *idx + 1,
+                                        #[cfg(feature = "telemetry")]
+                                        current_method,
+                                    )?;
+                                    *idx = 0;
+                                    continue;
+                                }
+                                // Try native fallback for virtual/interface
+                                let lambda_native_kind = lookup_registered_native_kind(
+                                    registry,
+                                    &impl_class_key,
+                                    &lambda_info.impl_method,
+                                    &lambda_info.impl_desc,
+                                );
+                                match lambda_native_kind {
+                                    Some(HandlerKind::Simple(handler)) => {
+                                        #[cfg(feature = "telemetry")]
+                                        let _native_start = std::time::Instant::now();
+                                        let mut native_control = NativeControl::default();
+                                        let result =
+                                            handler(&impl_args, heap, stdout, &mut native_control);
+                                        #[cfg(feature = "telemetry")]
+                                        registry.telemetry.native_boundary.record_call(
+                                            registry.internal_name_for_class(&impl_class_key),
+                                            &lambda_info.impl_method,
+                                            _native_start.elapsed().as_nanos() as u64,
+                                            result.is_err(),
+                                        );
+                                        let result = match result {
+                                            Ok(result) => result,
+                                            Err(VmError::JavaException { class_name }) => {
+                                                let exception_ref =
+                                                    materialize_java_exception_object(
+                                                        registry,
+                                                        loader,
+                                                        heap,
+                                                        &class_name,
+                                                    )?;
+                                                propagate_java_exception!(
+                                                    class_name,
+                                                    exception_ref,
+                                                    pc
+                                                );
+                                            }
+                                            Err(err) => return Err(err),
+                                        };
+                                        if let Some(outcome) = finish_native_call(
+                                            &mut native_control,
+                                            frame,
+                                            idx,
+                                            result,
+                                        )? {
+                                            return Ok(outcome);
+                                        }
                                         continue;
                                     }
-                                } else if lambda_info.impl_kind == 5 || lambda_info.impl_kind == 9 {
-                                    // invokeVirtual / invokeInterface dispatch
-                                    let resolved = resolve_method_in_hierarchy(
-                                        registry,
-                                        loader,
-                                        &lambda_info.impl_class,
-                                        &lambda_info.impl_method,
-                                        &lambda_info.impl_desc,
-                                    );
-                                    if let Some((dispatch_class, impl_idx)) = resolved {
-                                        let (callee_pc_to_idx, callee_frame) = {
-                                            let ctx = registry.get(&dispatch_class)?;
-                                            let max_locals =
-                                                usize::from(ctx.methods[impl_idx].max_locals);
-                                            let max_stack =
-                                                usize::from(ctx.methods[impl_idx].max_stack);
-                                            let pci = std::sync::Arc::clone(
-                                                &ctx.methods[impl_idx].pc_to_idx,
-                                            );
-                                            let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                                            locals_buf.resize(max_locals, Slot::Int(0));
-                                            for (i, slot) in impl_args.into_iter().enumerate() {
-                                                locals_buf[i] = slot;
-                                            }
-                                            let f = Frame::from_pool_bufs(
-                                                locals_buf, stack_buf, max_stack,
-                                            );
-                                            (pci, f)
-                                        };
-                                        activate_method_state(
-                                            frame,
-                                            method_idx,
-                                            pc_to_idx,
-                                            instructions,
-                                            current_class,
-                                            call_stack,
-                                            registry,
-                                            dispatch_class,
-                                            impl_idx,
-                                            callee_pc_to_idx,
-                                            callee_frame,
-                                            *idx + 1,
-                                            #[cfg(feature = "telemetry")]
-                                            current_method,
-                                        )?;
-                                        *idx = 0;
-                                        continue;
-                                    }
-                                    // Try native fallback for virtual/interface
-                                    let lambda_native_kind = registry.natives_mut().get_kind(
-                                        &lambda_info.impl_class,
-                                        &lambda_info.impl_method,
-                                        &lambda_info.impl_desc,
-                                    );
-                                    match lambda_native_kind {
-                                        Some(HandlerKind::Simple(handler)) => {
-                                            #[cfg(feature = "telemetry")]
-                                            let _native_start = std::time::Instant::now();
-                                            let mut native_control = NativeControl::default();
-                                            let result = handler(
+                                    Some(HandlerKind::Callback(handler)) => {
+                                        #[cfg(feature = "telemetry")]
+                                        let _native_start = std::time::Instant::now();
+                                        let mut native_control = NativeControl::default();
+                                        let result = {
+                                            let mut callback_ops =
+                                                InterpreterCallbackOps { registry, loader };
+                                            handler(
                                                 &impl_args,
                                                 heap,
                                                 stdout,
                                                 &mut native_control,
-                                            );
-                                            #[cfg(feature = "telemetry")]
-                                            registry.telemetry.native_boundary.record_call(
-                                                &lambda_info.impl_class,
-                                                &lambda_info.impl_method,
-                                                _native_start.elapsed().as_nanos() as u64,
-                                                result.is_err(),
-                                            );
-                                            let result = match result {
-                                                Ok(result) => result,
-                                                Err(VmError::JavaException { class_name }) => {
-                                                    let exception_ref =
-                                                        materialize_java_exception_object(
-                                                            registry,
-                                                            loader,
-                                                            heap,
-                                                            &class_name,
-                                                        )?;
-                                                    propagate_java_exception!(
-                                                        class_name,
-                                                        exception_ref,
-                                                        pc
-                                                    );
-                                                }
-                                                Err(err) => return Err(err),
-                                            };
-                                            if let Some(outcome) = finish_native_call(
-                                                &mut native_control,
-                                                frame,
-                                                idx,
-                                                result,
-                                            )? {
-                                                return Ok(outcome);
+                                                &mut callback_ops,
+                                            )
+                                        };
+                                        #[cfg(feature = "telemetry")]
+                                        registry.telemetry.native_boundary.record_call(
+                                            registry.internal_name_for_class(&impl_class_key),
+                                            &lambda_info.impl_method,
+                                            _native_start.elapsed().as_nanos() as u64,
+                                            result.is_err(),
+                                        );
+                                        let result = match result {
+                                            Ok(result) => result,
+                                            Err(VmError::JavaException { class_name }) => {
+                                                let exception_ref =
+                                                    materialize_java_exception_object(
+                                                        registry,
+                                                        loader,
+                                                        heap,
+                                                        &class_name,
+                                                    )?;
+                                                propagate_java_exception!(
+                                                    class_name,
+                                                    exception_ref,
+                                                    pc
+                                                );
                                             }
-                                            continue;
+                                            Err(err) => return Err(err),
+                                        };
+                                        if let Some(outcome) = finish_native_call(
+                                            &mut native_control,
+                                            frame,
+                                            idx,
+                                            result,
+                                        )? {
+                                            return Ok(outcome);
                                         }
-                                        Some(HandlerKind::Callback(handler)) => {
-                                            #[cfg(feature = "telemetry")]
-                                            let _native_start = std::time::Instant::now();
-                                            let mut native_control = NativeControl::default();
-                                            let result = {
-                                                let mut callback_ops =
-                                                    InterpreterCallbackOps { registry, loader };
-                                                handler(
-                                                    &impl_args,
-                                                    heap,
-                                                    stdout,
-                                                    &mut native_control,
-                                                    &mut callback_ops,
-                                                )
-                                            };
-                                            #[cfg(feature = "telemetry")]
-                                            registry.telemetry.native_boundary.record_call(
-                                                &lambda_info.impl_class,
-                                                &lambda_info.impl_method,
-                                                _native_start.elapsed().as_nanos() as u64,
-                                                result.is_err(),
-                                            );
-                                            let result = match result {
-                                                Ok(result) => result,
-                                                Err(VmError::JavaException { class_name }) => {
-                                                    let exception_ref =
-                                                        materialize_java_exception_object(
-                                                            registry,
-                                                            loader,
-                                                            heap,
-                                                            &class_name,
-                                                        )?;
-                                                    propagate_java_exception!(
-                                                        class_name,
-                                                        exception_ref,
-                                                        pc
-                                                    );
-                                                }
-                                                Err(err) => return Err(err),
-                                            };
-                                            if let Some(outcome) = finish_native_call(
-                                                &mut native_control,
-                                                frame,
-                                                idx,
-                                                result,
-                                            )? {
-                                                return Ok(outcome);
-                                            }
-                                            continue;
-                                        }
-                                        None => {}
+                                        continue;
                                     }
+                                    None => {}
                                 }
-                                *idx += 1;
-                                continue;
                             }
-                            // No-op fallback.
                             *idx += 1;
                             continue;
                         }
-                    }
-                };
+                        if !registry.contains(&actual_class)
+                            && !registry.contains(&callee_class_key)
+                        {
+                            *idx += 1;
+                            continue;
+                        }
+                        return Err(VmError::MethodNotFound {
+                            name: format!("{actual_class}.{callee_name}"),
+                            descriptor: callee_desc,
+                        });
+                    };
 
                 // Bytecode execution path — Pattern B: pop directly into locals_buf.
                 #[cfg(feature = "telemetry")]
@@ -9919,11 +13819,12 @@ fn join_java_thread(
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
 ) -> VmResult<()> {
+    let mut first_error = None;
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap();
             if runtime.handles.is_empty() {
-                return Ok(());
+                return first_error.unwrap_or(Ok(()));
             }
             runtime
                 .handles
@@ -9934,7 +13835,11 @@ fn wait_for_all_java_threads(
 
         for handle in handles {
             match handle.join() {
-                Ok(result) => result?,
+                Ok(result) => {
+                    if let Err(e) = result {
+                        first_error.get_or_insert(Err(e));
+                    }
+                }
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }
@@ -10105,11 +14010,7 @@ where
     L: ClassLoader + Send + Sync + 'static,
 {
     let loader: std::sync::Arc<dyn ClassLoader + Send + Sync> = std::sync::Arc::new(loader);
-    if registry
-        .natives()
-        .get_kind(class_name, method_name, descriptor)
-        .is_some()
-    {
+    if lookup_registered_native_kind(registry, class_name, method_name, descriptor).is_some() {
         return execute_class(
             registry,
             loader.as_ref(),
@@ -10229,7 +14130,7 @@ struct CallFrame {
 #[allow(clippy::too_many_lines)]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
-    use duke_classfile::access_flags::FieldAccessFlags;
+    use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
     use duke_classfile::types::{AttributeData, CpEntry};
 
     // Resolve this_class -> class name string.
@@ -10313,6 +14214,8 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
             Some(MethodEntry {
                 name,
                 descriptor,
+                is_public: m.access_flags.contains(MethodAccessFlags::PUBLIC),
+                is_static: m.access_flags.contains(MethodAccessFlags::STATIC),
                 instructions: instructions.into(),
                 max_stack: code.max_stack,
                 max_locals: code.max_locals,
@@ -10323,7 +14226,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         .collect();
 
     let mut fields = Vec::new();
-    let mut static_count = 0usize;
+    let mut static_fields = Vec::new();
     let mut instance_count = 0usize;
 
     for f in &cf.fields {
@@ -10337,7 +14240,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         };
         let is_static = f.access_flags.contains(FieldAccessFlags::STATIC);
         if is_static {
-            static_count += 1;
+            static_fields.push(default_slot_for_descriptor(&descriptor));
         } else {
             instance_count += 1;
         }
@@ -10382,7 +14285,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         constant_pool: cf.constant_pool.clone(),
         methods,
         fields,
-        static_fields: vec![Slot::Int(0); static_count],
+        static_fields,
         instance_field_count: instance_count,
         bootstrap_methods,
     }
@@ -10404,7 +14307,18 @@ fn resolve_class_name(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String>
 }
 
 fn internal_name_to_binary_name(name: &str) -> String {
-    name.replace('/', ".")
+    match name {
+        "B" => "byte".to_string(),
+        "C" => "char".to_string(),
+        "D" => "double".to_string(),
+        "F" => "float".to_string(),
+        "I" => "int".to_string(),
+        "J" => "long".to_string(),
+        "S" => "short".to_string(),
+        "Z" => "boolean".to_string(),
+        "V" => "void".to_string(),
+        _ => name.replace('/', "."),
+    }
 }
 
 fn binary_name_to_internal_name(name: &str) -> String {
@@ -10418,70 +14332,160 @@ fn cp_utf8_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> {
     }
 }
 
+fn reflected_class_info_from_loader(
+    loader: &dyn ClassLoader,
+    internal_name: &str,
+) -> Option<ReflectedClassInfo> {
+    use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
+
+    let bytes = loader.find_class(internal_name).ok()?;
+    let class_file = duke_classfile::parse(&bytes).ok()?;
+    let methods = class_file
+        .methods
+        .iter()
+        .filter_map(|method| {
+            let name =
+                cp_utf8_string(&class_file.constant_pool, method.name_index.0 as usize).ok()?;
+            let descriptor = cp_utf8_string(
+                &class_file.constant_pool,
+                method.descriptor_index.0 as usize,
+            )
+            .ok()?;
+            Some(ReflectedMethodInfo {
+                name,
+                descriptor,
+                is_public: method.access_flags.contains(MethodAccessFlags::PUBLIC),
+                is_static: method.access_flags.contains(MethodAccessFlags::STATIC),
+            })
+        })
+        .collect();
+    let fields = class_file
+        .fields
+        .iter()
+        .filter_map(|field| {
+            let name =
+                cp_utf8_string(&class_file.constant_pool, field.name_index.0 as usize).ok()?;
+            let descriptor =
+                cp_utf8_string(&class_file.constant_pool, field.descriptor_index.0 as usize)
+                    .ok()?;
+            Some(ReflectedFieldInfo {
+                name,
+                descriptor,
+                is_public: field.access_flags.contains(FieldAccessFlags::PUBLIC),
+                is_static: field.access_flags.contains(FieldAccessFlags::STATIC),
+            })
+        })
+        .collect();
+    let super_class = if class_file.super_class.0 != 0 {
+        resolve_class_name(&class_file.constant_pool, class_file.super_class.0 as usize).ok()
+    } else {
+        None
+    };
+    let interfaces = class_file
+        .interfaces
+        .iter()
+        .filter_map(|idx| resolve_class_name(&class_file.constant_pool, idx.0 as usize).ok())
+        .collect();
+    Some(ReflectedClassInfo {
+        internal_name: internal_name.to_string(),
+        binary_name: internal_name_to_binary_name(internal_name),
+        super_class,
+        interfaces,
+        methods,
+        fields,
+    })
+}
+
+fn qualify_reflected_class_info_ancestry(
+    registry: &ClassRegistry,
+    source_class: &str,
+    mut info: ReflectedClassInfo,
+) -> ReflectedClassInfo {
+    info.super_class = info
+        .super_class
+        .map(|super_class| registry.class_key_from_source(&super_class, Some(source_class)));
+    info.interfaces = info
+        .interfaces
+        .into_iter()
+        .map(|interface| registry.class_key_from_source(&interface, Some(source_class)))
+        .collect();
+    info
+}
+
 fn inspect_reflected_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
-    internal_name: &str,
+    class: &str,
 ) -> VmResult<ReflectedClassInfo> {
-    use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
-
-    if let Ok(bytes) = loader.find_class(internal_name)
-        && let Ok(class_file) = duke_classfile::parse(&bytes)
-    {
-        let methods = class_file
-            .methods
-            .iter()
-            .filter_map(|method| {
-                let name =
-                    cp_utf8_string(&class_file.constant_pool, method.name_index.0 as usize).ok()?;
-                let descriptor = cp_utf8_string(
-                    &class_file.constant_pool,
-                    method.descriptor_index.0 as usize,
-                )
-                .ok()?;
-                Some(ReflectedMethodInfo {
-                    name,
-                    descriptor,
-                    is_public: method.access_flags.contains(MethodAccessFlags::PUBLIC),
-                    is_static: method.access_flags.contains(MethodAccessFlags::STATIC),
+    let internal_name = registry.internal_name_for_class(class).to_string();
+    match registry.resolve_loaded_class_key(class) {
+        Ok(class_key) => {
+            if let Some(class_loader) = registry.class_loader(&class_key)
+                && let Some(info) =
+                    reflected_class_info_from_loader(class_loader.as_ref(), &internal_name)
+            {
+                return Ok(qualify_reflected_class_info_ancestry(
+                    registry, &class_key, info,
+                ));
+            }
+            if let Some(info) = reflected_class_info_from_loader(loader, &internal_name) {
+                return Ok(qualify_reflected_class_info_ancestry(
+                    registry, &class_key, info,
+                ));
+            }
+            let ctx = registry.get(&class_key)?;
+            let methods = ctx
+                .methods
+                .iter()
+                .map(|method| ReflectedMethodInfo {
+                    name: method.name.clone(),
+                    descriptor: method.descriptor.clone(),
+                    is_public: method.is_public,
+                    is_static: method.is_static,
                 })
-            })
-            .collect();
-        let fields = class_file
-            .fields
-            .iter()
-            .filter_map(|field| {
-                let name =
-                    cp_utf8_string(&class_file.constant_pool, field.name_index.0 as usize).ok()?;
-                let descriptor =
-                    cp_utf8_string(&class_file.constant_pool, field.descriptor_index.0 as usize)
-                        .ok()?;
-                Some(ReflectedFieldInfo {
-                    name,
-                    descriptor,
-                    is_public: field.access_flags.contains(FieldAccessFlags::PUBLIC),
-                    is_static: field.access_flags.contains(FieldAccessFlags::STATIC),
+                .collect();
+            let fields = ctx
+                .fields
+                .iter()
+                .map(|field| ReflectedFieldInfo {
+                    name: field.name.clone(),
+                    descriptor: field.descriptor.clone(),
+                    is_public: true,
+                    is_static: field.is_static,
                 })
-            })
-            .collect();
-        return Ok(ReflectedClassInfo {
-            internal_name: internal_name.to_string(),
-            binary_name: internal_name_to_binary_name(internal_name),
-            methods,
-            fields,
-        });
+                .collect();
+            return Ok(ReflectedClassInfo {
+                internal_name: internal_name.clone(),
+                binary_name: internal_name_to_binary_name(&internal_name),
+                super_class: ctx.super_class.clone(),
+                interfaces: ctx.interfaces.clone(),
+                methods,
+                fields,
+            });
+        }
+        Err(VmError::ClassNotFound { .. }) => {}
+        Err(err) => return Err(err),
     }
 
-    registry.ensure_loaded(internal_name, loader)?;
-    let ctx = registry.get(internal_name)?;
+    if !registry.contains(class)
+        && let Some(info) = reflected_class_info_from_loader(loader, &internal_name)
+    {
+        return Ok(info);
+    }
+
+    if !registry.contains(class) {
+        registry.ensure_loaded(&internal_name, loader)?;
+    }
+    let class_key = registry.resolve_loaded_class_key(class)?;
+    let ctx = registry.get(&class_key)?;
     let methods = ctx
         .methods
         .iter()
         .map(|method| ReflectedMethodInfo {
             name: method.name.clone(),
             descriptor: method.descriptor.clone(),
-            is_public: true,
-            is_static: false,
+            is_public: method.is_public,
+            is_static: method.is_static,
         })
         .collect();
     let fields = ctx
@@ -10496,8 +14500,10 @@ fn inspect_reflected_class(
         .collect();
 
     Ok(ReflectedClassInfo {
-        internal_name: internal_name.to_string(),
-        binary_name: internal_name_to_binary_name(internal_name),
+        internal_name: internal_name.clone(),
+        binary_name: internal_name_to_binary_name(&internal_name),
+        super_class: ctx.super_class.clone(),
+        interfaces: ctx.interfaces.clone(),
         methods,
         fields,
     })
@@ -10508,18 +14514,29 @@ const REFLECTION_MEMBER_NAME_FIELD: usize = 1;
 const REFLECTION_MEMBER_DESCRIPTOR_FIELD: usize = 2;
 const REFLECTION_MEMBER_PUBLIC_FIELD: usize = 3;
 const REFLECTION_MEMBER_STATIC_FIELD: usize = 4;
+const REFLECTION_MEMBER_ACCESSIBLE_FIELD: usize = 5;
 
-fn allocate_class_object(heap: &mut duke_gc::Heap, internal_name: &str) -> VmResult<u64> {
+fn class_internal_name_from_key(class_key: &str) -> &str {
+    class_key
+        .split_once('\0')
+        .map_or(class_key, |(internal_name, _)| internal_name)
+}
+
+fn allocate_class_object(heap: &mut duke_gc::Heap, class_key: &str) -> VmResult<u64> {
     let class_ref = heap.allocate("java/lang/Class".to_string(), 0);
-    heap.get_mut(class_ref)?.string_value = Some(internal_name.to_string());
+    heap.get_mut(class_ref)?.string_value = Some(class_key.to_string());
     Ok(class_ref)
 }
 
-fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
+fn class_key_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
     heap.get(class_ref)?
         .string_value
         .clone()
         .ok_or(VmError::InvalidRef { address: class_ref })
+}
+
+fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
+    Ok(class_internal_name_from_key(&class_key_from_ref(heap, class_ref)?).to_string())
 }
 
 fn allocate_reference_array(
@@ -10549,7 +14566,7 @@ fn allocate_reflection_member_object(
     is_public: bool,
     is_static: bool,
 ) -> VmResult<u64> {
-    let member_ref = heap.allocate(member_class_name.to_string(), 5);
+    let member_ref = heap.allocate(member_class_name.to_string(), 6);
     let declaring_class_ref = allocate_class_object(heap, declaring_internal_name)?;
     let name_ref = heap.allocate_string(name.to_string());
     let descriptor_ref = heap.allocate_string(descriptor.to_string());
@@ -10578,6 +14595,7 @@ fn allocate_reflection_member_object(
         REFLECTION_MEMBER_STATIC_FIELD,
         Slot::Int(i32::from(is_static)),
     )?;
+    heap.write_field(member_ref, REFLECTION_MEMBER_ACCESSIBLE_FIELD, Slot::Int(0))?;
     Ok(member_ref)
 }
 
@@ -10591,6 +14609,66 @@ fn reflection_member_name_slot(heap: &duke_gc::Heap, member_ref: u64) -> VmResul
         })
 }
 
+fn reflection_member_declaring_class_slot(heap: &duke_gc::Heap, member_ref: u64) -> VmResult<Slot> {
+    heap.get(member_ref)?
+        .fields
+        .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
+        .copied()
+        .ok_or(VmError::InvalidRef {
+            address: member_ref,
+        })
+}
+
+fn reflection_member_declaring_class_name_slot(
+    heap: &mut duke_gc::Heap,
+    member_ref: u64,
+) -> VmResult<Slot> {
+    let Slot::Reference(Some(class_ref)) =
+        reflection_member_declaring_class_slot(heap, member_ref)?
+    else {
+        return Err(VmError::InvalidRef {
+            address: member_ref,
+        });
+    };
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let binary_name = internal_name_to_binary_name(class_internal_name_from_key(&class_key));
+    let name_ref = heap.allocate_string(binary_name);
+    Ok(Slot::Reference(Some(name_ref)))
+}
+
+fn descriptor_class_key_from_source(
+    ops: &mut dyn CallbackOps,
+    descriptor: &str,
+    source_class: Option<&str>,
+) -> VmResult<String> {
+    match descriptor.as_bytes().first().copied() {
+        Some(b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b'V')
+            if descriptor.len() == 1 =>
+        {
+            Ok(descriptor.to_string())
+        }
+        Some(b'[') => Ok(descriptor.to_string()),
+        Some(b'L') if descriptor.ends_with(';') => {
+            ops.class_key_from_source(&descriptor[1..descriptor.len() - 1], source_class)
+        }
+        _ => Err(VmError::TypeMismatch {
+            expected: "type descriptor",
+            got: "other",
+        }),
+    }
+}
+
+fn descriptor_class_slot_from_source(
+    heap: &mut duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+    descriptor: &str,
+    source_class: Option<&str>,
+) -> VmResult<Slot> {
+    let class_key = descriptor_class_key_from_source(ops, descriptor, source_class)?;
+    let class_ref = allocate_class_object(heap, &class_key)?;
+    Ok(Slot::Reference(Some(class_ref)))
+}
+
 fn reflection_array_elements(heap: &duke_gc::Heap, args_slot: Slot) -> VmResult<Vec<Slot>> {
     match args_slot {
         Slot::Reference(None) => Ok(Vec::new()),
@@ -10602,12 +14680,332 @@ fn reflection_array_elements(heap: &duke_gc::Heap, args_slot: Slot) -> VmResult<
     }
 }
 
+fn class_descriptor_from_class_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    if internal_name.starts_with('[') || internal_name.len() == 1 {
+        Ok(internal_name)
+    } else {
+        Ok(format!("L{internal_name};"))
+    }
+}
+
+fn parameter_descriptor_from_class_array(heap: &duke_gc::Heap, slot: Slot) -> VmResult<String> {
+    let params = reflection_array_elements(heap, slot)?;
+    let mut descriptor = String::from("(");
+    for param in params {
+        let class_ref = match param {
+            Slot::Reference(Some(class_ref)) => class_ref,
+            Slot::Reference(None) => return Err(VmError::NullPointerException),
+            _ => {
+                return Err(VmError::TypeMismatch {
+                    expected: "reference array",
+                    got: "other",
+                });
+            }
+        };
+        descriptor.push_str(&class_descriptor_from_class_ref(heap, class_ref)?);
+    }
+    descriptor.push(')');
+    Ok(descriptor)
+}
+
+fn descriptor_parameter_part(descriptor: &str) -> &str {
+    descriptor
+        .find(')')
+        .map_or(descriptor, |idx| &descriptor[..=idx])
+}
+
+fn lookup_public_reflected_field(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+    field_name: &str,
+) -> VmResult<Option<(String, ReflectedFieldInfo)>> {
+    lookup_public_reflected_field_inner(ops, class, field_name, &mut HashSet::new())
+}
+
+fn lookup_public_reflected_field_inner(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+    field_name: &str,
+    visited: &mut HashSet<String>,
+) -> VmResult<Option<(String, ReflectedFieldInfo)>> {
+    if !visited.insert(class.to_string()) {
+        return Ok(None);
+    }
+    let reflected = ops.inspect_class(class)?;
+    if let Some(field) = reflected
+        .fields
+        .iter()
+        .find(|field| field.is_public && field.name == field_name)
+        .cloned()
+    {
+        return Ok(Some((class.to_string(), field)));
+    }
+    if let Some(super_class) = reflected.super_class.clone()
+        && let Some(found) =
+            lookup_public_reflected_field_inner(ops, &super_class, field_name, visited)?
+    {
+        return Ok(Some(found));
+    }
+    for interface in reflected.interfaces {
+        if let Some(found) =
+            lookup_public_reflected_field_inner(ops, &interface, field_name, visited)?
+        {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
+}
+
+fn lookup_public_reflected_method(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+    method_name: &str,
+    parameter_descriptor: &str,
+) -> VmResult<Option<(String, ReflectedMethodInfo)>> {
+    lookup_public_reflected_method_inner(
+        ops,
+        class,
+        method_name,
+        parameter_descriptor,
+        &mut HashSet::new(),
+    )
+}
+
+fn lookup_public_reflected_method_inner(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+    method_name: &str,
+    parameter_descriptor: &str,
+    visited: &mut HashSet<String>,
+) -> VmResult<Option<(String, ReflectedMethodInfo)>> {
+    if !visited.insert(class.to_string()) {
+        return Ok(None);
+    }
+    let reflected = ops.inspect_class(class)?;
+    if let Some(method) = reflected
+        .methods
+        .iter()
+        .find(|method| {
+            method.is_public
+                && method.name != "<init>"
+                && method.name != "<clinit>"
+                && method.name == method_name
+                && descriptor_parameter_part(&method.descriptor) == parameter_descriptor
+        })
+        .cloned()
+    {
+        return Ok(Some((class.to_string(), method)));
+    }
+    if let Some(super_class) = reflected.super_class.clone()
+        && let Some(found) = lookup_public_reflected_method_inner(
+            ops,
+            &super_class,
+            method_name,
+            parameter_descriptor,
+            visited,
+        )?
+    {
+        return Ok(Some(found));
+    }
+    for interface in reflected.interfaces {
+        if let Some(found) = lookup_public_reflected_method_inner(
+            ops,
+            &interface,
+            method_name,
+            parameter_descriptor,
+            visited,
+        )? {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
+}
+
+fn collect_public_reflected_fields(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+) -> VmResult<Vec<(String, ReflectedFieldInfo)>> {
+    let mut collected = Vec::new();
+    collect_public_reflected_fields_inner(
+        ops,
+        class,
+        &mut HashSet::new(),
+        &mut HashSet::new(),
+        &mut collected,
+    )?;
+    Ok(collected)
+}
+
+fn collect_public_reflected_fields_inner(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+    visited_classes: &mut HashSet<String>,
+    seen_fields: &mut HashSet<String>,
+    collected: &mut Vec<(String, ReflectedFieldInfo)>,
+) -> VmResult<()> {
+    if !visited_classes.insert(class.to_string()) {
+        return Ok(());
+    }
+    let reflected = ops.inspect_class(class)?;
+    for field in reflected.fields {
+        if !field.is_public {
+            continue;
+        }
+        let key = format!("{class}\0{}\0{}", field.name, field.descriptor);
+        if seen_fields.insert(key) {
+            collected.push((class.to_string(), field));
+        }
+    }
+    if let Some(super_class) = reflected.super_class {
+        collect_public_reflected_fields_inner(
+            ops,
+            &super_class,
+            visited_classes,
+            seen_fields,
+            collected,
+        )?;
+    }
+    for interface in reflected.interfaces {
+        collect_public_reflected_fields_inner(
+            ops,
+            &interface,
+            visited_classes,
+            seen_fields,
+            collected,
+        )?;
+    }
+    Ok(())
+}
+
+fn collect_public_reflected_methods(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+) -> VmResult<Vec<(String, ReflectedMethodInfo)>> {
+    let mut collected = Vec::new();
+    collect_public_reflected_methods_inner(
+        ops,
+        class,
+        &mut HashSet::new(),
+        &mut HashSet::new(),
+        &mut collected,
+    )?;
+    Ok(collected)
+}
+
+fn collect_public_reflected_methods_inner(
+    ops: &mut dyn CallbackOps,
+    class: &str,
+    visited_classes: &mut HashSet<String>,
+    seen_methods: &mut HashSet<String>,
+    collected: &mut Vec<(String, ReflectedMethodInfo)>,
+) -> VmResult<()> {
+    if !visited_classes.insert(class.to_string()) {
+        return Ok(());
+    }
+    let reflected = ops.inspect_class(class)?;
+    for method in reflected.methods {
+        if !method.is_public || method.name == "<init>" || method.name == "<clinit>" {
+            continue;
+        }
+        let key = format!(
+            "{}\0{}",
+            method.name,
+            descriptor_parameter_part(&method.descriptor)
+        );
+        if seen_methods.insert(key) {
+            collected.push((class.to_string(), method));
+        }
+    }
+    if let Some(super_class) = reflected.super_class {
+        collect_public_reflected_methods_inner(
+            ops,
+            &super_class,
+            visited_classes,
+            seen_methods,
+            collected,
+        )?;
+    }
+    for interface in reflected.interfaces {
+        collect_public_reflected_methods_inner(
+            ops,
+            &interface,
+            visited_classes,
+            seen_methods,
+            collected,
+        )?;
+    }
+    Ok(())
+}
+
+struct ReflectedFieldHandle {
+    declaring_class_key: String,
+    field_name: String,
+    descriptor: String,
+    is_public: bool,
+    is_static: bool,
+    is_accessible: bool,
+}
+
+fn reflected_field_handle(heap: &duke_gc::Heap, field_ref: u64) -> VmResult<ReflectedFieldHandle> {
+    let field_obj = heap.get(field_ref)?;
+    let Some(Slot::Reference(Some(declaring_class_ref))) = field_obj
+        .fields
+        .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
+        .copied()
+    else {
+        return Err(VmError::InvalidRef { address: field_ref });
+    };
+    let Some(Slot::Reference(Some(name_ref))) =
+        field_obj.fields.get(REFLECTION_MEMBER_NAME_FIELD).copied()
+    else {
+        return Err(VmError::InvalidRef { address: field_ref });
+    };
+    let Some(Slot::Reference(Some(descriptor_ref))) = field_obj
+        .fields
+        .get(REFLECTION_MEMBER_DESCRIPTOR_FIELD)
+        .copied()
+    else {
+        return Err(VmError::InvalidRef { address: field_ref });
+    };
+    let is_public = matches!(
+        field_obj.fields.get(REFLECTION_MEMBER_PUBLIC_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+    let is_static = matches!(
+        field_obj.fields.get(REFLECTION_MEMBER_STATIC_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+    let is_accessible = matches!(
+        field_obj.fields.get(REFLECTION_MEMBER_ACCESSIBLE_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+
+    Ok(ReflectedFieldHandle {
+        declaring_class_key: class_key_from_ref(heap, declaring_class_ref)?,
+        field_name: heap
+            .get(name_ref)?
+            .string_value
+            .clone()
+            .ok_or(VmError::NullPointerException)?,
+        descriptor: heap
+            .get(descriptor_ref)?
+            .string_value
+            .clone()
+            .ok_or(VmError::NullPointerException)?,
+        is_public,
+        is_static,
+        is_accessible,
+    })
+}
+
 struct ReflectedMethodHandle {
-    declaring_internal_name: String,
+    declaring_class_key: String,
     method_name: String,
     descriptor: String,
     is_public: bool,
     is_static: bool,
+    is_accessible: bool,
 }
 
 fn reflected_method_handle(
@@ -10648,9 +15046,13 @@ fn reflected_method_handle(
         method_obj.fields.get(REFLECTION_MEMBER_STATIC_FIELD),
         Some(Slot::Int(value)) if *value != 0
     );
+    let is_accessible = matches!(
+        method_obj.fields.get(REFLECTION_MEMBER_ACCESSIBLE_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
 
     Ok(ReflectedMethodHandle {
-        declaring_internal_name: class_internal_name_from_ref(heap, declaring_class_ref)?,
+        declaring_class_key: class_key_from_ref(heap, declaring_class_ref)?,
         method_name: heap
             .get(name_ref)?
             .string_value
@@ -10663,6 +15065,7 @@ fn reflected_method_handle(
             .ok_or(VmError::NullPointerException)?,
         is_public,
         is_static,
+        is_accessible,
     })
 }
 
@@ -10765,6 +15168,10 @@ fn descriptor_return_type(descriptor: &str) -> char {
         .split_once(')')
         .and_then(|(_, ret)| ret.chars().next())
         .unwrap_or('V')
+}
+
+fn method_return_descriptor(descriptor: &str) -> &str {
+    descriptor.split_once(')').map_or("V", |(_, ret)| ret)
 }
 
 fn box_reflection_return_value(
@@ -10893,36 +15300,51 @@ fn is_assignable_from(
     loader: &dyn ClassLoader,
     from: &str,
     to: &str,
+    target_source_class: Option<&str>,
 ) -> bool {
-    if from == to || to == "java/lang/Object" {
+    let from_key = if registry.contains(from) {
+        from.to_string()
+    } else {
+        registry.class_key_from_source(from, Some(from))
+    };
+    let to_key = if registry.contains(to) {
+        to.to_string()
+    } else {
+        registry.class_key_from_source(to, target_source_class)
+    };
+    let from_internal = registry.internal_name_for_class(&from_key);
+    let to_internal = registry.internal_name_for_class(&to_key);
+    if from_key == to_key || to_internal == "java/lang/Object" {
         return true;
     }
     // Arrays implement Cloneable and Serializable; everything else is Object.
-    if from.starts_with('[') {
-        return matches!(to, "java/lang/Cloneable" | "java/io/Serializable");
+    if from_internal.starts_with('[') {
+        return matches!(to_internal, "java/lang/Cloneable" | "java/io/Serializable");
     }
 
     let mut queue: VecDeque<String> = VecDeque::new();
     let mut visited: HashSet<String> = HashSet::new();
-    queue.push_back(from.to_string());
+    queue.push_back(from_key);
 
     while let Some(current) = queue.pop_front() {
         if !visited.insert(current.clone()) {
             continue;
         }
-        let _ = registry.ensure_loaded(&current, loader);
+        if !registry.contains(&current) {
+            let _ = registry.ensure_loaded_from(&current, Some(from), loader);
+        }
         let (super_class, interfaces) = match registry.get(&current) {
             Ok(ctx) => (ctx.super_class.clone(), ctx.interfaces.clone()),
             Err(_) => continue,
         };
         if let Some(sc) = super_class {
-            if sc == to {
+            if sc == to_key {
                 return true;
             }
             queue.push_back(sc);
         }
         for iface in interfaces {
-            if iface == to {
+            if iface == to_key {
                 return true;
             }
             queue.push_back(iface);
@@ -10939,6 +15361,7 @@ fn find_exception_handler(
     exception_table: &[ExceptionEntry],
     pc: usize,
     class_name: &str,
+    handler_class: &str,
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
 ) -> Option<u16> {
@@ -10947,7 +15370,7 @@ fn find_exception_handler(
         #[allow(clippy::option_if_let_else)] // match is clearer with &mut registry
         let type_matches = match &entry.catch_type {
             None => true, // catch-all (finally)
-            Some(ct) => is_assignable_from(registry, loader, class_name, ct),
+            Some(ct) => is_assignable_from(registry, loader, class_name, ct, Some(handler_class)),
         };
         if in_range && type_matches {
             Some(entry.handler_pc)
@@ -10955,6 +15378,88 @@ fn find_exception_handler(
             None
         }
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MethodHierarchyLookup {
+    Bytecode(String, usize),
+    NativeOverride,
+    Missing,
+}
+
+fn has_registered_native_override(
+    registry: &ClassRegistry,
+    class_name: &str,
+    method_name: &str,
+    method_desc: &str,
+) -> bool {
+    lookup_registered_native_kind(registry, class_name, method_name, method_desc).is_some()
+}
+
+fn lookup_registered_native_kind(
+    registry: &ClassRegistry,
+    class_name: &str,
+    method_name: &str,
+    method_desc: &str,
+) -> Option<HandlerKind> {
+    registry
+        .natives()
+        .get_kind(class_name, method_name, method_desc)
+        .or_else(|| {
+            let internal_name = registry.internal_name_for_class(class_name);
+            (internal_name != class_name)
+                .then(|| {
+                    registry
+                        .natives()
+                        .get_kind(internal_name, method_name, method_desc)
+                })
+                .flatten()
+        })
+}
+
+/// Walk the class hierarchy to find a bytecode method by name and descriptor,
+/// stopping early if an exact native override owns that slot.
+fn resolve_method_in_hierarchy_lookup(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    start_class: &str,
+    method_name: &str,
+    method_desc: &str,
+) -> MethodHierarchyLookup {
+    let mut current = if registry.contains(start_class) {
+        start_class.to_string()
+    } else {
+        registry.class_key_from_source(start_class, Some(start_class))
+    };
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current.clone()) {
+            return MethodHierarchyLookup::Missing; // circular — bail
+        }
+        if has_registered_native_override(registry, &current, method_name, method_desc) {
+            return MethodHierarchyLookup::NativeOverride;
+        }
+        if !registry.contains(&current) {
+            let _ = registry.ensure_loaded_from(&current, Some(start_class), loader);
+            current = registry.class_key_from_source(&current, Some(start_class));
+        }
+        match registry.get(&current) {
+            Ok(ctx) => {
+                if let Some(idx) = ctx
+                    .methods
+                    .iter()
+                    .position(|m| m.name == method_name && m.descriptor == method_desc)
+                {
+                    return MethodHierarchyLookup::Bytecode(current, idx);
+                }
+                match &ctx.super_class {
+                    Some(s) => current.clone_from(s),
+                    None => return MethodHierarchyLookup::Missing,
+                }
+            }
+            Err(_) => return MethodHierarchyLookup::Missing,
+        }
+    }
 }
 
 /// Walk the class hierarchy to find a method by name and descriptor.
@@ -10966,29 +15471,15 @@ fn resolve_method_in_hierarchy(
     method_name: &str,
     method_desc: &str,
 ) -> Option<(String, usize)> {
-    let mut current = start_class.to_string();
-    let mut visited = HashSet::new();
-    loop {
-        if !visited.insert(current.clone()) {
-            return None; // circular — bail
-        }
-        let _ = registry.ensure_loaded(&current, loader);
-        match registry.get(&current) {
-            Ok(ctx) => {
-                if let Some(idx) = ctx
-                    .methods
-                    .iter()
-                    .position(|m| m.name == method_name && m.descriptor == method_desc)
-                {
-                    return Some((current, idx));
-                }
-                match &ctx.super_class {
-                    Some(s) => current.clone_from(s),
-                    None => return None,
-                }
-            }
-            Err(_) => return None,
-        }
+    match resolve_method_in_hierarchy_lookup(
+        registry,
+        loader,
+        start_class,
+        method_name,
+        method_desc,
+    ) {
+        MethodHierarchyLookup::Bytecode(class_name, method_idx) => Some((class_name, method_idx)),
+        MethodHierarchyLookup::NativeOverride | MethodHierarchyLookup::Missing => None,
     }
 }
 
@@ -11221,6 +15712,50 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
     types
 }
 
+fn parse_arg_descriptors(descriptor: &str) -> Vec<String> {
+    let params = descriptor
+        .strip_prefix('(')
+        .and_then(|s| s.split_once(')'))
+        .map_or("", |(p, _)| p);
+    let mut descriptors = Vec::new();
+    let mut chars = params.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => descriptors.push(c.to_string()),
+            '[' => {
+                let mut desc = String::from("[");
+                while chars.peek() == Some(&'[') {
+                    desc.push(chars.next().unwrap_or('['));
+                }
+                if chars.peek() == Some(&'L') {
+                    desc.push(chars.next().unwrap_or('L'));
+                    for c2 in chars.by_ref() {
+                        desc.push(c2);
+                        if c2 == ';' {
+                            break;
+                        }
+                    }
+                } else if let Some(elem) = chars.next() {
+                    desc.push(elem);
+                }
+                descriptors.push(desc);
+            }
+            'L' => {
+                let mut desc = String::from("L");
+                for c2 in chars.by_ref() {
+                    desc.push(c2);
+                    if c2 == ';' {
+                        break;
+                    }
+                }
+                descriptors.push(desc);
+            }
+            _ => {}
+        }
+    }
+    descriptors
+}
+
 /// Index of a named instance field within ctx.fields (non-static only).
 /// Return the correct default [`Slot`] for a field with the given JVM descriptor.
 ///
@@ -11278,6 +15813,26 @@ fn materialize_java_exception_object(
     );
     init_object_fields(registry, heap, exc_ref, class_name);
     Ok(exc_ref)
+}
+
+fn allocate_reflection_instance(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    class: &str,
+) -> VmResult<u64> {
+    if !registry.contains(class) {
+        registry.ensure_loaded(class, loader)?;
+    }
+    let class_key = registry.resolve_loaded_class_key(class)?;
+    ensure_initialized(registry, loader, heap, output, &class_key, &class_key)?;
+    let object_ref = heap.allocate(
+        class_key.clone(),
+        total_instance_field_count(registry, &class_key),
+    );
+    init_object_fields(registry, heap, object_ref, &class_key);
+    Ok(object_ref)
 }
 
 /// After allocating an object on the heap, initialize each field slot to the
@@ -11450,15 +16005,7 @@ fn native_sb_append_long(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -11474,15 +16021,7 @@ fn native_sb_append_double(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -11498,15 +16037,7 @@ fn native_sb_append_float(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -11742,7 +16273,7 @@ fn native_arraylist_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
         Some(Slot::Int(sz)) => *sz += 1,
@@ -11761,15 +16292,7 @@ fn native_arraylist_get(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let idx = match args.get(1) {
-        Some(Slot::Int(i)) => *i as usize,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let idx = extract_int_arg(args, 1)? as usize;
     let obj = heap.get(this_ref)?;
     obj.fields.get(idx + 1).map_or_else(
         || {
@@ -11811,6 +16334,86 @@ fn native_arraylist_iterator(
         iter_obj.fields[1] = Slot::Int(0);
     }
     Ok(Some(Slot::Reference(Some(iter_ref))))
+}
+
+fn collection_elements_from_ref(heap: &duke_gc::Heap, collection_ref: u64) -> VmResult<Vec<Slot>> {
+    let collection = heap.get(collection_ref)?;
+    match collection.class_name.as_str() {
+        "java/util/ArrayList" | "java/util/HashSet" => {
+            let size = match collection.fields.first() {
+                Some(Slot::Int(size)) if *size >= 0 => usize::try_from(*size).unwrap_or(0),
+                _ => 0,
+            };
+            Ok(collection
+                .fields
+                .iter()
+                .skip(1)
+                .take(size)
+                .copied()
+                .collect())
+        }
+        _ => Err(VmError::TypeMismatch {
+            expected: "java/util/Collection",
+            got: "other",
+        }),
+    }
+}
+
+fn allocate_reference_array_from_slots(
+    heap: &mut duke_gc::Heap,
+    array_class_name: &str,
+    elements: &[Slot],
+) -> VmResult<u64> {
+    let array_ref = heap.allocate(array_class_name.to_string(), elements.len());
+    let array = heap.get_mut(array_ref)?;
+    for slot in &mut array.fields {
+        *slot = Slot::Reference(None);
+    }
+    for (idx, element) in elements.iter().enumerate() {
+        array.fields[idx] = *element;
+    }
+    Ok(array_ref)
+}
+
+/// Native: `Collection.toArray()` — copies Duke-backed collection elements into `Object[]`.
+fn native_collection_to_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elements = collection_elements_from_ref(heap, this_ref)?;
+    let array_ref = allocate_reference_array_from_slots(heap, "[Ljava/lang/Object;", &elements)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+/// Native: `Collection.toArray(Object[])` — preserves the requested array type.
+fn native_collection_to_array_with_seed_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let seed_array_ref = extract_ref_arg(args, 1)?;
+    let elements = collection_elements_from_ref(heap, this_ref)?;
+    let seed_class_name = heap.get(seed_array_ref)?.class_name.clone();
+    let seed_len = heap.get(seed_array_ref)?.fields.len();
+
+    if seed_len < elements.len() {
+        let new_array_ref = allocate_reference_array_from_slots(heap, &seed_class_name, &elements)?;
+        return Ok(Some(Slot::Reference(Some(new_array_ref))));
+    }
+
+    let seed_array = heap.get_mut(seed_array_ref)?;
+    for slot in &mut seed_array.fields {
+        *slot = Slot::Reference(None);
+    }
+    for (idx, element) in elements.iter().enumerate() {
+        seed_array.fields[idx] = *element;
+    }
+    Ok(Some(Slot::Reference(Some(seed_array_ref))))
 }
 
 /// Native: `ArrayList.sort(Comparator)V` — sorts in-place using insertion sort,
@@ -12062,10 +16665,7 @@ fn native_double_compareto(
         Some(s) => double_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => double_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = double_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
@@ -12099,7 +16699,7 @@ fn native_arrays_fill_object(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let val = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let val = extract_slot_arg(args, 1);
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
         *slot = val;
@@ -12171,8 +16771,22 @@ fn native_arrays_sort_int(
 // HashMap natives
 // ---------------------------------------------------------------------------
 
-/// Semantic equality for `HashMap` keys: compares by `string_value` for heap strings,
-/// or by the first field (e.g. intValue) for boxed numerics, or by reference identity.
+fn uses_first_field_value_equality(class_name: &str) -> bool {
+    matches!(
+        class_name,
+        "java/lang/Boolean"
+            | "java/lang/Byte"
+            | "java/lang/Character"
+            | "java/lang/Double"
+            | "java/lang/Float"
+            | "java/lang/Integer"
+            | "java/lang/Long"
+            | "java/lang/Short"
+    )
+}
+
+/// Semantic equality for `HashMap` keys: reference identity by default, with value
+/// semantics for strings, class mirrors, and boxed primitive wrappers.
 fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
     match (a, b) {
         (Slot::Reference(None), Slot::Reference(None)) => true,
@@ -12182,13 +16796,15 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             }
             let Ok(oa) = heap.get(*ra) else { return false };
             let Ok(ob) = heap.get(*rb) else { return false };
-            if oa.class_name == "java/lang/String" || ob.class_name == "java/lang/String" {
-                return oa.string_value == ob.string_value;
+            if oa.class_name != ob.class_name {
+                return false;
             }
-            if oa.class_name == ob.class_name {
-                oa.fields.first() == ob.fields.first()
-            } else {
-                false
+            match oa.class_name.as_str() {
+                "java/lang/String" | "java/lang/Class" => oa.string_value == ob.string_value,
+                class_name if uses_first_field_value_equality(class_name) => {
+                    oa.fields.first() == ob.fields.first()
+                }
+                _ => false,
             }
         }
         _ => false,
@@ -12227,8 +16843,8 @@ fn native_hashmap_put(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let val = extract_slot_arg(args, 2);
     // Clone fields to release the immutable borrow before mutating.
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -12257,7 +16873,7 @@ fn native_hashmap_get(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     Ok(Some(
@@ -12274,7 +16890,7 @@ fn native_hashmap_contains_key(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if find_hashmap_entry_index(&fields, &key, heap).is_some() {
@@ -12307,7 +16923,7 @@ fn native_hashmap_remove(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
@@ -12351,8 +16967,8 @@ fn native_hashmap_get_or_default(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let default = extract_slot_arg(args, 2);
     let fields = heap.get(this_ref)?.fields.clone();
 
     Ok(Some(
@@ -12364,7 +16980,39 @@ fn native_hashmap_get_or_default(
 // HashSet natives
 // ---------------------------------------------------------------------------
 
-/// Native: `HashSet.<init>()V` — initialises size counter at fields\[0\] to 0.
+fn native_set_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+
+    match args.first().copied().unwrap_or(Slot::Reference(None)) {
+        Slot::Reference(Some(array_ref)) => {
+            let elements = heap.get(array_ref)?.fields.clone();
+            for element in elements {
+                native_hashset_add(
+                    &[Slot::Reference(Some(set_ref)), element],
+                    heap,
+                    out,
+                    control,
+                )?;
+            }
+        }
+        Slot::Reference(None) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    }
+
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
 fn find_hashset_entry_index(
     fields: &[Slot],
     element: &Slot,
@@ -12393,6 +17041,55 @@ fn native_hashset_init(
     Ok(None)
 }
 
+fn native_hashset_init_from_collection(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let collection_ref = extract_ref_arg(args, 1)?;
+    native_hashset_init(&[Slot::Reference(Some(this_ref))], heap, output, control)?;
+
+    let collection_class = heap.get(collection_ref)?.class_name.clone();
+    let elements: Vec<Slot> = if collection_class == "java/util/HashSet" {
+        heap.get(collection_ref)?
+            .fields
+            .iter()
+            .skip(1)
+            .copied()
+            .collect()
+    } else {
+        let array_slot = ops.invoke(
+            heap,
+            output,
+            &collection_class,
+            "toArray",
+            "()[Ljava/lang/Object;",
+            vec![Slot::Reference(Some(collection_ref))],
+        )?;
+        let Some(Slot::Reference(Some(array_ref))) = array_slot else {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        };
+        patch_forwarded_ref_if_needed(heap, &mut this_ref);
+        heap.get(array_ref)?.fields.clone()
+    };
+
+    for element in elements {
+        native_hashset_add(
+            &[Slot::Reference(Some(this_ref)), element],
+            heap,
+            output,
+            control,
+        )?;
+    }
+    Ok(None)
+}
+
 /// Native: `HashSet.add(Object)Z` — adds element if not already present.
 /// Returns 1 if added, 0 if element was already in the set.
 fn native_hashset_add(
@@ -12402,7 +17099,7 @@ fn native_hashset_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
     // fields[0] = size, fields[1..] = elements
     if find_hashset_entry_index(&fields, &element, heap).is_some() {
@@ -12426,7 +17123,7 @@ fn native_hashset_contains(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if find_hashset_entry_index(&fields, &element, heap).is_some() {
@@ -12445,7 +17142,7 @@ fn native_hashset_remove(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if let Some(i) = find_hashset_entry_index(&fields, &element, heap) {
@@ -12490,6 +17187,94 @@ fn native_hashset_is_empty(
         Some(Slot::Int(_)) => Ok(Some(Slot::Int(0))),
         _ => Ok(Some(Slot::Int(1))),
     }
+}
+
+/// Native: `HashSet.iterator()Iterator` — creates a `HashSetIterator`.
+fn native_hashset_iterator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let iter_ref = heap.allocate("duke/util/HashSetIterator".to_string(), 2);
+    {
+        let iter_obj = heap.get_mut(iter_ref)?;
+        iter_obj.fields[0] = Slot::Reference(Some(this_ref));
+        iter_obj.fields[1] = Slot::Int(0);
+    }
+    Ok(Some(Slot::Reference(Some(iter_ref))))
+}
+
+/// Native: `HashSetIterator.<init>` — no-op; fields are set by `native_hashset_iterator`.
+#[allow(clippy::unnecessary_wraps)]
+fn native_hashset_iter_init(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
+}
+
+/// Native: `HashSetIterator.hasNext()Z`
+fn native_hashset_iter_hasnext(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let iter_obj = heap.get(this_ref)?;
+    let set_ref = match iter_obj.fields.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Ok(Some(Slot::Int(0))),
+    };
+    let cursor = match iter_obj.fields.get(1) {
+        Some(Slot::Int(i)) => *i,
+        _ => 0,
+    };
+    let set_size = match heap.get(set_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(cursor < set_size))))
+}
+
+/// Native: `HashSetIterator.next()Object` — returns element at cursor, advances cursor.
+#[allow(clippy::cast_sign_loss)]
+fn native_hashset_iter_next(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (set_ref, cursor) = {
+        let iter_obj = heap.get(this_ref)?;
+        let sr = match iter_obj.fields.first() {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let c = match iter_obj.fields.get(1) {
+            Some(Slot::Int(i)) => *i,
+            _ => 0,
+        };
+        (sr, c)
+    };
+    let element = {
+        let set_obj = heap.get(set_ref)?;
+        match set_obj.fields.get(cursor as usize + 1) {
+            Some(slot) => *slot,
+            None => {
+                return Err(VmError::JavaException {
+                    class_name: "java/util/NoSuchElementException".to_string(),
+                });
+            }
+        }
+    };
+    heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
+    Ok(Some(element))
 }
 
 const PROCESS_ID_FIELD: usize = 0;
@@ -12575,7 +17360,7 @@ fn native_process_builder_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let command_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let command_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -12592,7 +17377,7 @@ fn native_process_builder_directory(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let directory_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let directory_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -12645,8 +17430,7 @@ fn native_runtime_exec_array(
         Some(Slot::Reference(Some(_))) => {}
         _ => return Err(VmError::NullPointerException),
     }
-    let command =
-        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+    let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
     spawn_process_impl(heap, &command, None)
 }
 
@@ -12660,10 +17444,8 @@ fn native_runtime_exec_array_dir(
         Some(Slot::Reference(Some(_))) => {}
         _ => return Err(VmError::NullPointerException),
     }
-    let command =
-        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
-    let cwd =
-        optional_file_path_from_slot(args.get(3).copied().unwrap_or(Slot::Reference(None)), heap)?;
+    let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
+    let cwd = optional_file_path_from_slot(extract_slot_arg(args, 3), heap)?;
     spawn_process_impl(heap, &command, cwd.as_deref())
 }
 
@@ -12879,10 +17661,121 @@ mod tests {
             Ok(ReflectedClassInfo {
                 internal_name: String::new(),
                 binary_name: String::new(),
+                super_class: None,
+                interfaces: Vec::new(),
                 methods: Vec::new(),
                 fields: Vec::new(),
             })
         }
+    }
+
+    struct FixedCodeSourceOps {
+        code_source: Option<String>,
+    }
+
+    impl CallbackOps for FixedCodeSourceOps {
+        fn invoke(
+            &mut self,
+            _heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> VmResult<Option<Slot>> {
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+            Ok(ReflectedClassInfo {
+                internal_name: String::new(),
+                binary_name: String::new(),
+                super_class: None,
+                interfaces: Vec::new(),
+                methods: Vec::new(),
+                fields: Vec::new(),
+            })
+        }
+
+        fn code_source_for_class(&mut self, _class: &str) -> VmResult<Option<String>> {
+            Ok(self.code_source.clone())
+        }
+    }
+
+    #[test]
+    fn native_hashset_init_from_collection_copies_to_array_elements() {
+        struct ToArrayOps {
+            collection_class: String,
+            array_ref: u64,
+        }
+
+        impl CallbackOps for ToArrayOps {
+            fn invoke(
+                &mut self,
+                _heap: &mut duke_gc::Heap,
+                _output: &mut dyn Write,
+                class: &str,
+                method: &str,
+                descriptor: &str,
+                _args: Vec<Slot>,
+            ) -> VmResult<Option<Slot>> {
+                assert_eq!(class, self.collection_class);
+                assert_eq!(method, "toArray");
+                assert_eq!(descriptor, "()[Ljava/lang/Object;");
+                Ok(Some(Slot::Reference(Some(self.array_ref))))
+            }
+
+            fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+                Ok(())
+            }
+
+            fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+                Ok(ReflectedClassInfo {
+                    internal_name: String::new(),
+                    binary_name: String::new(),
+                    super_class: None,
+                    interfaces: Vec::new(),
+                    methods: Vec::new(),
+                    fields: Vec::new(),
+                })
+            }
+        }
+
+        let mut heap = duke_gc::Heap::new();
+        let hashset_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+        let collection_ref = heap.allocate("java/util/ImmutableCollections$SetN".to_string(), 0);
+        let first = heap.allocate_string("first".to_string());
+        let second = heap.allocate_string("second".to_string());
+        let array_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 2);
+        heap.get_mut(array_ref).unwrap().fields =
+            vec![Slot::Reference(Some(first)), Slot::Reference(Some(second))];
+        let mut out: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+        let mut ops = ToArrayOps {
+            collection_class: "java/util/ImmutableCollections$SetN".to_string(),
+            array_ref,
+        };
+
+        native_hashset_init_from_collection(
+            &[
+                Slot::Reference(Some(hashset_ref)),
+                Slot::Reference(Some(collection_ref)),
+            ],
+            &mut heap,
+            &mut out,
+            &mut control,
+            &mut ops,
+        )
+        .unwrap();
+
+        let hashset = heap.get(hashset_ref).unwrap();
+        assert_eq!(hashset.fields[0], Slot::Int(2));
+        assert_eq!(hashset.fields[1], Slot::Reference(Some(first)));
+        assert_eq!(hashset.fields[2], Slot::Reference(Some(second)));
     }
 
     // ---- Unit tests: hand-crafted instruction streams ----
@@ -13372,6 +18265,503 @@ mod tests {
         assert!(matches!(err, VmError::MethodNotFound { .. }));
     }
 
+    #[test]
+    fn invokevirtual_missing_loaded_method_returns_method_not_found() {
+        use duke_classfile::types::CpIndex;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let cp = make_cp(vec![
+            Some(CpEntry::Methodref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("java/lang/Class".to_string())),
+            Some(CpEntry::Utf8("missingMethod".to_string())),
+            Some(CpEntry::Utf8("()Ljava/lang/Object;".to_string())),
+        ]);
+        let instructions: Arc<[(usize, Instruction)]> = vec![
+            (0, Instruction::Aload0),
+            (1, Instruction::Invokevirtual(CpIndex(1))),
+            (4, Instruction::Areturn),
+        ]
+        .into();
+        let method = MethodEntry {
+            name: "callMissing".to_string(),
+            descriptor: "(Ljava/lang/Class;)Ljava/lang/Object;".to_string(),
+            is_public: true,
+            is_static: true,
+            instructions: Arc::clone(&instructions),
+            max_stack: 1,
+            max_locals: 1,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        };
+        let caller_ctx = ClassContext {
+            class_name: "TestInvokevirtualMissing".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: cp,
+            methods: vec![method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.register(caller_ctx);
+        let loader = fixtures_loader();
+        let class_ref = allocate_class_object(&mut heap, "java/lang/Class").unwrap();
+        let mut sink: Vec<u8> = Vec::new();
+        let err = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "TestInvokevirtualMissing",
+            "callMissing",
+            "(Ljava/lang/Class;)Ljava/lang/Object;",
+            &[Slot::Reference(Some(class_ref))],
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                VmError::MethodNotFound { ref name, ref descriptor }
+                if name == "java/lang/Class.missingMethod"
+                    && descriptor == "()Ljava/lang/Object;"
+            ),
+            "expected MethodNotFound for missing invokevirtual target, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn object_constructor_dispatches_via_invokespecial() {
+        use duke_classfile::types::CpIndex;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let target_cp = make_cp(vec![
+            Some(CpEntry::Methodref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("java/lang/Object".to_string())),
+            Some(CpEntry::Utf8("<init>".to_string())),
+            Some(CpEntry::Utf8("()V".to_string())),
+        ]);
+        let target_ctor_instructions: Arc<[(usize, Instruction)]> = vec![
+            (0, Instruction::Aload0),
+            (1, Instruction::Invokespecial(CpIndex(1))),
+            (4, Instruction::Return),
+        ]
+        .into();
+        let target_ctor = MethodEntry {
+            name: "<init>".to_string(),
+            descriptor: "()V".to_string(),
+            is_public: true,
+            is_static: false,
+            instructions: Arc::clone(&target_ctor_instructions),
+            max_stack: 1,
+            max_locals: 1,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        };
+        let target_ctx = ClassContext {
+            class_name: "CtorTarget".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: target_cp,
+            methods: vec![target_ctor],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.register(target_ctx);
+        let loader = make_simple_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let target_ref = heap.allocate("CtorTarget".to_string(), 0);
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "CtorTarget",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(target_ref))],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected Object.<init>() dispatch to succeed, got {result:?}"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
+        use duke_classfile::types::CpIndex;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let caller_cp = make_cp(vec![
+            Some(CpEntry::Methodref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("AbstractBase".to_string())),
+            Some(CpEntry::Utf8("value".to_string())),
+            Some(CpEntry::Utf8("()I".to_string())),
+        ]);
+        let caller_instructions: Arc<[(usize, Instruction)]> = vec![
+            (0, Instruction::Aload0),
+            (1, Instruction::Invokevirtual(CpIndex(1))),
+            (4, Instruction::Ireturn),
+        ]
+        .into();
+        let caller_method = MethodEntry {
+            name: "callValue".to_string(),
+            descriptor: "(LAbstractBase;)I".to_string(),
+            is_public: true,
+            is_static: true,
+            instructions: Arc::clone(&caller_instructions),
+            max_stack: 1,
+            max_locals: 1,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        };
+        let caller_ctx = ClassContext {
+            class_name: "InvokevirtualCaller".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: caller_cp,
+            methods: vec![caller_method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+        let abstract_base_ctx = ClassContext {
+            class_name: "AbstractBase".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+        let child_instructions: Arc<[(usize, Instruction)]> =
+            vec![(0, Instruction::Bipush(7)), (2, Instruction::Ireturn)].into();
+        let child_method = MethodEntry {
+            name: "value".to_string(),
+            descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: false,
+            instructions: Arc::clone(&child_instructions),
+            max_stack: 1,
+            max_locals: 1,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        };
+        let child_ctx = ClassContext {
+            class_name: "ConcreteChild".to_string(),
+            super_class: Some("AbstractBase".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: Vec::new(),
+            methods: vec![child_method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.register(caller_ctx);
+        registry.register(abstract_base_ctx);
+        registry.register(child_ctx);
+        let loader = make_simple_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let child_ref = heap.allocate("ConcreteChild".to_string(), 0);
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "InvokevirtualCaller",
+            "callValue",
+            "(LAbstractBase;)I",
+            &[Slot::Reference(Some(child_ref))],
+        )
+        .expect("invokevirtual should dispatch to ConcreteChild.value");
+
+        assert_eq!(result, Some(Slot::Int(7)));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn registered_native_overrides_loaded_bytecode_method() {
+        use duke_classfile::types::CpIndex;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+        fn native_value(
+            _args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            _out: &mut dyn Write,
+            _control: &mut NativeControl,
+        ) -> VmResult<Option<Slot>> {
+            Ok(Some(Slot::Int(42)))
+        }
+
+        let caller_cp = make_cp(vec![
+            Some(CpEntry::Methodref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("NativeOverrideTarget".to_string())),
+            Some(CpEntry::Utf8("value".to_string())),
+            Some(CpEntry::Utf8("()I".to_string())),
+        ]);
+        let caller_instructions: Arc<[(usize, Instruction)]> = vec![
+            (0, Instruction::Aload0),
+            (1, Instruction::Invokevirtual(CpIndex(1))),
+            (4, Instruction::Ireturn),
+        ]
+        .into();
+        let caller_method = MethodEntry {
+            name: "callValue".to_string(),
+            descriptor: "(LNativeOverrideTarget;)I".to_string(),
+            is_public: true,
+            is_static: true,
+            instructions: Arc::clone(&caller_instructions),
+            max_stack: 1,
+            max_locals: 1,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        };
+        let caller_ctx = ClassContext {
+            class_name: "NativeOverrideCaller".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: caller_cp,
+            methods: vec![caller_method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+        let target_instructions: Arc<[(usize, Instruction)]> =
+            vec![(0, Instruction::Bipush(7)), (2, Instruction::Ireturn)].into();
+        let target_method = MethodEntry {
+            name: "value".to_string(),
+            descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: false,
+            instructions: Arc::clone(&target_instructions),
+            max_stack: 1,
+            max_locals: 1,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        };
+        let target_ctx = ClassContext {
+            class_name: "NativeOverrideTarget".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: Vec::new(),
+            methods: vec![target_method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry
+            .natives_mut()
+            .register("NativeOverrideTarget", "value", "()I", native_value);
+        registry.register(caller_ctx);
+        registry.register(target_ctx);
+        let loader = make_simple_loader();
+        let mut sink: Vec<u8> = Vec::new();
+        let target_ref = heap.allocate("NativeOverrideTarget".to_string(), 0);
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "NativeOverrideCaller",
+            "callValue",
+            "(LNativeOverrideTarget;)I",
+            &[Slot::Reference(Some(target_ref))],
+        )
+        .expect("native override should win over loaded bytecode method");
+
+        assert_eq!(result, Some(Slot::Int(42)));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn registered_callback_native_overrides_loaded_bytecode_static_method() {
+        use duke_classfile::types::CpIndex;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        #[allow(clippy::unnecessary_wraps)] // must match CallbackNativeHandler signature
+        fn native_value(
+            _args: &[Slot],
+            _heap: &mut duke_gc::Heap,
+            _out: &mut dyn Write,
+            _control: &mut NativeControl,
+            _ops: &mut dyn CallbackOps,
+        ) -> VmResult<Option<Slot>> {
+            Ok(Some(Slot::Int(42)))
+        }
+
+        let caller_cp = make_cp(vec![
+            Some(CpEntry::Methodref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("NativeOverrideStaticTarget".to_string())),
+            Some(CpEntry::Utf8("value".to_string())),
+            Some(CpEntry::Utf8("()I".to_string())),
+        ]);
+        let caller_instructions: Arc<[(usize, Instruction)]> = vec![
+            (0, Instruction::Invokestatic(CpIndex(1))),
+            (3, Instruction::Ireturn),
+        ]
+        .into();
+        let caller_method = MethodEntry {
+            name: "callValue".to_string(),
+            descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: true,
+            instructions: Arc::clone(&caller_instructions),
+            max_stack: 1,
+            max_locals: 0,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (3, 1)])),
+        };
+        let caller_ctx = ClassContext {
+            class_name: "NativeOverrideStaticCaller".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: caller_cp,
+            methods: vec![caller_method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+        let target_instructions: Arc<[(usize, Instruction)]> =
+            vec![(0, Instruction::Bipush(7)), (2, Instruction::Ireturn)].into();
+        let target_method = MethodEntry {
+            name: "value".to_string(),
+            descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: true,
+            instructions: Arc::clone(&target_instructions),
+            max_stack: 1,
+            max_locals: 0,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        };
+        let target_ctx = ClassContext {
+            class_name: "NativeOverrideStaticTarget".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: Vec::new(),
+            methods: vec![target_method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.natives_mut().register_callback(
+            "NativeOverrideStaticTarget",
+            "value",
+            "()I",
+            native_value,
+        );
+        registry.register(caller_ctx);
+        registry.register(target_ctx);
+        let loader = make_simple_loader();
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "NativeOverrideStaticCaller",
+            "callValue",
+            "()I",
+            &[],
+        )
+        .expect("callback native override should win over loaded bytecode method");
+
+        assert_eq!(result, Some(Slot::Int(42)));
+    }
+
     // ---- Unit tests: parse_arg_count ----
 
     #[test]
@@ -13454,6 +18844,251 @@ mod tests {
         let cp = make_cp(vec![Some(CpEntry::Utf8("not a methodref".to_string()))]);
         let err = resolve_methodref(&cp, 1).unwrap_err();
         assert!(matches!(err, VmError::InvalidMethodref { .. }));
+    }
+
+    #[test]
+    fn build_class_context_initializes_static_defaults_by_descriptor() {
+        use duke_classfile::access_flags::{ClassAccessFlags, FieldAccessFlags};
+        use duke_classfile::types::{ClassFile, CpIndex, FieldInfo};
+
+        let cf = ClassFile {
+            minor_version: 0,
+            major_version: 61,
+            constant_pool: make_cp(vec![
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }),
+                Some(CpEntry::Utf8("StaticDefaults".to_string())),
+                Some(CpEntry::Utf8("refField".to_string())),
+                Some(CpEntry::Utf8("Ljava/lang/Object;".to_string())),
+                Some(CpEntry::Utf8("longField".to_string())),
+                Some(CpEntry::Utf8("J".to_string())),
+                Some(CpEntry::Utf8("doubleField".to_string())),
+                Some(CpEntry::Utf8("D".to_string())),
+                Some(CpEntry::Utf8("intField".to_string())),
+                Some(CpEntry::Utf8("I".to_string())),
+                Some(CpEntry::Utf8("instanceField".to_string())),
+                Some(CpEntry::Utf8("[Ljava/lang/String;".to_string())),
+            ]),
+            access_flags: ClassAccessFlags::empty(),
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: Vec::new(),
+            fields: vec![
+                FieldInfo {
+                    access_flags: FieldAccessFlags::STATIC,
+                    name_index: CpIndex(3),
+                    descriptor_index: CpIndex(4),
+                    attributes: Vec::new(),
+                },
+                FieldInfo {
+                    access_flags: FieldAccessFlags::STATIC,
+                    name_index: CpIndex(5),
+                    descriptor_index: CpIndex(6),
+                    attributes: Vec::new(),
+                },
+                FieldInfo {
+                    access_flags: FieldAccessFlags::STATIC,
+                    name_index: CpIndex(7),
+                    descriptor_index: CpIndex(8),
+                    attributes: Vec::new(),
+                },
+                FieldInfo {
+                    access_flags: FieldAccessFlags::STATIC,
+                    name_index: CpIndex(9),
+                    descriptor_index: CpIndex(10),
+                    attributes: Vec::new(),
+                },
+                FieldInfo {
+                    access_flags: FieldAccessFlags::empty(),
+                    name_index: CpIndex(11),
+                    descriptor_index: CpIndex(12),
+                    attributes: Vec::new(),
+                },
+            ],
+            methods: Vec::new(),
+            attributes: Vec::new(),
+        };
+
+        let ctx = build_class_context(&cf);
+
+        assert_eq!(ctx.class_name, "StaticDefaults");
+        assert_eq!(
+            ctx.static_fields,
+            vec![
+                Slot::Reference(None),
+                Slot::Long(0),
+                Slot::Double(0.0),
+                Slot::Int(0),
+            ]
+        );
+        assert_eq!(ctx.instance_field_count, 1);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn hashset_iterator_supports_invokeinterface_iteration() {
+        use duke_classfile::types::CpIndex;
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let cp = make_cp(vec![
+            Some(CpEntry::InterfaceMethodref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("java/util/Set".to_string())),
+            Some(CpEntry::Utf8("iterator".to_string())),
+            Some(CpEntry::Utf8("()Ljava/util/Iterator;".to_string())),
+            Some(CpEntry::InterfaceMethodref {
+                class_index: CpIndex(8),
+                name_and_type_index: CpIndex(9),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(10),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(11),
+                descriptor_index: CpIndex(12),
+            }),
+            Some(CpEntry::Utf8("java/util/Iterator".to_string())),
+            Some(CpEntry::Utf8("hasNext".to_string())),
+            Some(CpEntry::Utf8("()Z".to_string())),
+            Some(CpEntry::InterfaceMethodref {
+                class_index: CpIndex(8),
+                name_and_type_index: CpIndex(14),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(15),
+                descriptor_index: CpIndex(16),
+            }),
+            Some(CpEntry::Utf8("next".to_string())),
+            Some(CpEntry::Utf8("()Ljava/lang/Object;".to_string())),
+        ]);
+        let instructions: Arc<[(usize, Instruction)]> = vec![
+            (
+                0,
+                Instruction::Aload0, // Set
+            ),
+            (
+                1,
+                Instruction::Invokeinterface {
+                    index: CpIndex(1),
+                    count: 1,
+                },
+            ),
+            (6, Instruction::Astore1), // Iterator
+            (7, Instruction::Aload1),
+            (
+                8,
+                Instruction::Invokeinterface {
+                    index: CpIndex(7),
+                    count: 1,
+                },
+            ),
+            (13, Instruction::Ifeq(14)),
+            (16, Instruction::Aload1),
+            (
+                17,
+                Instruction::Invokeinterface {
+                    index: CpIndex(13),
+                    count: 1,
+                },
+            ),
+            (22, Instruction::Ifnull(5)),
+            (25, Instruction::Iconst1),
+            (26, Instruction::Ireturn),
+            (27, Instruction::Iconst0),
+            (28, Instruction::Ireturn),
+        ]
+        .into();
+        let method = MethodEntry {
+            name: "iterateOnce".to_string(),
+            descriptor: "(Ljava/util/Set;)I".to_string(),
+            is_public: true,
+            is_static: true,
+            instructions: Arc::clone(&instructions),
+            max_stack: 1,
+            max_locals: 2,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([
+                (0, 0),
+                (1, 1),
+                (6, 2),
+                (7, 3),
+                (8, 4),
+                (13, 5),
+                (16, 6),
+                (17, 7),
+                (22, 8),
+                (25, 9),
+                (26, 10),
+                (27, 11),
+                (28, 12),
+            ])),
+        };
+        let caller_ctx = ClassContext {
+            class_name: "HashSetIterCaller".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: Vec::new(),
+            constant_pool: cp,
+            methods: vec![method],
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            bootstrap_methods: Vec::new(),
+        };
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.register(caller_ctx);
+
+        let hashset_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+        let value_ref = heap.allocate_string("perm".to_string());
+        let mut sink: Vec<u8> = Vec::new();
+        native_hashset_init(
+            &[Slot::Reference(Some(hashset_ref))],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+        native_hashset_add(
+            &[
+                Slot::Reference(Some(hashset_ref)),
+                Slot::Reference(Some(value_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+
+        let loader = make_simple_loader();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut sink,
+            "HashSetIterCaller",
+            "iterateOnce",
+            "(Ljava/util/Set;)I",
+            &[Slot::Reference(Some(hashset_ref))],
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected HashSet iterator invokeinterface dispatch to succeed, got {result:?}"
+        );
+        assert_eq!(result.unwrap(), Some(Slot::Int(1)));
     }
 
     // ---- Phase 6: object creation + field access ----
@@ -14814,6 +20449,59 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_success() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Reference(Some(file_ref));
+        assert_eq!(
+            archive_ref_from_slot(&heap, obj_ref, 0).unwrap(),
+            Some(file_ref)
+        );
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_null() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Reference(None);
+        assert_eq!(archive_ref_from_slot(&heap, obj_ref, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_none() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        // Field 1 doesn't exist
+        assert_eq!(archive_ref_from_slot(&heap, obj_ref, 1).unwrap(), None);
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(42);
+        assert!(matches!(
+            archive_ref_from_slot(&heap, obj_ref, 0),
+            Err(VmError::TypeMismatch {
+                expected: "Reference",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_archive_path_from_slot_none() {
+        let mut heap = duke_gc::Heap::new();
+        let archive_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarFileArchive".to_string(),
+            1,
+        );
+        heap.get_mut(archive_ref).unwrap().fields[0] = Slot::Reference(None);
+        assert_eq!(archive_path_from_slot(&heap, archive_ref, 0).unwrap(), None);
     }
 
     #[test]
@@ -17844,6 +23532,98 @@ mod tests {
         );
     }
 
+    #[test]
+    fn interpreter_callback_ops_can_invoke_registered_lambda_classes() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.natives_mut().register(
+            "duke/test/LambdaHelper",
+            "answer",
+            "()I",
+            |_args, _heap, _out, _control| Ok(Some(Slot::Int(42))),
+        );
+
+        let lambda_class = registry.register_lambda(LambdaInfo {
+            impl_class: "duke/test/LambdaHelper".to_string(),
+            impl_method: "answer".to_string(),
+            impl_desc: "()I".to_string(),
+            impl_kind: 6,
+            sam_method: "getAsInt".to_string(),
+            sam_desc: "()I".to_string(),
+            captured_count: 0,
+        });
+        let lambda_ref = heap.allocate(lambda_class.clone(), 0);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let mut ops = InterpreterCallbackOps {
+            registry: &mut registry,
+            loader: &loader,
+        };
+
+        let result = ops
+            .invoke(
+                &mut heap,
+                &mut out,
+                &lambda_class,
+                "getAsInt",
+                "()I",
+                vec![Slot::Reference(Some(lambda_ref))],
+            )
+            .expect("lambda invoke should succeed");
+        assert_eq!(result, Some(Slot::Int(42)));
+    }
+
+    #[test]
+    fn interpreter_callback_ops_can_invoke_registered_virtual_lambda_classes() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.natives_mut().register(
+            "duke/test/LambdaTarget",
+            "increment",
+            "(I)I",
+            |args, _heap, _out, _control| match args {
+                [Slot::Reference(Some(_)), Slot::Int(value)] => Ok(Some(Slot::Int(value + 1))),
+                _ => Err(VmError::TypeMismatch {
+                    expected: "reference,int",
+                    got: "other",
+                }),
+            },
+        );
+
+        let lambda_class = registry.register_lambda(LambdaInfo {
+            impl_class: "duke/test/LambdaTarget".to_string(),
+            impl_method: "increment".to_string(),
+            impl_desc: "(I)I".to_string(),
+            impl_kind: 5,
+            sam_method: "applyAsInt".to_string(),
+            sam_desc: "(I)I".to_string(),
+            captured_count: 1,
+        });
+        let target_ref = heap.allocate("duke/test/LambdaTarget".to_string(), 0);
+        let lambda_ref = heap.allocate(lambda_class.clone(), 1);
+        heap.get_mut(lambda_ref).unwrap().fields[0] = Slot::Reference(Some(target_ref));
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+        let mut ops = InterpreterCallbackOps {
+            registry: &mut registry,
+            loader: &loader,
+        };
+
+        let result = ops
+            .invoke(
+                &mut heap,
+                &mut out,
+                &lambda_class,
+                "applyAsInt",
+                "(I)I",
+                vec![Slot::Reference(Some(lambda_ref)), Slot::Int(41)],
+            )
+            .expect("lambda invoke should succeed");
+        assert_eq!(result, Some(Slot::Int(42)));
+    }
+
     // ---- Bytecode-level Callback dispatch tests (Sites 2-4) ----
     //
     // These tests verify that `HandlerKind::Callback` handlers fire when the
@@ -18929,6 +24709,56 @@ mod tests {
     // ---- Phase 28: Threading ----
 
     #[test]
+    fn threading_havoc_fast_fail_slow_thread_does_not_panic() {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let ctx = load_class_context("ThreadingTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        COUNTER.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        registry
+            .natives_mut()
+            .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
+                let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if count == 0 {
+                    // First thread to call sleep fails immediately
+                    Err(VmError::Unimplemented {
+                        mnemonic: "Test early failure",
+                    })
+                } else {
+                    // Other threads take a long time to sleep, so they will be still running
+                    // if wait_for_all_java_threads returns early.
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    Ok(None)
+                }
+            });
+
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            "spawnAndJoinTen",
+            "()I",
+            &[],
+        );
+
+        assert!(matches!(
+            result,
+            Err(VmError::Unimplemented {
+                mnemonic: "Test early failure"
+            })
+        ));
+    }
+
+    #[test]
     fn threading_havoc_wait_for_all_java_threads_error_path() {
         let ctx = load_class_context("ThreadingTest.class");
         let entry_class = ctx.class_name.clone();
@@ -19661,6 +25491,40 @@ mod tests {
         assert_eq!(s, "test");
     }
 
+    #[test]
+    fn native_object_equals_uses_reference_identity() {
+        let mut heap = duke_gc::Heap::new();
+        let a = heap.allocate("java/lang/Object".to_string(), 0);
+        let b = heap.allocate("java/lang/Object".to_string(), 0);
+        let mut out: Vec<u8> = Vec::new();
+
+        let same = native_object_equals(
+            &[Slot::Reference(Some(a)), Slot::Reference(Some(a))],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+        let different = native_object_equals(
+            &[Slot::Reference(Some(a)), Slot::Reference(Some(b))],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+        let null_other = native_object_equals(
+            &[Slot::Reference(Some(a)), Slot::Reference(None)],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+
+        assert_eq!(same, Some(Slot::Int(1)));
+        assert_eq!(different, Some(Slot::Int(0)));
+        assert_eq!(null_other, Some(Slot::Int(0)));
+    }
+
     // ---------------------------------------------------------------------------
     // native_string_equals null arm
     // ---------------------------------------------------------------------------
@@ -19703,6 +25567,73 @@ mod tests {
         assert!(
             matches!(err, VmError::SystemExit { code: 1 }),
             "empty args → SystemExit(1), got {err:?}"
+        );
+    }
+
+    #[test]
+    fn native_system_get_property_returns_temp_dir_and_null_for_unknown() {
+        let mut heap = duke_gc::Heap::new();
+        let key_ref = heap.allocate_string("java.io.tmpdir".to_string());
+        let unknown_ref = heap.allocate_string("duke.missing.property".to_string());
+        let mut out: Vec<u8> = Vec::new();
+
+        let temp_result = native_system_get_property(
+            &[Slot::Reference(Some(key_ref))],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+        let unknown_result = native_system_get_property(
+            &[Slot::Reference(Some(unknown_ref))],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+
+        let Slot::Reference(Some(temp_ref)) = temp_result.unwrap() else {
+            panic!("expected temp dir string reference");
+        };
+        assert_eq!(
+            heap.get(temp_ref).unwrap().string_value.as_deref(),
+            Some(std::env::temp_dir().to_string_lossy().as_ref())
+        );
+        assert_eq!(unknown_result, Some(Slot::Reference(None)));
+    }
+
+    #[test]
+    fn native_system_set_property_overrides_get_property() {
+        let mut heap = duke_gc::Heap::new();
+        let key_ref = heap.allocate_string("duke.test.set.property".to_string());
+        let value_ref = heap.allocate_string("boot-loader".to_string());
+        let mut out: Vec<u8> = Vec::new();
+
+        let previous = native_system_set_property(
+            &[
+                Slot::Reference(Some(key_ref)),
+                Slot::Reference(Some(value_ref)),
+            ],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+        let current = native_system_get_property(
+            &[Slot::Reference(Some(key_ref))],
+            &mut heap,
+            &mut out,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+
+        assert_eq!(previous, Some(Slot::Reference(None)));
+        let Some(Slot::Reference(Some(current_ref))) = current else {
+            panic!("expected property value string");
+        };
+        assert_eq!(
+            string_value_from_ref(&heap, current_ref).unwrap(),
+            "boot-loader"
         );
     }
 
@@ -20538,6 +26469,22 @@ mod tests {
                 .unwrap()
                 .unwrap();
         assert!(matches!(r, Slot::Double(v) if (v - 2.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn native_math_floor_mod_int_keeps_divisor_sign() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+        let r = native_math_floor_mod_int(
+            &[Slot::Int(-1), Slot::Int(4)],
+            &mut heap,
+            &mut out,
+            &mut control,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r, Slot::Int(3));
     }
 
     // ===========================================================================
@@ -21844,7 +27791,13 @@ mod tests {
     fn is_assignable_from_same_class_is_true() {
         let mut registry = ClassRegistry::new();
         let loader = make_simple_loader();
-        assert!(is_assignable_from(&mut registry, &loader, "Foo", "Foo"));
+        assert!(is_assignable_from(
+            &mut registry,
+            &loader,
+            "Foo",
+            "Foo",
+            None
+        ));
     }
 
     #[test]
@@ -21855,7 +27808,8 @@ mod tests {
             &mut registry,
             &loader,
             "Anything",
-            "java/lang/Object"
+            "java/lang/Object",
+            None
         ));
     }
 
@@ -21878,7 +27832,8 @@ mod tests {
             &mut registry,
             &loader,
             "MyClass",
-            "MyInterface"
+            "MyInterface",
+            None
         ));
     }
 
@@ -21901,7 +27856,8 @@ mod tests {
             &mut registry,
             &loader,
             "MyClass",
-            "InterfaceB"
+            "InterfaceB",
+            None
         ));
     }
 
@@ -21920,7 +27876,14 @@ mod tests {
         let mut registry = ClassRegistry::new();
         let loader = make_simple_loader();
         assert_eq!(
-            find_exception_handler(&table, 5, "java/lang/Exception", &mut registry, &loader),
+            find_exception_handler(
+                &table,
+                5,
+                "java/lang/Exception",
+                "HandlerOwner",
+                &mut registry,
+                &loader,
+            ),
             Some(20)
         );
     }
@@ -21937,11 +27900,25 @@ mod tests {
         let mut registry = ClassRegistry::new();
         let loader = make_simple_loader();
         assert_eq!(
-            find_exception_handler(&table, 10, "java/lang/Exception", &mut registry, &loader),
+            find_exception_handler(
+                &table,
+                10,
+                "java/lang/Exception",
+                "HandlerOwner",
+                &mut registry,
+                &loader,
+            ),
             None
         );
         assert_eq!(
-            find_exception_handler(&table, 9, "java/lang/Exception", &mut registry, &loader),
+            find_exception_handler(
+                &table,
+                9,
+                "java/lang/Exception",
+                "HandlerOwner",
+                &mut registry,
+                &loader,
+            ),
             Some(20)
         );
     }
@@ -22313,13 +28290,25 @@ mod tests {
     }
 
     #[test]
-    fn slots_equal_same_class_same_first_field_is_true() {
+    fn slots_equal_boxed_integer_same_value_is_true() {
         let mut heap = duke_gc::Heap::new();
         let r1 = heap.allocate("java/lang/Integer".to_string(), 1);
         heap.get_mut(r1).unwrap().fields[0] = Slot::Int(42);
         let r2 = heap.allocate("java/lang/Integer".to_string(), 1);
         heap.get_mut(r2).unwrap().fields[0] = Slot::Int(42);
         assert!(slots_equal(
+            &Slot::Reference(Some(r1)),
+            &Slot::Reference(Some(r2)),
+            &heap
+        ));
+    }
+
+    #[test]
+    fn slots_equal_arbitrary_same_class_objects_use_identity() {
+        let mut heap = duke_gc::Heap::new();
+        let r1 = heap.allocate("java/net/URL".to_string(), 1);
+        let r2 = heap.allocate("java/net/URL".to_string(), 1);
+        assert!(!slots_equal(
             &Slot::Reference(Some(r1)),
             &Slot::Reference(Some(r2)),
             &heap
@@ -22611,6 +28600,8 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: descriptor.to_string(),
+            is_public: true,
+            is_static: true,
             instructions: instructions.into(),
             max_stack,
             max_locals,
@@ -23710,6 +29701,60 @@ mod tests {
             extract_int_arg(&args, 0).unwrap_err(),
             VmError::TypeMismatch {
                 expected: "Int",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_long_arg_success() {
+        let args = vec![Slot::Long(42)];
+        assert_eq!(extract_long_arg(&args, 0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_long_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_long_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Long",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_float_arg_success() {
+        let args = vec![Slot::Float(42.0)];
+        assert!((extract_float_arg(&args, 0).unwrap() - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_extract_float_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_float_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Float",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_double_arg_success() {
+        let args = vec![Slot::Double(42.0)];
+        assert!((extract_double_arg(&args, 0).unwrap() - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_extract_double_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_double_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Double",
                 got: "other"
             }
         ));
@@ -26365,6 +32410,8 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: true,
             instructions: instructions.into(),
             max_stack: 4,
             max_locals: 1,
@@ -26434,6 +32481,8 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: true,
             instructions: instructions.into(),
             max_stack: 4,
             max_locals: 1,
@@ -26767,6 +32816,8 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: true,
             instructions: std::sync::Arc::from(
                 vec![
                     (0, Instruction::LdcW(CpIndex(1))),
@@ -26833,6 +32884,8 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: true,
             instructions: std::sync::Arc::from(
                 vec![
                     (0, Instruction::LdcW(CpIndex(1))),
@@ -26943,6 +32996,8 @@ mod tests {
         let method = MethodEntry {
             name: "syntest".to_string(),
             descriptor: "()I".to_string(),
+            is_public: true,
+            is_static: true,
             instructions: instructions.into(),
             max_stack: 4,
             max_locals: 0,
@@ -27127,9 +33182,1033 @@ mod tests {
     }
 
     #[test]
+    fn reflection_private_method_invoke_with_accessible_succeeds() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "privateMethodInvokeWithAccessibleSucceeds",
+                "()I"
+            ),
+            13
+        );
+    }
+
+    #[test]
     fn reflection_target_exception_is_wrapped() {
         assert_eq!(
             run_bootstrap_int("ReflectionTest.class", "targetExceptionIsWrapped", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_public_field_get_returns_boxed_value() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "getPublicFieldValue", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn reflection_public_field_set_updates_target() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "setPublicFieldValue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_private_field_get_raises_illegal_access() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "privateFieldGetRaisesIllegalAccess",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_private_field_get_with_accessible_succeeds() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "privateFieldGetWithAccessibleSucceeds",
+                "()I"
+            ),
+            11
+        );
+    }
+
+    #[test]
+    fn reflection_private_field_set_with_accessible_writes_back() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "privateFieldSetWithAccessibleWritesBack",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_field_get_rejects_wrong_target_type() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "publicFieldWrongTargetRaisesIllegalArgument",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_declared_field_by_name_finds_public_and_private() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "declaredFieldByNameFindsPublicAndPrivate",
+                "()I",
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn reflection_missing_declared_field_raises_no_such_field() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "missingDeclaredFieldRaisesNoSuchField",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_get_field_finds_inherited_public_superclass_member() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "inheritedPublicFieldLookupFindsSuperclassMember",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_get_method_finds_inherited_public_superclass_member() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "inheritedPublicMethodLookupFindsSuperclassMember",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_get_field_skips_inherited_private_superclass_member() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "inheritedPrivateFieldIsNotPublicLookupVisible",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_get_method_skips_inherited_private_superclass_member() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "inheritedPrivateMethodIsNotPublicLookupVisible",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_get_fields_includes_declared_and_inherited_public_only() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "publicFieldsIncludeDeclaredAndInheritedPublicOnly",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_get_methods_includes_declared_and_inherited_public_only() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "publicMethodsIncludeDeclaredAndInheritedPublicOnly",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_field_get_declaring_class_matches_declared_and_inherited_owners() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "fieldDeclaringClassMatchesDeclaredAndInheritedOwners",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_method_get_declaring_class_matches_declared_and_inherited_owners() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "methodDeclaringClassMatchesDeclaredAndInheritedOwners",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_public_constructor_new_instance_creates_object() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "publicConstructorNewInstanceCreatesObject",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_public_constructor_lookup_skips_private_constructor() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "publicConstructorLookupSkipsPrivateConstructor",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_private_declared_constructor_with_accessible_creates_object() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "privateDeclaredConstructorWithAccessibleCreatesObject",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_declared_constructors_include_public_and_private() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "declaredConstructorsIncludePublicAndPrivate",
+                "()I",
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn reflection_public_constructors_exclude_private_ones() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "publicConstructorsExcludePrivateOnes",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_constructor_get_name_returns_declaring_class_binary_name() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "constructorGetNameReturnsDeclaringClassBinaryName",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_class_new_instance_creates_object_via_public_zero_arg_constructor() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "classNewInstanceCreatesObjectViaPublicZeroArgConstructor",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_class_new_instance_private_zero_arg_raises_illegal_access() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "classNewInstancePrivateZeroArgRaisesIllegalAccess",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_class_new_instance_missing_zero_arg_raises_instantiation() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "classNewInstanceMissingZeroArgRaisesInstantiation",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_field_get_type_returns_primitive_reference_and_array_mirrors() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "fieldGetTypeReturnsPrimitiveReferenceAndArrayMirrors",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_method_get_return_type_returns_primitive_reference_and_array_mirrors() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "methodGetReturnTypeReturnsPrimitiveReferenceAndArrayMirrors",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_method_get_parameter_types_preserve_order_and_kinds() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "methodGetParameterTypesPreserveOrderAndKinds",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_constructor_get_parameter_types_preserve_order_and_kinds() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "constructorGetParameterTypesPreserveOrderAndKinds",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_primitive_wrapper_type_fields_return_expected_names() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "primitiveWrapperTypeFieldsReturnExpectedNames",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_primitive_class_literals_agree_with_wrapper_type_fields() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "primitiveClassLiteralsAgreeWithWrapperTypeFields",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_boolean_wrapper_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "booleanWrapperRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_float_wrapper_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "floatWrapperRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_wrapper_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "byteWrapperRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_wrapper_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "shortWrapperRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_boolean_wrapper_compare_to_orders_false_before_true() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "booleanWrapperCompareToOrdersFalseBeforeTrue",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_float_wrapper_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "floatWrapperCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_wrapper_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "byteWrapperCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_wrapper_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "shortWrapperCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_wrapper_typed_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerWrapperTypedCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_wrapper_typed_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longWrapperTypedCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_double_wrapper_typed_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "doubleWrapperTypedCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_float_wrapper_typed_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "floatWrapperTypedCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_boolean_wrapper_typed_compare_to_orders_false_before_true() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "booleanWrapperTypedCompareToOrdersFalseBeforeTrue",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_wrapper_typed_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "byteWrapperTypedCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_wrapper_typed_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "shortWrapperTypedCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_character_wrapper_typed_compare_to_orders_values() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "characterWrapperTypedCompareToOrdersValues",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_parse_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "byteParseRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_parse_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "shortParseRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_parse_rejects_out_of_range() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "byteParseRejectsOutOfRange", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_parse_rejects_out_of_range() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "shortParseRejectsOutOfRange", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_value_of_string_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "byteValueOfStringRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_value_of_string_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "shortValueOfStringRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_value_of_string_rejects_out_of_range() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "byteValueOfStringRejectsOutOfRange",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_value_of_string_rejects_out_of_range() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "shortValueOfStringRejectsOutOfRange",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_parse_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "byteParseWithRadixRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_parse_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "shortParseWithRadixRoundTrip",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_value_of_string_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "byteValueOfStringWithRadixRoundTrip",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_value_of_string_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "shortValueOfStringWithRadixRoundTrip",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_byte_parse_with_invalid_radix_rejects() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "byteParseWithInvalidRadixRejects",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_short_value_of_string_with_radix_rejects_out_of_range() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "shortValueOfStringWithRadixRejectsOutOfRange",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_parse_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerParseWithRadixRoundTrip",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_parse_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "longParseWithRadixRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_value_of_string_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerValueOfStringRoundTrip",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_value_of_string_round_trip() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "longValueOfStringRoundTrip", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_value_of_string_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerValueOfStringWithRadixRoundTrip",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_value_of_string_with_radix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longValueOfStringWithRadixRoundTrip",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_parse_with_invalid_radix_rejects() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerParseWithInvalidRadixRejects",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_value_of_string_with_radix_rejects_out_of_range() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longValueOfStringWithRadixRejectsOutOfRange",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_decode_hex_prefix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerDecodeHexPrefixRoundTrip",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_decode_octal_prefix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerDecodeOctalPrefixRoundTrip",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_decode_negative_min_hex_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerDecodeNegativeMinHexRoundTrip",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_decode_rejects_sign_after_prefix() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerDecodeRejectsSignAfterPrefix",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_decode_hash_prefix_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longDecodeHashPrefixRoundTrip",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_decode_leading_plus_hex_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longDecodeLeadingPlusHexRoundTrip",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_decode_negative_min_hex_round_trip() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longDecodeNegativeMinHexRoundTrip",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_decode_rejects_positive_overflow() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longDecodeRejectsPositiveOverflow",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_to_hex_string_positive() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "integerToHexStringPositive", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_to_octal_string_positive() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerToOctalStringPositive",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_to_binary_string_positive() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerToBinaryStringPositive",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_to_hex_string_negative_uses_unsigned_bits() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerToHexStringNegativeUsesUnsignedBits",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_to_hex_string_positive() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "longToHexStringPositive", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_to_octal_string_positive() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "longToOctalStringPositive", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_to_binary_string_positive() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "longToBinaryStringPositive", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_to_hex_string_negative_uses_unsigned_bits() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longToHexStringNegativeUsesUnsignedBits",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_to_unsigned_long_extends_negative_int() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerToUnsignedLongExtendsNegativeInt",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_integer_compare_unsigned_orders_negative_as_larger() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "integerCompareUnsignedOrdersNegativeAsLarger",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_compare_unsigned_orders_negative_as_larger() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longCompareUnsignedOrdersNegativeAsLarger",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_long_compare_unsigned_treats_min_as_positive_half_range() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "longCompareUnsignedTreatsMinAsPositiveHalfRange",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_static_field_get_triggers_class_initialization() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ReflectionTest.class",
+                "staticFieldGetTriggersInitialization",
+                "()I",
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn reflection_static_field_set_writes_back() {
+        assert_eq!(
+            run_bootstrap_int("ReflectionTest.class", "staticFieldSetWritesBack", "()I"),
             1
         );
     }
@@ -27527,6 +34606,392 @@ mod tests {
             .join("fixtures")
     }
 
+    #[allow(clippy::cast_possible_truncation)]
+    fn test_zip_crc32(data: &[u8]) -> u32 {
+        const TABLE: [u32; 256] = {
+            let mut table = [0_u32; 256];
+            let mut i: usize = 0;
+            while i < 256 {
+                let mut crc = i as u32;
+                let mut j = 0;
+                while j < 8 {
+                    if crc & 1 != 0 {
+                        crc = (crc >> 1) ^ 0xEDB8_8320;
+                    } else {
+                        crc >>= 1;
+                    }
+                    j += 1;
+                }
+                table[i] = crc;
+                i += 1;
+            }
+            table
+        };
+
+        let mut crc = 0xFFFF_FFFF_u32;
+        for &byte in data {
+            let idx = ((crc ^ u32::from(byte)) & 0xFF) as usize;
+            crc = (crc >> 8) ^ TABLE[idx];
+        }
+        !crc
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn build_test_multi_entry_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        const LOCAL_SIGNATURE: u32 = 0x0403_4b50;
+        const CD_SIGNATURE: u32 = 0x0201_4b50;
+        const EOCD_SIGNATURE: u32 = 0x0605_4b50;
+        const METHOD_STORED: u16 = 0;
+
+        let count = entries.len() as u16;
+        let mut zip = Vec::new();
+        let mut local_offsets = Vec::with_capacity(entries.len());
+
+        for &(name, content) in entries {
+            let crc = test_zip_crc32(content);
+            let size = content.len() as u32;
+            let name_bytes = name.as_bytes();
+
+            local_offsets.push(zip.len() as u32);
+            zip.extend_from_slice(&LOCAL_SIGNATURE.to_le_bytes());
+            zip.extend_from_slice(&20_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&METHOD_STORED.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&crc.to_le_bytes());
+            zip.extend_from_slice(&size.to_le_bytes());
+            zip.extend_from_slice(&size.to_le_bytes());
+            zip.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(name_bytes);
+            zip.extend_from_slice(content);
+        }
+
+        let cd_offset = zip.len() as u32;
+        for (index, &(name, content)) in entries.iter().enumerate() {
+            let crc = test_zip_crc32(content);
+            let size = content.len() as u32;
+            let name_bytes = name.as_bytes();
+
+            zip.extend_from_slice(&CD_SIGNATURE.to_le_bytes());
+            zip.extend_from_slice(&20_u16.to_le_bytes());
+            zip.extend_from_slice(&20_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&METHOD_STORED.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&crc.to_le_bytes());
+            zip.extend_from_slice(&size.to_le_bytes());
+            zip.extend_from_slice(&size.to_le_bytes());
+            zip.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u16.to_le_bytes());
+            zip.extend_from_slice(&0_u32.to_le_bytes());
+            zip.extend_from_slice(&local_offsets[index].to_le_bytes());
+            zip.extend_from_slice(name_bytes);
+        }
+        let cd_size = (zip.len() as u32) - cd_offset;
+
+        zip.extend_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+        zip.extend_from_slice(&0_u16.to_le_bytes());
+        zip.extend_from_slice(&0_u16.to_le_bytes());
+        zip.extend_from_slice(&count.to_le_bytes());
+        zip.extend_from_slice(&count.to_le_bytes());
+        zip.extend_from_slice(&cd_size.to_le_bytes());
+        zip.extend_from_slice(&cd_offset.to_le_bytes());
+        zip.extend_from_slice(&0_u16.to_le_bytes());
+
+        zip
+    }
+
+    fn build_test_boot_archive_jar(
+        start_class: &str,
+        archive_entries: &[(&str, Vec<u8>)],
+    ) -> std::path::PathBuf {
+        let manifest = format!(
+            "Manifest-Version: 1.0\r\nMain-Class: org.springframework.boot.loader.launch.JarLauncher\r\nStart-Class: {start_class}\r\n\r\n"
+        );
+        let mut owned_entries: Vec<(String, Vec<u8>)> =
+            Vec::with_capacity(archive_entries.len() + 1);
+        owned_entries.push(("META-INF/MANIFEST.MF".to_string(), manifest.into_bytes()));
+        for (entry_name, entry_bytes) in archive_entries {
+            owned_entries.push((entry_name.to_string(), entry_bytes.clone()));
+        }
+
+        let entry_refs: Vec<(&str, &[u8])> = owned_entries
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect();
+        let jar_bytes = build_test_multi_entry_zip(&entry_refs);
+        let jar_path = std::env::temp_dir().join(format!(
+            "duke_test_boot_exec_{}.jar",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&jar_path, jar_bytes).expect("write boot launcher test jar");
+        jar_path
+    }
+
+    fn build_test_launched_loader(
+        boot_loader: &duke_loader::ZipLoader,
+        registry: &mut ClassRegistry,
+        heap: &mut duke_gc::Heap,
+        jar_path: &std::path::Path,
+    ) -> u64 {
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                boot_loader,
+            )
+            .expect("load JarLauncher");
+
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            registry,
+            heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            registry,
+            boot_loader,
+            heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+        let urls = execute_class(
+            registry,
+            boot_loader,
+            heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(urls_ref)) = urls else {
+            panic!("expected class path set");
+        };
+        let launched_loader = execute_class(
+            registry,
+            boot_loader,
+            heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "createClassLoader",
+            "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+            &[
+                Slot::Reference(Some(launcher_ref)),
+                Slot::Reference(Some(urls_ref)),
+            ],
+        )
+        .expect("createClassLoader(Collection) should succeed")
+        .expect("createClassLoader(Collection) should return a loader");
+        let Slot::Reference(Some(launched_loader_ref)) = launched_loader else {
+            panic!("expected launched class loader reference");
+        };
+        launched_loader_ref
+    }
+
+    fn load_class_via_launched_loader(
+        boot_loader: &duke_loader::ZipLoader,
+        registry: &mut ClassRegistry,
+        heap: &mut duke_gc::Heap,
+        binary_name: &str,
+        launched_loader_ref: u64,
+    ) -> u64 {
+        let binary_name_ref = heap.allocate_string(binary_name.to_string());
+        let mut ops = InterpreterCallbackOps {
+            registry,
+            loader: boot_loader,
+        };
+        let class_slot = native_class_for_name_with_loader(
+            &[
+                Slot::Reference(Some(binary_name_ref)),
+                Slot::Int(0),
+                Slot::Reference(Some(launched_loader_ref)),
+            ],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+            &mut ops,
+        )
+        .expect("Class.forName should succeed")
+        .expect("Class.forName should return a class");
+        let Slot::Reference(Some(class_ref)) = class_slot else {
+            panic!("expected Class reference");
+        };
+        class_ref
+    }
+
+    fn load_duplicate_hello_world_classes() -> (
+        duke_loader::ZipLoader,
+        ClassRegistry,
+        duke_gc::Heap,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        String,
+        String,
+    ) {
+        let boot_loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let jar_path_one = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world.clone())],
+        );
+        let jar_path_two = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let launched_loader_one =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_one);
+        let launched_loader_two =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_two);
+        let class_one_ref = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_one,
+        );
+        let class_two_ref = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_two,
+        );
+        let class_key_one = class_key_from_ref(&heap, class_one_ref)
+            .expect("loader-one mirror should carry class key");
+        let class_key_two = class_key_from_ref(&heap, class_two_ref)
+            .expect("loader-two mirror should carry class key");
+
+        (
+            boot_loader,
+            registry,
+            heap,
+            jar_path_one,
+            jar_path_two,
+            class_key_one,
+            class_key_two,
+        )
+    }
+
+    fn install_loader_keyed_hello_world_probe(
+        registry: &mut ClassRegistry,
+        class_key: &str,
+        method_name: &str,
+        descriptor: &str,
+        instructions: Vec<(usize, Instruction)>,
+        exception_table: Vec<ExceptionEntry>,
+    ) {
+        use duke_classfile::types::CpIndex;
+        use std::sync::Arc;
+
+        let pc_to_idx: std::collections::HashMap<usize, usize> = instructions
+            .iter()
+            .enumerate()
+            .map(|(idx, (pc, _))| (*pc, idx))
+            .collect();
+        let method = MethodEntry {
+            name: method_name.to_string(),
+            descriptor: descriptor.to_string(),
+            is_public: true,
+            is_static: true,
+            instructions: instructions.into(),
+            max_stack: 2,
+            max_locals: 1,
+            exception_table,
+            pc_to_idx: Arc::new(pc_to_idx),
+        };
+        let ctx = registry
+            .get_mut(class_key)
+            .expect("probe class should already be loaded");
+        ctx.constant_pool = vec![
+            None,
+            Some(CpEntry::Class {
+                name_index: CpIndex(2),
+            }),
+            Some(CpEntry::Utf8("HelloWorld".to_string())),
+        ];
+        ctx.methods.push(method);
+    }
+
+    fn allocate_zero_field_object(
+        registry: &ClassRegistry,
+        heap: &mut duke_gc::Heap,
+        class_key: &str,
+    ) -> u64 {
+        let object_ref = heap.allocate(
+            class_key.to_string(),
+            total_instance_field_count(registry, class_key),
+        );
+        init_object_fields(registry, heap, object_ref, class_key);
+        object_ref
+    }
+
+    fn invoke_class_get_class_loader(
+        boot_loader: &duke_loader::ZipLoader,
+        registry: &mut ClassRegistry,
+        heap: &mut duke_gc::Heap,
+        class_ref: u64,
+    ) -> Slot {
+        match registry.natives_mut().get_kind(
+            "java/lang/Class",
+            "getClassLoader",
+            "()Ljava/lang/ClassLoader;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler(
+                &[Slot::Reference(Some(class_ref))],
+                heap,
+                &mut Vec::new(),
+                &mut NativeControl::default(),
+            ),
+            Some(HandlerKind::Callback(handler)) => {
+                let mut ops = InterpreterCallbackOps {
+                    registry,
+                    loader: boot_loader,
+                };
+                handler(
+                    &[Slot::Reference(Some(class_ref))],
+                    heap,
+                    &mut Vec::new(),
+                    &mut NativeControl::default(),
+                    &mut ops,
+                )
+            }
+            other => panic!("expected Class.getClassLoader native, got {other:?}"),
+        }
+        .expect("Class.getClassLoader should succeed")
+        .expect("Class.getClassLoader should return a ClassLoader")
+    }
+
     #[test]
     fn zip_loader_loads_class_from_jar() {
         let jar_path = fixtures_dir().join("hello.jar");
@@ -27572,6 +35037,2089 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
+    fn class_protection_domain_chain_resolves_back_to_file() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let jar_path = fixtures_dir().join("hello.jar");
+        let jar_path = jar_path.canonicalize().expect("canonical hello.jar");
+
+        let get_pd = match registry.natives_mut().get_kind(
+            "java/lang/Class",
+            "getProtectionDomain",
+            "()Ljava/security/ProtectionDomain;",
+        ) {
+            Some(HandlerKind::Callback(handler)) => handler,
+            other => panic!("expected Class.getProtectionDomain callback, got {other:?}"),
+        };
+        let get_code_source = match registry.natives_mut().get_kind(
+            "java/security/ProtectionDomain",
+            "getCodeSource",
+            "()Ljava/security/CodeSource;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected ProtectionDomain.getCodeSource native, got {other:?}"),
+        };
+        let get_location = match registry.natives_mut().get_kind(
+            "java/security/CodeSource",
+            "getLocation",
+            "()Ljava/net/URL;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected CodeSource.getLocation native, got {other:?}"),
+        };
+        let url_to_uri =
+            match registry
+                .natives_mut()
+                .get_kind("java/net/URL", "toURI", "()Ljava/net/URI;")
+            {
+                Some(HandlerKind::Simple(handler)) => handler,
+                other => panic!("expected URL.toURI native, got {other:?}"),
+            };
+        let path_of = match registry.natives_mut().get_kind(
+            "java/nio/file/Path",
+            "of",
+            "(Ljava/net/URI;)Ljava/nio/file/Path;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected Path.of native, got {other:?}"),
+        };
+        let path_to_file = match registry.natives_mut().get_kind(
+            "java/nio/file/Path",
+            "toFile",
+            "()Ljava/io/File;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected Path.toFile native, got {other:?}"),
+        };
+
+        let class_ref =
+            allocate_class_object(&mut heap, "org/springframework/boot/loader/launch/Launcher")
+                .expect("allocate Class object");
+        let mut ops = FixedCodeSourceOps {
+            code_source: Some(jar_path.to_string_lossy().to_string()),
+        };
+        let mut sink: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+
+        let pd_ref = match get_pd(
+            &[Slot::Reference(Some(class_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+            &mut ops,
+        )
+        .expect("getProtectionDomain should succeed")
+        {
+            Some(Slot::Reference(Some(r))) => r,
+            other => panic!("expected protection domain reference, got {other:?}"),
+        };
+        let code_source_ref = match get_code_source(
+            &[Slot::Reference(Some(pd_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .expect("getCodeSource should succeed")
+        {
+            Some(Slot::Reference(Some(r))) => r,
+            other => panic!("expected code source reference, got {other:?}"),
+        };
+        let code_source_location_ref = match get_location(
+            &[Slot::Reference(Some(code_source_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .expect("getLocation should succeed")
+        {
+            Some(Slot::Reference(Some(r))) => r,
+            other => panic!("expected URL reference, got {other:?}"),
+        };
+        let code_source_uri_ref = match url_to_uri(
+            &[Slot::Reference(Some(code_source_location_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .expect("toURI should succeed")
+        {
+            Some(Slot::Reference(Some(r))) => r,
+            other => panic!("expected URI reference, got {other:?}"),
+        };
+        let path_ref = match path_of(
+            &[Slot::Reference(Some(code_source_uri_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .expect("Path.of should succeed")
+        {
+            Some(Slot::Reference(Some(r))) => r,
+            other => panic!("expected Path reference, got {other:?}"),
+        };
+        let file_ref = match path_to_file(
+            &[Slot::Reference(Some(path_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .expect("Path.toFile should succeed")
+        {
+            Some(Slot::Reference(Some(r))) => r,
+            other => panic!("expected File reference, got {other:?}"),
+        };
+
+        let resolved_path = file_path_from_ref(file_ref, &heap).expect("file path from ref");
+        let resolved_canonical = resolved_path
+            .canonicalize()
+            .expect("canonical resolved path");
+        assert_eq!(resolved_canonical, jar_path);
+    }
+
+    #[test]
+    fn paths_get_joins_first_and_more_segments() {
+        let mut heap = duke_gc::Heap::new();
+        let first_ref = heap.allocate_string("boot".to_string());
+        let lib_ref = heap.allocate_string("lib".to_string());
+        let jar_ref = heap.allocate_string("app.jar".to_string());
+        let more_ref = heap.allocate("[Ljava/lang/String;".to_string(), 2);
+        heap.get_mut(more_ref).unwrap().fields = vec![
+            Slot::Reference(Some(lib_ref)),
+            Slot::Reference(Some(jar_ref)),
+        ];
+        let mut sink: Vec<u8> = Vec::new();
+        let result = native_paths_get(
+            &[
+                Slot::Reference(Some(first_ref)),
+                Slot::Reference(Some(more_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+
+        let Slot::Reference(Some(path_ref)) = result.unwrap() else {
+            panic!("expected Path reference");
+        };
+        let expected = std::path::PathBuf::from("boot")
+            .join("lib")
+            .join("app.jar")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            string_backed_object_value(&heap, path_ref).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn native_set_of_builds_hashset_from_array_elements() {
+        let mut heap = duke_gc::Heap::new();
+        let alpha_ref = heap.allocate_string("alpha".to_string());
+        let beta_ref = heap.allocate_string("beta".to_string());
+        let array_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 2);
+        heap.get_mut(array_ref).unwrap().fields = vec![
+            Slot::Reference(Some(alpha_ref)),
+            Slot::Reference(Some(beta_ref)),
+        ];
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = native_set_of(
+            &[Slot::Reference(Some(array_ref))],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("Set.of should succeed")
+        .expect("Set.of should return a set");
+
+        let Slot::Reference(Some(set_ref)) = result else {
+            panic!("expected HashSet reference");
+        };
+        let set = heap.get(set_ref).unwrap();
+        assert_eq!(set.class_name, "java/util/HashSet");
+        assert_eq!(set.fields.first(), Some(&Slot::Int(2)));
+        assert_eq!(set.fields.len(), 3);
+    }
+
+    #[test]
+    fn bootstrap_stdlib_registers_posix_permission_singletons() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let ctx = registry
+            .get("java/nio/file/attribute/PosixFilePermission")
+            .expect("PosixFilePermission should be registered");
+        assert_eq!(ctx.static_fields.len(), 3);
+        for slot in &ctx.static_fields {
+            assert!(matches!(slot, Slot::Reference(Some(_))));
+        }
+    }
+
+    #[test]
+    fn native_posix_file_permissions_as_file_attribute_returns_placeholder() {
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = native_posix_file_permissions_as_file_attribute(
+            &[Slot::Reference(None)],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("asFileAttribute should succeed")
+        .expect("asFileAttribute should return a placeholder");
+
+        let Slot::Reference(Some(attribute_ref)) = result else {
+            panic!("expected FileAttribute reference");
+        };
+        assert_eq!(
+            heap.get(attribute_ref).unwrap().class_name,
+            "java/nio/file/attribute/FileAttribute"
+        );
+    }
+
+    #[test]
+    fn bootstrap_stdlib_registers_object_get_class_native() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let get_class = match registry.natives_mut().get_kind(
+            "java/lang/Object",
+            "getClass",
+            "()Ljava/lang/Class;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected Object.getClass native, got {other:?}"),
+        };
+
+        let object_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+        let mut sink: Vec<u8> = Vec::new();
+        let result = get_class(
+            &[Slot::Reference(Some(object_ref))],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("Object.getClass should succeed")
+        .expect("Object.getClass should return a Class object");
+
+        let Slot::Reference(Some(class_ref)) = result else {
+            panic!("expected Class reference");
+        };
+        assert_eq!(
+            class_internal_name_from_ref(&heap, class_ref).unwrap(),
+            "java/util/HashSet"
+        );
+    }
+
+    #[test]
+    fn bootstrap_stdlib_registers_collection_to_array_natives() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let to_array = match registry.natives_mut().get_kind(
+            "java/util/Collection",
+            "toArray",
+            "()[Ljava/lang/Object;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected Collection.toArray() native, got {other:?}"),
+        };
+        let to_array_with_seed = match registry.natives_mut().get_kind(
+            "java/util/Collection",
+            "toArray",
+            "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected Collection.toArray(Object[]) native, got {other:?}"),
+        };
+
+        let collection_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+        let mut sink: Vec<u8> = Vec::new();
+        native_hashset_init(
+            &[Slot::Reference(Some(collection_ref))],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("HashSet init should succeed");
+
+        let first_url = heap.allocate("java/net/URL".to_string(), 1);
+        let second_url = heap.allocate("java/net/URL".to_string(), 1);
+        native_hashset_add(
+            &[
+                Slot::Reference(Some(collection_ref)),
+                Slot::Reference(Some(first_url)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("HashSet.add should succeed");
+        native_hashset_add(
+            &[
+                Slot::Reference(Some(collection_ref)),
+                Slot::Reference(Some(second_url)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("HashSet.add should succeed");
+
+        let array_result = to_array(
+            &[Slot::Reference(Some(collection_ref))],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("Collection.toArray() should succeed")
+        .expect("Collection.toArray() should return an array");
+        let Slot::Reference(Some(array_ref)) = array_result else {
+            panic!("expected Object[] reference");
+        };
+        let object_array = heap.get(array_ref).unwrap();
+        assert_eq!(object_array.class_name, "[Ljava/lang/Object;");
+        assert_eq!(object_array.fields.len(), 2);
+        assert_eq!(object_array.fields[0], Slot::Reference(Some(first_url)));
+        assert_eq!(object_array.fields[1], Slot::Reference(Some(second_url)));
+
+        let seed_array_ref = heap.allocate("[Ljava/net/URL;".to_string(), 0);
+        let typed_result = to_array_with_seed(
+            &[
+                Slot::Reference(Some(collection_ref)),
+                Slot::Reference(Some(seed_array_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("Collection.toArray(Object[]) should succeed")
+        .expect("Collection.toArray(Object[]) should return an array");
+        let Slot::Reference(Some(typed_ref)) = typed_result else {
+            panic!("expected typed array reference");
+        };
+        let typed_array = heap.get(typed_ref).unwrap();
+        assert_eq!(typed_array.class_name, "[Ljava/net/URL;");
+        assert_eq!(typed_array.fields.len(), 2);
+        assert_eq!(typed_array.fields[0], Slot::Reference(Some(first_url)));
+        assert_eq!(typed_array.fields[1], Slot::Reference(Some(second_url)));
+    }
+
+    #[test]
+    fn bootstrap_stdlib_replaces_boot_launcher_shims_with_archive_and_ctor_shims() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        assert!(
+            registry
+                .natives_mut()
+                .get_kind(
+                    "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+                    "getClassPathUrls",
+                    "()Ljava/util/Set;",
+                )
+                .is_none(),
+            "getClassPathUrls() should use launcher bytecode, not a native shim"
+        );
+        assert!(
+            registry
+                .natives_mut()
+                .get_kind(
+                    "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+                    "createClassLoader",
+                    "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+                )
+                .is_none(),
+            "createClassLoader(Collection) should use bytecode, not a native shim"
+        );
+        assert!(
+            matches!(
+                registry.natives_mut().get_kind(
+                    "org/springframework/boot/loader/launch/Archive",
+                    "getManifest",
+                    "()Ljava/util/jar/Manifest;",
+                ),
+                Some(HandlerKind::Simple(_))
+            ),
+            "expected Archive.getManifest shim to be registered"
+        );
+        assert!(
+            matches!(
+                registry.natives_mut().get_kind(
+                    "org/springframework/boot/loader/launch/JarFileArchive",
+                    "getManifest",
+                    "()Ljava/util/jar/Manifest;",
+                ),
+                Some(HandlerKind::Simple(_))
+            ),
+            "expected JarFileArchive.getManifest shim to be registered"
+        );
+        assert!(
+            matches!(
+                registry.natives_mut().get_kind(
+                    "org/springframework/boot/loader/launch/ExplodedArchive",
+                    "getManifest",
+                    "()Ljava/util/jar/Manifest;",
+                ),
+                Some(HandlerKind::Simple(_))
+            ),
+            "expected ExplodedArchive.getManifest shim to be registered"
+        );
+        assert!(
+            matches!(
+                registry.natives_mut().get_kind(
+                    "org/springframework/boot/loader/launch/JarFileArchive",
+                    "getClassPathUrls",
+                    "(Ljava/util/function/Predicate;Ljava/util/function/Predicate;)Ljava/util/Set;",
+                ),
+                Some(HandlerKind::Callback(_))
+            ),
+            "expected JarFileArchive.getClassPathUrls shim to be registered"
+        );
+        assert!(
+            matches!(
+                registry.natives_mut().get_kind(
+                    "org/springframework/boot/loader/launch/ExplodedArchive",
+                    "getClassPathUrls",
+                    "(Ljava/util/function/Predicate;Ljava/util/function/Predicate;)Ljava/util/Set;",
+                ),
+                Some(HandlerKind::Callback(_))
+            ),
+            "expected ExplodedArchive.getClassPathUrls shim to be registered"
+        );
+        assert!(
+            matches!(
+                registry.natives_mut().get_kind(
+                    "org/springframework/boot/loader/launch/LaunchedClassLoader",
+                    "<init>",
+                    "(ZLorg/springframework/boot/loader/launch/Archive;[Ljava/net/URL;Ljava/lang/ClassLoader;)V",
+                ),
+                Some(HandlerKind::Callback(_))
+            ),
+            "expected LaunchedClassLoader ctor shim to be registered"
+        );
+    }
+
+    #[test]
+    fn bootstrap_stdlib_registers_boot_archive_entry_natives() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        assert!(
+            matches!(
+                registry.natives_mut().get_kind(
+                    "duke/boot/ArchiveEntry",
+                    "name",
+                    "()Ljava/lang/String;",
+                ),
+                Some(HandlerKind::Simple(_))
+            ),
+            "expected duke/boot/ArchiveEntry.name native"
+        );
+        assert!(
+            matches!(
+                registry
+                    .natives_mut()
+                    .get_kind("duke/boot/ArchiveEntry", "isDirectory", "()Z",),
+                Some(HandlerKind::Simple(_))
+            ),
+            "expected duke/boot/ArchiveEntry.isDirectory native"
+        );
+    }
+
+    #[test]
+    fn bootstrap_stdlib_registers_class_loader_parallel_capable_native() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let register_parallel = match registry.natives_mut().get_kind(
+            "java/lang/ClassLoader",
+            "registerAsParallelCapable",
+            "()Z",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected ClassLoader.registerAsParallelCapable native, got {other:?}"),
+        };
+        let mut sink: Vec<u8> = Vec::new();
+        let result = register_parallel(&[], &mut heap, &mut sink, &mut NativeControl::default())
+            .expect("registerAsParallelCapable should succeed")
+            .expect("registerAsParallelCapable should return a boolean");
+        assert_eq!(result, Slot::Int(1));
+    }
+
+    #[test]
+    fn native_boot_jar_file_archive_get_class_path_urls_uses_include_predicate() {
+        struct ArchivePredicateOps;
+
+        impl CallbackOps for ArchivePredicateOps {
+            fn invoke(
+                &mut self,
+                heap: &mut duke_gc::Heap,
+                _output: &mut dyn Write,
+                class: &str,
+                method: &str,
+                descriptor: &str,
+                args: Vec<Slot>,
+            ) -> VmResult<Option<Slot>> {
+                assert_eq!(method, "test");
+                assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
+                let entry_ref = match args.get(1) {
+                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
+                    other => panic!("expected archive entry arg, got {other:?}"),
+                };
+                let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
+                let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();
+                let accepted = match class {
+                    "duke/test/IncludePredicate" => {
+                        (is_directory && entry_name == "BOOT-INF/classes/")
+                            || (!is_directory && entry_name == "BOOT-INF/lib/helper.jar")
+                    }
+                    "duke/test/SearchPredicate" => false,
+                    other => panic!("unexpected predicate class {other}"),
+                };
+                Ok(Some(Slot::Int(i32::from(accepted))))
+            }
+
+            fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+                Ok(())
+            }
+
+            fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+                unreachable!("inspect_class should not be used")
+            }
+        }
+
+        let jar_bytes = build_test_multi_entry_zip(&[
+            ("META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\r\n"),
+            ("BOOT-INF/classes/", b""),
+            ("BOOT-INF/classes/com/example/App.class", b"cafebabe"),
+            ("BOOT-INF/lib/helper.jar", b"nested"),
+            ("BOOT-INF/lib/ignored.txt", b"ignored"),
+        ]);
+        let jar_path = std::env::temp_dir().join(format!(
+            "duke_test_boot_archive_{}.jar",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&jar_path, jar_bytes).expect("write archive test jar");
+
+        let mut heap = duke_gc::Heap::new();
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        let path_ref = heap.allocate_string(jar_path.to_string_lossy().into_owned());
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(path_ref));
+
+        let archive_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarFileArchive".to_string(),
+            3,
+        );
+        heap.get_mut(archive_ref).unwrap().fields[0] = Slot::Reference(Some(file_ref));
+
+        let include_predicate_ref = heap.allocate("duke/test/IncludePredicate".to_string(), 0);
+        let search_predicate_ref = heap.allocate("duke/test/SearchPredicate".to_string(), 0);
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = native_boot_jar_file_archive_get_class_path_urls(
+            &[
+                Slot::Reference(Some(archive_ref)),
+                Slot::Reference(Some(include_predicate_ref)),
+                Slot::Reference(Some(search_predicate_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+            &mut ArchivePredicateOps,
+        )
+        .expect("JarFileArchive.getClassPathUrls should succeed")
+        .expect("JarFileArchive.getClassPathUrls should return a set");
+
+        std::fs::remove_file(&jar_path).ok();
+
+        let Slot::Reference(Some(set_ref)) = result else {
+            panic!("expected HashSet reference");
+        };
+        let set = heap.get(set_ref).unwrap();
+        assert_eq!(set.fields.first(), Some(&Slot::Int(2)));
+
+        let urls: Vec<String> = set
+            .fields
+            .iter()
+            .skip(1)
+            .filter_map(Slot::as_reference)
+            .map(|url_ref| string_backed_object_value(&heap, url_ref).unwrap())
+            .collect();
+        assert_eq!(urls.len(), 2);
+        assert!(urls.iter().any(|url| url.contains("BOOT-INF/classes/")));
+        assert!(
+            urls.iter()
+                .any(|url| url.contains("BOOT-INF/lib/helper.jar"))
+        );
+    }
+
+    #[test]
+    fn native_boot_jar_file_archive_get_manifest_reads_embedded_manifest() {
+        let jar_bytes = build_test_multi_entry_zip(&[
+            (
+                "META-INF/MANIFEST.MF",
+                b"Manifest-Version: 1.0\r\nStart-Class: com.example.App\r\n",
+            ),
+            ("BOOT-INF/classes/com/example/App.class", b"cafebabe"),
+        ]);
+        let jar_path = std::env::temp_dir().join(format!(
+            "duke_test_boot_archive_manifest_{}.jar",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&jar_path, jar_bytes).expect("write archive test jar");
+
+        let mut heap = duke_gc::Heap::new();
+        let jar_file_ref = heap.allocate("java/util/jar/JarFile".to_string(), 1);
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        let path_ref = heap.allocate_string(jar_path.to_string_lossy().into_owned());
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(path_ref));
+        native_jar_file_init_from_file(
+            &[
+                Slot::Reference(Some(jar_file_ref)),
+                Slot::Reference(Some(file_ref)),
+            ],
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("JarFile.<init>(File) should succeed");
+
+        let archive_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarFileArchive".to_string(),
+            3,
+        );
+        heap.get_mut(archive_ref).unwrap().fields[1] = Slot::Reference(Some(jar_file_ref));
+
+        let result = native_boot_jar_file_archive_get_manifest(
+            &[Slot::Reference(Some(archive_ref))],
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("JarFileArchive.getManifest should succeed")
+        .expect("JarFileArchive.getManifest should return a manifest");
+
+        std::fs::remove_file(&jar_path).ok();
+
+        let Slot::Reference(Some(manifest_ref)) = result else {
+            panic!("expected Manifest reference");
+        };
+        let manifest_text_ref = heap.get(manifest_ref).unwrap().fields[0]
+            .as_reference()
+            .expect("Manifest.raw string");
+        let manifest_text = string_value_from_ref(&heap, manifest_text_ref).unwrap();
+        assert!(manifest_text.contains("Start-Class: com.example.App"));
+    }
+
+    #[test]
+    fn native_boot_exploded_archive_get_class_path_urls_uses_search_predicate() {
+        struct ArchivePredicateOps;
+
+        impl CallbackOps for ArchivePredicateOps {
+            fn invoke(
+                &mut self,
+                heap: &mut duke_gc::Heap,
+                _output: &mut dyn Write,
+                class: &str,
+                method: &str,
+                descriptor: &str,
+                args: Vec<Slot>,
+            ) -> VmResult<Option<Slot>> {
+                assert_eq!(method, "test");
+                assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
+                let entry_ref = match args.get(1) {
+                    Some(Slot::Reference(Some(entry_ref))) => *entry_ref,
+                    other => panic!("expected archive entry arg, got {other:?}"),
+                };
+                let entry_name = boot_archive_entry_name(heap, entry_ref).unwrap();
+                let is_directory = boot_archive_entry_is_directory_flag(heap, entry_ref).unwrap();
+                let accepted = match class {
+                    "duke/test/IncludePredicate" => {
+                        (is_directory && entry_name == "BOOT-INF/classes/")
+                            || (!is_directory && entry_name == "BOOT-INF/lib/helper.jar")
+                    }
+                    "duke/test/SearchPredicate" => {
+                        is_directory && (entry_name == "BOOT-INF/" || entry_name == "BOOT-INF/lib/")
+                    }
+                    other => panic!("unexpected predicate class {other}"),
+                };
+                Ok(Some(Slot::Int(i32::from(accepted))))
+            }
+
+            fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+                Ok(())
+            }
+
+            fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+                unreachable!("inspect_class should not be used")
+            }
+        }
+
+        let root_path = std::env::temp_dir().join(format!(
+            "duke_test_boot_exploded_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root_path.join("BOOT-INF/classes/com/example"))
+            .expect("create exploded classes dir");
+        std::fs::create_dir_all(root_path.join("BOOT-INF/lib")).expect("create exploded lib dir");
+        std::fs::write(
+            root_path.join("BOOT-INF/classes/com/example/App.class"),
+            b"cafebabe",
+        )
+        .expect("write exploded class");
+        std::fs::write(root_path.join("BOOT-INF/lib/helper.jar"), b"nested")
+            .expect("write exploded lib");
+
+        let mut heap = duke_gc::Heap::new();
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        let path_ref = heap.allocate_string(root_path.to_string_lossy().into_owned());
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(path_ref));
+
+        let archive_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/ExplodedArchive".to_string(),
+            3,
+        );
+        heap.get_mut(archive_ref).unwrap().fields[0] = Slot::Reference(Some(file_ref));
+
+        let include_predicate_ref = heap.allocate("duke/test/IncludePredicate".to_string(), 0);
+        let search_predicate_ref = heap.allocate("duke/test/SearchPredicate".to_string(), 0);
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = native_boot_exploded_archive_get_class_path_urls(
+            &[
+                Slot::Reference(Some(archive_ref)),
+                Slot::Reference(Some(include_predicate_ref)),
+                Slot::Reference(Some(search_predicate_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+            &mut ArchivePredicateOps,
+        )
+        .expect("ExplodedArchive.getClassPathUrls should succeed")
+        .expect("ExplodedArchive.getClassPathUrls should return a set");
+
+        std::fs::remove_dir_all(&root_path).ok();
+
+        let Slot::Reference(Some(set_ref)) = result else {
+            panic!("expected HashSet reference");
+        };
+        let set = heap.get(set_ref).unwrap();
+        assert_eq!(set.fields.first(), Some(&Slot::Int(2)));
+
+        let urls: Vec<String> = set
+            .fields
+            .iter()
+            .skip(1)
+            .filter_map(Slot::as_reference)
+            .map(|url_ref| string_backed_object_value(&heap, url_ref).unwrap())
+            .collect();
+        assert_eq!(urls.len(), 2);
+        assert!(urls.iter().any(|url| url.contains("BOOT-INF/classes")));
+        assert!(
+            urls.iter()
+                .any(|url| url.contains("BOOT-INF/lib/helper.jar"))
+        );
+    }
+
+    #[test]
+    fn native_boot_exploded_archive_get_manifest_reads_meta_inf_manifest() {
+        let root_path = std::env::temp_dir().join(format!(
+            "duke_test_boot_exploded_manifest_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        let manifest_dir = root_path.join("META-INF");
+        std::fs::create_dir_all(&manifest_dir).expect("create META-INF");
+        std::fs::write(
+            manifest_dir.join("MANIFEST.MF"),
+            b"Manifest-Version: 1.0\r\nStart-Class: com.example.Exploded\r\n",
+        )
+        .expect("write manifest");
+
+        let mut heap = duke_gc::Heap::new();
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        let path_ref = heap.allocate_string(root_path.to_string_lossy().into_owned());
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(path_ref));
+        let archive_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/ExplodedArchive".to_string(),
+            3,
+        );
+        heap.get_mut(archive_ref).unwrap().fields[0] = Slot::Reference(Some(file_ref));
+
+        let result = native_boot_exploded_archive_get_manifest(
+            &[Slot::Reference(Some(archive_ref))],
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("ExplodedArchive.getManifest should succeed")
+        .expect("ExplodedArchive.getManifest should return a manifest");
+
+        std::fs::remove_dir_all(&root_path).ok();
+
+        let Slot::Reference(Some(manifest_ref)) = result else {
+            panic!("expected Manifest reference");
+        };
+        let manifest_text_ref = heap.get(manifest_ref).unwrap().fields[0]
+            .as_reference()
+            .expect("Manifest.raw string");
+        let manifest_text = string_value_from_ref(&heap, manifest_text_ref).unwrap();
+        assert!(manifest_text.contains("Start-Class: com.example.Exploded"));
+        assert_eq!(
+            heap.get(archive_ref).unwrap().fields[BOOT_EXPLODED_ARCHIVE_MANIFEST_SLOT],
+            Slot::Reference(Some(manifest_ref))
+        );
+    }
+
+    #[test]
+    fn native_class_for_name_with_loader_uses_binary_name() {
+        #[derive(Default)]
+        struct LoadingOps {
+            loaded: Vec<String>,
+        }
+
+        impl CallbackOps for LoadingOps {
+            fn invoke(
+                &mut self,
+                _heap: &mut duke_gc::Heap,
+                _output: &mut dyn Write,
+                _class: &str,
+                _method: &str,
+                _descriptor: &str,
+                _args: Vec<Slot>,
+            ) -> VmResult<Option<Slot>> {
+                Ok(None)
+            }
+
+            fn ensure_loaded(&mut self, class: &str) -> VmResult<()> {
+                self.loaded.push(class.to_string());
+                Ok(())
+            }
+
+            fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+                unreachable!("inspect_class should not be used")
+            }
+        }
+
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        let binary_name_ref = heap.allocate_string("com.example.BootApp".to_string());
+        let mut ops = LoadingOps::default();
+
+        let result = native_class_for_name_with_loader(
+            &[
+                Slot::Reference(Some(binary_name_ref)),
+                Slot::Int(0),
+                Slot::Reference(None),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+            &mut ops,
+        )
+        .expect("Class.forName overload should succeed")
+        .expect("Class.forName overload should return a class");
+
+        let Slot::Reference(Some(class_ref)) = result else {
+            panic!("expected Class reference");
+        };
+        assert_eq!(ops.loaded, vec!["com/example/BootApp".to_string()]);
+        assert_eq!(
+            class_internal_name_from_ref(&heap, class_ref).unwrap(),
+            "com/example/BootApp"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn native_class_for_name_with_loader_uses_loader_archive_not_global_default_code_source() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let class_jar_path = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+        let empty_jar_path = build_test_boot_archive_jar("Missing", &[]);
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(empty_jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+        let urls = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(urls_ref)) = urls else {
+            panic!("expected class path set");
+        };
+        let launched_loader = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "createClassLoader",
+            "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+            &[
+                Slot::Reference(Some(launcher_ref)),
+                Slot::Reference(Some(urls_ref)),
+            ],
+        )
+        .expect("createClassLoader(Collection) should succeed")
+        .expect("createClassLoader(Collection) should return a loader");
+        let Slot::Reference(Some(launched_loader_ref)) = launched_loader else {
+            panic!("expected launched class loader reference");
+        };
+
+        registry.set_default_code_source(class_jar_path.display().to_string());
+        let binary_name_ref = heap.allocate_string("HelloWorld".to_string());
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = {
+            let mut ops = InterpreterCallbackOps {
+                registry: &mut registry,
+                loader: &loader,
+            };
+            native_class_for_name_with_loader(
+                &[
+                    Slot::Reference(Some(binary_name_ref)),
+                    Slot::Int(0),
+                    Slot::Reference(Some(launched_loader_ref)),
+                ],
+                &mut heap,
+                &mut sink,
+                &mut NativeControl::default(),
+                &mut ops,
+            )
+        };
+
+        std::fs::remove_file(&class_jar_path).ok();
+        std::fs::remove_file(&empty_jar_path).ok();
+
+        assert!(
+            matches!(
+                result,
+                Err(VmError::JavaException { ref class_name })
+                    if class_name == "java/lang/ClassNotFoundException"
+            ),
+            "wrong launched loader should not fall back to registry default code source: {result:?}"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn native_reflect_method_invoke_runs_boot_archive_main() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let jar_path = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        let mut out: Vec<u8> = Vec::new();
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+        let urls = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(urls_ref)) = urls else {
+            panic!("expected class path set");
+        };
+        let launched_loader = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "createClassLoader",
+            "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+            &[
+                Slot::Reference(Some(launcher_ref)),
+                Slot::Reference(Some(urls_ref)),
+            ],
+        )
+        .expect("createClassLoader(Collection) should succeed")
+        .expect("createClassLoader(Collection) should return a loader");
+        let Slot::Reference(Some(launched_loader_ref)) = launched_loader else {
+            panic!("expected launched class loader reference");
+        };
+
+        let (class_ref, method_ref) = {
+            let binary_name_ref = heap.allocate_string("HelloWorld".to_string());
+            let mut ops = InterpreterCallbackOps {
+                registry: &mut registry,
+                loader: &loader,
+            };
+            let class_slot = native_class_for_name_with_loader(
+                &[
+                    Slot::Reference(Some(binary_name_ref)),
+                    Slot::Int(0),
+                    Slot::Reference(Some(launched_loader_ref)),
+                ],
+                &mut heap,
+                &mut out,
+                &mut NativeControl::default(),
+                &mut ops,
+            )
+            .expect("Class.forName should succeed")
+            .expect("Class.forName should return a class");
+            let Slot::Reference(Some(class_ref)) = class_slot else {
+                panic!("expected Class reference");
+            };
+
+            let param_array_ref = heap.allocate("[Ljava/lang/Class;".to_string(), 1);
+            let string_array_class_ref = allocate_class_object(&mut heap, "[Ljava/lang/String;")
+                .expect("allocate array Class");
+            heap.get_mut(param_array_ref).unwrap().fields[0] =
+                Slot::Reference(Some(string_array_class_ref));
+            let method_name_ref = heap.allocate_string("main".to_string());
+            let method_slot = native_class_get_declared_method(
+                &[
+                    Slot::Reference(Some(class_ref)),
+                    Slot::Reference(Some(method_name_ref)),
+                    Slot::Reference(Some(param_array_ref)),
+                ],
+                &mut heap,
+                &mut out,
+                &mut NativeControl::default(),
+                &mut ops,
+            )
+            .expect("getDeclaredMethod should succeed")
+            .expect("getDeclaredMethod should return a method");
+            let Slot::Reference(Some(method_ref)) = method_slot else {
+                panic!("expected Method reference");
+            };
+            (class_ref, method_ref)
+        };
+
+        let _ = class_ref;
+        let string_args_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+        let invoke_args_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        heap.get_mut(invoke_args_ref).unwrap().fields[0] = Slot::Reference(Some(string_args_ref));
+        let method =
+            reflected_method_handle(&heap, method_ref).expect("read reflected method handle");
+        let invoke_arg_slots =
+            reflection_array_elements(&heap, Slot::Reference(Some(invoke_args_ref)))
+                .expect("extract invoke arg slots");
+        let invoke_args = build_reflection_invoke_args(
+            &heap,
+            Slot::Reference(None),
+            &method.descriptor,
+            invoke_arg_slots,
+            method.is_static,
+        )
+        .expect("build reflection invoke args");
+        let result = {
+            let mut ops = InterpreterCallbackOps {
+                registry: &mut registry,
+                loader: &loader,
+            };
+            ops.ensure_loaded(&method.declaring_class_key)
+                .expect("declaring class should stay loadable");
+            ops.invoke(
+                &mut heap,
+                &mut out,
+                &method.declaring_class_key,
+                &method.method_name,
+                &method.descriptor,
+                invoke_args,
+            )
+        };
+
+        std::fs::remove_file(&jar_path).ok();
+
+        assert!(
+            result.is_ok(),
+            "reflection invoke step should run Boot-archive main, got {result:?}"
+        );
+        assert_eq!(String::from_utf8(out).unwrap(), "Hello, World!\n");
+    }
+
+    #[test]
+    fn native_class_get_declared_method_matches_parameter_class_array() {
+        struct FixedInspectOps;
+
+        impl CallbackOps for FixedInspectOps {
+            fn invoke(
+                &mut self,
+                _heap: &mut duke_gc::Heap,
+                _output: &mut dyn Write,
+                _class: &str,
+                _method: &str,
+                _descriptor: &str,
+                _args: Vec<Slot>,
+            ) -> VmResult<Option<Slot>> {
+                Ok(None)
+            }
+
+            fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+                Ok(())
+            }
+
+            fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo> {
+                Ok(ReflectedClassInfo {
+                    internal_name: class.to_string(),
+                    binary_name: class.replace('/', "."),
+                    super_class: None,
+                    interfaces: Vec::new(),
+                    methods: vec![
+                        ReflectedMethodInfo {
+                            name: "main".to_string(),
+                            descriptor: "([Ljava/lang/String;)V".to_string(),
+                            is_public: true,
+                            is_static: true,
+                        },
+                        ReflectedMethodInfo {
+                            name: "main".to_string(),
+                            descriptor: "()V".to_string(),
+                            is_public: true,
+                            is_static: true,
+                        },
+                    ],
+                    fields: Vec::new(),
+                })
+            }
+        }
+
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+        let mut ops = FixedInspectOps;
+        let class_ref = allocate_class_object(&mut heap, "com/example/BootApp").unwrap();
+        let method_name_ref = heap.allocate_string("main".to_string());
+        let param_class_ref = allocate_class_object(&mut heap, "[Ljava/lang/String;").unwrap();
+        let params_ref = heap.allocate("[Ljava/lang/Class;".to_string(), 1);
+        heap.get_mut(params_ref).unwrap().fields[0] = Slot::Reference(Some(param_class_ref));
+
+        let result = native_class_get_declared_method(
+            &[
+                Slot::Reference(Some(class_ref)),
+                Slot::Reference(Some(method_name_ref)),
+                Slot::Reference(Some(params_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+            &mut ops,
+        )
+        .expect("getDeclaredMethod should succeed")
+        .expect("getDeclaredMethod should return a Method");
+
+        let Slot::Reference(Some(method_ref)) = result else {
+            panic!("expected Method reference");
+        };
+        let method = reflected_method_handle(&heap, method_ref).unwrap();
+        assert_eq!(method.method_name, "main");
+        assert_eq!(method.descriptor, "([Ljava/lang/String;)V");
+    }
+
+    #[test]
+    fn native_reflect_method_get_parameter_count_counts_descriptor_args() {
+        let mut heap = duke_gc::Heap::new();
+        let method_ref = allocate_reflection_member_object(
+            &mut heap,
+            "java/lang/reflect/Method",
+            "com/example/BootApp",
+            "main",
+            "([Ljava/lang/String;)V",
+            true,
+            true,
+        )
+        .unwrap();
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = native_reflect_method_get_parameter_count(
+            &[Slot::Reference(Some(method_ref))],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("getParameterCount should succeed");
+
+        assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn native_attributes_get_value_reads_manifest_key() {
+        let mut heap = duke_gc::Heap::new();
+        let raw_ref = heap.allocate_string(
+            "Manifest-Version: 1.0\r\nStart-Class: com.example.BootApp\r\n".to_string(),
+        );
+        let attributes_ref = heap.allocate("java/util/jar/Attributes".to_string(), 1);
+        heap.get_mut(attributes_ref).unwrap().fields[0] = Slot::Reference(Some(raw_ref));
+        let key_ref = heap.allocate_string("Start-Class".to_string());
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result = native_attributes_get_value(
+            &[
+                Slot::Reference(Some(attributes_ref)),
+                Slot::Reference(Some(key_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .expect("Attributes.getValue should succeed")
+        .expect("Attributes.getValue should return a string");
+
+        let Slot::Reference(Some(value_ref)) = result else {
+            panic!("expected String reference");
+        };
+        assert_eq!(
+            string_value_from_ref(&heap, value_ref).unwrap(),
+            "com.example.BootApp"
+        );
+    }
+
+    #[test]
+    fn native_thread_current_thread_returns_thread_object() {
+        let mut heap = duke_gc::Heap::new();
+        let mut sink: Vec<u8> = Vec::new();
+
+        let result =
+            native_thread_current_thread(&[], &mut heap, &mut sink, &mut NativeControl::default())
+                .expect("Thread.currentThread should succeed")
+                .expect("Thread.currentThread should return a thread");
+
+        let Slot::Reference(Some(thread_ref)) = result else {
+            panic!("expected Thread reference");
+        };
+        let thread = heap.get(thread_ref).unwrap();
+        assert_eq!(thread.class_name, "java/lang/Thread");
+        assert_eq!(thread.fields[THREAD_ID_SLOT], Slot::Int(-1));
+    }
+
+    #[test]
+    fn manifest_attribute_value_reads_start_class() {
+        let manifest = b"Manifest-Version: 1.0\r\nMain-Class: org.springframework.boot.loader.launch.JarLauncher\r\nStart-Class: com.example.SpringBootSmokeMain\r\n";
+        assert_eq!(
+            manifest_attribute_value(manifest, "Start-Class"),
+            Some("com.example.SpringBootSmokeMain".to_string())
+        );
+        assert_eq!(
+            manifest_attribute_value(manifest, "Main-Class"),
+            Some("org.springframework.boot.loader.launch.JarLauncher".to_string())
+        );
+    }
+
+    #[test]
+    fn class_desired_assertion_status_defaults_false() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let desired_assertion_status = match registry.natives_mut().get_kind(
+            "java/lang/Class",
+            "desiredAssertionStatus",
+            "()Z",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected Class.desiredAssertionStatus native, got {other:?}"),
+        };
+
+        let class_ref = allocate_class_object(&mut heap, "java/lang/String").unwrap();
+        let mut sink: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+        let result = desired_assertion_status(
+            &[Slot::Reference(Some(class_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .unwrap();
+
+        assert_eq!(result, Some(Slot::Int(0)));
+    }
+
+    #[test]
+    fn class_get_package_name_returns_binary_package_name() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let get_package_name = match registry.natives_mut().get_kind(
+            "java/lang/Class",
+            "getPackageName",
+            "()Ljava/lang/String;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected Class.getPackageName native, got {other:?}"),
+        };
+
+        let class_ref = allocate_class_object(
+            &mut heap,
+            "org/springframework/boot/loader/net/protocol/Handlers",
+        )
+        .unwrap();
+        let mut sink: Vec<u8> = Vec::new();
+        let result = get_package_name(
+            &[Slot::Reference(Some(class_ref))],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+
+        let Some(Slot::Reference(Some(package_ref))) = result else {
+            panic!("expected package name string");
+        };
+        assert_eq!(
+            string_value_from_ref(&heap, package_ref).unwrap(),
+            "org.springframework.boot.loader.net.protocol"
+        );
+    }
+
+    #[test]
+    fn duplicate_binary_name_classes_keep_separate_runtime_loaders() {
+        let boot_loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let jar_path_one = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world.clone())],
+        );
+        let jar_path_two = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let launched_loader_one =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_one);
+        let launched_loader_two =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_two);
+
+        let class_one = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_one,
+        );
+        let class_two = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_two,
+        );
+        let loader_slot_one =
+            invoke_class_get_class_loader(&boot_loader, &mut registry, &mut heap, class_one);
+        let loader_slot_two =
+            invoke_class_get_class_loader(&boot_loader, &mut registry, &mut heap, class_two);
+
+        std::fs::remove_file(&jar_path_one).ok();
+        std::fs::remove_file(&jar_path_two).ok();
+
+        assert_eq!(loader_slot_one, Slot::Reference(Some(launched_loader_one)));
+        assert_eq!(loader_slot_two, Slot::Reference(Some(launched_loader_two)));
+    }
+
+    #[test]
+    fn duplicate_binary_name_class_mirrors_are_not_hash_equal() {
+        let boot_loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let jar_path_one = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world.clone())],
+        );
+        let jar_path_two = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let launched_loader_one =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_one);
+        let launched_loader_two =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_two);
+
+        let class_one = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_one,
+        );
+        let class_two = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_two,
+        );
+
+        std::fs::remove_file(&jar_path_one).ok();
+        std::fs::remove_file(&jar_path_two).ok();
+
+        assert!(
+            !slots_equal(
+                &Slot::Reference(Some(class_one)),
+                &Slot::Reference(Some(class_two)),
+                &heap,
+            ),
+            "Class mirrors from different defining loaders must not compare equal"
+        );
+    }
+
+    #[test]
+    fn execute_class_plain_name_rejects_ambiguous_loaded_duplicate_binary_name() {
+        let boot_loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let jar_path_one = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world.clone())],
+        );
+        let jar_path_two = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let launched_loader_one =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_one);
+        let launched_loader_two =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_two);
+        let _ = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_one,
+        );
+        let _ = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_two,
+        );
+
+        let args_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+        let err = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            "HelloWorld",
+            "main",
+            "([Ljava/lang/String;)V",
+            &[Slot::Reference(Some(args_ref))],
+        )
+        .expect_err("plain execute_class should reject ambiguous duplicate definitions");
+
+        std::fs::remove_file(&jar_path_one).ok();
+        std::fs::remove_file(&jar_path_two).ok();
+
+        assert!(
+            matches!(
+                err,
+                VmError::AmbiguousClassName { ref name, ref matches }
+                    if name == "HelloWorld" && matches.len() == 2
+            ),
+            "expected AmbiguousClassName for duplicate loaded HelloWorld, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn native_class_for_name_rejects_ambiguous_loaded_duplicate_binary_name() {
+        let boot_loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let jar_path_one = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world.clone())],
+        );
+        let jar_path_two = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let launched_loader_one =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_one);
+        let launched_loader_two =
+            build_test_launched_loader(&boot_loader, &mut registry, &mut heap, &jar_path_two);
+        let _ = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_one,
+        );
+        let _ = load_class_via_launched_loader(
+            &boot_loader,
+            &mut registry,
+            &mut heap,
+            "HelloWorld",
+            launched_loader_two,
+        );
+
+        let binary_name_ref = heap.allocate_string("HelloWorld".to_string());
+        let err = {
+            let mut ops = InterpreterCallbackOps {
+                registry: &mut registry,
+                loader: &boot_loader,
+            };
+            native_class_for_name(
+                &[Slot::Reference(Some(binary_name_ref))],
+                &mut heap,
+                &mut Vec::new(),
+                &mut NativeControl::default(),
+                &mut ops,
+            )
+            .expect_err("Class.forName should reject ambiguous duplicate definitions")
+        };
+
+        std::fs::remove_file(&jar_path_one).ok();
+        std::fs::remove_file(&jar_path_two).ok();
+
+        assert!(
+            matches!(
+                err,
+                VmError::AmbiguousClassName { ref name, ref matches }
+                    if name == "HelloWorld" && matches.len() == 2
+            ),
+            "expected AmbiguousClassName for duplicate Class.forName lookup, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn loader_qualified_instanceof_uses_current_class_provenance() {
+        let (
+            boot_loader,
+            mut registry,
+            mut heap,
+            jar_path_one,
+            jar_path_two,
+            class_key_one,
+            class_key_two,
+        ) = load_duplicate_hello_world_classes();
+        install_loader_keyed_hello_world_probe(
+            &mut registry,
+            &class_key_one,
+            "instanceofHelloWorld",
+            "(Ljava/lang/Object;)I",
+            vec![
+                (0, Instruction::Aload0),
+                (
+                    1,
+                    Instruction::Instanceof(duke_classfile::types::CpIndex(1)),
+                ),
+                (4, Instruction::Ireturn),
+            ],
+            vec![],
+        );
+        let object_ref = allocate_zero_field_object(&registry, &mut heap, &class_key_two);
+
+        let result = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            &class_key_one,
+            "instanceofHelloWorld",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(object_ref))],
+        )
+        .expect("instanceof probe should execute");
+
+        std::fs::remove_file(&jar_path_one).ok();
+        std::fs::remove_file(&jar_path_two).ok();
+
+        assert_eq!(
+            result,
+            Some(Slot::Int(0)),
+            "loader-one instanceof HelloWorld should reject a loader-two HelloWorld object"
+        );
+    }
+
+    #[test]
+    fn loader_qualified_checkcast_uses_current_class_provenance() {
+        let (
+            boot_loader,
+            mut registry,
+            mut heap,
+            jar_path_one,
+            jar_path_two,
+            class_key_one,
+            class_key_two,
+        ) = load_duplicate_hello_world_classes();
+        install_loader_keyed_hello_world_probe(
+            &mut registry,
+            &class_key_one,
+            "checkcastHelloWorld",
+            "(Ljava/lang/Object;)I",
+            vec![
+                (0, Instruction::Aload0),
+                (1, Instruction::Checkcast(duke_classfile::types::CpIndex(1))),
+                (4, Instruction::Pop),
+                (5, Instruction::Iconst1),
+                (6, Instruction::Ireturn),
+            ],
+            vec![],
+        );
+        let object_ref = allocate_zero_field_object(&registry, &mut heap, &class_key_two);
+
+        let err = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            &class_key_one,
+            "checkcastHelloWorld",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(object_ref))],
+        )
+        .expect_err("checkcast probe should reject loader-two object");
+
+        std::fs::remove_file(&jar_path_one).ok();
+        std::fs::remove_file(&jar_path_two).ok();
+
+        assert!(
+            matches!(err, VmError::ClassCastException { .. }),
+            "expected ClassCastException from loader-qualified checkcast, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn loader_qualified_catch_type_uses_current_class_provenance() {
+        let (
+            boot_loader,
+            mut registry,
+            mut heap,
+            jar_path_one,
+            jar_path_two,
+            class_key_one,
+            class_key_two,
+        ) = load_duplicate_hello_world_classes();
+        install_loader_keyed_hello_world_probe(
+            &mut registry,
+            &class_key_one,
+            "catchHelloWorld",
+            "(Ljava/lang/Object;)I",
+            vec![
+                (0, Instruction::Aload0),
+                (1, Instruction::Athrow),
+                (2, Instruction::Pop),
+                (3, Instruction::Iconst1),
+                (4, Instruction::Ireturn),
+            ],
+            vec![ExceptionEntry {
+                start_pc: 0,
+                end_pc: 2,
+                handler_pc: 2,
+                catch_type: Some("HelloWorld".to_string()),
+            }],
+        );
+        let object_ref = allocate_zero_field_object(&registry, &mut heap, &class_key_two);
+
+        let err = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            &class_key_one,
+            "catchHelloWorld",
+            "(Ljava/lang/Object;)I",
+            &[Slot::Reference(Some(object_ref))],
+        )
+        .expect_err("loader-qualified catch should not swallow loader-two throw");
+
+        std::fs::remove_file(&jar_path_one).ok();
+        std::fs::remove_file(&jar_path_two).ok();
+
+        assert!(
+            matches!(
+                err,
+                VmError::JavaException { ref class_name } if class_name == &class_key_two
+            ),
+            "expected uncaught JavaException from loader-two object, got {err:?}"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn native_class_get_class_loader_returns_boot_launched_loader_for_loaded_app_class() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let jar_path = build_test_boot_archive_jar(
+            "HelloWorld",
+            &[("BOOT-INF/classes/HelloWorld.class", hello_world)],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+        let urls = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(urls_ref)) = urls else {
+            panic!("expected class path set");
+        };
+        let launched_loader = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "createClassLoader",
+            "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+            &[
+                Slot::Reference(Some(launcher_ref)),
+                Slot::Reference(Some(urls_ref)),
+            ],
+        )
+        .expect("createClassLoader(Collection) should succeed")
+        .expect("createClassLoader(Collection) should return a loader");
+        let Slot::Reference(Some(launched_loader_ref)) = launched_loader else {
+            panic!("expected launched class loader reference");
+        };
+
+        let binary_name_ref = heap.allocate_string("HelloWorld".to_string());
+        let class_ref = {
+            let mut ops = InterpreterCallbackOps {
+                registry: &mut registry,
+                loader: &loader,
+            };
+            let class_slot = native_class_for_name_with_loader(
+                &[
+                    Slot::Reference(Some(binary_name_ref)),
+                    Slot::Int(0),
+                    Slot::Reference(Some(launched_loader_ref)),
+                ],
+                &mut heap,
+                &mut Vec::new(),
+                &mut NativeControl::default(),
+                &mut ops,
+            )
+            .expect("Class.forName should succeed")
+            .expect("Class.forName should return a class");
+            let Slot::Reference(Some(class_ref)) = class_slot else {
+                panic!("expected Class reference");
+            };
+            class_ref
+        };
+
+        let get_class_loader_result = match registry.natives_mut().get_kind(
+            "java/lang/Class",
+            "getClassLoader",
+            "()Ljava/lang/ClassLoader;",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler(
+                &[Slot::Reference(Some(class_ref))],
+                &mut heap,
+                &mut Vec::new(),
+                &mut NativeControl::default(),
+            ),
+            Some(HandlerKind::Callback(handler)) => {
+                let mut ops = InterpreterCallbackOps {
+                    registry: &mut registry,
+                    loader: &loader,
+                };
+                handler(
+                    &[Slot::Reference(Some(class_ref))],
+                    &mut heap,
+                    &mut Vec::new(),
+                    &mut NativeControl::default(),
+                    &mut ops,
+                )
+            }
+            other => panic!("expected Class.getClassLoader native, got {other:?}"),
+        }
+        .expect("Class.getClassLoader should succeed")
+        .expect("Class.getClassLoader should return a ClassLoader");
+
+        std::fs::remove_file(&jar_path).ok();
+
+        assert_eq!(
+            get_class_loader_result,
+            Slot::Reference(Some(launched_loader_ref)),
+            "Class.getClassLoader should return the launched loader for app classes"
+        );
+    }
+
+    #[test]
+    fn url_set_url_stream_handler_factory_is_noop() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let set_factory = match registry.natives_mut().get_kind(
+            "java/net/URL",
+            "setURLStreamHandlerFactory",
+            "(Ljava/net/URLStreamHandlerFactory;)V",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected URL.setURLStreamHandlerFactory native, got {other:?}"),
+        };
+        let mut sink: Vec<u8> = Vec::new();
+        let result = set_factory(
+            &[Slot::Reference(None)],
+            &mut heap,
+            &mut sink,
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn cds_bootstrap_flags_default_false() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let mut sink: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+        for method in [
+            "isDumpingClassList0",
+            "isDumpingArchive0",
+            "isSharingEnabled0",
+        ] {
+            let handler =
+                match registry
+                    .natives_mut()
+                    .get_kind("jdk/internal/misc/CDS", method, "()Z")
+                {
+                    Some(HandlerKind::Simple(handler)) => handler,
+                    other => panic!("expected CDS native {method}, got {other:?}"),
+                };
+            let result = handler(&[], &mut heap, &mut sink, &mut control).unwrap();
+            assert_eq!(result, Some(Slot::Int(0)), "{method} should default false");
+        }
+    }
+
+    #[test]
+    fn cds_random_seed_for_dumping_defaults_zero() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let handler = match registry.natives_mut().get_kind(
+            "jdk/internal/misc/CDS",
+            "getRandomSeedForDumping",
+            "()J",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected CDS.getRandomSeedForDumping native, got {other:?}"),
+        };
+        let mut sink: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+        let result = handler(&[], &mut heap, &mut sink, &mut control).unwrap();
+        assert_eq!(result, Some(Slot::Long(0)));
+    }
+
+    #[test]
+    fn cds_archive_hooks_are_noops() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let class_ref = allocate_class_object(&mut heap, "java/lang/String").unwrap();
+        let string_ref = heap.allocate_string("lambda".to_string());
+        let mut sink: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+        for (method, descriptor, args) in [
+            (
+                "initializeFromArchive",
+                "(Ljava/lang/Class;)V",
+                vec![Slot::Reference(Some(class_ref))],
+            ),
+            (
+                "defineArchivedModules",
+                "(Ljava/lang/ClassLoader;Ljava/lang/ClassLoader;)V",
+                vec![Slot::Reference(None), Slot::Reference(None)],
+            ),
+            (
+                "logLambdaFormInvoker",
+                "(Ljava/lang/String;)V",
+                vec![Slot::Reference(Some(string_ref))],
+            ),
+        ] {
+            let handler =
+                match registry
+                    .natives_mut()
+                    .get_kind("jdk/internal/misc/CDS", method, descriptor)
+                {
+                    Some(HandlerKind::Simple(handler)) => handler,
+                    other => panic!("expected CDS native {method}, got {other:?}"),
+                };
+            let result = handler(&args, &mut heap, &mut sink, &mut control).unwrap();
+            assert_eq!(result, None, "{method} should be a no-op");
+        }
+    }
+
+    #[test]
     fn multi_class_jar_loading() {
         let jar_path = fixtures_dir().join("multi.jar");
         let loader = duke_loader::ZipLoader::open(&jar_path).expect("open multi.jar");
@@ -27595,6 +37143,825 @@ mod tests {
         )
         .expect("MultiClassJar.compute should succeed");
         assert_eq!(result, Some(Slot::Int(99)));
+    }
+
+    #[test]
+    fn boot_layout_jar_loads_dependency_from_nested_lib() {
+        let fixtures = fixtures_dir();
+        let outer_class = std::fs::read(fixtures.join("MultiClassJar.class"))
+            .expect("read MultiClassJar.class fixture");
+        let nested_class =
+            std::fs::read(fixtures.join("JarHelper.class")).expect("read JarHelper.class fixture");
+        let nested_jar = build_test_multi_entry_zip(&[("JarHelper.class", &nested_class)]);
+        let outer_jar = build_test_multi_entry_zip(&[
+            ("BOOT-INF/classes/MultiClassJar.class", &outer_class),
+            ("BOOT-INF/lib/helper.jar", &nested_jar),
+        ]);
+
+        let jar_path = std::env::temp_dir().join("duke_test_boot_layout_nested_lib.jar");
+        std::fs::write(&jar_path, &outer_jar).expect("write boot layout test jar");
+
+        let loader = duke_loader::ZipLoader::open(&jar_path).expect("open boot layout jar");
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry
+            .ensure_loaded("MultiClassJar", &loader)
+            .expect("load MultiClassJar from BOOT-INF/classes");
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "MultiClassJar",
+            "compute",
+            "()I",
+            &[],
+        )
+        .expect("MultiClassJar.compute should resolve JarHelper from nested BOOT-INF/lib jar");
+
+        std::fs::remove_file(&jar_path).ok();
+        assert_eq!(result, Some(Slot::Int(99)));
+    }
+
+    #[test]
+    fn execute_class_uses_loaded_class_code_source_for_nested_boot_lib_dependency() {
+        let boot_loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let fixtures = fixtures_dir();
+        let outer_class = std::fs::read(fixtures.join("MultiClassJar.class"))
+            .expect("read MultiClassJar.class fixture");
+        let nested_class =
+            std::fs::read(fixtures.join("JarHelper.class")).expect("read JarHelper.class fixture");
+        let nested_jar = build_test_multi_entry_zip(&[("JarHelper.class", &nested_class)]);
+        let jar_path = build_test_boot_archive_jar(
+            "MultiClassJar",
+            &[
+                ("BOOT-INF/classes/MultiClassJar.class", outer_class),
+                ("BOOT-INF/lib/helper.jar", nested_jar),
+            ],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        assert!(
+            registry
+                .ensure_loaded_with_code_source("MultiClassJar", &jar_path.display().to_string())
+                .expect("load MultiClassJar via archive provenance"),
+            "boot archive code source should load the entry class"
+        );
+
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut out,
+            "MultiClassJar",
+            "compute",
+            "()I",
+            &[],
+        )
+        .expect("MultiClassJar.compute should inherit its boot archive code source");
+
+        std::fs::remove_file(&jar_path).ok();
+        assert_eq!(result, Some(Slot::Int(99)));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn boot_nested_dependency_inherits_launched_runtime_loader() {
+        let boot_loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let fixtures = fixtures_dir();
+        let outer_class = std::fs::read(fixtures.join("MultiClassJar.class"))
+            .expect("read MultiClassJar.class fixture");
+        let nested_class =
+            std::fs::read(fixtures.join("JarHelper.class")).expect("read JarHelper.class fixture");
+        let nested_jar = build_test_multi_entry_zip(&[("JarHelper.class", &nested_class)]);
+        let jar_path = build_test_boot_archive_jar(
+            "MultiClassJar",
+            &[
+                ("BOOT-INF/classes/MultiClassJar.class", outer_class),
+                ("BOOT-INF/lib/helper.jar", nested_jar),
+            ],
+        );
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &boot_loader,
+            )
+            .expect("load JarLauncher");
+
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+        let urls = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(urls_ref)) = urls else {
+            panic!("expected class path set");
+        };
+        let launched_loader = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "createClassLoader",
+            "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+            &[
+                Slot::Reference(Some(launcher_ref)),
+                Slot::Reference(Some(urls_ref)),
+            ],
+        )
+        .expect("createClassLoader(Collection) should succeed")
+        .expect("createClassLoader(Collection) should return a loader");
+        let Slot::Reference(Some(launched_loader_ref)) = launched_loader else {
+            panic!("expected launched class loader reference");
+        };
+
+        let binary_name_ref = heap.allocate_string("MultiClassJar".to_string());
+        let entry_class_ref = {
+            let mut ops = InterpreterCallbackOps {
+                registry: &mut registry,
+                loader: &boot_loader,
+            };
+            let class_slot = native_class_for_name_with_loader(
+                &[
+                    Slot::Reference(Some(binary_name_ref)),
+                    Slot::Int(0),
+                    Slot::Reference(Some(launched_loader_ref)),
+                ],
+                &mut heap,
+                &mut Vec::new(),
+                &mut NativeControl::default(),
+                &mut ops,
+            )
+            .expect("Class.forName should succeed")
+            .expect("Class.forName should return a class");
+            let Slot::Reference(Some(class_ref)) = class_slot else {
+                panic!("expected Class reference");
+            };
+            class_ref
+        };
+        let entry_class_key = class_key_from_ref(&heap, entry_class_ref)
+            .expect("class mirror should carry a class key");
+
+        assert_eq!(
+            registry.runtime_loader_for_class(&entry_class_key),
+            Some(launched_loader_ref),
+            "entry class should remember the launched runtime loader"
+        );
+
+        let result = execute_class(
+            &mut registry,
+            &boot_loader,
+            &mut heap,
+            &mut Vec::new(),
+            &entry_class_key,
+            "compute",
+            "()I",
+            &[],
+        )
+        .expect("MultiClassJar.compute should succeed with launched loader provenance");
+
+        std::fs::remove_file(&jar_path).ok();
+
+        assert_eq!(result, Some(Slot::Int(99)));
+        let jar_path_string = jar_path.display().to_string();
+        let helper_class_key = registry.class_key_from_provenance(
+            "JarHelper",
+            Some(&jar_path_string),
+            Some(launched_loader_ref),
+        );
+        assert_eq!(
+            registry.runtime_loader_for_class(&helper_class_key),
+            Some(launched_loader_ref),
+            "nested boot dependency should inherit the launched runtime loader"
+        );
+    }
+
+    fn repo_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf()
+    }
+
+    #[test]
+    fn boot_archive_create_file_returns_jar_file_archive_object() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry
+            .ensure_loaded("org/springframework/boot/loader/launch/Archive", &loader)
+            .expect("load Archive");
+
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        let path_ref = heap.allocate_string(fixtures_dir().join("hello.jar").display().to_string());
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(path_ref));
+
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "org/springframework/boot/loader/launch/Archive",
+            "create",
+            "(Ljava/io/File;)Lorg/springframework/boot/loader/launch/Archive;",
+            &[Slot::Reference(Some(file_ref))],
+        )
+        .expect("Archive.create(File) should succeed")
+        .expect("Archive.create(File) should return an archive");
+
+        let Slot::Reference(Some(archive_ref)) = result else {
+            panic!("expected Archive reference");
+        };
+        assert_eq!(
+            heap.get(archive_ref).unwrap().class_name,
+            "org/springframework/boot/loader/launch/JarFileArchive"
+        );
+    }
+
+    #[test]
+    fn boot_jar_launcher_default_constructor_initializes_archive_field() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(fixtures_dir().join("hello.jar").display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut out,
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+        assert_eq!(result, None);
+
+        let archive_slot_idx = field_slot_idx(
+            &registry,
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "archive",
+        )
+        .expect("archive field slot");
+        let Slot::Reference(Some(archive_ref)) =
+            heap.get(launcher_ref).unwrap().fields[archive_slot_idx]
+        else {
+            panic!("expected archive reference field");
+        };
+        assert_eq!(
+            heap.get(archive_ref).unwrap().class_name,
+            "org/springframework/boot/loader/launch/JarFileArchive"
+        );
+    }
+
+    #[test]
+    fn boot_jar_launcher_get_main_class_reads_start_class_manifest_entry() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let jar_bytes = build_test_multi_entry_zip(&[(
+            "META-INF/MANIFEST.MF",
+            b"Manifest-Version: 1.0\r\nStart-Class: com.example.TestApp\r\n",
+        )]);
+        let jar_path = std::env::temp_dir().join(format!(
+            "duke_test_boot_start_class_{}.jar",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&jar_path, jar_bytes).expect("write boot start-class jar");
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getMainClass",
+            "()Ljava/lang/String;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.getMainClass should succeed")
+        .expect("JarLauncher.getMainClass should return a string");
+
+        std::fs::remove_file(&jar_path).ok();
+
+        let Slot::Reference(Some(string_ref)) = result else {
+            panic!("expected String reference");
+        };
+        assert_eq!(
+            string_value_from_ref(&heap, string_ref).unwrap(),
+            "com.example.TestApp"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn boot_launcher_pre_main_sequence_preserves_archive_field() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let jar_bytes = build_test_multi_entry_zip(&[
+            (
+                "META-INF/MANIFEST.MF",
+                b"Manifest-Version: 1.0\r\nStart-Class: com.example.TestApp\r\n",
+            ),
+            ("BOOT-INF/classes/", b""),
+        ]);
+        let jar_path = std::env::temp_dir().join(format!(
+            "duke_test_boot_pre_main_{}.jar",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::write(&jar_path, jar_bytes).expect("write boot pre-main jar");
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+
+        let urls = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(urls_ref)) = urls else {
+            panic!("expected class path set");
+        };
+
+        let _class_loader = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "createClassLoader",
+            "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+            &[
+                Slot::Reference(Some(launcher_ref)),
+                Slot::Reference(Some(urls_ref)),
+            ],
+        )
+        .expect("createClassLoader(Collection) should succeed")
+        .expect("createClassLoader(Collection) should return a loader");
+
+        let archive_slot_idx = field_slot_idx(
+            &registry,
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "archive",
+        )
+        .expect("archive field slot");
+        let Slot::Reference(Some(archive_ref)) =
+            heap.get(launcher_ref).unwrap().fields[archive_slot_idx]
+        else {
+            panic!("expected archive reference after pre-main sequence");
+        };
+        assert_eq!(
+            heap.get(archive_ref).unwrap().class_name,
+            "org/springframework/boot/loader/launch/JarFileArchive"
+        );
+
+        let result = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getMainClass",
+            "()Ljava/lang/String;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getMainClass should succeed")
+        .expect("getMainClass should return a string");
+
+        std::fs::remove_file(&jar_path).ok();
+
+        let Slot::Reference(Some(string_ref)) = result else {
+            panic!("expected String reference");
+        };
+        assert_eq!(
+            string_value_from_ref(&heap, string_ref).unwrap(),
+            "com.example.TestApp"
+        );
+    }
+
+    #[test]
+    fn boot_executable_jar_main_runs_from_boot_inf_classes() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let filler_nested_jar = build_test_multi_entry_zip(&[]);
+        let mut archive_entries =
+            vec![("BOOT-INF/classes/HelloWorld.class".to_string(), hello_world)];
+        for i in 0..384 {
+            archive_entries.push((
+                format!("BOOT-INF/lib/filler-{i:03}.jar"),
+                filler_nested_jar.clone(),
+            ));
+        }
+        let archive_entry_refs: Vec<(&str, Vec<u8>)> = archive_entries
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.clone()))
+            .collect();
+        let jar_path = build_test_boot_archive_jar("HelloWorld", &archive_entry_refs);
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+
+        let args_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+        let mut out: Vec<u8> = Vec::new();
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "main",
+            "([Ljava/lang/String;)V",
+            &[Slot::Reference(Some(args_ref))],
+        );
+
+        std::fs::remove_file(&jar_path).ok();
+
+        assert!(
+            result.is_ok(),
+            "boot executable jar main should run successfully, got {result:?}"
+        );
+        assert_eq!(
+            String::from_utf8(out).expect("utf8 output"),
+            "Hello, World!\n"
+        );
+    }
+
+    #[test]
+    fn boot_class_path_urls_collection_to_array_returns_url_array() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let filler_nested_jar = build_test_multi_entry_zip(&[]);
+        let mut archive_entries =
+            vec![("BOOT-INF/classes/HelloWorld.class".to_string(), hello_world)];
+        for i in 0..384 {
+            archive_entries.push((
+                format!("BOOT-INF/lib/filler-{i:03}.jar"),
+                filler_nested_jar.clone(),
+            ));
+        }
+        let archive_entry_refs: Vec<(&str, Vec<u8>)> = archive_entries
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.clone()))
+            .collect();
+        let jar_path = build_test_boot_archive_jar("HelloWorld", &archive_entry_refs);
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+
+        let launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+
+        let urls = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(urls_ref)) = urls else {
+            panic!("expected HashSet reference");
+        };
+        assert_eq!(heap.get(urls_ref).unwrap().class_name, "java/util/HashSet");
+
+        let seed_ref = heap.allocate("[Ljava/net/URL;".to_string(), 0);
+        let array = native_collection_to_array_with_seed_array(
+            &[
+                Slot::Reference(Some(urls_ref)),
+                Slot::Reference(Some(seed_ref)),
+            ],
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("Collection.toArray(Object[]) should succeed")
+        .expect("Collection.toArray(Object[]) should return an array");
+
+        std::fs::remove_file(&jar_path).ok();
+
+        let Slot::Reference(Some(array_ref)) = array else {
+            panic!("expected URL[] reference");
+        };
+        assert_eq!(heap.get(array_ref).unwrap().class_name, "[Ljava/net/URL;");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn boot_create_class_loader_preserves_archive_field_on_large_archive() {
+        let loader =
+            duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+                .expect("open spring-boot-loader jar");
+        let hello_world = std::fs::read(fixtures_dir().join("HelloWorld.class"))
+            .expect("read HelloWorld.class fixture");
+        let filler_nested_jar = build_test_multi_entry_zip(&[]);
+        let mut archive_entries =
+            vec![("BOOT-INF/classes/HelloWorld.class".to_string(), hello_world)];
+        for i in 0..384 {
+            archive_entries.push((
+                format!("BOOT-INF/lib/filler-{i:03}.jar"),
+                filler_nested_jar.clone(),
+            ));
+        }
+        let archive_entry_refs: Vec<(&str, Vec<u8>)> = archive_entries
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.clone()))
+            .collect();
+        let jar_path = build_test_boot_archive_jar("HelloWorld", &archive_entry_refs);
+
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        registry.set_default_code_source(jar_path.display().to_string());
+        registry
+            .ensure_loaded(
+                "org/springframework/boot/loader/launch/JarLauncher",
+                &loader,
+            )
+            .expect("load JarLauncher");
+
+        let mut launcher_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarLauncher".to_string(),
+            total_instance_field_count(
+                &registry,
+                "org/springframework/boot/loader/launch/JarLauncher",
+            ),
+        );
+        init_object_fields(
+            &registry,
+            &mut heap,
+            launcher_ref,
+            "org/springframework/boot/loader/launch/JarLauncher",
+        );
+        execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/JarLauncher",
+            "<init>",
+            "()V",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("JarLauncher.<init>() should succeed");
+
+        let urls = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "getClassPathUrls",
+            "()Ljava/util/Set;",
+            &[Slot::Reference(Some(launcher_ref))],
+        )
+        .expect("getClassPathUrls should succeed")
+        .expect("getClassPathUrls should return a set");
+        let Slot::Reference(Some(mut urls_ref)) = urls else {
+            panic!("expected class path set");
+        };
+
+        let _class_loader = execute_class(
+            &mut registry,
+            &loader,
+            &mut heap,
+            &mut Vec::new(),
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "createClassLoader",
+            "(Ljava/util/Collection;)Ljava/lang/ClassLoader;",
+            &[
+                Slot::Reference(Some(launcher_ref)),
+                Slot::Reference(Some(urls_ref)),
+            ],
+        )
+        .expect("createClassLoader(Collection) should succeed")
+        .expect("createClassLoader(Collection) should return a loader");
+
+        patch_forwarded_ref_if_needed(&heap, &mut launcher_ref);
+        patch_forwarded_ref_if_needed(&heap, &mut urls_ref);
+        std::fs::remove_file(&jar_path).ok();
+
+        let archive_slot_idx = field_slot_idx(
+            &registry,
+            "org/springframework/boot/loader/launch/ExecutableArchiveLauncher",
+            "archive",
+        )
+        .expect("archive field slot");
+        let Slot::Reference(Some(archive_ref)) =
+            heap.get(launcher_ref).unwrap().fields[archive_slot_idx]
+        else {
+            panic!("expected archive reference after class loader creation");
+        };
+        assert_eq!(
+            heap.get(archive_ref).unwrap().class_name,
+            "org/springframework/boot/loader/launch/JarFileArchive"
+        );
     }
 
     #[test]
@@ -27630,6 +37997,60 @@ mod tests {
         .expect("readFirstByte should succeed");
         // 0xCA = 202 (first byte of .class magic number)
         assert_eq!(result, Some(Slot::Int(0xCA)));
+    }
+
+    #[test]
+    fn jar_file_native_init_accepts_file_objects() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let init = match registry.natives_mut().get_kind(
+            "java/util/jar/JarFile",
+            "<init>",
+            "(Ljava/io/File;)V",
+        ) {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected JarFile.<init>(File) native, got {other:?}"),
+        };
+        let close = match registry
+            .natives_mut()
+            .get_kind("java/util/zip/ZipFile", "close", "()V")
+        {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected ZipFile.close native, got {other:?}"),
+        };
+
+        let jar_ref = heap.allocate("java/util/jar/JarFile".to_string(), 1);
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        let path_ref = heap.allocate_string(fixtures_dir().join("hello.jar").display().to_string());
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(path_ref));
+
+        let mut sink: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+        let result = init(
+            &[
+                Slot::Reference(Some(jar_ref)),
+                Slot::Reference(Some(file_ref)),
+            ],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .expect("JarFile.<init>(File) should open hello.jar");
+
+        assert_eq!(result, None);
+        assert!(
+            extract_io_fd(&heap, jar_ref).is_ok(),
+            "JarFile fd should be initialized"
+        );
+        close(
+            &[Slot::Reference(Some(jar_ref))],
+            &mut heap,
+            &mut sink,
+            &mut control,
+        )
+        .expect("ZipFile.close should succeed");
     }
 }
 #[cfg(test)]

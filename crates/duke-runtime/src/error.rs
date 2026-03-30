@@ -16,7 +16,7 @@ use thiserror::Error;
 /// assert_eq!(err.to_string(), "integer division by zero");
 /// ```
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum VmError {
+pub enum Error {
     /// Pushed more items onto the stack than its `max_stack` allows.
     #[error("operand stack overflow")]
     StackOverflow,
@@ -145,6 +145,15 @@ pub enum VmError {
         name: String,
     },
 
+    /// A plain class name matched multiple loaded definitions from different loaders.
+    #[error("ambiguous class name: {name} matches {matches:?}")]
+    AmbiguousClassName {
+        /// The ambiguous binary/internal name that was requested.
+        name: String,
+        /// The exact loaded class keys that matched.
+        matches: Vec<String>,
+    },
+
     /// `System.exit()` was called, signaling VM termination.
     #[error("System.exit({code})")]
     SystemExit {
@@ -187,4 +196,28 @@ pub enum VmError {
 /// assert!(might_fail(true).is_err());
 /// assert_eq!(might_fail(false).unwrap(), 42);
 /// ```
-pub type VmResult<T> = Result<T, VmError>;
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Compatibility alias for [`enum@Error`], to avoid naming conflicts with `std::error::Error`.
+///
+/// # Examples
+///
+/// ```
+/// use duke_runtime::VmError;
+/// let e: VmError = duke_runtime::Error::StackOverflow;
+/// assert_eq!(e.to_string(), "operand stack overflow");
+/// ```
+pub type VmError = Error;
+
+/// Compatibility alias for [`Result`], a specialized `Result` type for `duke_runtime` operations.
+///
+/// # Examples
+///
+/// ```
+/// use duke_runtime::{VmError, VmResult};
+/// fn always_fails() -> VmResult<()> {
+///     Err(VmError::StackUnderflow)
+/// }
+/// assert!(always_fails().is_err());
+/// ```
+pub type VmResult<T> = Result<T>;

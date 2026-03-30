@@ -254,8 +254,10 @@ const PROBE_MODULES: &[&str] = &[
 impl ClassLoader for JImageReader {
     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
         let (parent, base) = split_class_name(name);
+        let mut path = String::with_capacity(64);
         for module in PROBE_MODULES {
-            let path = build_jimage_path(module, parent, base, "class");
+            path.clear();
+            build_jimage_path(&mut path, module, parent, base, "class");
             if self.index.contains_key(&path) {
                 return self.read_resource(&path);
             }
@@ -317,10 +319,16 @@ fn build_index(
     str_offset: usize,
     capacity: usize,
 ) -> HashMap<String, ResourceInfo> {
-    let mut index = HashMap::with_capacity(capacity);
+    // The capacity comes from the jimage header which could be malicious.
+    // To prevent OOM crashes from huge allocations (e.g. 0x3FFFFFFF), we clamp it.
+    // Since each location entry requires at least one END byte (1 byte),
+    // the absolute maximum number of entries is `locs_size`.
+    let safe_capacity = capacity.min(locs_size);
+    let mut index = HashMap::with_capacity(safe_capacity);
     let mut pos = locs_offset;
     let locs_end = locs_offset + locs_size;
 
+    let mut path_buf = String::with_capacity(128);
     while pos < locs_end {
         // Decode all attributes for this location entry
         let mut module: u64 = 0;
@@ -373,10 +381,11 @@ fn build_index(
         let base_str = read_str(data, str_offset, base);
         let ext_str = read_str(data, str_offset, extension);
 
-        let path = build_jimage_path(mod_str, par_str, base_str, ext_str);
-        if !path.is_empty() {
+        path_buf.clear();
+        build_jimage_path(&mut path_buf, mod_str, par_str, base_str, ext_str);
+        if !path_buf.is_empty() {
             index.insert(
-                path,
+                path_buf.clone(),
                 ResourceInfo {
                     offset,
                     compressed,
@@ -397,11 +406,31 @@ fn build_index(
 ///
 /// If `parent` is empty: `"/module/base.extension"`.
 /// If `extension` is empty: `"/module/parent/base"`.
-fn build_jimage_path(module: &str, parent: &str, base: &str, extension: &str) -> String {
+///
+/// **Optimization:** Exact string capacity is calculated and preallocated.
+/// This prevents multiple intermediate heap reallocations when building paths
+/// for tens of thousands of jimage resources during startup.
+fn build_jimage_path(path: &mut String, module: &str, parent: &str, base: &str, extension: &str) {
     if module.is_empty() || base.is_empty() {
-        return String::new();
+        return;
     }
-    let mut path = format!("/{module}/");
+
+    let parent_len = if parent.is_empty() {
+        0
+    } else {
+        parent.len() + 1
+    };
+    let ext_len = if extension.is_empty() {
+        0
+    } else {
+        extension.len() + 1
+    };
+    let cap = 1 + module.len() + 1 + parent_len + base.len() + ext_len;
+
+    path.reserve(cap);
+    path.push('/');
+    path.push_str(module);
+    path.push('/');
     if !parent.is_empty() {
         path.push_str(parent);
         path.push('/');
@@ -411,7 +440,6 @@ fn build_jimage_path(module: &str, parent: &str, base: &str, extension: &str) ->
         path.push('.');
         path.push_str(extension);
     }
-    path
 }
 
 /// Split `"java/lang/Object"` into `("java/lang", "Object")`.
@@ -426,7 +454,9 @@ fn read_str(data: &[u8], str_offset: usize, idx: u64) -> &str {
     let Ok(idx_usize) = usize::try_from(idx) else {
         return "";
     };
-    let start = str_offset + idx_usize;
+    let Some(start) = str_offset.checked_add(idx_usize) else {
+        return "";
+    };
     if start >= data.len() {
         return "";
     }
@@ -475,6 +505,16 @@ mod tests {
 
     fn attr_end() -> u8 {
         0x00
+    }
+
+    #[test]
+    fn read_str_rejects_index_overflow() {
+        let data = b"some data here";
+        let str_offset = usize::MAX;
+        let idx = 1;
+        // Should return empty string, not panic on `str_offset + idx_usize`.
+        let s = read_str(data, str_offset, idx);
+        assert_eq!(s, "");
     }
 
     // -----------------------------------------------------------------------
@@ -714,13 +754,17 @@ mod tests {
     #[test]
     fn build_jimage_path_empty_module_returns_empty() {
         // module="" → return "". Mutant `&&` only returns "" if BOTH empty.
-        assert!(build_jimage_path("", "parent", "base", "ext").is_empty());
+        let mut path = String::new();
+        build_jimage_path(&mut path, "", "parent", "base", "ext");
+        assert!(path.is_empty());
     }
 
     #[test]
     fn build_jimage_path_empty_base_returns_empty() {
         // base="" → return "". Mutant `&&` only returns "" if BOTH empty.
-        assert!(build_jimage_path("module", "parent", "", "ext").is_empty());
+        let mut path = String::new();
+        build_jimage_path(&mut path, "module", "parent", "", "ext");
+        assert!(path.is_empty());
     }
 
     // -----------------------------------------------------------------------
