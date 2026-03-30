@@ -1,7 +1,3 @@
-**[Title]
-**Tangle:** [The Structural Mess]
-**Blueprint:** [The Structural Fix]
-
-**Refactoring the Duke Interpreter Blob**
-**Tangle:** The `crates/duke-interpreter/src/lib.rs` file had grown into a massive "Blob" anti-pattern (over 23,000 lines). It mixed JVM data structures, the registry, execution engine logic, and an enormous amount of standard library bootstrapping/tests, making it hard to navigate and violating the single responsibility principle.
-**Blueprint:** Extracted the core execution context data structures (`MethodEntry`, `FieldEntry`, `ExceptionEntry`, `ClassContext`) into a new `context` module, and the registry types (`ClassRegistry`, `NativeRegistry`, handler definitions) into a new `registry` module. These are now re-exported from `lib.rs` to maintain a clean public API while breaking up the physical file bloat.
+**[Extract Native Method Implementations]**
+**Tangle:** `crates/duke-interpreter/src/lib.rs` had grown to over 27,000 lines containing 177 `fn native_*` implementations mixed alongside class loading, test logic, and bytecode execution context. This violated the "Blob" anti-pattern.
+**Blueprint:** Created a new module `crates/duke-interpreter/src/natives/` and categorized the 177 functions logically into `io.rs`, `zip.rs`, `math.rs`, `string.rs`, `object.rs`, `collection.rs`, `thread.rs`, `util.rs` and `misc.rs`. The functions were re-exported with `pub(crate)` and `bootstrap_stdlib` was refactored into a facade in `natives/mod.rs`. This reduces coupling and clearly delineates the runtime boundary from the native stdlib implementations.
