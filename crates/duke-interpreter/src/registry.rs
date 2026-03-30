@@ -311,17 +311,49 @@ impl ClassRegistry {
             })
     }
 
-    /// Ensure a class is loaded. If not already present, loads it via the class
-    /// loader, parses it, builds a `ClassContext`, and registers it.
+    /// Ensure a class is loaded into the registry.
     ///
-    /// Also recursively loads the superclass chain so that field slot offsets
-    /// can be computed correctly before any object of this type is allocated.
+    /// The JVM doesn't load classes until the exact moment they are needed (e.g., when a `new` instruction
+    /// is executed, or a static method is invoked). This method handles that lazy loading process.
     ///
-    /// Returns `Ok(true)` if loaded, `Ok(false)` if the class could not be found
-    /// (soft failure — for classes like `java/lang/Object` that we can't load yet).
+    /// If the class is not already present in the registry, it uses the provided `loader` to find the
+    /// raw `.class` bytes, parses them, builds a [`ClassContext`], and registers it.
+    ///
+    /// Crucially, it recursively loads the entire superclass and interface chain. Why? Because the JVM
+    /// needs to know the total size of all fields (including inherited ones) before it can safely allocate
+    /// an object on the heap. Without this recursive loading, an instance of `Child` might overwrite the
+    /// fields of its `Parent`!
+    ///
+    /// Returns `Ok(true)` if the class was successfully loaded, or `Ok(false)` if the class could not be found.
+    /// A soft failure (`Ok(false)`) is used because core JDK classes (like `java/lang/Object`) might not
+    /// be available yet during early bootstrap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    /// use duke_loader::DirectoryLoader;
+    /// use std::path::PathBuf;
+    ///
+    /// // Create an empty registry and a loader pointing to our test fixtures.
+    /// let mut registry = ClassRegistry::new();
+    /// let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    /// path.push("../../tests/fixtures");
+    /// let loader = DirectoryLoader::new(&path);
+    ///
+    /// // HelloWorld is not loaded yet.
+    /// assert!(!registry.contains("HelloWorld"));
+    ///
+    /// // Lazily load the class and its superclasses on demand.
+    /// let loaded = registry.ensure_loaded("HelloWorld", &loader).unwrap();
+    /// assert!(loaded);
+    ///
+    /// // The registry now holds the parsed and linked class context!
+    /// assert!(registry.contains("HelloWorld"));
+    /// ```
     ///
     /// # Errors
-    /// Returns [`VmError`] if loading the superclass chain fails unexpectedly.
+    /// Returns [`VmError`] if the class bytes are malformed or if loading the superclass chain fails unexpectedly.
     pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
         self.ensure_loaded_inner(name, loader, None, None)
     }
