@@ -10875,15 +10875,11 @@ fn run_execution(
 
                 // Clone the exception table to release the borrow on registry,
                 // so find_exception_handler can use &mut registry for hierarchy checks.
+                // ⚡ Bolt: `ExceptionEntry` now derives `Clone`, avoiding manual field-by-field mapping.
                 let exc_table = registry.get(&current_class)?.methods[*method_idx]
                     .exception_table
                     .iter()
-                    .map(|e| ExceptionEntry {
-                        start_pc: e.start_pc,
-                        end_pc: e.end_pc,
-                        handler_pc: e.handler_pc,
-                        catch_type: e.catch_type.clone(),
-                    })
+                    .cloned()
                     .collect::<Vec<_>>();
                 let handler = find_exception_handler(
                     &exc_table,
@@ -10950,15 +10946,11 @@ fn run_execution(
                                 } else {
                                     0
                                 };
+                                // ⚡ Bolt: `ExceptionEntry` now derives `Clone`, avoiding manual field-by-field mapping.
                                 let tbl = ctx.methods[*method_idx]
                                     .exception_table
                                     .iter()
-                                    .map(|e| ExceptionEntry {
-                                        start_pc: e.start_pc,
-                                        end_pc: e.end_pc,
-                                        handler_pc: e.handler_pc,
-                                        catch_type: e.catch_type.clone(),
-                                    })
+                                    .cloned()
                                     .collect::<Vec<_>>();
                                 (tbl, cpc)
                             };
