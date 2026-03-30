@@ -539,3 +539,108 @@ pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&st
         }),
     }
 }
+
+#[test]
+fn test_cp_entry_dynamic_and_module() {
+    // Construct a dummy class file with a constant pool containing Dynamic and Module entries.
+    let class_data = vec![
+        0xCA, 0xFE, 0xBA, 0xBE, // magic
+        0x00, 0x00, 0x00, 0x34, // minor/major version
+        0x00, 0x04, // cp_count = 4 (indices 1..3)
+        // Index 1: Dynamic (tag 17)
+        17, 0x00, 0x05, 0x00, 0x06, // bootstrap_method_attr_index=5, name_and_type_index=6
+        // Index 2: Module (tag 19)
+        19, 0x00, 0x07, // name_index=7
+        // Index 3: Package (tag 20)
+        20, 0x00, 0x08, // name_index=8
+        // Class info
+        0x00, 0x01, // access flags (PUBLIC)
+        0x00, 0x02, // this_class
+        0x00, 0x03, // super_class
+        0x00, 0x00, // interfaces_count
+        0x00, 0x00, // fields_count
+        0x00, 0x00, // methods_count
+        0x00, 0x00, // attributes_count
+    ];
+
+    let result = parse(&class_data).unwrap();
+    let cp = &result.constant_pool;
+    assert_eq!(cp.len(), 4);
+
+    if let Some(Some(CpEntry::Dynamic {
+        bootstrap_method_attr_index,
+        name_and_type_index,
+    })) = cp.get(1)
+    {
+        assert_eq!(*bootstrap_method_attr_index, 5);
+        assert_eq!(name_and_type_index.0, 6);
+    } else {
+        panic!("Expected Dynamic entry at index 1");
+    }
+
+    if let Some(Some(CpEntry::Module { name_index })) = cp.get(2) {
+        assert_eq!(name_index.0, 7);
+    } else {
+        panic!("Expected Module entry at index 2");
+    }
+
+    if let Some(Some(CpEntry::Package { name_index })) = cp.get(3) {
+        assert_eq!(name_index.0, 8);
+    } else {
+        panic!("Expected Package entry at index 3");
+    }
+}
+#[test]
+fn test_remaining() {
+    let cursor = Cursor {
+        data: &[1, 2, 3],
+        pos: 1,
+    };
+    assert_eq!(cursor.remaining(), 2);
+}
+
+#[test]
+fn test_read_i16() {
+    let mut cursor = Cursor {
+        data: &[0xFF, 0xFE], // -2
+        pos: 0,
+    };
+    assert_eq!(cursor.read_i16().unwrap(), -2);
+}
+
+#[test]
+fn test_cp_utf8_zero() {
+    let pool = vec![None];
+    assert!(matches!(
+        cp_utf8(&pool, CpIndex(0)),
+        Err(ParseError::CpIndexZero)
+    ));
+}
+
+#[test]
+fn test_cp_utf8_phantom_slot() {
+    let pool = vec![None, None]; // index 0, index 1 (phantom)
+    assert!(matches!(
+        cp_utf8(&pool, CpIndex(1)),
+        Err(ParseError::CpPhantomSlot { index: 1 })
+    ));
+}
+
+#[test]
+fn test_cp_utf8_out_of_bounds() {
+    let pool = vec![None, Some(CpEntry::Integer(5))];
+    assert!(matches!(
+        cp_utf8(&pool, CpIndex(2)),
+        Err(ParseError::CpIndexOutOfBounds {
+            index: 2,
+            pool_size: 2
+        })
+    ));
+    assert!(matches!(
+        cp_utf8(&pool, CpIndex(1)),
+        Err(ParseError::CpIndexOutOfBounds {
+            index: 1,
+            pool_size: 2
+        })
+    ));
+}
