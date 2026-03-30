@@ -526,6 +526,217 @@ mod tests {
     }
 
     #[test]
+    fn test_verifier_stack_effect_instanceof() {
+        assert_eq!(
+            stack_effect(&Instruction::Instanceof(duke_classfile::CpIndex(1))),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn test_verifier_local_oob_check_locals_other8() {
+        assert!(check_locals(&Instruction::Dstore1, 0, 2).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Dstore1, 0, 1),
+            Err(VerifyError::LocalOutOfBounds { index: 1, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Astore1, 0, 2).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Astore1, 0, 1),
+            Err(VerifyError::LocalOutOfBounds { index: 1, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Lload2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Lload2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Fload2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Fload2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Dload2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Dload2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Aload2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Aload2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Istore2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Istore2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Lstore2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Lstore2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Fstore2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Fstore2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Dstore2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Dstore2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Astore2, 0, 3).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Astore2, 0, 2),
+            Err(VerifyError::LocalOutOfBounds { index: 2, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Lload3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Lload3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Fload3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Fload3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Dload3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Dload3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Aload3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Aload3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Istore3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Istore3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Lstore3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Lstore3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Fstore3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Fstore3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Dstore3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Dstore3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+
+        assert!(check_locals(&Instruction::Astore3, 0, 4).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Astore3, 0, 3),
+            Err(VerifyError::LocalOutOfBounds { index: 3, .. })
+        ));
+    }
+
+    #[test]
+    fn test_verifier_local_oob_check_locals_other9() {
+        assert!(check_locals(&Instruction::DstoreW(0), 0, 1).is_ok());
+
+        let instructions = vec![(0, Instruction::DstoreW(10)), (3, Instruction::Return)];
+        let res = verify(&instructions, 1, 10);
+        assert!(matches!(
+            res,
+            Err(VerifyError::LocalOutOfBounds { index: 10, .. })
+        ));
+    }
+
+    #[test]
+    fn test_verifier_stack_effect_dup_family() {
+        assert_eq!(stack_effect(&Instruction::DupX2), (3, 4));
+        assert_eq!(stack_effect(&Instruction::Dup2), (2, 4));
+        assert_eq!(stack_effect(&Instruction::Dup2X1), (3, 5));
+    }
+
+    #[test]
+    fn test_verifier_stack_effect_switches() {
+        assert_eq!(
+            stack_effect(&Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 0,
+                offsets: vec![]
+            }),
+            (1, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Lookupswitch {
+                default: 0,
+                pairs: vec![]
+            }),
+            (1, 0)
+        );
+    }
+
+    #[test]
+    fn test_verifier_stack_effect_invokeinterface() {
+        assert_eq!(
+            stack_effect(&Instruction::Invokeinterface {
+                index: duke_classfile::CpIndex(1),
+                count: 1,
+            }),
+            (1, 0)
+        );
+        assert_eq!(
+            stack_effect(&Instruction::Invokedynamic(duke_classfile::CpIndex(1))),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn test_verifier_local_oob_check_locals_other10() {
+        assert!(check_locals(&Instruction::Lload(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Fload(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Dload(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Aload(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Lstore(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Fstore(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Astore(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Ret(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Iload(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Istore(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::Dstore(0), 0, 1).is_ok());
+
+        assert!(check_locals(&Instruction::LloadW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::FloadW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::DloadW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::AloadW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::LstoreW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::FstoreW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::AstoreW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::RetW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::IloadW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::IstoreW(0), 0, 1).is_ok());
+        assert!(check_locals(&Instruction::DstoreW(0), 0, 1).is_ok());
+    }
+    #[test]
     fn test_verifier_local_oob() {
         let instructions = vec![(0, Instruction::Iload(5)), (2, Instruction::Return)];
         let res = verify(&instructions, 1, 5); // max locals is 5, index 5 is out of bounds
