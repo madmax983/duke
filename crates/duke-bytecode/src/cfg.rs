@@ -1,3 +1,10 @@
+//! Control Flow Graph Generation.
+//!
+//! This module provides utilities to convert decoded JVM instructions into a visual
+//! representation using [Mermaid JS](https://mermaid.js.org/). It models branches, gotos,
+//! returns, and switch statements to create a comprehensible Control Flow Graph (CFG)
+//! of method bytecode logic.
+
 use std::fmt::Write;
 
 use crate::Instruction;

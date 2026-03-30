@@ -67,16 +67,24 @@ pub struct HeapObject {
 }
 
 #[derive(Debug)]
+/// A handle for a native host process managed by the VM.
+///
+/// Used for Java's `Runtime.exec` and related API implementations.
 pub struct HostProcessHandle {
     child: std::process::Child,
     exit_code: Option<i32>,
 }
 
+/// Identifying file descriptors associated with a spawned native process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpawnedProcessIds {
+    /// The unique process identifier.
     pub process_id: i32,
+    /// The file descriptor ID for the process's standard input.
     pub stdin_id: i32,
+    /// The file descriptor ID for the process's standard output.
     pub stdout_id: i32,
+    /// The file descriptor ID for the process's standard error.
     pub stderr_id: i32,
 }
 

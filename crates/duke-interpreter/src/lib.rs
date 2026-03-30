@@ -3660,6 +3660,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 }
 
 #[inline]
+fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
+    args.get(idx).copied().unwrap_or(Slot::Reference(None))
+}
+
+#[inline]
 fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
     match args.get(idx) {
         Some(Slot::Reference(Some(r))) => Ok(*r),
@@ -3693,6 +3698,39 @@ fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
         Some(Slot::Int(v)) => Ok(*v),
         _ => Err(VmError::TypeMismatch {
             expected: "Int",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
+    match args.get(idx) {
+        Some(Slot::Long(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Long",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
+    match args.get(idx) {
+        Some(Slot::Float(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Float",
+            got: "other",
+        }),
+    }
+}
+
+#[inline]
+fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
+    match args.get(idx) {
+        Some(Slot::Double(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Double",
             got: "other",
         }),
     }
@@ -3764,10 +3802,7 @@ fn path_from_string_slot(
     idx: usize,
     heap: &duke_gc::Heap,
 ) -> VmResult<std::path::PathBuf> {
-    let path_ref = match args.get(idx) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let path_ref = extract_ref_arg(args, idx)?;
     let path = heap
         .get(path_ref)?
         .string_value
@@ -3798,6 +3833,21 @@ fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<std::pat
     file_path_from_ref(this_ref, heap)
 }
 
+fn archive_path_from_slot(
+    heap: &duke_gc::Heap,
+    archive_ref: u64,
+    slot_idx: usize,
+) -> VmResult<Option<String>> {
+    let Some(file_ref) = archive_ref_from_slot(heap, archive_ref, slot_idx)? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        file_path_from_ref(file_ref, heap)?
+            .to_string_lossy()
+            .to_string(),
+    ))
+}
+
 fn boot_archive_path_from_ref(
     registry: &ClassRegistry,
     heap: &duke_gc::Heap,
@@ -3807,33 +3857,11 @@ fn boot_archive_path_from_ref(
     match archive_class.as_str() {
         "org/springframework/boot/loader/launch/JarFileArchive" => {
             let file_slot = field_slot_idx(registry, &archive_class, "file")?;
-            match heap.get(archive_ref)?.fields.get(file_slot).copied() {
-                Some(Slot::Reference(Some(file_ref))) => Ok(Some(
-                    file_path_from_ref(file_ref, heap)?
-                        .to_string_lossy()
-                        .to_string(),
-                )),
-                Some(Slot::Reference(None)) | None => Ok(None),
-                Some(_) => Err(VmError::TypeMismatch {
-                    expected: "Reference",
-                    got: "other",
-                }),
-            }
+            archive_path_from_slot(heap, archive_ref, file_slot)
         }
         "org/springframework/boot/loader/launch/ExplodedArchive" => {
             let root_slot = field_slot_idx(registry, &archive_class, "rootDirectory")?;
-            match heap.get(archive_ref)?.fields.get(root_slot).copied() {
-                Some(Slot::Reference(Some(file_ref))) => Ok(Some(
-                    file_path_from_ref(file_ref, heap)?
-                        .to_string_lossy()
-                        .to_string(),
-                )),
-                Some(Slot::Reference(None)) | None => Ok(None),
-                Some(_) => Err(VmError::TypeMismatch {
-                    expected: "Reference",
-                    got: "other",
-                }),
-            }
+            archive_path_from_slot(heap, archive_ref, root_slot)
         }
         _ => Ok(None),
     }
@@ -3854,10 +3882,19 @@ fn launched_class_loader_archive_path(
         "org/springframework/boot/loader/launch/LaunchedClassLoader",
         "rootArchive",
     )?;
-    match heap.get(loader_ref)?.fields.get(root_archive_slot).copied() {
-        Some(Slot::Reference(Some(archive_ref))) => {
-            boot_archive_path_from_ref(registry, heap, archive_ref)
-        }
+    let Some(archive_ref) = archive_ref_from_slot(heap, loader_ref, root_archive_slot)? else {
+        return Ok(None);
+    };
+    boot_archive_path_from_ref(registry, heap, archive_ref)
+}
+
+fn archive_ref_from_slot(
+    heap: &duke_gc::Heap,
+    obj_ref: u64,
+    slot_idx: usize,
+) -> VmResult<Option<u64>> {
+    match heap.get(obj_ref)?.fields.get(slot_idx).copied() {
+        Some(Slot::Reference(Some(r))) => Ok(Some(r)),
         Some(Slot::Reference(None)) | None => Ok(None),
         Some(_) => Err(VmError::TypeMismatch {
             expected: "Reference",
@@ -3873,7 +3910,7 @@ fn native_file_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let path_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let path_slot = extract_slot_arg(args, 1);
     let file_obj = heap.get_mut(this_ref)?;
     let Some(path_field) = file_obj.fields.first_mut() else {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -4158,14 +4195,12 @@ fn native_socket_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let host = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap
-            .get(*r)?
-            .string_value
-            .clone()
-            .ok_or(VmError::NullPointerException)?,
-        _ => return Err(VmError::NullPointerException),
-    };
+    let host_ref = extract_ref_arg(args, 1)?;
+    let host = heap
+        .get(host_ref)?
+        .string_value
+        .clone()
+        .ok_or(VmError::NullPointerException)?;
     let port = extract_int_arg(args, 2)?;
     let addr = format!("{host}:{port}");
     let (reader_id, writer_id) = heap.connect_socket(&addr)?;
@@ -4607,9 +4642,8 @@ fn native_string_equals(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let other_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Ok(Some(Slot::Int(0))),
+    let Ok(other_ref) = extract_ref_arg(args, 1) else {
+        return Ok(Some(Slot::Int(0)));
     };
     // Fetch objects from heap in one go to keep borrows short
     let this_obj = heap.get(this_ref)?;
@@ -4673,10 +4707,7 @@ fn native_object_equals(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let equal = match args.get(1) {
-        Some(Slot::Reference(Some(other_ref))) => this_ref == *other_ref,
-        _ => false,
-    };
+    let equal = extract_ref_arg(args, 1) == Ok(this_ref);
     Ok(Some(Slot::Int(i32::from(equal))))
 }
 
@@ -4753,7 +4784,7 @@ fn native_enum_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let name_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let name_slot = extract_slot_arg(args, 1);
     let ordinal = match args.get(2) {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -5203,7 +5234,7 @@ fn native_paths_get(
 ) -> VmResult<Option<Slot>> {
     let first_ref = extract_ref_arg(args, 0)?;
     let mut path = std::path::PathBuf::from(string_value_from_ref(heap, first_ref)?);
-    let more_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let more_slot = extract_slot_arg(args, 1);
     match more_slot {
         Slot::Reference(Some(array_ref)) => {
             let segments = heap.get(array_ref)?.fields.clone();
@@ -5634,10 +5665,8 @@ fn native_class_get_declared_method(
     let class_key = class_key_from_ref(heap, class_ref)?;
     let method_name = string_value_from_ref(heap, name_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        args.get(2).copied().unwrap_or(Slot::Reference(None)),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 2))?;
 
     let Some(method) = reflected.methods.into_iter().find(|method| {
         method.name == method_name
@@ -5671,10 +5700,8 @@ fn native_class_get_method(
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let method_name = string_value_from_ref(heap, name_ref)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        args.get(2).copied().unwrap_or(Slot::Reference(None)),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 2))?;
 
     let Some((declaring_class, method)) =
         lookup_public_reflected_method(ops, &class_key, &method_name, &parameter_descriptor)?
@@ -5764,10 +5791,8 @@ fn native_class_get_declared_constructor(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        args.get(1).copied().unwrap_or(Slot::Reference(None)),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, false)
     else {
@@ -5830,10 +5855,8 @@ fn native_class_get_constructor(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let parameter_descriptor = parameter_descriptor_from_class_array(
-        heap,
-        args.get(1).copied().unwrap_or(Slot::Reference(None)),
-    )?;
+    let parameter_descriptor =
+        parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, true)
     else {
@@ -6193,15 +6216,7 @@ fn native_reflection_member_set_accessible(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let member_ref = extract_ref_arg(args, 0)?;
-    let accessible = match args.get(1) {
-        Some(Slot::Int(value)) => *value != 0,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let accessible = extract_int_arg(args, 1)? != 0;
     heap.write_field(
         member_ref,
         REFLECTION_MEMBER_ACCESSIBLE_FIELD,
@@ -6218,7 +6233,7 @@ fn native_reflect_field_get(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
-    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target_slot = extract_slot_arg(args, 1);
     let field = reflected_field_handle(heap, field_ref)?;
 
     if !field.is_public && !field.is_accessible {
@@ -6258,8 +6273,8 @@ fn native_reflect_field_set(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
-    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let target_slot = extract_slot_arg(args, 1);
+    let value_slot = extract_slot_arg(args, 2);
     let field = reflected_field_handle(heap, field_ref)?;
 
     if !field.is_public && !field.is_accessible {
@@ -6298,9 +6313,8 @@ fn native_reflect_method_invoke(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
-    let target_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let invoke_arg_slots =
-        reflection_array_elements(heap, args.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+    let target_slot = extract_slot_arg(args, 1);
+    let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 2))?;
     let method = reflected_method_handle(heap, method_ref)?;
 
     if !method.is_public && !method.is_accessible {
@@ -6346,8 +6360,7 @@ fn native_reflect_constructor_new_instance(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let constructor_ref = extract_ref_arg(args, 0)?;
-    let invoke_arg_slots =
-        reflection_array_elements(heap, args.get(1).copied().unwrap_or(Slot::Reference(None)))?;
+    let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 1))?;
     let constructor = reflected_method_handle(heap, constructor_ref)?;
 
     if !constructor.is_public && !constructor.is_accessible {
@@ -6749,7 +6762,7 @@ fn native_system_get_property_with_default(
     let key_ref = extract_ref_arg(args, 0)?;
     let key = string_value_from_ref(heap, key_ref)?;
     let result = system_property_value(&key).map_or_else(
-        || args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        || extract_slot_arg(args, 1),
         |value| Slot::Reference(Some(heap.allocate_string(value))),
     );
     Ok(Some(result))
@@ -6827,7 +6840,7 @@ fn native_thread_init_runnable(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target = extract_slot_arg(args, 1);
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = target;
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
@@ -7039,10 +7052,7 @@ fn native_string_compareto_object(
         Some(s) => str_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => str_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = str_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
 }
 
@@ -7293,10 +7303,7 @@ fn native_integer_compareto(
         Some(s) => int_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => int_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = int_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -7309,15 +7316,7 @@ fn native_string_value_of_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7329,15 +7328,7 @@ fn native_string_value_of_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7349,15 +7340,7 @@ fn native_string_value_of_float(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7615,24 +7598,8 @@ fn native_string_replace_char(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let old_char = match args.get(1) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
-    let new_char = match args.get(2) {
-        Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Int",
-                got: "other",
-            });
-        }
-    };
+    let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
+    let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
     let result = s.replace(old_char, &new_char.to_string());
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
@@ -7783,15 +7750,7 @@ fn native_math_sqrt(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.sqrt())))
 }
 
@@ -7802,24 +7761,8 @@ fn native_math_pow(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.powf(b))))
 }
 
@@ -7830,15 +7773,7 @@ fn native_math_floor(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.floor())))
 }
 
@@ -7849,15 +7784,7 @@ fn native_math_ceil(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.ceil())))
 }
 
@@ -7869,15 +7796,7 @@ fn native_math_round_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Long(a.round() as i64)))
 }
 
@@ -7888,15 +7807,7 @@ fn native_math_abs_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
     Ok(Some(Slot::Long(a.wrapping_abs())))
 }
 
@@ -7907,15 +7818,7 @@ fn native_math_abs_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.abs())))
 }
 
@@ -7926,24 +7829,8 @@ fn native_math_max_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.max(b))))
 }
 
@@ -7954,24 +7841,8 @@ fn native_math_min_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.min(b))))
 }
 
@@ -7982,24 +7853,8 @@ fn native_math_max_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.max(b))))
 }
 
@@ -8010,24 +7865,8 @@ fn native_math_min_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let a = extract_double_arg(args, 0)?;
+    let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.min(b))))
 }
 
@@ -8062,15 +7901,7 @@ fn native_long_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -8134,15 +7965,7 @@ fn native_long_tostring_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -8214,24 +8037,8 @@ fn native_long_compareunsigned_static(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let a = u64::from_ne_bytes(extract_long_arg(args, 0)?.to_ne_bytes());
+    let b = u64::from_ne_bytes(extract_long_arg(args, 1)?.to_ne_bytes());
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8255,10 +8062,7 @@ fn native_long_compareto(
         Some(s) => long_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => long_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = long_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8295,15 +8099,7 @@ fn native_double_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 0)?;
     let r = heap.allocate("java/lang/Double".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Double(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -8329,15 +8125,7 @@ fn native_float_valueof(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = match args.first() {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 0)?;
     let r = heap.allocate("java/lang/Float".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Float(val);
     Ok(Some(Slot::Reference(Some(r))))
@@ -8373,10 +8161,7 @@ fn native_float_compareto(
         Some(s) => float_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => float_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = float_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
 
@@ -8448,10 +8233,7 @@ fn native_boolean_compareto(
         Some(s) => bool_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => bool_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = bool_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8591,16 +8373,7 @@ fn parse_i128_decode(s: &str) -> VmResult<i128> {
 }
 
 fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> VmResult<String> {
-    let str_ref = match args.get(index) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
-    };
+    let str_ref = extract_ref_arg(args, index)?;
     Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
 }
 
@@ -8712,10 +8485,7 @@ fn native_byte_compareto(
         Some(s) => byte_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => byte_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = byte_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8817,10 +8587,7 @@ fn native_short_compareto(
         Some(s) => short_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => short_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = short_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8843,10 +8610,7 @@ fn native_char_compareto(
         Some(s) => char_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => char_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = char_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -16241,15 +16005,7 @@ fn native_sb_append_long(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Long",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_long_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -16265,15 +16021,7 @@ fn native_sb_append_double(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Double",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_double_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -16289,15 +16037,7 @@ fn native_sb_append_float(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match args.get(1) {
-        Some(Slot::Float(v)) => *v,
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Float",
-                got: "other",
-            });
-        }
-    };
+    let val = extract_float_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&val.to_string());
@@ -16533,7 +16273,7 @@ fn native_arraylist_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
         Some(Slot::Int(sz)) => *sz += 1,
@@ -16925,10 +16665,7 @@ fn native_double_compareto(
         Some(s) => double_val(s)?,
         None => return Err(VmError::NullPointerException),
     };
-    let b = match args.get(1) {
-        Some(s) => double_val(s)?,
-        None => return Err(VmError::NullPointerException),
-    };
+    let b = double_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
@@ -16962,7 +16699,7 @@ fn native_arrays_fill_object(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let val = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let val = extract_slot_arg(args, 1);
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
         *slot = val;
@@ -17106,8 +16843,8 @@ fn native_hashmap_put(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let val = extract_slot_arg(args, 2);
     // Clone fields to release the immutable borrow before mutating.
     let fields = heap.get(this_ref)?.fields.clone();
 
@@ -17136,7 +16873,7 @@ fn native_hashmap_get(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     Ok(Some(
@@ -17153,7 +16890,7 @@ fn native_hashmap_contains_key(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if find_hashmap_entry_index(&fields, &key, heap).is_some() {
@@ -17186,7 +16923,7 @@ fn native_hashmap_remove(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
@@ -17230,8 +16967,8 @@ fn native_hashmap_get_or_default(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let default = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let default = extract_slot_arg(args, 2);
     let fields = heap.get(this_ref)?.fields.clone();
 
     Ok(Some(
@@ -17362,7 +17099,7 @@ fn native_hashset_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
     // fields[0] = size, fields[1..] = elements
     if find_hashset_entry_index(&fields, &element, heap).is_some() {
@@ -17386,7 +17123,7 @@ fn native_hashset_contains(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if find_hashset_entry_index(&fields, &element, heap).is_some() {
@@ -17405,7 +17142,7 @@ fn native_hashset_remove(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let element = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
 
     if let Some(i) = find_hashset_entry_index(&fields, &element, heap) {
@@ -17623,7 +17360,7 @@ fn native_process_builder_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let command_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let command_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -17640,7 +17377,7 @@ fn native_process_builder_directory(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let directory_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let directory_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -17693,8 +17430,7 @@ fn native_runtime_exec_array(
         Some(Slot::Reference(Some(_))) => {}
         _ => return Err(VmError::NullPointerException),
     }
-    let command =
-        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
+    let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
     spawn_process_impl(heap, &command, None)
 }
 
@@ -17708,10 +17444,8 @@ fn native_runtime_exec_array_dir(
         Some(Slot::Reference(Some(_))) => {}
         _ => return Err(VmError::NullPointerException),
     }
-    let command =
-        string_array_from_slot(args.get(1).copied().unwrap_or(Slot::Reference(None)), heap)?;
-    let cwd =
-        optional_file_path_from_slot(args.get(3).copied().unwrap_or(Slot::Reference(None)), heap)?;
+    let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
+    let cwd = optional_file_path_from_slot(extract_slot_arg(args, 3), heap)?;
     spawn_process_impl(heap, &command, cwd.as_deref())
 }
 
@@ -20715,6 +20449,59 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, Some(Slot::Int(1)));
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_success() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Reference(Some(file_ref));
+        assert_eq!(
+            archive_ref_from_slot(&heap, obj_ref, 0).unwrap(),
+            Some(file_ref)
+        );
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_null() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Reference(None);
+        assert_eq!(archive_ref_from_slot(&heap, obj_ref, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_none() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        // Field 1 doesn't exist
+        assert_eq!(archive_ref_from_slot(&heap, obj_ref, 1).unwrap(), None);
+    }
+
+    #[test]
+    fn test_archive_ref_from_slot_type_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(42);
+        assert!(matches!(
+            archive_ref_from_slot(&heap, obj_ref, 0),
+            Err(VmError::TypeMismatch {
+                expected: "Reference",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_archive_path_from_slot_none() {
+        let mut heap = duke_gc::Heap::new();
+        let archive_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/JarFileArchive".to_string(),
+            1,
+        );
+        heap.get_mut(archive_ref).unwrap().fields[0] = Slot::Reference(None);
+        assert_eq!(archive_path_from_slot(&heap, archive_ref, 0).unwrap(), None);
     }
 
     #[test]
@@ -29914,6 +29701,60 @@ mod tests {
             extract_int_arg(&args, 0).unwrap_err(),
             VmError::TypeMismatch {
                 expected: "Int",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_long_arg_success() {
+        let args = vec![Slot::Long(42)];
+        assert_eq!(extract_long_arg(&args, 0).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_extract_long_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_long_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Long",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_float_arg_success() {
+        let args = vec![Slot::Float(42.0)];
+        assert!((extract_float_arg(&args, 0).unwrap() - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_extract_float_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_float_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Float",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_double_arg_success() {
+        let args = vec![Slot::Double(42.0)];
+        assert!((extract_double_arg(&args, 0).unwrap() - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_extract_double_arg_type_mismatch() {
+        let args = vec![Slot::Reference(Some(1))];
+        assert!(matches!(
+            extract_double_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Double",
                 got: "other"
             }
         ));

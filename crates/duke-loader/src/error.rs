@@ -59,5 +59,9 @@ pub enum Error {
 
 /// Convenience alias for `Result<T, LoadError>`.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Specific alias for an [`enum@Error`] resulting from class loading.
 pub type LoadError = Error;
+
+/// Specific alias for a [`Result`] returned from loading operations.
 pub type LoadResult<T> = Result<T>;

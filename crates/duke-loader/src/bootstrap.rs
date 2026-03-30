@@ -143,6 +143,26 @@ mod tests {
     }
 
     #[test]
+    fn test_classpath_entry_find_class_zip_delegation() {
+        let root = std::env::temp_dir().join("duke_test_dir_zip_delegation");
+        fs::create_dir_all(&root).unwrap();
+        let zip_path = root.join("test.zip");
+        create_dummy_zip(&zip_path);
+
+        let entry = classpath_entry_for(&zip_path).unwrap();
+
+        // Request a missing class (since dummy zip is empty)
+        let err = entry
+            .find_class("java/lang/Missing")
+            .expect_err("Class should not be found in empty zip");
+        assert!(matches!(err, LoadError::NotFound { .. }));
+
+        // Drop the entry to release the file handle before attempting to delete the directory
+        drop(entry);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn test_classpath_entry_for_zip() {
         let root = std::env::temp_dir().join("duke_test_dir_2");
         fs::create_dir_all(&root).unwrap();
@@ -152,6 +172,7 @@ mod tests {
         let entry = classpath_entry_for(&zip_path).expect("Failed to create zip classpath entry");
         assert!(matches!(entry, ClasspathEntry::Zip(_)));
 
+        drop(entry);
         fs::remove_dir_all(&root).unwrap();
     }
 
