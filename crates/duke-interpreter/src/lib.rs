@@ -2410,24 +2410,38 @@ macro_rules! extract_print_arg {
     };
 }
 
+#[inline]
+fn extract_print_ref_or_write_null(
+    args: &[Slot],
+    idx: usize,
+    out: &mut dyn Write,
+    newline: bool,
+) -> VmResult<Option<u64>> {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => Ok(Some(*r)),
+        Some(Slot::Reference(None)) => {
+            if newline {
+                writeln!(out, "null").ok();
+            } else {
+                write!(out, "null").ok();
+            }
+            Ok(None)
+        }
+        _ => Err(VmError::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
 fn native_println_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let string_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => {
-            writeln!(out, "null").ok();
-            return Ok(None);
-        }
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
+    let Some(string_ref) = extract_print_ref_or_write_null(args, 1, out, true)? else {
+        return Ok(None);
     };
     let obj = heap.get(string_ref)?;
     let text = obj.string_value.as_deref().unwrap_or("null");
@@ -3472,18 +3486,8 @@ fn native_print_string(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let string_ref = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => {
-            write!(out, "null").ok();
-            return Ok(None);
-        }
-        _ => {
-            return Err(VmError::TypeMismatch {
-                expected: "Reference",
-                got: "other",
-            });
-        }
+    let Some(string_ref) = extract_print_ref_or_write_null(args, 1, out, false)? else {
+        return Ok(None);
     };
     let obj = heap.get(string_ref)?;
     let text = obj.string_value.as_deref().unwrap_or("null");
@@ -3618,18 +3622,16 @@ fn native_println_object(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    match args.get(1) {
-        Some(Slot::Reference(Some(r))) => {
-            let s = heap_object_to_string(heap.get(*r)?, *r);
-            writeln!(out, "{s}").ok();
-        }
-        Some(Slot::Reference(None)) => {
-            writeln!(out, "null").ok();
-        }
-        _ => {
-            writeln!(out, "<unknown>").ok();
-        }
-    }
+    let Some(Slot::Reference(opt_r)) = args.get(1) else {
+        writeln!(out, "<unknown>").ok();
+        return Ok(None);
+    };
+    let Some(r) = opt_r else {
+        writeln!(out, "null").ok();
+        return Ok(None);
+    };
+    let s = heap_object_to_string(heap.get(*r)?, *r);
+    writeln!(out, "{s}").ok();
     Ok(None)
 }
 
@@ -3699,18 +3701,16 @@ fn native_print_object(
     out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    match args.get(1) {
-        Some(Slot::Reference(Some(r))) => {
-            let s = heap_object_to_string(heap.get(*r)?, *r);
-            write!(out, "{s}").ok();
-        }
-        Some(Slot::Reference(None)) => {
-            write!(out, "null").ok();
-        }
-        _ => {
-            write!(out, "<unknown>").ok();
-        }
-    }
+    let Some(Slot::Reference(opt_r)) = args.get(1) else {
+        write!(out, "<unknown>").ok();
+        return Ok(None);
+    };
+    let Some(r) = opt_r else {
+        write!(out, "null").ok();
+        return Ok(None);
+    };
+    let s = heap_object_to_string(heap.get(*r)?, *r);
+    write!(out, "{s}").ok();
     Ok(None)
 }
 
