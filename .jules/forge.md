@@ -24,15 +24,10 @@
 **[Extracting Native Print Boilerplate]
 **Learning:** Generating full function signatures inside `macro_rules!` (e.g. `define_native_print!`) breaks IDE navigability ("Go to Definition") and readability, even if it saves lines.
 **Action:** When deduplicating boilerplate across multiple functions in Rust (e.g., argument extraction in `duke-interpreter` native functions), prefer using inline `macro_rules!` macros (e.g., `extract_print_arg!`) to handle the repetitive inner logic rather than generating entire function signatures. This preserves IDE features and keeps function signatures explicit.
+**[Safe Result Propagation]
+**Learning:** Found several `unwrap()` calls on `heap.get_mut(r)` in native functions (e.g. `native_integer_valueof`) and the interpreter loop (e.g. `alloc_multi`) which could panic instead of returning a `VmResult`.
+**Action:** Replace `unwrap()` with the `?` operator to safely propagate `VmError`s in functions returning `VmResult`.
 
-**[Extracting Native Argument Boilerplate]
-**Learning:** Found widespread, repetitive `match args.get(X)` blocks in native functions (e.g., `native_file_output_stream_write`) used to extract integers or references, returning `VmError::TypeMismatch` or `NullPointerException` on failure. This creates unnecessary pyramids of doom.
-**Action:** Replace manual `match` blocks with the existing `extract_int_arg(args, X)?` and `extract_ref_arg(args, X)?` helpers to flatten logic and enforce idiomatic error propagation.
-
-**[Extracting Repeated Code]
-**Learning:** Found nested and duplicated logic when attempting to extract file slot path references from an archive reference `match heap.get...` block inside `boot_archive_path_from_ref` and `launched_class_loader_archive_path`.
-**Action:** Created `archive_ref_from_slot` and `archive_path_from_slot` helpers utilizing early returns (guard clauses via `let Some(...) = ... else { return ... }`) to avoid deep match nesting.
-
-**[Extracting Native Argument Boilerplate Strictness]
-**Learning:** Replacing manual `match args.get(X)` blocks with helpers like `extract_ref_arg(args, X)?` can subtly alter program behavior by changing the returned error variant (e.g., from `TypeMismatch` to `NullPointerException`) or overriding fallback logic (e.g., returning `false` or `0` on missing arguments).
-**Action:** When extracting argument boilerplate into helpers, always strictly verify that the helper's exact error and fallback semantics perfectly match the original `match` block logic to uphold the zero-behavior-change rule.
+**[Idiomatic String Parsing]
+**Learning:** Found string formatting functions like `native_string_format` using `while i < chars.len()` and manual index incrementing, which is verbose and requires bounds checking.
+**Action:** Replace manual `while` loops over `Vec<char>` with idiomatic `chars().peekable()` iterator chains using `while let Some(ch) = chars.next()` and `if let Some(&x) = chars.peek()`.
