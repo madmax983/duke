@@ -4114,7 +4114,7 @@ fn native_string_tochararray(
     let chars: Vec<char> = s.chars().collect();
     let arr_ref = heap.allocate("[C".to_string(), chars.len());
     for (i, &c) in chars.iter().enumerate() {
-        heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Int(c as i32);
+        heap.get_mut(arr_ref)?.fields[i] = Slot::Int(c as i32);
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
@@ -4154,7 +4154,7 @@ fn native_integer_valueof(
 ) -> VmResult<Option<Slot>> {
     let val = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
-    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    heap.get_mut(r)?.fields[0] = Slot::Int(val);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -4425,27 +4425,25 @@ fn native_string_format(
 
     let mut result = String::new();
     let mut arg_idx = 0usize;
-    let chars: Vec<char> = fmt.chars().collect();
-    let mut i = 0;
+    let mut chars = fmt.chars().peekable();
 
-    while i < chars.len() {
-        if chars[i] != '%' {
-            result.push(chars[i]);
-            i += 1;
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            result.push(ch);
             continue;
-        }
-        i += 1;
-        if i >= chars.len() {
-            break;
         }
 
         // Parse optional precision: %.2f
-        let precision: Option<usize> = if chars[i] == '.' {
-            i += 1;
+        let precision: Option<usize> = if chars.peek() == Some(&'.') {
+            chars.next(); // consume '.'
             let mut prec_str = String::new();
-            while i < chars.len() && chars[i].is_ascii_digit() {
-                prec_str.push(chars[i]);
-                i += 1;
+            while let Some(&d) = chars.peek() {
+                if d.is_ascii_digit() {
+                    prec_str.push(d);
+                    chars.next();
+                } else {
+                    break;
+                }
             }
             prec_str.parse().ok()
         } else {
@@ -4453,15 +4451,17 @@ fn native_string_format(
         };
 
         // Skip optional width digits
-        while i < chars.len() && chars[i].is_ascii_digit() {
-            i += 1;
+        while let Some(&d) = chars.peek() {
+            if d.is_ascii_digit() {
+                chars.next();
+            } else {
+                break;
+            }
         }
 
-        if i >= chars.len() {
-            break;
-        }
-        let spec = chars[i];
-        i += 1;
+        let Some(spec) = chars.next() else {
+            break; // Unexpected end of format string
+        };
 
         match spec {
             '%' => result.push('%'),
@@ -4628,7 +4628,7 @@ fn native_string_split(
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
     for (i, part) in parts.iter().enumerate() {
         let str_ref = heap.allocate_string((*part).to_string());
-        heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Reference(Some(str_ref));
+        heap.get_mut(arr_ref)?.fields[i] = Slot::Reference(Some(str_ref));
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
@@ -4998,7 +4998,7 @@ fn native_long_valueof(
         }
     };
     let r = heap.allocate("java/lang/Long".to_string(), 1);
-    heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
+    heap.get_mut(r)?.fields[0] = Slot::Long(val);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -5104,7 +5104,7 @@ fn native_double_valueof(
         }
     };
     let r = heap.allocate("java/lang/Double".to_string(), 1);
-    heap.get_mut(r).unwrap().fields[0] = Slot::Double(val);
+    heap.get_mut(r)?.fields[0] = Slot::Double(val);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -7539,7 +7539,7 @@ fn run_execution(
                             cached
                         } else {
                             let r = heap.allocate("java/lang/Class".to_string(), 0);
-                            heap.get_mut(r).unwrap().string_value = Some(class_name);
+                            heap.get_mut(r)?.string_value = Some(class_name);
                             string_intern.insert(intern_key, r);
                             r
                         };
@@ -7602,7 +7602,7 @@ fn run_execution(
                             cached
                         } else {
                             let r = heap.allocate("java/lang/Class".to_string(), 0);
-                            heap.get_mut(r).unwrap().string_value = Some(class_name);
+                            heap.get_mut(r)?.string_value = Some(class_name);
                             string_intern.insert(intern_key, r);
                             r
                         };
@@ -9785,21 +9785,21 @@ fn run_execution(
                     dims: &[i32],
                     depth: usize,
                     type_name: &str,
-                ) -> u64 {
+                ) -> VmResult<u64> {
                     let size = dims[depth] as usize;
                     let r = heap.allocate(type_name.to_string(), size);
                     if depth < dims.len() - 1 {
                         // Not the innermost — fill with references to sub-arrays.
                         let inner_type = &type_name[1..]; // Strip one '[' for inner dimension.
                         for i in 0..size {
-                            let inner = alloc_multi(heap, dims, depth + 1, inner_type);
-                            heap.get_mut(r).unwrap().fields[i] = Slot::Reference(Some(inner));
+                            let inner = alloc_multi(heap, dims, depth + 1, inner_type)?;
+                            heap.get_mut(r)?.fields[i] = Slot::Reference(Some(inner));
                         }
                     }
-                    r
+                    Ok(r)
                 }
 
-                let r = alloc_multi(heap, &dims, 0, &element_type);
+                let r = alloc_multi(heap, &dims, 0, &element_type)?;
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
                     let roots = gather_roots(frame, call_stack, registry);
@@ -11702,7 +11702,7 @@ fn native_char_valueof(
         }
     };
     let r = heap.allocate("java/lang/Character".to_string(), 1);
-    heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
+    heap.get_mut(r)?.fields[0] = Slot::Int(val);
     Ok(Some(Slot::Reference(Some(r))))
 }
 

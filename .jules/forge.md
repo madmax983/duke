@@ -24,3 +24,10 @@
 **[Extracting Native Print Boilerplate]
 **Learning:** Generating full function signatures inside `macro_rules!` (e.g. `define_native_print!`) breaks IDE navigability ("Go to Definition") and readability, even if it saves lines.
 **Action:** When deduplicating boilerplate across multiple functions in Rust (e.g., argument extraction in `duke-interpreter` native functions), prefer using inline `macro_rules!` macros (e.g., `extract_print_arg!`) to handle the repetitive inner logic rather than generating entire function signatures. This preserves IDE features and keeps function signatures explicit.
+**[Safe Result Propagation]
+**Learning:** Found several `unwrap()` calls on `heap.get_mut(r)` in native functions (e.g. `native_integer_valueof`) and the interpreter loop (e.g. `alloc_multi`) which could panic instead of returning a `VmResult`.
+**Action:** Replace `unwrap()` with the `?` operator to safely propagate `VmError`s in functions returning `VmResult`.
+
+**[Idiomatic String Parsing]
+**Learning:** Found string formatting functions like `native_string_format` using `while i < chars.len()` and manual index incrementing, which is verbose and requires bounds checking.
+**Action:** Replace manual `while` loops over `Vec<char>` with idiomatic `chars().peekable()` iterator chains using `while let Some(ch) = chars.next()` and `if let Some(&x) = chars.peek()`.
