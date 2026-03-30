@@ -14079,6 +14079,10 @@ fn wait_for_all_java_threads(
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }
+
+        if first_error.is_some() {
+            return first_error.unwrap_or(Ok(()));
+        }
     }
 }
 
@@ -38214,3 +38218,4 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+pub mod loom_test;
