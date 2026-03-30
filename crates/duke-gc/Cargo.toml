@@ -6,3 +6,6 @@ description = "Duke JVM - Heap allocator and garbage collector"
 
 [dependencies]
 duke-runtime = { path = "../duke-runtime" }
+
+[dev-dependencies]
+tempfile = "3.27.0"
