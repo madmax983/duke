@@ -28,9 +28,18 @@ pub(crate) struct LambdaInfo {
 /// Threading side-channel requested by a native handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeThreadAction {
-    Start { thread_ref: u64 },
+    /// Start a new thread.
+    Start {
+        /// The heap reference to the Thread object to start.
+        thread_ref: u64,
+    },
+    /// Sleep for a duration.
     Sleep(std::time::Duration),
-    Join { thread_id: i32 },
+    /// Join on a thread.
+    Join {
+        /// The ID of the thread to join.
+        thread_id: i32,
+    },
 }
 
 /// Per-invocation control state for native handlers.
