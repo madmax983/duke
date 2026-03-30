@@ -8264,7 +8264,10 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
 fn parse_arg_count(descriptor: &str) -> usize {
-    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
+    let params = descriptor
+        .strip_prefix('(')
+        .and_then(|s| s.split_once(')'))
+        .map_or("", |(p, _)| p);
     let mut count = 0;
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
@@ -8403,7 +8406,10 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
-    let params = descriptor.find(')').map_or("", |i| &descriptor[1..i]);
+    let params = descriptor
+        .strip_prefix('(')
+        .and_then(|s| s.split_once(')'))
+        .map_or("", |(p, _)| p);
     let mut types = Vec::new();
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
