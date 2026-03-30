@@ -10187,6 +10187,12 @@ fn join_java_thread(
         };
 
         if let Some(handle) = handle {
+            if handle.thread().id() == std::thread::current().id() {
+                runtime.lock().unwrap().handles.insert(thread_id, handle);
+                return Err(VmError::Unimplemented {
+                    mnemonic: "thread tried to join itself",
+                });
+            }
             return match handle.join() {
                 Ok(result) => result,
                 Err(payload) => std::panic::resume_unwind(payload),
