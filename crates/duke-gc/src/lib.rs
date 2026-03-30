@@ -463,13 +463,29 @@ impl Heap {
         status.code().unwrap_or(-1)
     }
 
-    fn process_handle_mut(&mut self, id: i32) -> VmResult<&mut HostProcessHandle> {
-        match self.host_files.get_mut(&id) {
-            Some(HostFileHandle::Process(process)) => Ok(process),
-            _ => Err(VmError::JavaException {
+    fn get_host_file(&self, id: i32) -> VmResult<&HostFileHandle> {
+        self.host_files
+            .get(&id)
+            .ok_or_else(|| VmError::JavaException {
                 class_name: "java/io/IOException".into(),
-            }),
-        }
+            })
+    }
+
+    fn get_host_file_mut(&mut self, id: i32) -> VmResult<&mut HostFileHandle> {
+        self.host_files
+            .get_mut(&id)
+            .ok_or_else(|| VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            })
+    }
+
+    fn process_handle_mut(&mut self, id: i32) -> VmResult<&mut HostProcessHandle> {
+        let HostFileHandle::Process(process) = self.get_host_file_mut(id)? else {
+            return Err(VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            });
+        };
+        Ok(process)
     }
 
     /// Blocks until the child process exits and returns its cached exit code.
@@ -562,12 +578,12 @@ impl Heap {
     /// # Errors
     /// Returns `IOException` if the handle is invalid or not a ZIP archive.
     pub fn zip_entry_count(&self, id: i32) -> VmResult<usize> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.entry_count()),
-            _ => Err(VmError::JavaException {
+        let HostFileHandle::ZipArchive(reader) = self.get_host_file(id)? else {
+            return Err(VmError::JavaException {
                 class_name: "java/io/IOException".into(),
-            }),
-        }
+            });
+        };
+        Ok(reader.entry_count())
     }
 
     /// Looks up a ZIP entry by name, returning a clone of its metadata.
@@ -579,12 +595,12 @@ impl Heap {
         id: i32,
         name: &str,
     ) -> VmResult<Option<duke_loader::ZipEntryInfo>> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.get_entry(name).cloned()),
-            _ => Err(VmError::JavaException {
+        let HostFileHandle::ZipArchive(reader) = self.get_host_file(id)? else {
+            return Err(VmError::JavaException {
                 class_name: "java/io/IOException".into(),
-            }),
-        }
+            });
+        };
+        Ok(reader.get_entry(name).cloned())
     }
 
     /// Reads and decompresses a ZIP entry's bytes.
@@ -592,16 +608,14 @@ impl Heap {
     /// # Errors
     /// Returns `ZipException` on decompression failure, `IOException` for invalid handles.
     pub fn zip_read_entry(&self, id: i32, name: &str) -> VmResult<Vec<u8>> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => {
-                reader.read_entry(name).map_err(|_| VmError::JavaException {
-                    class_name: "java/util/zip/ZipException".into(),
-                })
-            }
-            _ => Err(VmError::JavaException {
+        let HostFileHandle::ZipArchive(reader) = self.get_host_file(id)? else {
+            return Err(VmError::JavaException {
                 class_name: "java/io/IOException".into(),
-            }),
-        }
+            });
+        };
+        reader.read_entry(name).map_err(|_| VmError::JavaException {
+            class_name: "java/util/zip/ZipException".into(),
+        })
     }
 
     /// Creates an in-memory byte buffer handle (for reading decompressed data
@@ -714,17 +728,16 @@ impl Heap {
     /// # Errors
     /// Returns `IOException` if the id is invalid.
     pub fn server_socket_local_port(&self, id: i32) -> VmResult<i32> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::TcpListener(l)) => l
-                .local_addr()
-                .map(|addr| i32::from(addr.port()))
-                .map_err(|_| VmError::JavaException {
-                    class_name: "java/io/IOException".into(),
-                }),
-            _ => Err(VmError::JavaException {
+        let HostFileHandle::TcpListener(l) = self.get_host_file(id)? else {
+            return Err(VmError::JavaException {
                 class_name: "java/io/IOException".into(),
-            }),
-        }
+            });
+        };
+        l.local_addr()
+            .map(|addr| i32::from(addr.port()))
+            .map_err(|_| VmError::JavaException {
+                class_name: "java/io/IOException".into(),
+            })
     }
 
     /// Promote a young-gen object to old gen. Returns `raw_old_idx | OLD_BIT`.
