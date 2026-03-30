@@ -15,7 +15,7 @@ pub mod instruction;
 pub mod opcodes;
 pub mod verifier;
 
-pub use cfg::generate_mermaid_cfg;
+pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
 pub use error::{DecodeError, DecodeResult, Error, Result, VerifyError, VerifyResult};
 pub use instruction::Instruction;

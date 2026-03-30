@@ -251,3 +251,124 @@ mod tests {
         assert!(cfg.contains("node0 -->|false| node5"));
     }
 }
+
+/// Computes the `McCabe` Cyclomatic Complexity of a sequence of JVM instructions.
+///
+/// Cyclomatic complexity (`v(G)`) measures the number of linearly independent paths
+/// through a program's source code. For JVM bytecode, this is equivalent to:
+/// `v(G) = E - N + 2`, where `E` is the number of edges and `N` is the number of nodes.
+///
+/// A simplified, common way to calculate this iteratively is:
+/// `v(G) = 1 + number_of_decision_points`.
+///
+/// Each conditional branch (`ifeq`, `if_icmpeq`, etc.) adds 1.
+/// Each `tableswitch` or `lookupswitch` branch (excluding the default) adds 1.
+/// `goto` statements do not add to complexity, as they don't branch.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, cfg::cyclomatic_complexity};
+///
+/// let instructions = vec![
+///     (0, Instruction::Iconst0),
+///     (1, Instruction::Ifeq(5)), // +1 decision
+///     (4, Instruction::Iconst1),
+///     (5, Instruction::Ireturn),
+/// ];
+///
+/// assert_eq!(cyclomatic_complexity(&instructions), 2);
+/// ```
+#[must_use]
+pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
+    let mut complexity = 1;
+
+    for (_, instr) in instructions {
+        match instr {
+            // Conditional branches
+            Instruction::Ifeq(_)
+            | Instruction::Ifne(_)
+            | Instruction::Iflt(_)
+            | Instruction::Ifge(_)
+            | Instruction::Ifgt(_)
+            | Instruction::Ifle(_)
+            | Instruction::IfIcmpeq(_)
+            | Instruction::IfIcmpne(_)
+            | Instruction::IfIcmplt(_)
+            | Instruction::IfIcmpge(_)
+            | Instruction::IfIcmpgt(_)
+            | Instruction::IfIcmple(_)
+            | Instruction::IfAcmpeq(_)
+            | Instruction::IfAcmpne(_)
+            | Instruction::Ifnull(_)
+            | Instruction::Ifnonnull(_)
+            | Instruction::Jsr(_)
+            | Instruction::JsrW(_) => {
+                complexity += 1;
+            }
+            // Switch statements
+            Instruction::Tableswitch { offsets, .. } => {
+                // Number of possible paths = offsets.len() + 1 (for default).
+                // Subtract 1 because we start at 1 complexity inherently.
+                complexity += offsets.len();
+            }
+            Instruction::Lookupswitch { pairs, .. } => {
+                // Number of possible paths = pairs.len() + 1 (for default).
+                complexity += pairs.len();
+            }
+            _ => {}
+        }
+    }
+
+    complexity
+}
+
+#[cfg(test)]
+mod complexity_tests {
+    use super::*;
+    use crate::Instruction;
+
+    #[test]
+    fn test_cyclomatic_complexity_linear() {
+        let instructions = vec![(0, Instruction::Iconst0), (1, Instruction::Ireturn)];
+        assert_eq!(cyclomatic_complexity(&instructions), 1);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_branches() {
+        let instructions = vec![
+            (0, Instruction::Ifeq(5)),
+            (3, Instruction::Iconst1),
+            (4, Instruction::Ireturn),
+            (5, Instruction::Iconst2),
+            (6, Instruction::Ireturn),
+        ];
+        assert_eq!(cyclomatic_complexity(&instructions), 2);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_tableswitch() {
+        let instructions = vec![(
+            0,
+            Instruction::Tableswitch {
+                default: 10,
+                low: 1,
+                high: 2,
+                offsets: vec![4, 6],
+            },
+        )];
+        assert_eq!(cyclomatic_complexity(&instructions), 3); // 1 + 2 offsets
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_lookupswitch() {
+        let instructions = vec![(
+            0,
+            Instruction::Lookupswitch {
+                default: 10,
+                pairs: vec![(5, 4), (10, 6)],
+            },
+        )];
+        assert_eq!(cyclomatic_complexity(&instructions), 3); // 1 + 2 pairs
+    }
+}
