@@ -178,7 +178,8 @@ impl ZipReader {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
                 let mut decoder = flate2::read::DeflateDecoder::new(compressed);
-                let mut buf = Vec::with_capacity(info.uncompressed_size as usize);
+                let cap = info.uncompressed_size as usize;
+                let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32));
                 decoder
                     .read_to_end(&mut buf)
                     .map_err(|_| LoadError::ZipFormat {
@@ -226,38 +227,142 @@ impl ZipReader {
 // ───────────────────────────────────────────────────────────────────────────
 
 /// Loads `.class` files from a ZIP or JAR archive.
+///
+/// `ZipLoader` implements the [`ClassLoader`] trait to seamlessly find and read `.class`
+/// files embedded inside a `.zip` or `.jar` archive. It uses a read-only, memory-mapped
+/// [`ZipReader`] underneath to avoid eagerly unpacking the archive into memory.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use duke_loader::{ClassLoader, ZipLoader};
+///
+/// // 1. Open the archive
+/// let loader = ZipLoader::open(Path::new("my_library.jar"))
+///     .expect("Failed to open jar file");
+///
+/// // 2. Find a class by its internal JVM name
+/// let bytes = loader.find_class("com/example/MyClass")
+///     .expect("Class not found in archive");
+///
+/// assert_eq!(&bytes[0..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+/// ```
 pub struct ZipLoader {
     reader: ZipReader,
+    nested_libs: Vec<Self>,
 }
 
 impl ZipLoader {
     /// Open a ZIP/JAR file as a class loader.
     ///
+    /// This immediately memory-maps the file and parses its Central Directory to build
+    /// a fast lookup index. It does **not** decompress the file contents yet.
+    ///
     /// # Errors
-    /// Returns [`LoadError`] if the archive cannot be opened or is invalid.
+    ///
+    /// Returns [`LoadError`] if:
+    /// * The file does not exist or cannot be read.
+    /// * The file is not a structurally valid ZIP archive (missing End of Central Directory).
+    /// * The archive uses unsupported features (like ZIP64 or encryption).
     pub fn open(path: &Path) -> LoadResult<Self> {
-        Ok(Self {
-            reader: ZipReader::open(path)?,
-        })
+        Self::from_reader(ZipReader::open(path)?)
     }
 
-    /// Access the underlying reader (e.g. to read `META-INF/MANIFEST.MF`).
+    /// Access the underlying reader.
+    ///
+    /// This is particularly useful for reading non-class resources stored in the archive,
+    /// such as the `META-INF/MANIFEST.MF` file or native libraries.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::{ZipLoader};
+    ///
+    /// let loader = ZipLoader::open(Path::new("app.jar")).unwrap();
+    /// let manifest_bytes = loader.reader().read_entry("META-INF/MANIFEST.MF")
+    ///     .expect("Missing manifest");
+    /// ```
     #[must_use]
     pub const fn reader(&self) -> &ZipReader {
         &self.reader
+    }
+
+    fn from_reader(reader: ZipReader) -> LoadResult<Self> {
+        let nested_libs = nested_boot_inf_lib_loaders(&reader)?;
+        Ok(Self {
+            reader,
+            nested_libs,
+        })
     }
 }
 
 impl ClassLoader for ZipLoader {
     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
-        let entry_name = format!("{name}.class");
-        self.reader.read_entry(&entry_name).map_err(|e| match e {
-            LoadError::NotFound { .. } => LoadError::NotFound {
-                name: name.to_string(),
-            },
-            other => other,
+        // Pre-allocate a single buffer large enough for the longest path
+        // "BOOT-INF/classes/".len() == 17, ".class".len() == 6. Total = 23
+        let mut entry_name = String::with_capacity(name.len() + 23);
+
+        // Try standard class path: {name}.class
+        entry_name.push_str(name);
+        entry_name.push_str(".class");
+        match self.reader.read_entry(&entry_name) {
+            Ok(bytes) => return Ok(bytes),
+            Err(LoadError::NotFound { .. }) => {}
+            Err(other) => return Err(other),
+        }
+
+        // Try BOOT-INF path: BOOT-INF/classes/{name}.class
+        entry_name.clear();
+        entry_name.push_str("BOOT-INF/classes/");
+        entry_name.push_str(name);
+        entry_name.push_str(".class");
+        match self.reader.read_entry(&entry_name) {
+            Ok(bytes) => return Ok(bytes),
+            Err(LoadError::NotFound { .. }) => {}
+            Err(other) => return Err(other),
+        }
+
+        for nested_lib in &self.nested_libs {
+            match nested_lib.find_class(name) {
+                Ok(bytes) => return Ok(bytes),
+                Err(LoadError::NotFound { .. }) => {}
+                Err(other) => return Err(other),
+            }
+        }
+        Err(LoadError::NotFound {
+            name: name.to_string(),
         })
     }
+}
+
+fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> LoadResult<Vec<ZipLoader>> {
+    let mut nested_entry_names: Vec<String> = reader
+        .entry_names()
+        .filter(|name| is_nested_boot_inf_lib_archive(name))
+        .map(str::to_owned)
+        .collect();
+    nested_entry_names.sort_unstable();
+
+    let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
+    for entry_name in nested_entry_names {
+        let nested_bytes = reader.read_entry(&entry_name)?;
+        nested_libs.push(ZipLoader::from_reader(ZipReader::from_bytes(
+            nested_bytes,
+        )?)?);
+    }
+    Ok(nested_libs)
+}
+
+fn is_nested_boot_inf_lib_archive(entry_name: &str) -> bool {
+    let Some(suffix) = entry_name.strip_prefix("BOOT-INF/lib/") else {
+        return false;
+    };
+    Path::new(suffix)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"))
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -614,6 +719,94 @@ mod tests {
         assert_eq!(crc32_checksum(b"123456789"), 0xCBF4_3926);
     }
 
+    #[test]
+    fn zip_open_io_error() {
+        let err = ZipReader::open(Path::new("/does/not/exist/ever/zip.zip")).unwrap_err();
+        assert!(matches!(err, LoadError::Io { .. }));
+    }
+
+    #[test]
+    fn local_header_truncated() {
+        let zip = build_stored_zip("test.txt", b"data");
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+
+        // Corrupt the local header offset to point near the end of the file
+        let info = reader.get_entry("test.txt").unwrap();
+        let mut corrupted_info = info.clone();
+        corrupted_info.local_header_offset = (reader.data.len() - 10) as u64;
+
+        let err = reader.read_entry_info(&corrupted_info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("is truncated"));
+        }
+    }
+
+    #[test]
+    fn local_header_bad_signature() {
+        let mut zip = build_stored_zip("test.txt", b"data");
+        // Corrupt the local header signature (first 4 bytes)
+        zip[0] ^= 0xFF;
+
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+        let info = reader.get_entry("test.txt").unwrap();
+
+        let err = reader.read_entry_info(info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("expected local header signature"));
+        }
+    }
+
+    #[test]
+    fn data_extends_past_eof() {
+        let zip = build_stored_zip("test.txt", b"data");
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+
+        let info = reader.get_entry("test.txt").unwrap();
+        let mut corrupted_info = info.clone();
+        corrupted_info.compressed_size = (reader.data.len() + 10) as u64;
+
+        let err = reader.read_entry_info(&corrupted_info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("data extends past end of archive"));
+        }
+    }
+
+    #[test]
+    fn unsupported_compression_method() {
+        let zip = build_stored_zip("test.txt", b"data");
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+
+        let info = reader.get_entry("test.txt").unwrap();
+        let mut corrupted_info = info.clone();
+        corrupted_info.compression_method = 99; // 99 is unsupported
+
+        let err = reader.read_entry_info(&corrupted_info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("unsupported compression method"));
+        }
+    }
+
+    #[test]
+    fn deflate_error() {
+        let mut zip = build_deflated_zip("test.txt", b"data that will be compressed");
+        // Corrupt the DEFLATE stream data
+        // Local header ends at 30 + filename_len(8) = 38
+        zip[38] ^= 0xFF;
+
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+        let info = reader.get_entry("test.txt").unwrap();
+
+        let err = reader.read_entry_info(info).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("failed to deflate entry"));
+        }
+    }
+
     // ── ZipReader from bytes ─────────────────────────────────────────────
 
     #[test]
@@ -734,5 +927,130 @@ mod tests {
         let err = loader.find_class("Missing").unwrap_err();
         assert!(matches!(err, LoadError::NotFound { .. }));
         std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_read_entry_other_error() {
+        let mut zip = build_stored_zip("Bad.class", b"data");
+        zip[0] ^= 0xFF; // Corrupt local header signature
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let err = loader.find_class("Bad").unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_read_entry_other_error_boot_inf() {
+        let mut zip = build_stored_zip("BOOT-INF/classes/Bad.class", b"data");
+        zip[0] ^= 0xFF; // Corrupt local header signature
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_boot_inf.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let err = loader.find_class("Bad").unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_read_entry_other_error_nested() {
+        let mut nested_jar = build_stored_zip("Bad.class", b"data");
+        nested_jar[0] ^= 0xFF; // Corrupt local header signature
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_nested.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let err = loader.find_class("Bad").unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_finds_class_in_boot_inf_classes() {
+        let fake_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 65];
+        let zip = build_multi_entry_zip(&[("BOOT-INF/classes/com/example/App.class", &fake_class)]);
+
+        let tmp = std::env::temp_dir().join("duke_test_boot_inf_classes.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let bytes = loader
+            .find_class("com/example/App")
+            .expect("should find class in BOOT-INF/classes");
+        assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_finds_class_in_nested_boot_inf_lib_jar() {
+        let fake_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 65];
+        let nested_jar = build_multi_entry_zip(&[("com/example/Dependency.class", &fake_class)]);
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+
+        let tmp = std::env::temp_dir().join("duke_test_boot_inf_lib.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let bytes = loader
+            .find_class("com/example/Dependency")
+            .expect("should find class in nested BOOT-INF/lib jar");
+        assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_prefers_boot_inf_classes_before_nested_libs() {
+        let app_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 65];
+        let nested_class = [0xCA, 0xFE, 0xBA, 0xBE, 0, 0, 0, 66];
+        let nested_jar = build_multi_entry_zip(&[("com/example/App.class", &nested_class)]);
+        let outer_zip = build_multi_entry_zip(&[
+            ("BOOT-INF/classes/com/example/App.class", &app_class),
+            ("BOOT-INF/lib/dependency.jar", &nested_jar),
+        ]);
+
+        let tmp = std::env::temp_dir().join("duke_test_boot_inf_precedence.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+        let bytes = loader
+            .find_class("com/example/App")
+            .expect("should prefer BOOT-INF/classes");
+        assert_eq!(bytes, app_class);
+        std::fs::remove_file(&tmp).ok();
+    }
+}
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::HashMap;
+
+    proptest! {
+        #[test]
+        fn fuzz_zip_reader_read_entry_info(
+            uncompressed_size in any::<u64>()
+        ) {
+            let info = ZipEntryInfo {
+                name: "fuzz.txt".to_string(),
+                compression_method: METHOD_DEFLATED,
+                crc32: 0,
+                compressed_size: 0,
+                uncompressed_size,
+                local_header_offset: 0,
+            };
+
+            // Let's make a mock local header signature + empty filename/extra + empty data
+            let mut data = vec![0; 30];
+            data[0..4].copy_from_slice(&LOCAL_SIGNATURE.to_le_bytes());
+
+            let reader = ZipReader {
+                data,
+                index: HashMap::new(),
+            };
+
+            let _ = reader.read_entry_info(&info);
+        }
     }
 }

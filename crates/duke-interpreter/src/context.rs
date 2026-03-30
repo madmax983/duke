@@ -23,6 +23,8 @@ use duke_runtime::Slot;
 /// let method = MethodEntry {
 ///     name: "add".to_string(),
 ///     descriptor: "(II)I".to_string(),
+///     is_public: true,
+///     is_static: true,
 ///     instructions: Arc::new([]),
 ///     max_stack: 2,
 ///     max_locals: 2,
@@ -36,6 +38,10 @@ pub struct MethodEntry {
     pub name: String,
     /// The signature defining argument types and return type (e.g. `"([Ljava/lang/String;)V"`).
     pub descriptor: String,
+    /// Whether Java reflection should treat the method as public.
+    pub is_public: bool,
+    /// Whether the method is static and therefore takes no implicit `this`.
+    pub is_static: bool,
     /// The linear sequence of executable instructions, paired with their original byte offset
     /// in the `.class` file to allow for accurate branch resolution and stack trace generation.
     pub instructions: std::sync::Arc<[(usize, Instruction)]>,

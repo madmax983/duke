@@ -18,9 +18,10 @@
 pub mod access_flags;
 pub mod error;
 pub mod parser;
+/// Data structures representing the components of a JVM class file.
 pub mod types;
 
-pub use error::{ParseError, ParseResult};
+pub use error::{Error, ParseError, ParseResult, Result};
 pub use parser::parse;
 pub use types::{
     AttributeData, AttributeInfo, ClassFile, CodeAttribute, CpEntry, CpIndex, ExceptionTableEntry,
@@ -785,3 +786,5 @@ mod tests {
         assert!(found_bm);
     }
 }
+#[cfg(test)]
+mod fuzz;

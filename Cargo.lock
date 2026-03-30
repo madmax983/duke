@@ -36,6 +36,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -233,6 +239,7 @@ dependencies = [
 name = "duke-classfile"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "bitflags",
  "proptest",
  "thiserror",
@@ -244,6 +251,7 @@ version = "0.1.0"
 dependencies = [
  "duke-loader",
  "duke-runtime",
+ "proptest",
 ]
 
 [[package]]
@@ -274,6 +282,7 @@ dependencies = [
 name = "duke-runtime"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "thiserror",
 ]
 
@@ -804,9 +813,9 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.26.0"
+version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82a72c767771b47409d2345987fda8628641887d5466101319899796367354a0"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
  "getrandom 0.4.1",

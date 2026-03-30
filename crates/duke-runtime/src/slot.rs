@@ -28,9 +28,13 @@ use crate::error::{VmError, VmResult};
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Slot {
+    /// A 32-bit signed integer.
     Int(i32),
+    /// A 64-bit signed integer.
     Long(i64),
+    /// A 32-bit IEEE 754 floating-point number.
     Float(f32),
+    /// A 64-bit IEEE 754 floating-point number.
     Double(f64),
     /// Object reference (`None` represents the JVM `null` value).
     Reference(Option<u64>),

@@ -8,14 +8,16 @@
 //! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
+pub mod cfg;
 pub mod decoder;
 pub mod error;
 pub mod instruction;
 pub mod opcodes;
 pub mod verifier;
 
+pub use cfg::generate_mermaid_cfg;
 pub use decoder::decode;
-pub use error::{DecodeError, DecodeResult, VerifyError, VerifyResult};
+pub use error::{DecodeError, DecodeResult, Error, Result, VerifyError, VerifyResult};
 pub use instruction::Instruction;
 pub use verifier::verify;
 
@@ -727,3 +729,5 @@ mod tests {
         );
     }
 }
+#[cfg(test)]
+mod fuzz;

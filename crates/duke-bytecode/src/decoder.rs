@@ -12,11 +12,29 @@ use duke_classfile::CpIndex;
 
 /// Decode a bytecode sequence from a `Code` attribute into typed instructions.
 ///
+/// This performs the first pass over a raw byte stream, resolving variable-length
+/// instruction operands into a typed [`Instruction`] enum paired with its original
+/// byte offset (`pc`).
+///
 /// # Errors
 ///
 /// Returns [`DecodeError`] if the bytecode is structurally malformed (truncated
 /// operands, unknown opcodes, invalid `wide` prefix target, bad array type).
 /// Never panics.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{decode, Instruction};
+///
+/// // iconst_1 (0x04), ireturn (0xAC)
+/// let raw_code = [0x04, 0xAC];
+///
+/// let decoded = decode(&raw_code).unwrap();
+/// assert_eq!(decoded.len(), 2);
+/// assert_eq!(decoded[0], (0, Instruction::Iconst1));
+/// assert_eq!(decoded[1], (1, Instruction::Ireturn));
+/// ```
 pub fn decode(code: &[u8]) -> DecodeResult<Vec<(usize, Instruction)>> {
     let mut cursor = Cursor::new(code);
     // ⚡ Bolt: Pre-allocate capacity for the decoded instructions vector to avoid
@@ -297,58 +315,10 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::RET => Instruction::Ret(c.read_u8()?),
 
         // -- Tableswitch (§6.5 tableswitch) ----------------------------------
-        op::TABLESWITCH => {
-            // `pc` is the offset of the tableswitch opcode byte.
-            // After reading the opcode, cursor is at pc+1.
-            // Align to 4-byte boundary from start of code array.
-            c.align4();
-            let default = c.read_i32()?;
-            let low = c.read_i32()?;
-            let high = c.read_i32()?;
-            if high < low {
-                return Err(DecodeError::InvalidTableswitch { pc, low, high });
-            }
-            // Use i64 to avoid i32 overflow when low is very negative.
-            let count_i64 = i64::from(high) - i64::from(low) + 1;
-            // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
-            let max_possible = c.data.len().saturating_sub(c.pos) / 4;
-            if count_i64 < 0 || usize::try_from(count_i64).unwrap_or(usize::MAX) > max_possible {
-                return Err(DecodeError::InvalidTableswitch { pc, low, high });
-            }
-            let count = usize::try_from(count_i64).unwrap_or(0);
-            let offsets = (0..count)
-                .map(|_| c.read_i32())
-                .collect::<Result<Vec<_>, _>>()?;
-            Instruction::Tableswitch {
-                default,
-                low,
-                high,
-                offsets,
-            }
-        }
+        op::TABLESWITCH => decode_tableswitch(c, pc)?,
 
         // -- Lookupswitch (§6.5 lookupswitch) --------------------------------
-        op::LOOKUPSWITCH => {
-            c.align4();
-            let default = c.read_i32()?;
-            let npairs = c.read_i32()?;
-            if npairs < 0 {
-                return Err(DecodeError::InvalidLookupswitch { pc, npairs });
-            }
-            let remaining_pairs = c.data.len().saturating_sub(c.pos) / 8;
-            if usize::try_from(npairs).unwrap_or(usize::MAX) > remaining_pairs {
-                return Err(DecodeError::InvalidLookupswitch { pc, npairs });
-            }
-            let npairs_usize = usize::try_from(npairs).unwrap_or(0);
-            let pairs = (0..npairs_usize)
-                .map(|_| {
-                    let match_val = c.read_i32()?;
-                    let offset = c.read_i32()?;
-                    Ok((match_val, offset))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Instruction::Lookupswitch { default, pairs }
-        }
+        op::LOOKUPSWITCH => decode_lookupswitch(c, pc)?,
 
         // -- Returns ---------------------------------------------------------
         op::IRETURN => Instruction::Ireturn,
@@ -426,6 +396,58 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
 }
 
 // ---------------------------------------------------------------------------
+fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
+    // `pc` is the offset of the tableswitch opcode byte.
+    // After reading the opcode, cursor is at pc+1.
+    // Align to 4-byte boundary from start of code array.
+    c.align4();
+    let default = c.read_i32()?;
+    let low = c.read_i32()?;
+    let high = c.read_i32()?;
+    if high < low {
+        return Err(DecodeError::InvalidTableswitch { pc, low, high });
+    }
+    // Use i64 to avoid i32 overflow when low is very negative.
+    let count_i64 = i64::from(high) - i64::from(low) + 1;
+    // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
+    let max_possible = c.data.len().saturating_sub(c.pos) / 4;
+    if count_i64 < 0 || usize::try_from(count_i64).unwrap_or(usize::MAX) > max_possible {
+        return Err(DecodeError::InvalidTableswitch { pc, low, high });
+    }
+    let count = usize::try_from(count_i64).unwrap_or(0);
+    let offsets = (0..count)
+        .map(|_| c.read_i32())
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Instruction::Tableswitch {
+        default,
+        low,
+        high,
+        offsets,
+    })
+}
+
+fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
+    c.align4();
+    let default = c.read_i32()?;
+    let npairs = c.read_i32()?;
+    if npairs < 0 {
+        return Err(DecodeError::InvalidLookupswitch { pc, npairs });
+    }
+    let remaining_pairs = c.data.len().saturating_sub(c.pos) / 8;
+    if usize::try_from(npairs).unwrap_or(usize::MAX) > remaining_pairs {
+        return Err(DecodeError::InvalidLookupswitch { pc, npairs });
+    }
+    let npairs_usize = usize::try_from(npairs).unwrap_or(0);
+    let pairs = (0..npairs_usize)
+        .map(|_| {
+            let match_val = c.read_i32()?;
+            let offset = c.read_i32()?;
+            Ok((match_val, offset))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Instruction::Lookupswitch { default, pairs })
+}
+
 // Wide prefix handler
 // ---------------------------------------------------------------------------
 
@@ -545,6 +567,39 @@ mod tests {
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Fstore1);
+    }
+
+    #[test]
+    fn test_decoder_coverage_additional() {
+        let code = vec![
+            op::CASTORE,
+            op::SASTORE,
+            op::RET,
+            0x01,
+            op::PUTFIELD,
+            0x00,
+            0x01,
+            op::MULTIANEWARRAY,
+            0x00,
+            0x02,
+            0x03,
+        ];
+        let instrs = decode(&code).unwrap();
+        assert_eq!(instrs.len(), 5);
+        assert_eq!(instrs[0].1, Instruction::Castore);
+        assert_eq!(instrs[1].1, Instruction::Sastore);
+        assert_eq!(instrs[2].1, Instruction::Ret(1));
+        assert_eq!(
+            instrs[3].1,
+            Instruction::Putfield(duke_classfile::CpIndex(1))
+        );
+        assert_eq!(
+            instrs[4].1,
+            Instruction::Multianewarray {
+                index: duke_classfile::CpIndex(2),
+                dimensions: 3
+            }
+        );
     }
 
     #[test]

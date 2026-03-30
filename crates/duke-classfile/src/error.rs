@@ -1,48 +1,103 @@
+//! `duke-classfile::error` — [`ParseError`] and related types
+
 use thiserror::Error;
 
 /// Errors that can occur while parsing a JVM `.class` file.
 #[derive(Debug, Error)]
-pub enum ParseError {
+pub enum Error {
+    /// Expected more bytes to parse but reached the end of the file.
     #[error("unexpected end of input at offset {offset}")]
-    UnexpectedEof { offset: usize },
+    UnexpectedEof {
+        /// Offset where the EOF occurred.
+        offset: usize,
+    },
 
+    /// The parsed file does not begin with the JVM magic number (`0xCAFEBABE`).
     #[error("invalid magic number: expected 0xCAFEBABE, got {got:#010X}")]
-    BadMagic { got: u32 },
+    BadMagic {
+        /// The magic number that was read.
+        got: u32,
+    },
 
+    /// The class file specifies a version not supported by this runtime.
     #[error("unsupported class file version {major}.{minor} (Duke supports up to 65.0 = Java 21)")]
-    UnsupportedVersion { major: u16, minor: u16 },
+    UnsupportedVersion {
+        /// Major version of the class file.
+        major: u16,
+        /// Minor version of the class file.
+        minor: u16,
+    },
 
+    /// A constant pool index refers to an invalid location.
     #[error("constant pool index {index} out of bounds (pool size {pool_size})")]
-    CpIndexOutOfBounds { index: u16, pool_size: usize },
+    CpIndexOutOfBounds {
+        /// The invalid constant pool index.
+        index: u16,
+        /// Total size of the constant pool.
+        pool_size: usize,
+    },
 
+    /// Constant pool index 0 is explicitly reserved and invalid for normal use.
     #[error("constant pool index 0 is reserved and must not be used")]
     CpIndexZero,
 
+    /// A reference attempted to read the second (phantom) slot of a `Long` or `Double` entry.
     #[error("constant pool slot {index} is a phantom slot (occupied by preceding Long/Double)")]
-    CpPhantomSlot { index: u16 },
+    CpPhantomSlot {
+        /// Index of the phantom slot.
+        index: u16,
+    },
 
+    /// Encountered an unknown or unsupported constant pool tag.
     #[error("unknown constant pool tag {tag} at index {index}")]
-    UnknownCpTag { tag: u8, index: u16 },
+    UnknownCpTag {
+        /// The invalid tag byte.
+        tag: u8,
+        /// Index in the constant pool where the tag was encountered.
+        index: u16,
+    },
 
+    /// The bytes for a `CONSTANT_Utf8_info` entry are not valid UTF-8.
     #[error("invalid CONSTANT_Utf8: {source}")]
     InvalidUtf8 {
+        /// The underlying UTF-8 error.
         #[from]
         source: std::string::FromUtf8Error,
     },
 
+    /// An invalid reference kind was provided in a `MethodHandle` structure.
     #[error("invalid method handle reference kind {kind} (must be 1–9)")]
-    InvalidMethodHandleKind { kind: u8 },
+    InvalidMethodHandleKind {
+        /// The invalid reference kind.
+        kind: u8,
+    },
 
+    /// The attribute length declared does not match the amount of data successfully parsed.
     #[error("attribute length mismatch: declared {declared} bytes but consumed {consumed}")]
-    AttributeLengthMismatch { declared: u32, consumed: usize },
+    AttributeLengthMismatch {
+        /// Expected length according to the class file.
+        declared: u32,
+        /// The amount actually parsed.
+        consumed: usize,
+    },
 
+    /// An attribute ended prematurely.
     #[error("truncated attribute '{name}': expected {expected} bytes, got {got}")]
     TruncatedAttribute {
+        /// The name of the attribute.
         name: &'static str,
+        /// Expected number of bytes remaining.
         expected: usize,
+        /// Actual number of bytes available.
         got: usize,
     },
 }
 
 /// Convenience alias.
-pub type ParseResult<T> = Result<T, ParseError>;
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Specific alias for an [`enum@Error`] resulting from parsing.
+pub type ParseError = Error;
+
+/// Specific alias for a [`Result`] returned from parsing operations.
+pub type ParseResult<T> = Result<T>;

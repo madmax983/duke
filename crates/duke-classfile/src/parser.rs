@@ -1,3 +1,5 @@
+//! `duke-classfile::parser` — JVM `.class` file parser implementation
+
 use crate::{
     access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags},
     error::{ParseError, ParseResult},
@@ -29,7 +31,7 @@ impl<'a> Cursor<'a> {
         Self { data, pos: 0 }
     }
 
-    /// Current read position.
+    // Current read position.
     const fn position(&self) -> usize {
         self.pos
     }
@@ -129,18 +131,22 @@ pub fn parse(bytes: &[u8]) -> ParseResult<ClassFile> {
     let mut cursor = Cursor::new(bytes);
     let mut class_file = parse_class_file(&mut cursor)?;
 
+    // ⚡ Bolt: Removed expensive `class_file.constant_pool.clone()` allocation.
+    // Rust allows disjoint borrowing, so we can borrow `constant_pool` immutably
+    // while mutably borrowing `attributes`, `fields`, and `methods`.
+
     // Resolve raw attribute bytes into typed variants now that we have the full CP.
-    let pool = class_file.constant_pool.clone();
-    resolve_attributes(&mut class_file.attributes, &pool)?;
+    let pool = &class_file.constant_pool;
+    resolve_attributes(&mut class_file.attributes, pool)?;
     for field in &mut class_file.fields {
-        resolve_attributes(&mut field.attributes, &pool)?;
+        resolve_attributes(&mut field.attributes, pool)?;
     }
     for method in &mut class_file.methods {
-        resolve_attributes(&mut method.attributes, &pool)?;
+        resolve_attributes(&mut method.attributes, pool)?;
         // Also resolve Code sub-attributes.
         for attr in &mut method.attributes {
             if let AttributeData::Code(code) = &mut attr.data {
-                resolve_attributes(&mut code.attributes, &pool)?;
+                resolve_attributes(&mut code.attributes, pool)?;
             }
         }
     }
@@ -389,8 +395,8 @@ pub(crate) fn resolve_attributes(
 ) -> ParseResult<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
-        let raw = match &attr.data {
-            AttributeData::Raw(b) => b.clone(),
+        let raw = match &mut attr.data {
+            AttributeData::Raw(b) => std::mem::take(b),
             _ => continue, // already resolved
         };
         attr.data = decode_known_attribute(name, &raw)?;
@@ -531,5 +537,20 @@ pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&st
             index: idx.0,
             pool_size: pool.len(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_return_error_when_cp_index_is_zero() {
+        let pool = vec![];
+        let result = cp_utf8(&pool, CpIndex(0));
+        assert!(
+            matches!(result, Err(ParseError::CpIndexZero)),
+            "Expected ParseError::CpIndexZero, got {result:?}"
+        );
     }
 }

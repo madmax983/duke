@@ -9,6 +9,7 @@ thiserror.workspace = true
 bitflags.workspace = true
 
 [dev-dependencies]
+arbitrary = "1.4.2"
 proptest.workspace = true
 
 [lints]
