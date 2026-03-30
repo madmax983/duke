@@ -123,17 +123,17 @@ impl JImageReader {
             path: path.display().to_string(),
             source: e,
         })?;
+        Self::from_bytes(data)
+    }
 
+    /// Build a `JImageReader` from raw bytes (useful for tests).
+    pub(crate) fn from_bytes(data: Vec<u8>) -> LoadResult<Self> {
         let (resource_count, table_length, locations_size, strings_size) = parse_header(&data)?;
 
         let tl = table_length as usize;
         let ls = locations_size as usize;
         let ss = strings_size as usize;
 
-        // redirect: [i32; tl]  at HEADER_SIZE
-        // offsets:  [u32; tl]  at HEADER_SIZE + tl*4
-        // locations: [u8; ls]  at HEADER_SIZE + tl*8
-        // strings:   [u8; ss]  at HEADER_SIZE + tl*8 + ls
         let locations_offset = HEADER_SIZE + tl * 8;
         let strings_offset = locations_offset + ls;
         let data_offset = strings_offset + ss;
@@ -439,6 +439,110 @@ fn read_u32_le(data: &[u8], offset: usize) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_jimage_file_too_small() {
+        let mut data = vec![0u8; 100]; // Valid MAGIC, but too short for header
+        data[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        let Err(err) = JImageReader::from_bytes(data) else {
+            panic!("expected error")
+        };
+        assert!(matches!(err, LoadError::JImageFormat { .. }));
+    }
+
+    #[test]
+    fn test_jimage_unsupported_version() {
+        let mut data = vec![0u8; HEADER_SIZE];
+        data[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        data[4..8].copy_from_slice(&9999_u32.to_le_bytes()); // Invalid version
+        let Err(err) = JImageReader::from_bytes(data) else {
+            panic!("expected error")
+        };
+        assert!(matches!(err, LoadError::JImageFormat { .. }));
+    }
+
+    #[test]
+    fn test_jimage_read_str_out_of_bounds() {
+        let data = b"hello world ";
+        assert_eq!(read_str(data, 0, 0), "hello");
+        assert_eq!(read_str(data, 0, 6), "world");
+        assert_eq!(read_str(data, 0, 100), ""); // Out of bounds
+        assert_eq!(read_str(data, 0, u64::MAX), ""); // Overflow index
+    }
+
+    #[test]
+    fn test_jimage_unknown_attribute() {
+        // Build minimal valid header
+        let mut data = vec![0u8; HEADER_SIZE];
+        data[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        data[4..8].copy_from_slice(&JIMAGE_VERSION.to_le_bytes());
+        // resource_count=0, table_length=1, locations_size=8, strings_size=0
+        data[12..16].copy_from_slice(&0_u32.to_le_bytes());
+        data[16..20].copy_from_slice(&1_u32.to_le_bytes());
+        data[20..24].copy_from_slice(&8_u32.to_le_bytes());
+        data[24..28].copy_from_slice(&0_u32.to_le_bytes());
+
+        // redirect table: 1 entry
+        data.extend_from_slice(&0_i32.to_le_bytes());
+        // offsets table: 1 entry (offset 0 into locations)
+        data.extend_from_slice(&0_u32.to_le_bytes());
+
+        // location table: length 8
+        // unknown attribute kind 99, len 1 (total byte 1+1=2), value 0x42
+        // end marker: kind 0, len 0 (byte 0)
+        let kind = 99_u8;
+        let len = 1_u8;
+        let header = (kind << 3) | (len - 1);
+        data.push(header);
+        data.push(0x42);
+        data.push(0); // END
+        // padding to 8 bytes
+        data.extend_from_slice(&[0; 5]);
+
+        let reader =
+            JImageReader::from_bytes(data).unwrap_or_else(|e| panic!("expected ok, got {e:?}"));
+        // The unknown attribute is silently skipped, so it parses successfully
+        assert_eq!(reader.index.len(), 0);
+    }
+
+    #[test]
+    fn test_jimage_read_resource_out_of_bounds() {
+        // Create an empty reader
+        let mut reader = JImageReader::empty_for_test();
+
+        // Add a fake resource that points out of bounds
+        reader.index.insert(
+            "/test".to_string(),
+            ResourceInfo {
+                offset: 100, // Beyond reader.data.len()
+                compressed: 0,
+                uncompressed: 10,
+            },
+        );
+
+        let err = reader.read_resource("/test").unwrap_err();
+        assert!(matches!(err, LoadError::JImageFormat { .. }));
+    }
+
+    #[test]
+    fn test_jimage_read_resource_decompression_fails() {
+        // Create an empty reader
+        let mut reader = JImageReader::empty_for_test();
+
+        // Add a fake resource with invalid deflate data
+        reader.data = b"invaliddeflatedata".to_vec();
+        reader.index.insert(
+            "/test".to_string(),
+            ResourceInfo {
+                offset: 0,
+                compressed: reader.data.len() as u64,
+                uncompressed: 100, // Should be decompressed
+            },
+        );
+
+        let err = reader.read_resource("/test").unwrap_err();
+        assert!(matches!(err, LoadError::Decompress { .. }));
+    }
     use std::collections::HashMap;
 
     // -----------------------------------------------------------------------
