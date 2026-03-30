@@ -849,6 +849,16 @@ mod tests {
     }
 
     #[test]
+    fn test_class_registry_get_mut_missing_class() {
+        let mut registry = ClassRegistry::default();
+        let result = registry.get_mut("MissingClass");
+        match result {
+            Err(duke_runtime::VmError::ClassNotFound { name }) => assert_eq!(name, "MissingClass"),
+            _ => panic!("Expected ClassNotFound error"),
+        }
+    }
+
+    #[test]
     fn test_native_registry_default() {
         let natives = NativeRegistry::default();
         assert!(natives.get("java/lang/System", "exit", "(I)V").is_none());
