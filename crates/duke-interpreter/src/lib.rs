@@ -10200,11 +10200,12 @@ fn join_java_thread(
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
 ) -> VmResult<()> {
+    let mut first_err = None;
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap();
             if runtime.handles.is_empty() {
-                return Ok(());
+                break;
             }
             runtime
                 .handles
@@ -10215,11 +10216,18 @@ fn wait_for_all_java_threads(
 
         for handle in handles {
             match handle.join() {
-                Ok(result) => result?,
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => {
+                    if first_err.is_none() {
+                        first_err = Some(err);
+                    }
+                }
                 Err(payload) => std::panic::resume_unwind(payload),
             }
         }
     }
+
+    first_err.map_or(Ok(()), Err)
 }
 
 fn handle_thread_action(
@@ -19371,6 +19379,65 @@ mod tests {
                 mnemonic: "Test panic simulation"
             })
         ));
+    }
+
+
+    #[test]
+    fn threading_havoc_wait_for_all_java_threads_early_return_panic_path() {
+        let ctx = load_class_context("ThreadingTest.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        registry
+            .natives_mut()
+            .register("java/lang/Thread", "sleep", "(J)V", |args, _, _, _| {
+                // We use a static atomic to track state since we can't capture in a fn pointer
+                static COUNT: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+
+                let _ms = match args.first() {
+                    Some(duke_runtime::Slot::Long(ms)) => *ms,
+                    _ => 0,
+                };
+                let current = COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                if current == 0 {
+                    // First thread sleeps to keep running
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    Ok(None)
+                } else {
+                    // Second thread panics by returning error
+                    Err(VmError::Unimplemented {
+                        mnemonic: "Test early return error simulation",
+                    })
+                }
+            });
+
+        let result = execute_class_to_completion(
+            &mut registry,
+            loader,
+            &mut heap,
+            &mut out,
+            &entry_class,
+            "spawnAndJoinTen",
+            "()I",
+            &[],
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(VmError::Unimplemented {
+                    mnemonic: "Test early return error simulation"
+                })
+            ),
+            "Expected execute_class_to_completion to return the VmError, not panic!"
+        );
     }
 
     #[test]
