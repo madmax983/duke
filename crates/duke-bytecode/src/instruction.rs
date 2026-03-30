@@ -8,6 +8,7 @@ use duke_classfile::CpIndex;
 
 /// Array type codes used by the `newarray` instruction (JVM spec §6.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
 pub enum ArrayType {
     Boolean = 4,
     Char = 5,
@@ -41,6 +42,7 @@ impl ArrayType {
 /// Wide-prefixed variants (e.g., `IloadW`) are represented as distinct variants
 /// so callers can exhaustively match without needing to track a separate `wide` flag.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[doc(hidden)]
 pub enum Instruction {
     // -----------------------------------------------------------------------
     // Constants

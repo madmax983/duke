@@ -67,16 +67,50 @@ pub struct HeapObject {
 }
 
 #[derive(Debug)]
+/// A handle to an OS-level child process spawned by the JVM.
+///
+/// Why does this exist? When a Java application uses `java.lang.ProcessBuilder` or `Runtime.exec`,
+/// the JVM needs a way to track the underlying OS process. This handle wraps the actual `std::process::Child`
+/// object, allowing the interpreter to wait on it, read its exit code, and clean it up during GC.
+///
+/// # Examples
+/// ```
+/// use duke_gc::HostProcessHandle;
+/// // Usually created internally by the VM when a process starts.
+/// ```
+#[doc(alias = "Process")]
 pub struct HostProcessHandle {
     child: std::process::Child,
     exit_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// File descriptor IDs for a newly spawned OS child process and its standard streams.
+///
+/// Why does this exist? After the JVM spawns a process, the Java side expects to read its output
+/// and write to its input. To do this, the VM registers the process's pipes (stdin, stdout, stderr)
+/// into the global file handle table, generating unique integer IDs. This struct bundles those IDs
+/// so they can be returned to the native method handler, which then populates the Java `Process` object.
+///
+/// # Examples
+/// ```
+/// use duke_gc::SpawnedProcessIds;
+/// let ids = SpawnedProcessIds {
+///     process_id: 1,
+///     stdin_id: 2,
+///     stdout_id: 3,
+///     stderr_id: 4,
+/// };
+/// assert_eq!(ids.process_id, 1);
+/// ```
 pub struct SpawnedProcessIds {
+    /// The global file handle ID mapped to the [`HostProcessHandle`].
     pub process_id: i32,
+    /// The global file handle ID mapped to the process's writable stdin pipe.
     pub stdin_id: i32,
+    /// The global file handle ID mapped to the process's readable stdout pipe.
     pub stdout_id: i32,
+    /// The global file handle ID mapped to the process's readable stderr pipe.
     pub stderr_id: i32,
 }
 
@@ -107,7 +141,35 @@ pub enum HostFileHandle {
     ProcessStdin(std::process::ChildStdin),
 }
 
-/// The generational object heap.
+/// The global memory manager and Generational Mark-Sweep Garbage Collector for the Duke JVM.
+///
+/// Why does this exist? Java objects live on a managed heap. Every time bytecode runs a `NEW` instruction, the interpreter
+/// needs a place to store the object's fields, class name, and metadata. The `Heap` handles all of this allocation.
+/// Furthermore, Java is garbage-collected. This struct implements a two-generation GC:
+/// 1. A fast, bump-pointer **Young Generation** (cleaned by a copy-collector).
+/// 2. A large, long-lived **Old Generation** (cleaned by a mark-sweep collector).
+///
+/// The heap translates opaque `u64` reference IDs into actual [`HeapObject`] instances. It uses the `OLD_BIT` (the highest bit)
+/// to instantly determine if a reference points to the Young or Old generation in (O(1)) time.
+///
+/// ## Panics
+/// Operations like [`Heap::get`] and [`Heap::get_mut`] return a `VmError` if a dead or invalid reference is accessed. The VM will panic
+/// if internal generational bookkeeping becomes corrupted.
+///
+/// # Examples
+///
+/// ```
+/// use duke_gc::Heap;
+/// use duke_runtime::Slot;
+///
+/// let mut heap = Heap::new();
+/// let obj_ref = heap.allocate("MyClass".to_string(), 2);
+///
+/// let obj = heap.get_mut(obj_ref).unwrap();
+/// obj.fields[0] = Slot::Int(42);
+///
+/// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
+/// ```
 ///
 /// Young-gen refs: `r & OLD_BIT == 0`  → index into `young`
 /// Old-gen refs:   `r & OLD_BIT != 0`  → index `(r & !OLD_BIT)` into `old`

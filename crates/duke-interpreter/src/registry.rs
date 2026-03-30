@@ -27,10 +27,32 @@ pub(crate) struct LambdaInfo {
 
 /// Threading side-channel requested by a native handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A side-channel for a native method handler to request that the VM manipulate a thread.
+///
+/// Why does this exist? Java native methods run completely synchronously. But what if a native method
+/// like `java.lang.Thread.start0` wants to actually spawn a new thread? Or `Thread.sleep` wants to pause?
+/// To keep the logic decoupled, native methods can return these "action requests" inside their control state.
+/// The VM loop intercepts these and performs the side effect on the thread's behalf before returning to bytecode.
+///
+/// # Examples
+/// ```
+/// use duke_interpreter::{NativeThreadAction, NativeControl};
+/// let mut control = NativeControl::default();
+/// control.request(NativeThreadAction::Sleep(std::time::Duration::from_millis(100)));
+/// ```
 pub enum NativeThreadAction {
-    Start { thread_ref: u64 },
+    /// Start a new thread using the given Java `java.lang.Thread` reference.
+    Start {
+        /// The global heap reference pointing to the `java.lang.Thread` object to execute.
+        thread_ref: u64,
+    },
+    /// Pause the currently executing thread for the specified duration.
     Sleep(std::time::Duration),
-    Join { thread_id: i32 },
+    /// Wait for the thread with the specified ID to terminate.
+    Join {
+        /// The thread ID (TID) to wait on.
+        thread_id: i32,
+    },
 }
 
 /// Per-invocation control state for native handlers.
@@ -51,33 +73,108 @@ impl NativeControl {
     }
 }
 
-/// Reflection metadata for one declared method discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Reflection metadata describing a single declared method.
+///
+/// Why does this exist? Java reflection requires inspecting the methods of a class without executing them.
+/// The `ReflectedMethodInfo` struct mirrors the JVM's internal method data (its name, type signature, and modifiers)
+/// in a pure data struct so that the reflection system (`java.lang.reflect.Method`) can cache and read it.
+///
+/// # Examples
+/// ```
+/// use duke_interpreter::ReflectedMethodInfo;
+/// let info = ReflectedMethodInfo {
+///     name: "println".to_string(),
+///     descriptor: "(Ljava/lang/String;)V".to_string(),
+///     is_public: true,
+///     is_static: false,
+/// };
+/// assert!(info.is_public);
+/// ```
 pub struct ReflectedMethodInfo {
+    /// The simple name of the field (e.g. `"value"`).
     pub name: String,
+    /// The type descriptor string defining the field type (e.g. `"I"` or `"Ljava/lang/String;"`).
     pub descriptor: String,
+    /// Whether this method was declared `public`.
     pub is_public: bool,
+    /// Whether this method was declared `static`.
     pub is_static: bool,
 }
 
-/// Reflection metadata for one declared field discovered from a classfile.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Reflection metadata describing a single declared field.
+///
+/// Why does this exist? When creating a `java.lang.reflect.Field` object, the JVM must expose
+/// the underlying class file properties of that field. This struct caches those properties
+/// for fast retrieval during reflection initialization.
+///
+/// # Examples
+/// ```
+/// use duke_interpreter::ReflectedFieldInfo;
+/// let info = ReflectedFieldInfo {
+///     name: "value".to_string(),
+///     descriptor: "[B".to_string(),
+///     is_public: false,
+///     is_static: false,
+/// };
+/// assert_eq!(info.descriptor, "[B");
+/// ```
 pub struct ReflectedFieldInfo {
+    /// The simple name of the field (e.g. `"value"`).
     pub name: String,
+    /// The type descriptor string defining the field type (e.g. `"I"` or `"Ljava/lang/String;"`).
     pub descriptor: String,
+    /// Whether this field was declared `public`.
     pub is_public: bool,
+    /// Whether this field was declared `static`.
     pub is_static: bool,
 }
 
-/// Reflection metadata for one class discovered from the loader or registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Reflection metadata describing an entire Java class and its members.
+///
+/// Why does this exist? When a user calls `Class.getDeclaredMethods()` or `Class.getDeclaredFields()`,
+/// the JVM needs a fast, structured way to return all of the members of the class. Instead of reading
+/// the raw classfile every time, the [`ClassRegistry`] parses and caches this flat struct.
+///
+/// # Examples
+/// ```
+/// use duke_interpreter::ReflectedClassInfo;
+/// let info = ReflectedClassInfo {
+///     internal_name: "java/lang/String".to_string(),
+///     binary_name: "java.lang.String".to_string(),
+///     methods: vec![],
+///     fields: vec![],
+/// };
+/// assert_eq!(info.binary_name, "java.lang.String");
+/// ```
 pub struct ReflectedClassInfo {
+    /// The internal slashed name of the class (e.g. `"java/lang/String"`).
     pub internal_name: String,
+    /// The dot-separated binary name of the class (e.g. `"java.lang.String"`).
     pub binary_name: String,
+    /// All declared methods found within the classfile.
     pub methods: Vec<ReflectedMethodInfo>,
+    /// All declared fields found within the classfile.
     pub fields: Vec<ReflectedFieldInfo>,
 }
-/// A registry managing loaded classes, their initialization state, and associated native methods.
+/// The global repository for loaded Java classes, native method bindings, and lambda proxies.
+///
+/// Why does this exist? As the JVM executes bytecode, it constantly references classes by name (e.g. `new java/lang/Object`).
+/// The `ClassRegistry` acts as the single source of truth for these classes. If a class isn't loaded yet, the registry coordinates
+/// with the [`ClassLoader`] to load, verify, and define it. It also tracks `<clinit>` state so static initializers run exactly once.
+///
+/// ## Examples
+/// ```
+/// use duke_interpreter::ClassRegistry;
+/// let mut registry = ClassRegistry::new();
+/// // At runtime, the VM checks if a class needs initialization:
+/// // if !registry.is_initialized("MyClass") {
+/// //     // ... run <clinit> ...
+/// //     registry.mark_initialized("MyClass".to_string());
+/// // }
+/// ```
 pub struct ClassRegistry {
     classes: HashMap<String, ClassContext>,
     natives: NativeRegistry,

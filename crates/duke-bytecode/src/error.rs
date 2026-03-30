@@ -20,6 +20,7 @@ use thiserror::Error;
 /// assert_eq!(err.to_string(), "unexpected end of bytecode at pc=10");
 /// ```
 #[derive(Debug, Error)]
+#[doc(hidden)]
 pub enum DecodeError {
     #[error("unexpected end of bytecode at pc={pc}")]
     UnexpectedEof { pc: usize },
@@ -70,6 +71,7 @@ pub type DecodeResult<T> = Result<T, DecodeError>;
 /// );
 /// ```
 #[derive(Debug, Error)]
+#[doc(hidden)]
 pub enum VerifyError {
     #[error("stack overflow at pc={pc}: depth would be {depth} but max_stack={max_stack}")]
     StackOverflow {
