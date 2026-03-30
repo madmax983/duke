@@ -176,7 +176,8 @@ mod tests {
 
         // Add the extra constants
         let mut cf = cf;
-        cf.constant_pool.push(Some(CpEntry::Utf8("invalidMethod".to_string())));
+        cf.constant_pool
+            .push(Some(CpEntry::Utf8("invalidMethod".to_string())));
 
         let report = generate_analysis_report(&cf);
         assert!(report.contains("Static Analysis Report: MyClass"));
