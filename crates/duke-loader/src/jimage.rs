@@ -124,9 +124,9 @@ impl JImageReader {
         // offsets:  [u32; tl]  at HEADER_SIZE + tl*4
         // locations: [u8; ls]  at HEADER_SIZE + tl*8
         // strings:   [u8; ss]  at HEADER_SIZE + tl*8 + ls
-        let locations_offset = HEADER_SIZE + tl * 8;
-        let strings_offset = locations_offset + ls;
-        let data_offset = strings_offset + ss;
+        let locations_offset = HEADER_SIZE.checked_add(tl.checked_mul(8).ok_or_else(|| LoadError::JImageFormat { msg: "table_length overflow".into() })?).ok_or_else(|| LoadError::JImageFormat { msg: "locations_offset overflow".into() })?;
+        let strings_offset = locations_offset.checked_add(ls).ok_or_else(|| LoadError::JImageFormat { msg: "strings_offset overflow".into() })?;
+        let data_offset = strings_offset.checked_add(ss).ok_or_else(|| LoadError::JImageFormat { msg: "data_offset overflow".into() })?;
 
         if data.len() < data_offset {
             return Err(LoadError::JImageFormat {

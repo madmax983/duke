@@ -52,7 +52,10 @@ impl Frame {
     /// assert_eq!(frame.load_local(1).unwrap(), Slot::Int(0)); // zero-initialized
     /// ```
     pub fn new(max_stack: usize, max_locals: usize, args: Vec<Slot>) -> VmResult<Self> {
-        if args.len() > max_locals {
+        let safe_max_stack = max_stack.min(32 * 1024 * 1024);
+        let safe_max_locals = max_locals.min(32 * 1024 * 1024);
+
+        if args.len() > safe_max_locals {
             return Err(VmError::LocalOutOfBounds {
                 index: args.len(),
                 max_locals,
@@ -61,11 +64,15 @@ impl Frame {
         // ⚡ Bolt: Re-use the existing `args` vector for `locals` to avoid an allocation
         // and explicit copy loop. `resize` extends it with zeroes if needed.
         let mut locals = args;
-        locals.resize(max_locals, Slot::Int(0));
+        locals.try_reserve(safe_max_locals.saturating_sub(locals.len())).map_err(|_| VmError::LocalOutOfBounds { index: safe_max_locals, max_locals })?;
+        locals.resize(safe_max_locals, Slot::Int(0));
+
+        let mut stack = Vec::new();
+        stack.try_reserve(safe_max_stack).map_err(|_| VmError::StackOverflow)?;
+
         Ok(Self {
             locals,
-            // ⚡ Bolt: Pre-allocate `stack` capacity to avoid reallocations during execution.
-            stack: Vec::with_capacity(max_stack),
+            stack,
             max_stack,
         })
     }
