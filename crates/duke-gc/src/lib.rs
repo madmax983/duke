@@ -282,6 +282,20 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `VmError::JavaException` if the file does not exist or an IO error occurs.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use duke_gc::Heap;
+    /// use std::path::Path;
+    ///
+    /// let mut heap = Heap::new();
+    /// let id = heap.open_host_input_file(Path::new("my_file.txt"))
+    ///     .expect("Failed to open file");
+    ///
+    /// // Read a byte using the assigned handle ID
+    /// let first_byte = heap.read_host_file_byte(id).unwrap();
+    /// ```
     pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::open(path).map_err(|err| match err.kind() {
             std::io::ErrorKind::NotFound => VmError::JavaException {
@@ -301,6 +315,20 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `VmError::JavaException` if the file cannot be created.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use duke_gc::Heap;
+    /// use std::path::Path;
+    ///
+    /// let mut heap = Heap::new();
+    /// let id = heap.open_host_output_file(Path::new("output.txt"))
+    ///     .expect("Failed to create file");
+    ///
+    /// // Write a byte using the assigned handle ID
+    /// heap.write_host_file_byte(id, b'A' as i32).unwrap();
+    /// ```
     pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
             class_name: "java/io/IOException".to_string(),
@@ -549,6 +577,20 @@ impl Heap {
     /// # Errors
     /// Returns `ZipException` if the file is not a valid ZIP, or
     /// `FileNotFoundException` if the path does not exist.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use duke_gc::Heap;
+    /// use std::path::Path;
+    ///
+    /// let mut heap = Heap::new();
+    /// let zip_id = heap.open_host_zip(Path::new("library.jar"))
+    ///     .expect("Failed to open zip");
+    ///
+    /// let count = heap.zip_entry_count(zip_id).unwrap();
+    /// println!("Archive contains {} entries", count);
+    /// ```
     pub fn open_host_zip(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let reader = duke_loader::ZipReader::open(path).map_err(|err| match err {
             duke_loader::LoadError::Io { .. } => VmError::JavaException {
@@ -614,6 +656,18 @@ impl Heap {
 
     /// Creates an in-memory byte buffer handle (for reading decompressed data
     /// as an `InputStream`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let buf_id = heap.open_host_byte_buffer(vec![1, 2, 3]);
+    ///
+    /// assert_eq!(heap.read_host_file_byte(buf_id).unwrap(), 1);
+    /// assert_eq!(heap.read_host_file_byte(buf_id).unwrap(), 2);
+    /// ```
     pub fn open_host_byte_buffer(&mut self, data: Vec<u8>) -> i32 {
         let id = self.next_host_file_id;
         self.next_host_file_id = self.next_host_file_id.saturating_add(1);
@@ -626,6 +680,19 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `BindException` if the address is already in use, `SocketException` for other errors.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let server_id = heap.bind_server_socket("127.0.0.1:8080")
+    ///     .expect("Failed to bind");
+    ///
+    /// // Block and wait for a connection
+    /// let (reader_id, writer_id) = heap.accept_connection(server_id).unwrap();
+    /// ```
     pub fn bind_server_socket(&mut self, addr: &str) -> VmResult<i32> {
         let listener = std::net::TcpListener::bind(addr).map_err(|err| match err.kind() {
             std::io::ErrorKind::AddrInUse => VmError::JavaException {
@@ -651,6 +718,18 @@ impl Heap {
     /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
     /// programs opening billions of handles would alias at `i32::MAX`. This is a
     /// known limitation shared with the file I/O implementation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let server_id = heap.bind_server_socket("127.0.0.1:8080").unwrap();
+    ///
+    /// let (reader_id, writer_id) = heap.accept_connection(server_id).unwrap();
+    /// // Use `reader_id` to read bytes, `writer_id` to write bytes
+    /// ```
     pub fn accept_connection(&mut self, id: i32) -> VmResult<(i32, i32)> {
         // Validate that the handle exists and is a TcpListener.
         if !matches!(
@@ -694,6 +773,19 @@ impl Heap {
     /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
     /// programs opening billions of handles would alias at `i32::MAX`. This is a
     /// known limitation shared with the file I/O implementation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let (reader_id, writer_id) = heap.connect_socket("127.0.0.1:8080")
+    ///     .expect("Failed to connect");
+    ///
+    /// // Write an HTTP GET request
+    /// heap.write_host_file_byte(writer_id, b'G' as i32).unwrap();
+    /// ```
     pub fn connect_socket(&mut self, addr: &str) -> VmResult<(i32, i32)> {
         let stream = std::net::TcpStream::connect(addr).map_err(|err| match err.kind() {
             std::io::ErrorKind::ConnectionRefused => VmError::JavaException {
@@ -1165,6 +1257,22 @@ impl Heap {
     }
 
     /// Generates a Mermaid JS graph of the heap.
+    ///
+    /// This produces a string containing a `graph TD` Mermaid diagram, showing
+    /// all live objects, their generation (Young vs Old), and all intra-heap references
+    /// between them.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_gc::Heap;
+    ///
+    /// let mut heap = Heap::new();
+    /// let obj_ref = heap.allocate("MyClass".to_string(), 0);
+    /// let mermaid_script = heap.dump_mermaid();
+    ///
+    /// assert!(mermaid_script.contains("MyClass"));
+    /// ```
     #[must_use]
     pub fn dump_mermaid(&self) -> String {
         mermaid::dump_mermaid(self)

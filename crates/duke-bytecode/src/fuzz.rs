@@ -1,3 +1,4 @@
+//! Fuzzing targets for the byte code verifier and decoder.
 #[cfg(test)]
 mod tests {
     use crate::decoder::decode;

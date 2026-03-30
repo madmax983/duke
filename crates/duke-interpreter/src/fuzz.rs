@@ -1,3 +1,4 @@
+//! Fuzzing targets for the interpreter loop.
 #[cfg(test)]
 mod tests {
     use duke_runtime::{Frame, Slot};

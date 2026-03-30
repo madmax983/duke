@@ -1,3 +1,4 @@
+//! Havoc crash test for `OpenJDK` jimage Out-Of-Memory parsing.
 // Test is modified to not crash the test runner by skipping actual execution during normal `cargo test`.
 // It is intended to be run manually or in an isolated process to observe the crash.
 

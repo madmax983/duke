@@ -1,3 +1,4 @@
+//! Fuzzing targets for the garbage collector and heap.
 #[cfg(test)]
 mod tests {
     use crate::Heap;

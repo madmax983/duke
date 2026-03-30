@@ -1,3 +1,4 @@
+//! Fuzzing targets for runtime types.
 #[cfg(test)]
 mod tests {
     use crate::frame::Frame;

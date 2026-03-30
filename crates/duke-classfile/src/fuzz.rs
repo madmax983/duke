@@ -1,3 +1,4 @@
+//! Fuzzing targets for the classfile parser.
 #[cfg(test)]
 mod tests {
     use crate::parse;
