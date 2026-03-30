@@ -805,6 +805,11 @@ fn generate_stubs(cf: &ClassFile) {
 
 use std::fmt::Write;
 
+/// Generates Rust source code containing native method stubs for the given `ClassFile`.
+///
+/// Scans the class for `native` methods and outputs a block of Rust code that includes
+/// a `register_natives` function to bind the handlers, along with placeholder stub
+/// implementations for each native method that return `VmError::Unimplemented`.
 #[must_use]
 pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
     let mut out = String::new();
@@ -1080,6 +1085,36 @@ mod tests {
         let res = extract_mermaid_heap_flag(&mut args);
         assert_eq!(res, None);
         assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_generate_native_stubs_code_empty() {
+        use duke_classfile::{
+            access_flags::ClassAccessFlags,
+            types::{ClassFile, CpEntry, CpIndex},
+        };
+
+        let cf = ClassFile {
+            minor_version: 0,
+            major_version: 52,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Utf8("EmptyClass".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(1),
+                }),
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(2),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+
+        let output = super::generate_native_stubs_code(&cf);
+        assert!(output.contains("// No native methods found in class EmptyClass"));
     }
 
     #[test]

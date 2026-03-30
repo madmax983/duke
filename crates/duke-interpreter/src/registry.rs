@@ -332,24 +332,40 @@ impl ClassRegistry {
     ///
     /// ```
     /// use duke_interpreter::ClassRegistry;
-    /// use duke_loader::DirectoryLoader;
-    /// use std::path::PathBuf;
+    /// use duke_loader::{ClassLoader, LoadResult, LoadError};
     ///
-    /// // Create an empty registry and a loader pointing to our test fixtures.
+    /// // Create a mock class loader that supplies bytes for `java/lang/Object`.
+    /// struct MockLoader;
+    /// impl ClassLoader for MockLoader {
+    ///     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    ///         if name == "java/lang/Object" {
+    ///             // Minimal valid classfile bytes for an empty class
+    ///             Ok(vec![
+    ///                 0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34,
+    ///                 0x00, 0x03, 0x07, 0x00, 0x02, 0x01, 0x00, 0x10,
+    ///                 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61, 0x6E,
+    ///                 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74,
+    ///                 0x00, 0x21, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+    ///                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    ///             ])
+    ///         } else {
+    ///             Err(LoadError::NotFound { name: name.to_string() })
+    ///         }
+    ///     }
+    /// }
+    ///
     /// let mut registry = ClassRegistry::new();
-    /// let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    /// path.push("../../tests/fixtures");
-    /// let loader = DirectoryLoader::new(&path);
+    /// let loader = MockLoader;
     ///
-    /// // HelloWorld is not loaded yet.
-    /// assert!(!registry.contains("HelloWorld"));
+    /// // Object is not loaded yet.
+    /// assert!(!registry.contains("java/lang/Object"));
     ///
     /// // Lazily load the class and its superclasses on demand.
-    /// let loaded = registry.ensure_loaded("HelloWorld", &loader).unwrap();
+    /// let loaded = registry.ensure_loaded("java/lang/Object", &loader).unwrap();
     /// assert!(loaded);
     ///
     /// // The registry now holds the parsed and linked class context!
-    /// assert!(registry.contains("HelloWorld"));
+    /// assert!(registry.contains("java/lang/Object"));
     /// ```
     ///
     /// # Errors
