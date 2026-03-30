@@ -39,11 +39,7 @@ impl DirectoryLoader {
 
 impl ClassLoader for DirectoryLoader {
     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
-        let mut path = self.root.clone();
-        // name is "java/lang/Object" — split on '/' to build OS path + ".class"
-        for component in name.split('/') {
-            path.push(component);
-        }
+        let mut path = self.root.join(name);
         path.set_extension("class");
 
         std::fs::read(&path).map_err(|_| LoadError::NotFound {
