@@ -155,16 +155,81 @@ mod tests {
                     descriptor_index: CpIndex(4),
                     attributes: vec![],
                 },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PUBLIC,
+                    name_index: CpIndex(6),
+                    descriptor_index: CpIndex(4),
+                    attributes: vec![AttributeInfo {
+                        name_index: CpIndex(0),
+                        data: AttributeData::Code(CodeAttribute {
+                            max_stack: 1,
+                            max_locals: 1,
+                            code: vec![0xFE], // Invalid opcode IMPDEP1 to trigger Err path
+                            exception_table: vec![],
+                            attributes: vec![],
+                        }),
+                    }],
+                },
             ],
             attributes: vec![],
         };
+
+        // Add the extra constants
+        let mut cf = cf;
+        cf.constant_pool.push(Some(CpEntry::Utf8("invalidMethod".to_string())));
 
         let report = generate_analysis_report(&cf);
         assert!(report.contains("Static Analysis Report: MyClass"));
         assert!(report.contains("myMethod()V"));
         assert!(report.contains("abstractMethod()V"));
+        assert!(report.contains("invalidMethod()V"));
         assert!(report.contains("N/A")); // for abstract method
+        assert!(report.contains("Error")); // for decoding error
         assert!(report.contains('1')); // code size for return
         assert!(report.contains('1')); // complexity for return
+    }
+
+    #[test]
+    fn test_resolve_class_name_invalid_index() {
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![None], // Missing class entry
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1), // Points to out-of-bounds or non-class
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+
+        let report = generate_analysis_report(&cf);
+        assert!(report.contains("Static Analysis Report: <not a class ref>"));
+    }
+
+    #[test]
+    fn test_resolve_class_name_invalid_utf8_index() {
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }),
+                Some(CpEntry::Integer(42)), // Not a Utf8 entry
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+
+        let report = generate_analysis_report(&cf);
+        assert!(report.contains("Static Analysis Report: <invalid utf8>"));
     }
 }
