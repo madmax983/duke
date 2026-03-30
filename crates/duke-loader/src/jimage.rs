@@ -134,9 +134,25 @@ impl JImageReader {
         // offsets:  [u32; tl]  at HEADER_SIZE + tl*4
         // locations: [u8; ls]  at HEADER_SIZE + tl*8
         // strings:   [u8; ss]  at HEADER_SIZE + tl*8 + ls
-        let locations_offset = HEADER_SIZE + tl * 8;
-        let strings_offset = locations_offset + ls;
-        let data_offset = strings_offset + ss;
+        let locations_offset = HEADER_SIZE
+            .checked_add(tl.checked_mul(8).ok_or_else(|| LoadError::JImageFormat {
+                msg: "table_length overflow".to_string(),
+            })?)
+            .ok_or_else(|| LoadError::JImageFormat {
+                msg: "locations_offset overflow".to_string(),
+            })?;
+
+        let strings_offset = locations_offset
+            .checked_add(ls)
+            .ok_or_else(|| LoadError::JImageFormat {
+                msg: "strings_offset overflow".to_string(),
+            })?;
+
+        let data_offset = strings_offset
+            .checked_add(ss)
+            .ok_or_else(|| LoadError::JImageFormat {
+                msg: "data_offset overflow".to_string(),
+            })?;
 
         if data.len() < data_offset {
             return Err(LoadError::JImageFormat {
@@ -479,6 +495,33 @@ mod tests {
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_jimage_header_overflow_panic() {
+        let mut data = vec![0u8; 28];
+        data[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        data[4..8].copy_from_slice(&JIMAGE_VERSION.to_le_bytes());
+        // resource_count
+        data[12..16].copy_from_slice(&0u32.to_le_bytes());
+        // table_length = u32::MAX
+        data[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+        // locations_size
+        data[20..24].copy_from_slice(&0u32.to_le_bytes());
+        // strings_size
+        data[24..28].copy_from_slice(&0u32.to_le_bytes());
+
+        let file_path = std::env::temp_dir().join("fake_overflow.jimage");
+        std::fs::write(&file_path, &data).unwrap();
+
+        let result = JImageReader::open(&file_path);
+        let _ = std::fs::remove_file(&file_path);
+        match result {
+            Err(LoadError::JImageFormat { msg }) => {
+                assert!(msg.contains("overflow") || msg.contains("file too small"), "Unexpected error: {}", msg);
+            }
+            _ => panic!("Expected JImageFormat error"),
+        }
+    }
 
     /// Encode a single jimage location attribute: header byte + big-endian value.
     fn attr(kind: u8, val: u64) -> Vec<u8> {
