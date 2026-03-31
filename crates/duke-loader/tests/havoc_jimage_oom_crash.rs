@@ -1,5 +1,7 @@
-// Test is modified to not crash the test runner by skipping actual execution during normal `cargo test`.
-// It is intended to be run manually or in an isolated process to observe the crash.
+//! Test to verify fix for out-of-memory crash when parsing malformed jimage files.
+//!
+//! Test is modified to not crash the test runner by skipping actual execution during normal `cargo test`.
+//! It is intended to be run manually or in an isolated process to observe the crash.
 
 use duke_loader::JImageReader;
 

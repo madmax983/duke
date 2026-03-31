@@ -311,17 +311,65 @@ impl ClassRegistry {
             })
     }
 
-    /// Ensure a class is loaded. If not already present, loads it via the class
-    /// loader, parses it, builds a `ClassContext`, and registers it.
+    /// Ensure a class is loaded into the registry.
     ///
-    /// Also recursively loads the superclass chain so that field slot offsets
-    /// can be computed correctly before any object of this type is allocated.
+    /// The JVM doesn't load classes until the exact moment they are needed (e.g., when a `new` instruction
+    /// is executed, or a static method is invoked). This method handles that lazy loading process.
     ///
-    /// Returns `Ok(true)` if loaded, `Ok(false)` if the class could not be found
-    /// (soft failure — for classes like `java/lang/Object` that we can't load yet).
+    /// If the class is not already present in the registry, it uses the provided `loader` to find the
+    /// raw `.class` bytes, parses them, builds a [`ClassContext`], and registers it.
+    ///
+    /// Crucially, it recursively loads the entire superclass and interface chain. Why? Because the JVM
+    /// needs to know the total size of all fields (including inherited ones) before it can safely allocate
+    /// an object on the heap. Without this recursive loading, an instance of `Child` might overwrite the
+    /// fields of its `Parent`!
+    ///
+    /// Returns `Ok(true)` if the class was successfully loaded, or `Ok(false)` if the class could not be found.
+    /// A soft failure (`Ok(false)`) is used because core JDK classes (like `java/lang/Object`) might not
+    /// be available yet during early bootstrap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    /// use duke_loader::{ClassLoader, LoadResult, LoadError};
+    ///
+    /// // Create a mock class loader that supplies bytes for `java/lang/Object`.
+    /// struct MockLoader;
+    /// impl ClassLoader for MockLoader {
+    ///     fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    ///         if name == "java/lang/Object" {
+    ///             // Minimal valid classfile bytes for an empty class
+    ///             Ok(vec![
+    ///                 0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34,
+    ///                 0x00, 0x03, 0x07, 0x00, 0x02, 0x01, 0x00, 0x10,
+    ///                 0x6A, 0x61, 0x76, 0x61, 0x2F, 0x6C, 0x61, 0x6E,
+    ///                 0x67, 0x2F, 0x4F, 0x62, 0x6A, 0x65, 0x63, 0x74,
+    ///                 0x00, 0x21, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+    ///                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    ///             ])
+    ///         } else {
+    ///             Err(LoadError::NotFound { name: name.to_string() })
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// let loader = MockLoader;
+    ///
+    /// // Object is not loaded yet.
+    /// assert!(!registry.contains("java/lang/Object"));
+    ///
+    /// // Lazily load the class and its superclasses on demand.
+    /// let loaded = registry.ensure_loaded("java/lang/Object", &loader).unwrap();
+    /// assert!(loaded);
+    ///
+    /// // The registry now holds the parsed and linked class context!
+    /// assert!(registry.contains("java/lang/Object"));
+    /// ```
     ///
     /// # Errors
-    /// Returns [`VmError`] if loading the superclass chain fails unexpectedly.
+    /// Returns [`VmError`] if the class bytes are malformed or if loading the superclass chain fails unexpectedly.
     pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
         self.ensure_loaded_inner(name, loader, None, None)
     }
@@ -814,6 +862,16 @@ mod tests {
     fn test_class_registry_default() {
         let registry = ClassRegistry::default();
         assert!(!registry.contains("java/lang/Object"));
+    }
+
+    #[test]
+    fn test_class_registry_get_mut_missing_class() {
+        let mut registry = ClassRegistry::default();
+        let result = registry.get_mut("MissingClass");
+        match result {
+            Err(duke_runtime::VmError::ClassNotFound { name }) => assert_eq!(name, "MissingClass"),
+            _ => panic!("Expected ClassNotFound error"),
+        }
     }
 
     #[test]

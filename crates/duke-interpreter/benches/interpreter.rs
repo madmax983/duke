@@ -1,3 +1,5 @@
+//! Performance benchmarks for the Duke execution engine.
+
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use duke_interpreter::{ClassRegistry, bootstrap_stdlib, build_class_context, execute_class};
 use duke_loader::DirectoryLoader;
@@ -123,6 +125,7 @@ fn bench_bootstrap_only(c: &mut Criterion) {
     });
 }
 
+// `criterion_group` macro does not forward doc comments correctly.
 criterion_group!(
     benches,
     bench_sum,
