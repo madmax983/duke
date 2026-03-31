@@ -36,13 +36,17 @@ pub(crate) struct LambdaInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeThreadAction {
     /// Start a thread.
-    Start { /// Thread reference.
-thread_ref: u64 },
+    Start {
+        /// Thread reference.
+        thread_ref: u64,
+    },
     /// Sleep for a duration.
     Sleep(std::time::Duration),
     /// Join a thread.
-    Join { /// Thread id.
-thread_id: i32 },
+    Join {
+        /// Thread id.
+        thread_id: i32,
+    },
 }
 
 /// Per-invocation control state for native handlers.
