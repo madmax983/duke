@@ -2220,3 +2220,134 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+
+#[test]
+fn test_host_file_operations() {
+    let mut heap = Heap::new();
+    // Use an existing test file from duke-loader tests if possible, or create a dummy
+    let dummy_path = std::env::temp_dir().join("test_host_file_ops.txt");
+    std::fs::write(&dummy_path, b"test").unwrap();
+
+    let fd = heap.open_host_input_file(&dummy_path).unwrap();
+    let b = heap.read_host_file_byte(fd).unwrap();
+    assert_eq!(b, i32::from(b't'));
+    heap.close_host_file(fd);
+
+    // open_host_output_file
+    let out_fd = heap.open_host_output_file(&dummy_path).unwrap();
+    heap.write_host_file_byte(out_fd, i32::from(b'A')).unwrap();
+    heap.close_host_file(out_fd);
+
+    let content = std::fs::read_to_string(&dummy_path).unwrap();
+    assert_eq!(content, "A");
+
+    std::fs::remove_file(dummy_path).unwrap();
+}
+
+#[test]
+fn should_handle_open_read_write_close_cycle() {
+    let mut heap = Heap::new();
+    let dummy_path = std::env::temp_dir().join("test_host_file_ops2.txt");
+
+    let out_fd = heap.open_host_output_file(&dummy_path).unwrap();
+    heap.write_host_file_byte(out_fd, i32::from(b'A')).unwrap();
+    heap.write_host_file_byte(out_fd, i32::from(b'B')).unwrap();
+    heap.close_host_file(out_fd);
+
+    let in_fd = heap.open_host_input_file(&dummy_path).unwrap();
+    let b1 = heap.read_host_file_byte(in_fd).unwrap();
+    let b2 = heap.read_host_file_byte(in_fd).unwrap();
+    let b3 = heap.read_host_file_byte(in_fd).unwrap(); // EOF
+    assert_eq!(b1, i32::from(b'A'));
+    assert_eq!(b2, i32::from(b'B'));
+    assert_eq!(b3, -1);
+
+    heap.close_host_file(in_fd);
+    std::fs::remove_file(dummy_path).unwrap();
+}
+
+#[test]
+fn open_host_input_file_not_found() {
+    let mut heap = Heap::new();
+    let dummy_path = std::env::temp_dir().join("does_not_exist_12345.txt");
+    let result = heap.open_host_input_file(&dummy_path);
+    assert!(
+        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/FileNotFoundException")
+    );
+}
+
+#[test]
+fn spawn_host_process_empty_command() {
+    let mut heap = Heap::new();
+    let result = heap.spawn_host_process(&[], None);
+    assert!(
+        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+    );
+}
+
+#[test]
+fn spawn_host_process_invalid_command() {
+    let mut heap = Heap::new();
+    let result = heap.spawn_host_process(&["/does/not/exist/executable".to_string()], None);
+    assert!(
+        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+    );
+}
+
+#[test]
+fn read_write_invalid_host_file_handle() {
+    let mut heap = Heap::new();
+    assert!(
+        matches!(heap.read_host_file_byte(999), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+    );
+    assert!(
+        matches!(heap.write_host_file_byte(999, 10), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+    );
+}
+
+#[test]
+fn process_wait_and_destroy_cycle() {
+    let mut heap = Heap::new();
+    // Spawning an executable command that succeeds immediately. We use "true" (cross-platform way via sh/cmd)
+    let cmd = if cfg!(windows) {
+        vec!["cmd".to_string(), "/C".to_string(), "exit 0".to_string()]
+    } else {
+        vec!["sh".to_string(), "-c".to_string(), "exit 0".to_string()]
+    };
+    let p_ids = heap.spawn_host_process(&cmd, None).unwrap();
+
+    let wait_result = heap.wait_host_process(p_ids.process_id).unwrap();
+    assert_eq!(wait_result, 0);
+
+    // Waiting again should return the cached exit code
+    let wait_result2 = heap.wait_host_process(p_ids.process_id).unwrap();
+    assert_eq!(wait_result2, 0);
+
+    // try_host_process_exit_value should also return the cached code
+    let try_val = heap.try_host_process_exit_value(p_ids.process_id).unwrap();
+    assert_eq!(try_val, Some(0));
+
+    // destroy on a finished process is a no-op
+    heap.destroy_host_process(p_ids.process_id).unwrap();
+}
+
+#[test]
+fn socket_operations() {
+    let mut heap = Heap::new();
+    // connect to an invalid host should fail
+    let res = heap.connect_socket("invalid.host.local:12345");
+    assert!(res.is_err());
+
+    // test operations on a server socket using a random port (0)
+    let server_fd = heap.bind_server_socket("127.0.0.1:0").unwrap();
+    let port = heap.server_socket_local_port(server_fd).unwrap();
+
+    // Cannot accept right away in a blocking manner easily without hanging or starting a client thread,
+    // but we can try opening a client to it
+    let client_fd = heap.connect_socket(&format!("127.0.0.1:{port}")).unwrap();
+
+    // closing sockets
+    heap.close_host_file(client_fd.0);
+    heap.close_host_file(client_fd.1);
+    heap.close_host_file(server_fd);
+}
