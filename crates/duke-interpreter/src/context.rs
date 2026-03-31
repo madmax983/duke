@@ -167,3 +167,23 @@ pub struct ClassContext {
     /// `BootstrapMethods` entries from the class attribute (needed for invokedynamic).
     pub bootstrap_methods: Vec<duke_classfile::types::BootstrapMethodEntry>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exception_entry_clone() {
+        let entry1 = ExceptionEntry {
+            start_pc: 0,
+            end_pc: 10,
+            handler_pc: 15,
+            catch_type: Some("java/lang/Exception".to_string()),
+        };
+        let entry2 = entry1.clone();
+        assert_eq!(entry1.start_pc, entry2.start_pc);
+        assert_eq!(entry1.end_pc, entry2.end_pc);
+        assert_eq!(entry1.handler_pc, entry2.handler_pc);
+        assert_eq!(entry1.catch_type, entry2.catch_type);
+    }
+}
