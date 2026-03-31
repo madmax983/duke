@@ -6769,10 +6769,13 @@ fn native_system_get_property_with_default(
 }
 
 fn system_time_to_epoch_millis(now: std::time::SystemTime) -> i64 {
-    now.duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| {
-            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
-        })
+    match now.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_millis()).unwrap_or(i64::MAX),
+        Err(err) => {
+            let millis = i128::try_from(err.duration().as_millis()).unwrap_or(i128::MAX);
+            (-millis).clamp(i64::MIN as i128, i64::MAX as i128) as i64
+        }
+    }
 }
 
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
@@ -34449,9 +34452,9 @@ mod tests {
     }
 
     #[test]
-    fn time_system_time_to_epoch_millis_clamps_pre_epoch_to_zero() {
+    fn time_system_time_to_epoch_millis_supports_pre_epoch_values() {
         let sample = std::time::UNIX_EPOCH - std::time::Duration::from_secs(1);
-        assert_eq!(system_time_to_epoch_millis(sample), 0);
+        assert_eq!(system_time_to_epoch_millis(sample), -1_000);
     }
 
     #[test]
