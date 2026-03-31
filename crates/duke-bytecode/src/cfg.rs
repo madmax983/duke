@@ -185,6 +185,44 @@ mod tests {
     }
 
     #[test]
+    fn test_cfg_conditional_branches() {
+        let instructions_to_test = vec![
+            Instruction::Ifne(5),
+            Instruction::Iflt(5),
+            Instruction::Ifge(5),
+            Instruction::Ifgt(5),
+            Instruction::Ifle(5),
+            Instruction::IfIcmpeq(5),
+            Instruction::IfIcmpne(5),
+            Instruction::IfIcmplt(5),
+            Instruction::IfIcmpge(5),
+            Instruction::IfIcmpgt(5),
+            Instruction::IfIcmple(5),
+            Instruction::IfAcmpeq(5),
+            Instruction::IfAcmpne(5),
+            Instruction::Ifnull(5),
+            Instruction::Ifnonnull(5),
+        ];
+
+        for branch_instr in instructions_to_test {
+            let instructions = vec![
+                (0, branch_instr.clone()),
+                (4, Instruction::Iconst1),
+                (5, Instruction::Ireturn),
+            ];
+            let cfg = generate_mermaid_cfg(&instructions);
+            assert!(
+                cfg.contains("node0 -->|true| node5"),
+                "Failed for instruction: {branch_instr:?}",
+            );
+            assert!(
+                cfg.contains("node0 -->|false| node4"),
+                "Failed for instruction: {branch_instr:?}",
+            );
+        }
+    }
+
+    #[test]
     fn test_cfg_tableswitch() {
         let instructions = vec![
             (
@@ -344,6 +382,40 @@ mod complexity_tests {
             (6, Instruction::Ireturn),
         ];
         assert_eq!(cyclomatic_complexity(&instructions), 2);
+    }
+
+    #[test]
+    fn test_cyclomatic_complexity_conditional_branches() {
+        let instructions_to_test = vec![
+            Instruction::Ifne(5),
+            Instruction::Iflt(5),
+            Instruction::Ifge(5),
+            Instruction::Ifgt(5),
+            Instruction::Ifle(5),
+            Instruction::IfIcmpeq(5),
+            Instruction::IfIcmpne(5),
+            Instruction::IfIcmplt(5),
+            Instruction::IfIcmpge(5),
+            Instruction::IfIcmpgt(5),
+            Instruction::IfIcmple(5),
+            Instruction::IfAcmpeq(5),
+            Instruction::IfAcmpne(5),
+            Instruction::Ifnull(5),
+            Instruction::Ifnonnull(5),
+        ];
+
+        for branch_instr in instructions_to_test {
+            let instructions = vec![
+                (0, branch_instr.clone()),
+                (4, Instruction::Iconst1),
+                (5, Instruction::Ireturn),
+            ];
+            assert_eq!(
+                cyclomatic_complexity(&instructions),
+                2,
+                "Failed for instruction: {branch_instr:?}",
+            );
+        }
     }
 
     #[test]
