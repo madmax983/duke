@@ -8,6 +8,7 @@
 //! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
+pub mod call_graph;
 pub mod cfg;
 pub mod decoder;
 pub mod error;
@@ -15,6 +16,7 @@ pub mod instruction;
 pub mod opcodes;
 pub mod verifier;
 
+pub use call_graph::generate_mermaid_call_graph;
 pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
 pub use error::{DecodeError, DecodeResult, Error, Result, VerifyError, VerifyResult};

@@ -8,7 +8,7 @@ use std::process;
 mod analyze;
 mod html;
 
-use duke_bytecode::{decode, generate_mermaid_cfg};
+use duke_bytecode::{decode, generate_mermaid_call_graph, generate_mermaid_cfg};
 use duke_classfile::{
     ClassFile,
     access_flags::MethodAccessFlags,
@@ -206,6 +206,7 @@ fn main() {
         eprintln!("       duke html <classfile.class> [output.html]");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
+        eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
@@ -250,6 +251,12 @@ fn main() {
     // Dispatch `cfg`: dump control flow graph for a method.
     if args.len() >= 4 && args[1] == "cfg" {
         dump_cfg(&args[2], &args[3]);
+        return;
+    }
+
+    // Dispatch `cg`: dump call graph for a class.
+    if args.len() >= 3 && args[1] == "cg" {
+        dump_cg(&args[2]);
         return;
     }
 
@@ -709,6 +716,19 @@ fn dump_cfg(path: &str, method_name: &str) {
     }
     eprintln!("duke: method '{method_name}' has no code attribute");
     process::exit(1);
+}
+
+fn dump_cg(path: &str) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("duke: cannot read '{path}': {e}");
+        process::exit(1);
+    });
+    let cf = parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error: {e}");
+        process::exit(1);
+    });
+
+    println!("{}", generate_mermaid_call_graph(&cf));
 }
 
 #[cfg(test)]
