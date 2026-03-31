@@ -2220,3 +2220,142 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+
+#[cfg(test)]
+mod io_tests {
+    use super::*;
+
+    #[test]
+    fn test_host_file_read_invalid_handle() {
+        let mut heap = Heap::new();
+        let err = heap.read_host_file_byte(999).unwrap_err();
+        match err {
+            VmError::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException"),
+        }
+    }
+
+    #[test]
+    fn test_host_file_write_invalid_handle() {
+        let mut heap = Heap::new();
+        let err = heap.write_host_file_byte(999, 42).unwrap_err();
+        match err {
+            VmError::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException"),
+        }
+    }
+
+    #[test]
+    fn test_spawn_host_process_empty_command() {
+        let mut heap = Heap::new();
+        let err = heap.spawn_host_process(&[], None).unwrap_err();
+        match err {
+            VmError::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException"),
+        }
+    }
+
+    #[test]
+    fn test_host_file_read_socket_unsupported_handle() {
+        let mut heap = Heap::new();
+        // ID 0 does not exist
+        let res = heap.read_host_file_byte(0);
+        assert!(res.is_err());
+
+        let file = std::fs::File::open(".").unwrap();
+        heap.host_files.insert(999, HostFileHandle::Writer(file));
+        let res = heap.read_host_file_byte(999);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_host_file_write_unsupported_handle() {
+        let mut heap = Heap::new();
+        let file = std::fs::File::open(".").unwrap();
+        heap.host_files.insert(999, HostFileHandle::Reader(file));
+        let res = heap.write_host_file_byte(999, 42);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_close_host_file_ignores_invalid_handle() {
+        let mut heap = Heap::new();
+        heap.close_host_file(0); // less than 0
+        heap.close_host_file(999); // nonexistent
+        assert!(heap.host_files.is_empty());
+    }
+
+    #[test]
+    fn test_read_host_file_byte_io_error() {
+        let mut heap = Heap::new();
+        // Trying to read from a directory on Unix gives EISDIR. Let's trigger an IO error.
+        // We'll open the current directory as a file and try to read from it.
+        let file = std::fs::File::open(".").unwrap();
+        heap.host_files.insert(123, HostFileHandle::Reader(file));
+        let res = heap.read_host_file_byte(123);
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            VmError::JavaException { class_name } => assert_eq!(class_name, "java/io/IOException"),
+            _ => panic!("Expected IOException"),
+        }
+    }
+
+    #[test]
+    fn test_open_host_input_file_not_found() {
+        let mut heap = Heap::new();
+        let err = heap
+            .open_host_input_file(std::path::Path::new("does_not_exist_ever_123.txt"))
+            .unwrap_err();
+        match err {
+            VmError::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/FileNotFoundException");
+            }
+            _ => panic!("Expected FileNotFoundException"),
+        }
+    }
+
+    #[test]
+    fn test_open_host_output_file_cannot_create() {
+        let mut heap = Heap::new();
+        // A directory should fail to open for writing.
+        let err = heap
+            .open_host_output_file(std::path::Path::new("."))
+            .unwrap_err();
+        match err {
+            VmError::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException"),
+        }
+    }
+
+    #[test]
+    fn test_wait_host_process_invalid_id() {
+        let mut heap = Heap::new();
+        let err = heap.wait_host_process(999).unwrap_err();
+        match err {
+            VmError::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException"),
+        }
+    }
+
+    #[test]
+    fn test_try_host_process_exit_value_invalid_id() {
+        let mut heap = Heap::new();
+        let err = heap.try_host_process_exit_value(999).unwrap_err();
+        match err {
+            VmError::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException"),
+        }
+    }
+}
