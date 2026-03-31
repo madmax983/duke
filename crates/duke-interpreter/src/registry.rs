@@ -33,11 +33,36 @@ pub(crate) struct LambdaInfo {
 }
 
 /// Threading side-channel requested by a native handler.
+///
+/// Native methods execute within the same Rust thread as the interpreter loop. When a Java thread
+/// needs to block (e.g. `Thread.sleep`) or fork (e.g. `Thread.start`), the native method cannot
+/// perform the action directly without blocking or panicking the interpreter. Instead, it requests
+/// an action and returns to the loop to be processed safely.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_interpreter::{NativeControl, NativeThreadAction};
+///
+/// let mut control = NativeControl::default();
+/// control.request(NativeThreadAction::Sleep(std::time::Duration::from_millis(100)));
+///
+/// assert_eq!(control.take(), Some(NativeThreadAction::Sleep(std::time::Duration::from_millis(100))));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeThreadAction {
-    Start { thread_ref: u64 },
+    /// Start a new thread execution context for the given Java thread object.
+    Start {
+        /// The heap reference to the `java/lang/Thread` instance to start.
+        thread_ref: u64,
+    },
+    /// Suspend the current thread for the specified duration.
     Sleep(std::time::Duration),
-    Join { thread_id: i32 },
+    /// Suspend the current thread until the target thread terminates.
+    Join {
+        /// The native thread ID of the thread to wait for.
+        thread_id: i32,
+    },
 }
 
 /// Per-invocation control state for native handlers.
@@ -59,31 +84,95 @@ impl NativeControl {
 }
 
 /// Reflection metadata for one declared method discovered from a classfile.
+///
+/// This provides the native reflection system (like `java/lang/reflect/Method`)
+/// access to a method's raw details.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_interpreter::ReflectedMethodInfo;
+///
+/// let info = ReflectedMethodInfo {
+///     name: "toString".to_string(),
+///     descriptor: "()Ljava/lang/String;".to_string(),
+///     is_public: true,
+///     is_static: false,
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedMethodInfo {
+    /// The exact string name of the method (e.g. `"toString"`).
     pub name: String,
+    /// The JVM type descriptor (e.g. `"()V"`).
     pub descriptor: String,
+    /// True if the method has the `ACC_PUBLIC` modifier.
     pub is_public: bool,
+    /// True if the method has the `ACC_STATIC` modifier.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
+///
+/// This provides the native reflection system (like `java/lang/reflect/Field`)
+/// access to a field's raw details.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_interpreter::ReflectedFieldInfo;
+///
+/// let info = ReflectedFieldInfo {
+///     name: "count".to_string(),
+///     descriptor: "I".to_string(),
+///     is_public: false,
+///     is_static: true,
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedFieldInfo {
+    /// The exact string name of the field.
     pub name: String,
+    /// The JVM type descriptor.
     pub descriptor: String,
+    /// True if the field has the `ACC_PUBLIC` modifier.
     pub is_public: bool,
+    /// True if the field has the `ACC_STATIC` modifier.
     pub is_static: bool,
 }
 
 /// Reflection metadata for one class discovered from the loader or registry.
+///
+/// This provides the native reflection system (`java/lang/Class`) access to a
+/// loaded class's full hierarchy and declared members.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_interpreter::ReflectedClassInfo;
+///
+/// let info = ReflectedClassInfo {
+///     internal_name: "java/lang/String".to_string(),
+///     binary_name: "java.lang.String".to_string(),
+///     super_class: Some("java/lang/Object".to_string()),
+///     interfaces: vec!["java/io/Serializable".to_string()],
+///     methods: vec![],
+///     fields: vec![],
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectedClassInfo {
+    /// The raw JVM internal name (e.g. `"java/lang/Object"`).
     pub internal_name: String,
+    /// The Java binary name (e.g. `"java.lang.Object"`).
     pub binary_name: String,
+    /// The internal name of the superclass, if any (null for `Object`).
     pub super_class: Option<String>,
+    /// The internal names of all directly implemented interfaces.
     pub interfaces: Vec<String>,
+    /// All methods explicitly declared by this class (excluding inherited).
     pub methods: Vec<ReflectedMethodInfo>,
+    /// All fields explicitly declared by this class (excluding inherited).
     pub fields: Vec<ReflectedFieldInfo>,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
@@ -104,6 +193,10 @@ pub struct ClassRegistry {
     class_code_sources: HashMap<String, String>,
     /// Best-known runtime `java/lang/ClassLoader` object for each loaded class.
     class_runtime_loaders: HashMap<String, u64>,
+    /// Storage for execution telemetry (e.g. instruction counts, GC pause times).
+    ///
+    /// The [`TelemetryStore`](duke_telemetry::TelemetryStore) collects performance metrics
+    /// and usage statistics across the lifetime of the VM.
     #[cfg(feature = "telemetry")]
     pub telemetry: duke_telemetry::TelemetryStore,
 }
