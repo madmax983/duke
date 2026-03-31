@@ -109,6 +109,7 @@ pub struct FieldEntry {
 /// };
 /// assert!(handler.catch_type.is_some());
 /// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExceptionEntry {
     /// Inclusive start PC of the try block where this handler becomes active.
     pub start_pc: u16,
@@ -165,4 +166,38 @@ pub struct ClassContext {
     pub instance_field_count: usize,
     /// `BootstrapMethods` entries from the class attribute (needed for invokedynamic).
     pub bootstrap_methods: Vec<duke_classfile::types::BootstrapMethodEntry>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exception_entry_clone() {
+        let entry1 = ExceptionEntry {
+            start_pc: 0,
+            end_pc: 10,
+            handler_pc: 15,
+            catch_type: Some("java/lang/Exception".to_string()),
+        };
+
+        let entry2 = entry1.clone();
+        assert_eq!(entry1.start_pc, entry2.start_pc);
+        assert_eq!(entry1.end_pc, entry2.end_pc);
+        assert_eq!(entry1.handler_pc, entry2.handler_pc);
+        assert_eq!(entry1, entry2);
+
+        let entry3 = ExceptionEntry {
+            start_pc: 0,
+            end_pc: 10,
+            handler_pc: 15,
+            catch_type: None,
+        };
+
+        let entry4 = entry3.clone();
+        assert_eq!(entry3.start_pc, entry4.start_pc);
+        assert_eq!(entry3.end_pc, entry4.end_pc);
+        assert_eq!(entry3.handler_pc, entry4.handler_pc);
+        assert_eq!(entry3, entry4);
+    }
 }
