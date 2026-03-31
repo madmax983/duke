@@ -183,24 +183,21 @@ fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
 
     // interfaces
     let interfaces_count = c.read_u16()?;
-    let mut interfaces = Vec::with_capacity(interfaces_count as usize);
-    for _ in 0..interfaces_count {
-        interfaces.push(c.read_cp_index()?);
-    }
+    let interfaces = (0..interfaces_count)
+        .map(|_| c.read_cp_index())
+        .collect::<Result<Vec<_>, _>>()?;
 
     // fields
     let fields_count = c.read_u16()?;
-    let mut fields = Vec::with_capacity(fields_count as usize);
-    for _ in 0..fields_count {
-        fields.push(parse_field(c, cp_len)?);
-    }
+    let fields = (0..fields_count)
+        .map(|_| parse_field(c, cp_len))
+        .collect::<Result<Vec<_>, _>>()?;
 
     // methods
     let methods_count = c.read_u16()?;
-    let mut methods = Vec::with_capacity(methods_count as usize);
-    for _ in 0..methods_count {
-        methods.push(parse_method(c, cp_len)?);
-    }
+    let methods = (0..methods_count)
+        .map(|_| parse_method(c, cp_len))
+        .collect::<Result<Vec<_>, _>>()?;
 
     // class-level attributes
     let attributes = parse_attributes(c, cp_len)?;
@@ -358,11 +355,9 @@ fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<MethodInfo> {
 
 fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<Vec<AttributeInfo>> {
     let count = c.read_u16()?;
-    let mut attrs = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        attrs.push(parse_attribute(c, cp_len)?);
-    }
-    Ok(attrs)
+    (0..count)
+        .map(|_| parse_attribute(c, cp_len))
+        .collect::<Result<Vec<_>, _>>()
 }
 
 fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> ParseResult<AttributeInfo> {
