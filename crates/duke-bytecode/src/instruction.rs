@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Typed JVM instruction representation.
 //!
 //! Each [`Instruction`] variant carries exactly the operands decoded from

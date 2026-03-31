@@ -124,7 +124,6 @@ pub struct ClassRegistry {
     /// Best-known runtime `java/lang/ClassLoader` object for each loaded class.
     class_runtime_loaders: HashMap<String, u64>,
     #[cfg(feature = "telemetry")]
-    /// Telemetry store for the class registry.
     pub telemetry: duke_telemetry::TelemetryStore,
 }
 

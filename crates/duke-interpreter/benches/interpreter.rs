@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Performance benchmarks for the Duke execution engine.
 
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
