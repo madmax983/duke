@@ -948,8 +948,8 @@ impl Heap {
         }
 
         // Scan remembered-set old-gen objects for young refs.
-        let rs: Vec<usize> = self.remembered_set.iter().copied().collect();
-        for old_idx in rs {
+        // ⚡ Bolt: Removed intermediate `.collect::<Vec<_>>()` allocation to avoid unnecessary heap allocations during GC preparation.
+        for &old_idx in &self.remembered_set {
             if let Some(Some(obj)) = self.old.get(old_idx) {
                 worklist.extend(
                     obj.fields
