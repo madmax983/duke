@@ -15900,11 +15900,16 @@ fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> V
     let mut slot = 0usize;
     for cls in &chain {
         if let Ok(ctx) = registry.get(cls) {
-            let instance_fields: Vec<_> = ctx.fields.iter().filter(|f| !f.is_static).collect();
-            if let Some(local_idx) = instance_fields.iter().position(|f| f.name == name) {
+            // ⚡ Bolt: Avoid intermediate vector allocation by counting directly
+            if let Some(local_idx) = ctx
+                .fields
+                .iter()
+                .filter(|f| !f.is_static)
+                .position(|f| f.name == name)
+            {
                 return Ok(slot + local_idx);
             }
-            slot += instance_fields.len();
+            slot += ctx.fields.iter().filter(|f| !f.is_static).count();
         }
     }
 
