@@ -1,3 +1,4 @@
+#![cfg(test)]
 use super::*;
 
 macro_rules! wrap_simple_native_for_tests {
