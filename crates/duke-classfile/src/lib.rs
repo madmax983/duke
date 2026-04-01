@@ -16,10 +16,18 @@
 //! ```
 
 pub mod access_flags;
+pub mod attributes;
+pub mod class;
+pub mod constant_pool;
 pub mod error;
 pub mod parser;
-/// Data structures representing the components of a JVM class file.
-pub mod types;
+
+/// Compatibility module re-exporting the split type structures.
+pub mod types {
+    pub use crate::attributes::*;
+    pub use crate::class::*;
+    pub use crate::constant_pool::*;
+}
 
 pub use error::{Error, ParseError, ParseResult, Result};
 pub use parser::parse;

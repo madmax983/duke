@@ -2,11 +2,13 @@
 
 use crate::{
     access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags},
-    error::{ParseError, ParseResult},
-    types::{
-        AttributeData, AttributeInfo, BootstrapMethodEntry, ClassFile, CodeAttribute, CpEntry,
-        CpIndex, ExceptionTableEntry, FieldInfo, LineNumberEntry, LocalVariableEntry, MethodInfo,
+    attributes::{
+        AttributeData, AttributeInfo, BootstrapMethodEntry, CodeAttribute, ExceptionTableEntry,
+        LineNumberEntry, LocalVariableEntry,
     },
+    class::{ClassFile, FieldInfo, MethodInfo},
+    constant_pool::{CpEntry, CpIndex},
+    error::{ParseError, ParseResult},
 };
 
 const MAGIC: u32 = 0xCAFE_BABE;
