@@ -1,3 +1,20 @@
+//! JVM Attributes parsing and representations.
+//!
+//! This module defines the structures for attributes found in a `.class` file.
+//! Attributes are used in the `ClassFile`, `field_info`, `method_info`, and `Code_attribute` structures.
+//!
+//! While there are many attributes defined in the JVM specification, this module
+//! currently parses the following well-known attributes into typed variants:
+//! - `Code` (§4.7.3)
+//! - `ConstantValue` (§4.7.2)
+//! - `SourceFile` (§4.7.10)
+//! - `LineNumberTable` (§4.7.12)
+//! - `LocalVariableTable` (§4.7.13)
+//! - `Exceptions` (§4.7.5)
+//! - `BootstrapMethods` (§4.7.23)
+//!
+//! Unknown attributes are captured as raw bytes in `AttributeData::Raw` for forward compatibility.
+
 use crate::constant_pool::CpIndex;
 
 /// Generic attribute container (§4.7).
