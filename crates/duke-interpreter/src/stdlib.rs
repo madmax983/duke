@@ -1,9 +1,43 @@
+//! Minimal Standard Library Bootstrapper.
+//!
+//! This module provides the [`bootstrap_stdlib`] function, which registers
+//! synthetic implementations of core Java classes (like `java/lang/Object`,
+//! `java/lang/String`, and `java/io/PrintStream`) directly into the JVM's
+//! [`ClassRegistry`].
+//!
+//! By mapping these Java class definitions to Rust native handlers, Duke can
+//! execute basic Java programs, handle strings, and perform I/O without
+//! requiring a complete `rt.jar` or a full JDK installation.
+
 use crate::context::{ClassContext, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 use duke_runtime::Slot;
 
+/// Registers core Java classes and their native methods.
+///
+/// This function populates the given [`ClassRegistry`] and [`Heap`](duke_gc::Heap)
+/// with synthetic implementations of classes such as `java/lang/Object`,
+/// `java/lang/String`, `java/lang/System`, and basic I/O streams. This allows
+/// the interpreter to execute code that relies on these standard library components.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::registry::ClassRegistry;
+/// use duke_interpreter::stdlib::bootstrap_stdlib;
+/// use duke_gc::Heap;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // Populate the registry with standard library classes
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // The registry now contains `java/lang/Object`, etc.
+/// assert!(registry.get("java/lang/Object").is_ok());
+/// ```
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate a PrintStream object on the heap.
