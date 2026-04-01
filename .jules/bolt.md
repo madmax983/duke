@@ -1,4 +1,3 @@
-
-**[Avoid `clippy::len_zero` false positives in test cases]**
-**Learning:** `clippy::len_zero` complains about `assert!(events.len() >= 1)` and suggests `assert!(!events.is_empty())`. However, in tests checking for an exact count of events (like "this test threw exactly 1 exception" or "this test threw 2+ exceptions"), changing to `is_empty` obscures the semantic meaning of the test.
-**Action:** Use `#[allow(clippy::len_zero)]` on the test function rather than changing the test's strictness just to appease clippy, to maintain the correct semantic meaning and strictness.
+**[execute_class `collect` chain removal]**
+**Learning:** Rust's standard library `.collect::<Result<Vec<_>, _>>()` on an iterator forces the lower bound of `size_hint` to `0` to handle early errors safely. This means that pre-allocation fails, causing multiple heap allocations for the returned `Vec`.
+**Action:** In hot loops, such as JVM native method dispatch and lambda argument fetching where `arg_count` is known, explicitly use `Vec::with_capacity` and a `for` loop with `.push()` instead of `.map().collect()`.

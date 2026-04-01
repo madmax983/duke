@@ -5526,9 +5526,10 @@ pub fn execute_class(
                         match handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
+                                let mut native_args = Vec::with_capacity(arg_count);
+                                for _ in 0..arg_count {
+                                    native_args.push(frame.pop()?);
+                                }
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
@@ -5549,9 +5550,10 @@ pub fn execute_class(
                             }
                             Some(HandlerKind::Callback(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
+                                let mut native_args = Vec::with_capacity(arg_count);
+                                for _ in 0..arg_count {
+                                    native_args.push(frame.pop()?);
+                                }
                                 native_args.reverse();
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
@@ -6528,9 +6530,10 @@ pub fn execute_class(
                                     registry.get_lambda(actual_class).cloned()
                                 && callee_name == lambda_info.sam_method
                             {
-                                let mut sam_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
+                                let mut sam_args = Vec::with_capacity(arg_count);
+                                for _ in 0..arg_count {
+                                    sam_args.push(frame.pop()?);
+                                }
                                 sam_args.reverse();
                                 let this_slot = frame.pop()?;
                                 let this_ref = match &this_slot {
@@ -6635,9 +6638,10 @@ pub fn execute_class(
                         match native_handler_kind {
                             Some(HandlerKind::Simple(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
+                                let mut native_args = Vec::with_capacity(arg_count);
+                                for _ in 0..arg_count {
+                                    native_args.push(frame.pop()?);
+                                }
                                 native_args.reverse();
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
@@ -6672,9 +6676,10 @@ pub fn execute_class(
                             }
                             Some(HandlerKind::Callback(handler)) => {
                                 let arg_count = parse_arg_count(&callee_desc);
-                                let mut native_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
+                                let mut native_args = Vec::with_capacity(arg_count);
+                                for _ in 0..arg_count {
+                                    native_args.push(frame.pop()?);
+                                }
                                 native_args.reverse();
                                 let this_slot = frame.pop()?; // pop `this`
                                 native_args.insert(0, this_slot);
@@ -7373,9 +7378,10 @@ pub fn execute_class(
                     // --- StringConcatFactory.makeConcatWithConstants ---
                     let arg_count = parse_arg_count(&call_desc);
                     let arg_types = parse_arg_types(&call_desc);
-                    let mut dynamic_args: Vec<Slot> = (0..arg_count)
-                        .map(|_| frame.pop())
-                        .collect::<VmResult<Vec<_>>>()?;
+                    let mut dynamic_args = Vec::with_capacity(arg_count);
+                    for _ in 0..arg_count {
+                        dynamic_args.push(frame.pop()?);
+                    }
                     dynamic_args.reverse();
 
                     // Resolve recipe (first bootstrap arg) and constants (remaining).
@@ -7446,9 +7452,10 @@ pub fn execute_class(
 
                     // Pop captured variables from the stack.
                     let captured_count = parse_arg_count(&call_desc);
-                    let mut captured_args: Vec<Slot> = (0..captured_count)
-                        .map(|_| frame.pop())
-                        .collect::<VmResult<Vec<_>>>()?;
+                    let mut captured_args = Vec::with_capacity(captured_count);
+                    for _ in 0..captured_count {
+                        captured_args.push(frame.pop()?);
+                    }
                     captured_args.reverse();
 
                     let lambda_info = LambdaInfo {
@@ -7558,9 +7565,10 @@ pub fn execute_class(
                                 Some(HandlerKind::Simple(handler)) => {
                                     // Native path: collect args + this into a Vec<Slot>
                                     // for the handler(&[Slot], ...) signature.
-                                    let mut callee_args: Vec<Slot> = (0..arg_count)
-                                        .map(|_| frame.pop())
-                                        .collect::<VmResult<Vec<_>>>()?;
+                                    let mut callee_args = Vec::with_capacity(arg_count);
+                                    for _ in 0..arg_count {
+                                        callee_args.push(frame.pop()?);
+                                    }
                                     callee_args.reverse();
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
@@ -7592,9 +7600,10 @@ pub fn execute_class(
                                     continue;
                                 }
                                 Some(HandlerKind::Callback(handler)) => {
-                                    let mut callee_args: Vec<Slot> = (0..arg_count)
-                                        .map(|_| frame.pop())
-                                        .collect::<VmResult<Vec<_>>>()?;
+                                    let mut callee_args = Vec::with_capacity(arg_count);
+                                    for _ in 0..arg_count {
+                                        callee_args.push(frame.pop()?);
+                                    }
                                     callee_args.reverse();
                                     let this_slot = frame.pop()?;
                                     callee_args.insert(0, this_slot);
@@ -7632,9 +7641,10 @@ pub fn execute_class(
                                 && callee_name == lambda_info.sam_method
                             {
                                 // Lambda path: collect args + this into a Vec<Slot>.
-                                let mut callee_args: Vec<Slot> = (0..arg_count)
-                                    .map(|_| frame.pop())
-                                    .collect::<VmResult<Vec<_>>>()?;
+                                let mut callee_args = Vec::with_capacity(arg_count);
+                                for _ in 0..arg_count {
+                                    callee_args.push(frame.pop()?);
+                                }
                                 callee_args.reverse();
                                 let this_slot = frame.pop()?;
                                 callee_args.insert(0, this_slot);
