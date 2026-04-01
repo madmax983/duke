@@ -30,6 +30,7 @@ use duke_runtime::{Slot, VmError};
 enum TelemetryDest {
     Stdout,
     File(String),
+    Markdown(String),
 }
 
 /// Strip `--jdk=<path>` or `--jdk <path>` from `args` and return the JDK home.
@@ -183,8 +184,15 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
         if arg == "--telemetry" {
             result = Some(TelemetryDest::Stdout);
             false
+        } else if arg == "--telemetry-md" {
+            // --telemetry-md without an equal sign implicitly outputs to stdout as well
+            result = Some(TelemetryDest::Markdown(String::new()));
+            false
         } else if let Some(path) = arg.strip_prefix("--telemetry=") {
             result = Some(TelemetryDest::File(path.to_string()));
+            false
+        } else if let Some(path) = arg.strip_prefix("--telemetry-md=") {
+            result = Some(TelemetryDest::Markdown(path.to_string()));
             false
         } else {
             true
@@ -213,6 +221,7 @@ fn main() {
         eprintln!("       duke stub <classfile.class>");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
+        eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
         eprintln!("         --jdk=<path>        JDK home for loading real JDK classes");
         eprintln!("         (also reads JAVA_HOME env var)");
         process::exit(1);
@@ -323,12 +332,23 @@ fn emit_mermaid_heap(heap: &Heap, dest: Option<MermaidDest>) {
 #[cfg(feature = "telemetry")]
 fn emit_telemetry(registry: &ClassRegistry, dest: Option<TelemetryDest>) {
     let Some(dest) = dest else { return };
-    let json = registry.telemetry.to_json();
     match dest {
-        TelemetryDest::Stdout => println!("{json}"),
+        TelemetryDest::Stdout => {
+            let json = registry.telemetry.to_json();
+            println!("{json}");
+        }
         TelemetryDest::File(path) => {
+            let json = registry.telemetry.to_json();
             if let Err(e) = std::fs::write(&path, &json) {
                 eprintln!("duke: failed to write telemetry to '{path}': {e}");
+            }
+        }
+        TelemetryDest::Markdown(path) => {
+            let md = registry.telemetry.to_markdown_report();
+            if path.is_empty() {
+                println!("{md}");
+            } else if let Err(e) = std::fs::write(&path, &md) {
+                eprintln!("duke: failed to write telemetry markdown to '{path}': {e}");
             }
         }
     }
@@ -1097,7 +1117,31 @@ fn format_cp_entry(cf: &ClassFile, entry: &CpEntry) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MermaidDest, extract_mermaid_heap_flag};
+    use super::{MermaidDest, TelemetryDest, extract_mermaid_heap_flag, extract_telemetry_flag};
+
+    #[test]
+    fn test_extract_telemetry_flag_md_stdout() {
+        let mut args = vec![
+            "duke".to_string(),
+            "--telemetry-md".to_string(),
+            "run".to_string(),
+        ];
+        let res = extract_telemetry_flag(&mut args);
+        assert_eq!(res, Some(TelemetryDest::Markdown(String::new())));
+        assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_telemetry_flag_md_file() {
+        let mut args = vec![
+            "duke".to_string(),
+            "--telemetry-md=output.md".to_string(),
+            "run".to_string(),
+        ];
+        let res = extract_telemetry_flag(&mut args);
+        assert_eq!(res, Some(TelemetryDest::Markdown("output.md".to_string())));
+        assert_eq!(args.len(), 2);
+    }
 
     #[test]
     fn test_extract_mermaid_heap_flag_none() {
