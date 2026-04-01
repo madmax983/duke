@@ -13796,7 +13796,7 @@ fn join_java_thread(
     thread_id: i32,
 ) -> VmResult<()> {
     loop {
-        let handle = {
+        let (handle, is_self_join) = {
             let mut runtime = runtime.lock().unwrap();
             let is_finished = runtime
                 .threads
@@ -13807,8 +13807,19 @@ fn join_java_thread(
             if is_finished {
                 return Ok(());
             }
-            runtime.handles.remove(&thread_id)
+            let is_self_join = runtime.handles.get(&thread_id).is_some_and(|h| h.thread().id() == std::thread::current().id());
+            if is_self_join {
+                (None, true)
+            } else {
+                (runtime.handles.remove(&thread_id), false)
+            }
         };
+
+        if is_self_join {
+            return Err(VmError::JavaException {
+                class_name: "java/lang/IllegalThreadStateException".to_string(),
+            });
+        }
 
         if let Some(handle) = handle {
             return match handle.join() {

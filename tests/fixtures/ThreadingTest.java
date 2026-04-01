@@ -59,4 +59,9 @@ public final class ThreadingTest {
         }
         return 3;
     }
+
+    public static int selfJoinPanic() throws Exception {
+        Thread.currentThread().join();
+        return 1;
+    }
 }
