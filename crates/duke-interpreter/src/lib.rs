@@ -19329,6 +19329,18 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_int_arg_missing() {
+        let args = vec![];
+        assert!(matches!(
+            extract_int_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Int",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
     fn newarray_negative_size() {
         use duke_bytecode::Instruction::*;
         let instrs = vec![
@@ -20494,6 +20506,62 @@ mod tests {
         );
         heap.get_mut(archive_ref).unwrap().fields[0] = Slot::Reference(None);
         assert_eq!(archive_path_from_slot(&heap, archive_ref, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn test_boot_archive_path_from_ref_exploded_archive() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+
+        let exploded_ctx = ClassContext {
+            class_name: "org/springframework/boot/loader/launch/ExplodedArchive".to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: vec![FieldEntry {
+                name: "rootDirectory".to_string(),
+                descriptor: "Ljava/io/File;".to_string(),
+                is_static: false,
+            }],
+            static_fields: Vec::new(),
+            instance_field_count: 1,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+        };
+        registry.register(exploded_ctx);
+
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        let str_ref = heap.allocate_string("/path/to/exploded".to_string());
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(str_ref));
+
+        let archive_ref = heap.allocate(
+            "org/springframework/boot/loader/launch/ExplodedArchive".to_string(),
+            1,
+        );
+        heap.get_mut(archive_ref).unwrap().fields[0] = Slot::Reference(Some(file_ref));
+
+        let path = boot_archive_path_from_ref(&registry, &heap, archive_ref).unwrap();
+        assert_eq!(path, Some("/path/to/exploded".to_string()));
+    }
+
+    #[test]
+    fn test_boot_archive_path_from_ref_unknown_class() {
+        let registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+
+        let archive_ref = heap.allocate("duke/net/Socket".to_string(), 1);
+        let path = boot_archive_path_from_ref(&registry, &heap, archive_ref).unwrap();
+        assert_eq!(path, None);
+    }
+
+    #[test]
+    fn test_launched_class_loader_archive_path_wrong_class() {
+        let registry = ClassRegistry::new();
+        let mut heap = duke_gc::Heap::new();
+
+        let loader_ref = heap.allocate("java/net/URLClassLoader".to_string(), 1);
+        let path = launched_class_loader_archive_path(&registry, &heap, loader_ref).unwrap();
+        assert_eq!(path, None);
     }
 
     #[test]
@@ -29699,6 +29767,18 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_long_arg_missing() {
+        let args = vec![];
+        assert!(matches!(
+            extract_long_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Long",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
     fn test_extract_long_arg_success() {
         let args = vec![Slot::Long(42)];
         assert_eq!(extract_long_arg(&args, 0).unwrap(), 42);
@@ -29717,6 +29797,18 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_float_arg_missing() {
+        let args = vec![];
+        assert!(matches!(
+            extract_float_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Float",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
     fn test_extract_float_arg_success() {
         let args = vec![Slot::Float(42.0)];
         assert!((extract_float_arg(&args, 0).unwrap() - 42.0).abs() < f32::EPSILON);
@@ -29729,6 +29821,18 @@ mod tests {
             extract_float_arg(&args, 0).unwrap_err(),
             VmError::TypeMismatch {
                 expected: "Float",
+                got: "other"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_extract_double_arg_missing() {
+        let args = vec![];
+        assert!(matches!(
+            extract_double_arg(&args, 0).unwrap_err(),
+            VmError::TypeMismatch {
+                expected: "Double",
                 got: "other"
             }
         ));
