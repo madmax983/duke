@@ -145,10 +145,10 @@ impl ZipReader {
     /// or [`LoadError::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
     pub fn read_entry_info(&self, info: &ZipEntryInfo) -> LoadResult<Vec<u8>> {
-        let offset = info.local_header_offset as usize;
+        let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
 
         // Validate local file header signature.
-        if offset + 30 > self.data.len() {
+        if offset.saturating_add(30) > self.data.len() {
             return Err(LoadError::ZipFormat {
                 msg: format!("local header at offset {offset} is truncated"),
             });
@@ -163,10 +163,10 @@ impl ZipReader {
         // Read local header's own filename_len and extra_len to find data start.
         let filename_len = read_u16_le(&self.data, offset + 26) as usize;
         let extra_len = read_u16_le(&self.data, offset + 28) as usize;
-        let data_start = offset + 30 + filename_len + extra_len;
-        let compressed_size = info.compressed_size as usize;
+        let data_start = offset.saturating_add(30).saturating_add(filename_len).saturating_add(extra_len);
+        let compressed_size = usize::try_from(info.compressed_size).unwrap_or(usize::MAX);
 
-        if data_start + compressed_size > self.data.len() {
+        if data_start.saturating_add(compressed_size) > self.data.len() {
             return Err(LoadError::ZipFormat {
                 msg: format!("entry '{}' data extends past end of archive", info.name),
             });
