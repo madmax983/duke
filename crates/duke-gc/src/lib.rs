@@ -1192,6 +1192,161 @@ fn patch_forwarded_fields(fields: &mut [Slot], forward_map: &HashMap<u64, u64>) 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn should_return_error_when_reading_closed_or_invalid_file() {
+        let mut gc = Heap::new();
+        let err = gc.read_host_file_byte(999).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_writing_closed_or_invalid_file() {
+        let mut gc = Heap::new();
+        let err = gc.write_host_file_byte(999, 65).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_reading_from_writer() {
+        let mut gc = Heap::new();
+        let path = std::env::temp_dir().join("test_write.txt");
+        let id = gc.open_host_output_file(&path).unwrap();
+        let err = gc.read_host_file_byte(id).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+        gc.close_host_file(id);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn should_return_error_when_writing_to_reader() {
+        let mut gc = Heap::new();
+        let path = std::env::temp_dir().join("test_read.txt");
+        std::fs::write(&path, b"hello").unwrap();
+        let id = gc.open_host_input_file(&path).unwrap();
+        let err = gc.write_host_file_byte(id, 65).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+        gc.close_host_file(id);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn should_return_error_when_opening_non_existent_file() {
+        let mut gc = Heap::new();
+        let path = std::env::temp_dir().join("definitely_does_not_exist_1234.txt");
+        let err = gc.open_host_input_file(&path).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_spawning_empty_command() {
+        let mut gc = Heap::new();
+        let err = gc.spawn_host_process(&[], None).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn should_cache_process_exit_code() {
+        let mut gc = Heap::new();
+        let process = gc
+            .spawn_host_process(&["echo".to_string(), "hello".to_string()], None)
+            .unwrap();
+        let code = gc.wait_host_process(process.process_id).unwrap();
+        assert_eq!(code, 0);
+        // Should use cache
+        let code2 = gc.wait_host_process(process.process_id).unwrap();
+        assert_eq!(code2, 0);
+        // Try wait should use cache
+        let code3 = gc.try_host_process_exit_value(process.process_id).unwrap();
+        assert_eq!(code3, Some(0));
+        // Destroy on already exited should be ok
+        gc.destroy_host_process(process.process_id).unwrap();
+    }
+
+    #[test]
+    fn should_return_error_when_waiting_invalid_process() {
+        let mut gc = Heap::new();
+        let err = gc.wait_host_process(999).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_destroying_invalid_process() {
+        let mut gc = Heap::new();
+        let err = gc.destroy_host_process(999).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_trying_exit_value_invalid_process() {
+        let mut gc = Heap::new();
+        let err = gc.try_host_process_exit_value(999).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_opening_invalid_zip() {
+        let mut gc = Heap::new();
+        let path = std::env::temp_dir().join("definitely_not_a_zip.zip");
+        std::fs::write(&path, b"not a zip file content").unwrap();
+        let err = gc.open_host_zip(&path).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException")
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn should_return_error_when_accessing_invalid_zip_handle() {
+        let gc = Heap::new();
+        let err1 = gc.zip_entry_count(999).unwrap_err();
+        assert!(
+            matches!(err1, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+        let err2 = gc.zip_get_entry_info(999, "test").unwrap_err();
+        assert!(
+            matches!(err2, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+        let err3 = gc.zip_read_entry(999, "test").unwrap_err();
+        assert!(
+            matches!(err3, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_binding_invalid_socket_address() {
+        let mut gc = Heap::new();
+        let err = gc.bind_server_socket("invalid_address").unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/net/SocketException")
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_accepting_invalid_listener() {
+        let mut gc = Heap::new();
+        let err = gc.accept_connection(999).unwrap_err();
+        assert!(
+            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        );
+    }
     use super::*;
 
     // ── Allocation ────────────────────────────────────────────────────────────
