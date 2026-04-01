@@ -12,3 +12,7 @@
 **[Split ClassFile types]
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+
+**Refactoring Blob Anti-Pattern in Interpreter**
+**Tangle:** `crates/duke-interpreter/src/lib.rs` was a massive Blob containing both the `bootstrap_stdlib` registry logic (~3600 lines) and the internal native handlers, creating an overly monolithic file.
+**Blueprint:** Extracted `bootstrap_stdlib` to a new `stdlib.rs` file, making the internal native handlers and extraction helpers `pub(crate)` in `lib.rs` so `stdlib.rs` can access them without creating cyclic dependencies.
