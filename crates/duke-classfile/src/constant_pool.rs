@@ -1,3 +1,12 @@
+//! Constant pool entries and indices.
+//!
+//! This module defines structures that represent entries in the Java class file's constant pool.
+//! The constant pool is a table of structures representing various string constants, class and interface names,
+//! field names, and other constants that are referred to within the `ClassFile` structure and its substructures.
+//!
+//! The `CpEntry` enum covers all constant pool entry tags described in JVM SE 21 (§4.4), including Java 9+
+//! modules and packages.
+
 /// Newtype wrapper for constant pool indices (1-based per JVM spec).
 ///
 /// # Examples

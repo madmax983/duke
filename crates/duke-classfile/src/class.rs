@@ -1,3 +1,10 @@
+//! Top-level structures for Java class files.
+//!
+//! This module defines the main `ClassFile` structure, which represents a fully
+//! parsed JVM class file. It also provides structures for fields (`FieldInfo`)
+//! and methods (`MethodInfo`). These representations closely follow the JVM
+//! specification's `ClassFile` layout (§4.1).
+
 use crate::access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 use crate::attributes::AttributeInfo;
 use crate::constant_pool::CpIndex;
