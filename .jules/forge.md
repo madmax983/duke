@@ -31,3 +31,7 @@
 **[Idiomatic String Parsing]
 **Learning:** Found string formatting functions like `native_string_format` using `while i < chars.len()` and manual index incrementing, which is verbose and requires bounds checking.
 **Action:** Replace manual `while` loops over `Vec<char>` with idiomatic `chars().peekable()` iterator chains using `while let Some(ch) = chars.next()` and `if let Some(&x) = chars.peek()`.
+
+**[Extracting God Functions]
+**Learning:** Found a massive `generate_html_report` function in `duke/src/html.rs` that generated an entire HTML document, mixing structural code with data processing for fields, methods, and bytecode.
+**Action:** Extract specific sections (e.g., `write_class_summary`, `write_fields`, `write_methods`) into separate helper functions that append to a mutable `String` buffer. This flattens the "God Function" and dramatically improves readability.
