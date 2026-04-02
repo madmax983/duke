@@ -33,14 +33,6 @@ enum TelemetryDest {
     Markdown(String),
 }
 
-/// Where to write JSON analysis output.
-#[derive(Debug, PartialEq)]
-#[allow(dead_code)]
-enum JsonDest {
-    Stdout,
-    File(String),
-}
-
 /// Strip `--jdk=<path>` or `--jdk <path>` from `args` and return the JDK home.
 fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
     let mut jdk = std::env::var("JAVA_HOME").ok();
@@ -185,23 +177,6 @@ fn extract_mermaid_heap_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
     result
 }
 
-/// Strip `--json[=path]` from `args` and return the configured JSON destination.
-fn extract_json_flag(args: &mut Vec<String>) -> Option<JsonDest> {
-    let mut result = None;
-    args.retain(|arg| {
-        if arg == "--json" {
-            result = Some(JsonDest::Stdout);
-            false
-        } else if let Some(path) = arg.strip_prefix("--json=") {
-            result = Some(JsonDest::File(path.to_string()));
-            false
-        } else {
-            true
-        }
-    });
-    result
-}
-
 /// Strip `--telemetry[=path]` from `args` and return the configured destination.
 fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     let mut result = None;
@@ -231,7 +206,6 @@ fn main() {
     let telemetry = extract_telemetry_flag(&mut args);
     let mermaid_dest = extract_mermaid_heap_flag(&mut args);
     let jdk_home = extract_jdk_flag(&mut args);
-    let json_dest = extract_json_flag(&mut args);
     let jar_path = extract_jar_flag(&mut args);
 
     if jar_path.is_none() && args.len() < 2 {
@@ -297,7 +271,7 @@ fn main() {
 
     // Dispatch `analyze`: run static analysis on the class.
     if args.len() >= 3 && args[1] == "analyze" {
-        dump_analyze(&args[2], json_dest);
+        dump_analyze(&args[2]);
         return;
     }
 
@@ -690,7 +664,7 @@ fn run_jar(
 // Dump
 // ---------------------------------------------------------------------------
 
-fn dump_analyze(path: &str, json_dest: Option<JsonDest>) {
+fn dump_analyze(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
         process::exit(1);
@@ -700,21 +674,8 @@ fn dump_analyze(path: &str, json_dest: Option<JsonDest>) {
         process::exit(1);
     });
 
-    if let Some(dest) = json_dest {
-        let json = analyze::generate_analysis_json(&cf);
-        match dest {
-            JsonDest::Stdout => println!("{json}"),
-            JsonDest::File(out_path) => {
-                if let Err(e) = std::fs::write(&out_path, &json) {
-                    eprintln!("duke: failed to write JSON analysis to '{out_path}': {e}");
-                    process::exit(1);
-                }
-            }
-        }
-    } else {
-        let report = analyze::generate_analysis_report(&cf);
-        println!("{report}");
-    }
+    let report = analyze::generate_analysis_report(&cf);
+    println!("{report}");
 }
 
 fn dump_html(path: &str, output_path: Option<&str>) {
@@ -1157,34 +1118,6 @@ fn format_cp_entry(cf: &ClassFile, entry: &CpEntry) -> String {
 #[cfg(test)]
 mod tests {
     use super::{MermaidDest, TelemetryDest, extract_mermaid_heap_flag, extract_telemetry_flag};
-
-    #[test]
-    fn test_extract_json_flag_stdout() {
-        let mut args = vec!["duke".to_string(), "--json".to_string(), "run".to_string()];
-        let res = super::extract_json_flag(&mut args);
-        assert_eq!(res, Some(super::JsonDest::Stdout));
-        assert_eq!(args.len(), 2);
-    }
-
-    #[test]
-    fn test_extract_json_flag_file() {
-        let mut args = vec![
-            "duke".to_string(),
-            "--json=output.json".to_string(),
-            "run".to_string(),
-        ];
-        let res = super::extract_json_flag(&mut args);
-        assert_eq!(res, Some(super::JsonDest::File("output.json".to_string())));
-        assert_eq!(args.len(), 2);
-    }
-
-    #[test]
-    fn test_extract_json_flag_none() {
-        let mut args = vec!["duke".to_string(), "run".to_string()];
-        let res = super::extract_json_flag(&mut args);
-        assert_eq!(res, None);
-        assert_eq!(args.len(), 2);
-    }
 
     #[test]
     fn test_extract_telemetry_flag_md_stdout() {
