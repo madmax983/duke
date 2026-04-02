@@ -8,6 +8,12 @@
 pub mod context;
 /// Repositories for loaded classes and registered native methods.
 pub mod registry;
+/// Bootstrapping for the standard Java library types and native methods.
+///
+/// This module prevents the VM from crashing by injecting essential classes
+/// (like `java/lang/Object`, `java/lang/String`, and `java/io/PrintStream`)
+/// and registering their required native handers (like `println`) before
+/// user code executes.
 pub mod stdlib;
 mod threading;
 

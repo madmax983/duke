@@ -4,6 +4,29 @@ use crate::registry::ClassRegistry;
 use crate::*;
 use duke_runtime::Slot;
 
+/// Injects core Java types and native handlers into the VM registry.
+///
+/// This function must be called *before* attempting to execute any Java code,
+/// as it provides the definitions for foundational classes (`java/lang/Object`,
+/// `java/lang/String`, etc.) and registers the native handlers required by
+/// methods like `System.out.println`.
+///
+/// # Examples
+///
+/// ```rust
+/// use duke_interpreter::registry::ClassRegistry;
+/// use duke_gc::Heap;
+/// use duke_interpreter::bootstrap_stdlib;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // Inject standard library classes into the registry
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // Now it is safe to load and execute user classes!
+/// assert!(registry.get("java/lang/Object").is_ok());
+/// ```
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate a PrintStream object on the heap.
