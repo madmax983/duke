@@ -185,7 +185,7 @@ fn extract_mermaid_heap_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
     result
 }
 
-/// Strip `--telemetry[=path]` from `args` and return the configured destination.
+/// Strip `--json[=path]` from `args` and return the configured JSON destination.
 fn extract_json_flag(args: &mut Vec<String>) -> Option<JsonDest> {
     let mut result = None;
     args.retain(|arg| {
@@ -202,6 +202,7 @@ fn extract_json_flag(args: &mut Vec<String>) -> Option<JsonDest> {
     result
 }
 
+/// Strip `--telemetry[=path]` from `args` and return the configured destination.
 fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     let mut result = None;
     args.retain(|arg| {
@@ -1156,6 +1157,34 @@ fn format_cp_entry(cf: &ClassFile, entry: &CpEntry) -> String {
 #[cfg(test)]
 mod tests {
     use super::{MermaidDest, TelemetryDest, extract_mermaid_heap_flag, extract_telemetry_flag};
+
+    #[test]
+    fn test_extract_json_flag_stdout() {
+        let mut args = vec!["duke".to_string(), "--json".to_string(), "run".to_string()];
+        let res = super::extract_json_flag(&mut args);
+        assert_eq!(res, Some(super::JsonDest::Stdout));
+        assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_json_flag_file() {
+        let mut args = vec![
+            "duke".to_string(),
+            "--json=output.json".to_string(),
+            "run".to_string(),
+        ];
+        let res = super::extract_json_flag(&mut args);
+        assert_eq!(res, Some(super::JsonDest::File("output.json".to_string())));
+        assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_json_flag_none() {
+        let mut args = vec!["duke".to_string(), "run".to_string()];
+        let res = super::extract_json_flag(&mut args);
+        assert_eq!(res, None);
+        assert_eq!(args.len(), 2);
+    }
 
     #[test]
     fn test_extract_telemetry_flag_md_stdout() {

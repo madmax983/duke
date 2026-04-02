@@ -261,33 +261,60 @@ mod tests {
                 Some(CpEntry::Utf8("MyClass".to_string())),
                 Some(CpEntry::Utf8("myMethod".to_string())),
                 Some(CpEntry::Utf8("()V".to_string())),
+                Some(CpEntry::Utf8("abstractMethod".to_string())),
+                Some(CpEntry::Utf8("invalidMethod".to_string())),
             ],
             access_flags: ClassAccessFlags::PUBLIC,
             this_class: CpIndex(1),
             super_class: CpIndex(0),
             interfaces: vec![],
             fields: vec![],
-            methods: vec![MethodInfo {
-                access_flags: MethodAccessFlags::PUBLIC,
-                name_index: CpIndex(3),
-                descriptor_index: CpIndex(4),
-                attributes: vec![AttributeInfo {
-                    name_index: CpIndex(0),
-                    data: AttributeData::Code(CodeAttribute {
-                        max_stack: 1,
-                        max_locals: 1,
-                        code: vec![0xb1], // return
-                        exception_table: vec![],
-                        attributes: vec![],
-                    }),
-                }],
-            }],
+            methods: vec![
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PUBLIC,
+                    name_index: CpIndex(3),
+                    descriptor_index: CpIndex(4),
+                    attributes: vec![AttributeInfo {
+                        name_index: CpIndex(0),
+                        data: AttributeData::Code(CodeAttribute {
+                            max_stack: 1,
+                            max_locals: 1,
+                            code: vec![0xb1], // return
+                            exception_table: vec![],
+                            attributes: vec![],
+                        }),
+                    }],
+                },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PUBLIC | MethodAccessFlags::ABSTRACT,
+                    name_index: CpIndex(5),
+                    descriptor_index: CpIndex(4),
+                    attributes: vec![],
+                },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PUBLIC,
+                    name_index: CpIndex(6),
+                    descriptor_index: CpIndex(4),
+                    attributes: vec![AttributeInfo {
+                        name_index: CpIndex(0),
+                        data: AttributeData::Code(CodeAttribute {
+                            max_stack: 1,
+                            max_locals: 1,
+                            code: vec![0xFE], // Invalid opcode IMPDEP1 to trigger Err path
+                            exception_table: vec![],
+                            attributes: vec![],
+                        }),
+                    }],
+                },
+            ],
             attributes: vec![],
         };
 
         let json = generate_analysis_json(&cf);
         assert!(json.starts_with(r#"{"class":"MyClass","methods":["#));
         assert!(json.contains(r#"{"name":"myMethod()V","complexity":1,"code_size":1}"#));
+        assert!(json.contains(r#"{"name":"abstractMethod()V","complexity":null,"code_size":0}"#));
+        assert!(json.contains(r#"{"name":"invalidMethod()V","error":"decode error","code_size":1}"#));
         assert!(json.ends_with(r"]}"));
     }
 
