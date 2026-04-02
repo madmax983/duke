@@ -3,6 +3,18 @@
 //! Each [`Instruction`] variant carries exactly the operands decoded from
 //! the bytecode stream. The variant names match the JVM spec opcode names
 //! (`PascalCase`). Wide-prefixed forms carry a `u16` local index instead of `u8`.
+//!
+//! # Examples
+//!
+//! ```
+//! use duke_bytecode::Instruction;
+//!
+//! // Using an instruction with operands
+//! let bipush = Instruction::Bipush(10);
+//! if let Instruction::Bipush(value) = bipush {
+//!     assert_eq!(value, 10);
+//! }
+//! ```
 
 #![allow(missing_docs)]
 
@@ -42,6 +54,17 @@ impl ArrayType {
 ///
 /// Wide-prefixed variants (e.g., `IloadW`) are represented as distinct variants
 /// so callers can exhaustively match without needing to track a separate `wide` flag.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::Instruction;
+/// use duke_classfile::CpIndex;
+///
+/// let iadd = Instruction::Iadd;
+/// let bipush = Instruction::Bipush(42);
+/// let invokevirtual = Instruction::Invokevirtual(CpIndex(10));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     // -----------------------------------------------------------------------

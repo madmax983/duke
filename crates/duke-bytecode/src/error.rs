@@ -41,6 +41,15 @@ pub enum DecodeError {
     },
 
     /// An unknown opcode was encountered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::error::DecodeError;
+    ///
+    /// let err = DecodeError::UnknownOpcode { opcode: 0xFF, pc: 10 };
+    /// assert_eq!(err.to_string(), "unknown opcode 0xFF at pc=10");
+    /// ```
     #[error("unknown opcode {opcode:#04X} at pc={pc}")]
     UnknownOpcode {
         /// The program counter where the error occurred.
