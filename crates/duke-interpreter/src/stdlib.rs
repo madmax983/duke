@@ -1,9 +1,35 @@
+//! Minimal standard library bootstrap definitions.
+//!
 use crate::context::{ClassContext, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 use duke_runtime::Slot;
 
+/// Bootstraps the minimal standard library required for native method support.
+///
+/// This function populates the `ClassRegistry` with essential classes like
+/// `java/lang/System`, `java/io/PrintStream`, `java/lang/Math`, etc.
+/// It also registers the corresponding native handlers so the interpreter
+/// can successfully execute these core standard library calls.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::{ClassRegistry, bootstrap_stdlib};
+/// use duke_gc::Heap;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // Registry is empty initially
+/// assert!(!registry.contains("java/lang/System"));
+///
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // Now essential classes are registered
+/// assert!(registry.contains("java/lang/System"));
+/// ```
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate a PrintStream object on the heap.
