@@ -447,56 +447,58 @@ fn parse_central_directory(
     let mut pos = cd_offset;
 
     for _ in 0..expected_count {
-        // Each central directory header is at least 46 bytes.
-        if pos + 46 > cd_end {
-            return Err(LoadError::ZipFormat {
-                msg: "central directory entry truncated".to_string(),
-            });
-        }
-        let sig = read_u32_le(data, pos);
-        if sig != CD_SIGNATURE {
-            return Err(LoadError::ZipFormat {
-                msg: format!(
-                    "expected central directory signature at offset {pos}, got {sig:#010x}"
-                ),
-            });
-        }
-
-        let compression_method = read_u16_le(data, pos + 10);
-        let crc32 = read_u32_le(data, pos + 16);
-        let compressed_size = u64::from(read_u32_le(data, pos + 20));
-        let uncompressed_size = u64::from(read_u32_le(data, pos + 24));
-        let filename_len = read_u16_le(data, pos + 28) as usize;
-        let extra_len = read_u16_le(data, pos + 30) as usize;
-        let comment_len = read_u16_le(data, pos + 32) as usize;
-        let local_header_offset = u64::from(read_u32_le(data, pos + 42));
-
-        let name_start = pos + 46;
-        if name_start + filename_len > cd_end {
-            return Err(LoadError::ZipFormat {
-                msg: "central directory entry filename truncated".to_string(),
-            });
-        }
-
-        let name =
-            String::from_utf8_lossy(&data[name_start..name_start + filename_len]).into_owned();
-
-        index.insert(
-            name.clone(),
-            ZipEntryInfo {
-                name,
-                compression_method,
-                crc32,
-                compressed_size,
-                uncompressed_size,
-                local_header_offset,
-            },
-        );
-
-        pos = name_start + filename_len + extra_len + comment_len;
+        let (info, next_pos) = parse_cd_entry(data, pos, cd_end)?;
+        index.insert(info.name.clone(), info);
+        pos = next_pos;
     }
 
     Ok(index)
+}
+
+/// Parse a single central directory entry.
+fn parse_cd_entry(data: &[u8], pos: usize, cd_end: usize) -> LoadResult<(ZipEntryInfo, usize)> {
+    // Each central directory header is at least 46 bytes.
+    if pos + 46 > cd_end {
+        return Err(LoadError::ZipFormat {
+            msg: "central directory entry truncated".to_string(),
+        });
+    }
+    let sig = read_u32_le(data, pos);
+    if sig != CD_SIGNATURE {
+        return Err(LoadError::ZipFormat {
+            msg: format!("expected central directory signature at offset {pos}, got {sig:#010x}"),
+        });
+    }
+
+    let compression_method = read_u16_le(data, pos + 10);
+    let crc32 = read_u32_le(data, pos + 16);
+    let compressed_size = u64::from(read_u32_le(data, pos + 20));
+    let uncompressed_size = u64::from(read_u32_le(data, pos + 24));
+    let filename_len = read_u16_le(data, pos + 28) as usize;
+    let extra_len = read_u16_le(data, pos + 30) as usize;
+    let comment_len = read_u16_le(data, pos + 32) as usize;
+    let local_header_offset = u64::from(read_u32_le(data, pos + 42));
+
+    let name_start = pos + 46;
+    if name_start + filename_len > cd_end {
+        return Err(LoadError::ZipFormat {
+            msg: "central directory entry filename truncated".to_string(),
+        });
+    }
+
+    let name = String::from_utf8_lossy(&data[name_start..name_start + filename_len]).into_owned();
+
+    let info = ZipEntryInfo {
+        name,
+        compression_method,
+        crc32,
+        compressed_size,
+        uncompressed_size,
+        local_header_offset,
+    };
+
+    let next_pos = name_start + filename_len + extra_len + comment_len;
+    Ok((info, next_pos))
 }
 
 // ───────────────────────────────────────────────────────────────────────────
