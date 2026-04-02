@@ -1,14 +1,9 @@
-**[Title]
-**Tangle:** [The Structural Mess]
-**Blueprint:** [The Structural Fix]
+# Atlas Journal - Critical Architectural Decisions
 
-**Refactoring the Duke Interpreter Blob**
-**Tangle:** The `crates/duke-interpreter/src/lib.rs` file had grown into a massive "Blob" anti-pattern (over 23,000 lines). It mixed JVM data structures, the registry, execution engine logic, and an enormous amount of standard library bootstrapping/tests, making it hard to navigate and violating the single responsibility principle.
-**Blueprint:** Extracted the core execution context data structures (`MethodEntry`, `FieldEntry`, `ExceptionEntry`, `ClassContext`) into a new `context` module, and the registry types (`ClassRegistry`, `NativeRegistry`, handler definitions) into a new `registry` module. These are now re-exported from `lib.rs` to maintain a clean public API while breaking up the physical file bloat.
+**[Facade over stdlib]**
+**Tangle:** `duke-interpreter` leaked standard library registration internals to the launcher.
+**Blueprint:** Encapsulated in `stdlib.rs`, exported single `bootstrap_stdlib` facade.
 
-**Unified Error Handling Types**
-**Tangle:** Each crate (`duke-bytecode`, `duke-classfile`, `duke-loader`, `duke-runtime`) had its own named error type (`DecodeError`, `VerifyError`, `ParseError`, `LoadError`, `VmError`) and result type. This led to an inconsistent API surface and "Trait Pollution" across the workspace when handling cross-crate failures.
-**Blueprint:** Standardized error types across modules by renaming crate-specific errors to `crate::Error` and `crate::Result<T>` using `thiserror`. Combined `DecodeError` and `VerifyError` into a centralized `duke_bytecode::Error` enum. Aliased the old names to maintain backward compatibility and avoid breaking the public API ("The Facade").
-**[Split ClassFile types]
-**Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
-**Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+**[Extract 20k-line Test Module from Interpreter]**
+**Tangle:** The `crates/duke-interpreter/src/lib.rs` file had grown into a massive "Blob" anti-pattern, encompassing over 34,000 lines of code. This was primarily driven by an inline `#[cfg(test)] mod tests { ... }` block that contained over 20,000 lines of unit and integration tests. This extreme file size impaired navigation, code comprehension, and general maintainability, violating high cohesion boundaries.
+**Blueprint:** Extracted the entire inline test module into a dedicated `crates/duke-interpreter/src/tests.rs` file, leaving behind a clean `#[cfg(test)] mod tests;` declaration in `lib.rs`. This correctly isolated test boundaries, significantly reducing the bloat of the core interpreter module without altering internal behavior.
