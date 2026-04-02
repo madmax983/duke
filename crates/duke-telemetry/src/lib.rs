@@ -1035,6 +1035,88 @@ mod tests {
     }
     #[test]
     #[cfg(feature = "telemetry")]
+    fn test_ser_helpers_site3() {
+        use serde::Serialize;
+        use std::collections::HashMap;
+
+        #[derive(Serialize)]
+        struct Dummy {
+            #[serde(serialize_with = "crate::ser_helpers::site3")]
+            map: HashMap<(String, String, usize), i32>,
+        }
+
+        let mut map = HashMap::new();
+        map.insert(("MyClass".to_string(), "myMethod".to_string(), 42), 100);
+
+        let dummy = Dummy { map };
+        let json = serde_json::to_string(&dummy).unwrap();
+        assert_eq!(json, r#"{"map":{"MyClass::myMethod@42":100}}"#);
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_ser_helpers_site2_u16() {
+        use serde::Serialize;
+        use std::collections::HashMap;
+
+        #[derive(Serialize)]
+        struct Dummy {
+            #[serde(serialize_with = "crate::ser_helpers::site2_u16")]
+            map: HashMap<(String, u16), i32>,
+        }
+
+        let mut map = HashMap::new();
+        map.insert(("MyClass".to_string(), 15), 200);
+
+        let dummy = Dummy { map };
+        let json = serde_json::to_string(&dummy).unwrap();
+        assert_eq!(json, r#"{"map":{"MyClass@15":200}}"#);
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_ser_helpers_pair_str() {
+        use serde::Serialize;
+        use std::collections::HashMap;
+
+        #[derive(Serialize)]
+        struct Dummy {
+            #[serde(serialize_with = "crate::ser_helpers::pair_str")]
+            map: HashMap<(String, String), i32>,
+        }
+
+        let mut map = HashMap::new();
+        map.insert(("MyClass".to_string(), "myMethod".to_string()), 300);
+
+        let dummy = Dummy { map };
+        let json = serde_json::to_string(&dummy).unwrap();
+        assert_eq!(json, r#"{"map":{"MyClass::myMethod":300}}"#);
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_ser_helpers_sorted_set() {
+        use serde::Serialize;
+        use std::collections::HashSet;
+
+        #[derive(Serialize)]
+        struct Dummy {
+            #[serde(serialize_with = "crate::ser_helpers::sorted_set")]
+            set: HashSet<String>,
+        }
+
+        let mut set = HashSet::new();
+        set.insert("B".to_string());
+        set.insert("A".to_string());
+        set.insert("C".to_string());
+
+        let dummy = Dummy { set };
+        let json = serde_json::to_string(&dummy).unwrap();
+        assert_eq!(json, r#"{"set":["A","B","C"]}"#);
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
     fn telemetry_store_to_markdown_report() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
