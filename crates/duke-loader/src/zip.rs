@@ -1060,7 +1060,10 @@ mod proptests {
     fn parse_cd_entry_ok() {
         let mut data = vec![0; 46];
         // Signature
-        data[0] = 0x50; data[1] = 0x4b; data[2] = 0x01; data[3] = 0x02;
+        data[0] = 0x50;
+        data[1] = 0x4b;
+        data[2] = 0x01;
+        data[3] = 0x02;
         // Filename len
         data[28] = 4;
         data.extend_from_slice(b"test");
@@ -1081,9 +1084,11 @@ mod proptests {
     fn parse_cd_entry_bad_signature() {
         let mut data = vec![0; 46];
         // Bad Signature
-        data[0] = 0x50; data[1] = 0x4b; data[2] = 0x01; data[3] = 0x03;
+        data[0] = 0x50;
+        data[1] = 0x4b;
+        data[2] = 0x01;
+        data[3] = 0x03;
         let res = parse_cd_entry(&data, 0, data.len());
         assert!(matches!(res, Err(LoadError::ZipFormat { .. })));
     }
-
 }
