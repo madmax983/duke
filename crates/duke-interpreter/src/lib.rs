@@ -12263,33 +12263,26 @@ fn init_object_fields(
 /// Layout: root fields occupy the lowest-numbered slots; each subclass
 /// appends its fields immediately after its superclass's fields.
 fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> VmResult<usize> {
-    // Build chain from target_class up to the root, then reverse for Object-first.
-    let mut chain: Vec<String> = Vec::new();
-    let mut cur = Some(target_class.to_string());
-    while let Some(cls) = cur {
-        if let Ok(ctx) = registry.get(&cls) {
-            let sc = ctx.super_class.clone();
-            chain.push(cls);
-            cur = sc;
+    let mut current = target_class;
+
+    while let Ok(ctx) = registry.get(current) {
+        if let Some(local_idx) = ctx
+            .fields
+            .iter()
+            .filter(|f| !f.is_static)
+            .position(|f| f.name == name)
+        {
+            let super_fields = ctx
+                .super_class
+                .as_deref()
+                .map_or(0, |sc| total_instance_field_count(registry, sc));
+            return Ok(super_fields + local_idx);
+        }
+
+        if let Some(ref sc) = ctx.super_class {
+            current = sc;
         } else {
             break;
-        }
-    }
-    chain.reverse();
-
-    let mut slot = 0usize;
-    for cls in &chain {
-        if let Ok(ctx) = registry.get(cls) {
-            // ⚡ Bolt: Avoid intermediate vector allocation by counting directly
-            if let Some(local_idx) = ctx
-                .fields
-                .iter()
-                .filter(|f| !f.is_static)
-                .position(|f| f.name == name)
-            {
-                return Ok(slot + local_idx);
-            }
-            slot += ctx.fields.iter().filter(|f| !f.is_static).count();
         }
     }
 
