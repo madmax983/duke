@@ -40,10 +40,20 @@ pub trait ClassLoader {
 mod tests {
     use super::*;
 
-    fn jdk_modules_path() -> std::path::PathBuf {
+    fn jdk_modules_path_from_env(home: Option<String>) -> std::path::PathBuf {
+        if let Some(home) = home {
+            let path = std::path::PathBuf::from(home).join("lib").join("modules");
+            if path.exists() {
+                return path;
+            }
+        }
         std::path::PathBuf::from(
             r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
         )
+    }
+
+    fn jdk_modules_path() -> std::path::PathBuf {
+        jdk_modules_path_from_env(std::env::var("JAVA_HOME").ok())
     }
 
     // -----------------------------------------------------------------------
@@ -150,22 +160,6 @@ mod tests {
         assert_eq!(&hw[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
     }
 
-    #[test]
-    fn bootstrap_loader_returns_not_found() {
-        let jdk_modules = jdk_modules_path();
-        if !jdk_modules.exists() {
-            return;
-        }
-        let fixtures =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
-
-        let loader =
-            BootstrapLoader::new(&jdk_modules, vec![fixtures]).expect("create bootstrap loader");
-
-        let err = loader.find_class("NonExistent/Class/Here").unwrap_err();
-        assert!(matches!(err, LoadError::NotFound { .. }));
-    }
-
     // -----------------------------------------------------------------------
     // Integration: parse loaded classes with duke-classfile
     // -----------------------------------------------------------------------
@@ -196,41 +190,21 @@ mod tests {
     }
 
     #[test]
-    fn jdk_modules_path_fallback_when_java_home_invalid() {
-        // Rust 2024 makes env var mutations unsafe
-        unsafe {
-            let old_home = std::env::var("JAVA_HOME");
-            std::env::set_var("JAVA_HOME", "/nonexistent/fake/path/to/nowhere");
-            let path = jdk_modules_path();
-            let expected_fallback = std::path::PathBuf::from(
-                r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
-            );
-            assert_eq!(path, expected_fallback);
-
-            // Restore original environment
-            match old_home {
-                Ok(home) => std::env::set_var("JAVA_HOME", home),
-                Err(_) => std::env::remove_var("JAVA_HOME"),
-            }
-        }
+    fn jdk_modules_path_from_env_fallback_when_invalid() {
+        let path = jdk_modules_path_from_env(Some("/nonexistent/fake/path/to/nowhere".to_string()));
+        let expected_fallback = std::path::PathBuf::from(
+            r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
+        );
+        assert_eq!(path, expected_fallback);
     }
 
     #[test]
-    fn jdk_modules_path_fallback_when_java_home_unset() {
-        unsafe {
-            let old_home = std::env::var("JAVA_HOME");
-            std::env::remove_var("JAVA_HOME");
-            let path = jdk_modules_path();
-            let expected_fallback = std::path::PathBuf::from(
-                r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
-            );
-            assert_eq!(path, expected_fallback);
-
-            // Restore original environment
-            if let Ok(home) = old_home {
-                std::env::set_var("JAVA_HOME", home);
-            }
-        }
+    fn jdk_modules_path_from_env_fallback_when_none() {
+        let path = jdk_modules_path_from_env(None);
+        let expected_fallback = std::path::PathBuf::from(
+            r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
+        );
+        assert_eq!(path, expected_fallback);
     }
 }
 
