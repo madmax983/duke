@@ -1192,6 +1192,7 @@ fn patch_forwarded_fields(fields: &mut [Slot], forward_map: &HashMap<u64, u64>) 
 
 #[cfg(test)]
 mod tests {
+
     #[test]
     fn should_return_error_when_reading_closed_or_invalid_file() {
         let mut gc = Heap::new();
