@@ -16935,6 +16935,445 @@ pub(crate) fn native_string_code_point_at(
     Ok(Some(Slot::Int(cp)))
 }
 
+/// Native: `String.lines()Stream` — splits on newlines, wraps in Stream.
+pub(crate) fn native_string_lines(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let n = lines.len();
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), n + 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(i32::try_from(n).unwrap_or(0));
+    for (i, line) in lines.iter().enumerate() {
+        let s_ref = heap.allocate_string((*line).to_string());
+        heap.get_mut(stream_ref)?.fields[i + 1] = Slot::Reference(Some(s_ref));
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+// ---------------------------------------------------------------------------
+// java.util.Random — 48-bit LCG (same multiplier/addend as Java's java.util.Random)
+// fields[0] = Long(seed as i64); all bit-level casts are intentional.
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::unreadable_literal)]
+const RANDOM_MULTIPLIER: u64 = 25_214_903_917; // 0x5DEECE66D — Java's LCG multiplier
+const RANDOM_ADDEND: u64 = 0xB;
+const RANDOM_MASK: u64 = (1u64 << 48) - 1;
+
+/// Advance the LCG and return `bits` high bits of the new state.
+#[allow(clippy::cast_possible_truncation)]
+const fn random_next(seed: u64, bits: u32) -> (u64, i32) {
+    let new_seed = seed
+        .wrapping_mul(RANDOM_MULTIPLIER)
+        .wrapping_add(RANDOM_ADDEND)
+        & RANDOM_MASK;
+    let value = (new_seed >> (48 - bits)) as i32; // intentional truncation to bit pattern
+    (new_seed, value)
+}
+
+/// Native: `Random.<init>()V` — seed from current time.
+#[allow(clippy::unnecessary_wraps, clippy::cast_possible_wrap)]
+pub(crate) fn native_random_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let nanos = u64::from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos()),
+    );
+    let initial = (nanos ^ RANDOM_MULTIPLIER) & RANDOM_MASK;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(initial as i64); // safe: mask ensures < 2^48
+    Ok(None)
+}
+
+/// Native: `Random.<init>(J)V` — seed with explicit long value.
+#[allow(
+    clippy::unnecessary_wraps,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
+)]
+pub(crate) fn native_random_init_seed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let seed = match args.get(1).copied() {
+        Some(Slot::Long(v)) => v as u64,
+        Some(Slot::Int(v)) => v as u64,
+        _ => 0,
+    };
+    let initial = (seed ^ RANDOM_MULTIPLIER) & RANDOM_MASK;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(initial as i64); // safe: < 2^48
+    Ok(None)
+}
+
+/// Retrieve and advance seed from `fields[0]`, returning new seed and `bits` high bits.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+fn random_step(heap: &mut duke_gc::Heap, this_ref: u64, bits: u32) -> VmResult<(u64, i32)> {
+    let old_seed = match heap.get(this_ref)?.fields.first().copied() {
+        Some(Slot::Long(v)) => v as u64,
+        _ => 0,
+    };
+    let (new_seed, value) = random_next(old_seed, bits);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(new_seed as i64); // safe: < 2^48
+    Ok((new_seed, value))
+}
+
+/// Native: `Random.nextInt()I` — full-range random int.
+pub(crate) fn native_random_next_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (_, v) = random_step(heap, this_ref, 32)?;
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `Random.nextInt(I)I` — bounded random int [0, bound).
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation
+)]
+pub(crate) fn native_random_next_int_bound(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let bound = extract_int_arg(args, 1)?;
+    if bound <= 0 {
+        return Err(duke_runtime::VmError::JavaException {
+            class_name: "java/lang/IllegalArgumentException".to_string(),
+        });
+    }
+    let bound_u = bound as u32;
+    // Java rejection-sampling to avoid modulo bias
+    loop {
+        let (_, bits) = random_step(heap, this_ref, 31)?;
+        let bits_u = bits as u32; // bits from next(31) are always non-negative
+        let val = bits_u % bound_u;
+        if bits_u.wrapping_sub(val).wrapping_add(bound_u - 1) < u32::MAX {
+            return Ok(Some(Slot::Int(val as i32))); // val < bound <= i32::MAX
+        }
+    }
+}
+
+/// Native: `Random.nextLong()J` — 64-bit random long (two 32-bit calls).
+pub(crate) fn native_random_next_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (_, hi) = random_step(heap, this_ref, 32)?;
+    let (_, lo) = random_step(heap, this_ref, 32)?;
+    let v = (i64::from(hi) << 32) + i64::from(lo);
+    Ok(Some(Slot::Long(v)))
+}
+
+/// Native: `Random.nextDouble()D` — uniform [0.0, 1.0).
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn native_random_next_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (_, hi) = random_step(heap, this_ref, 26)?;
+    let (_, lo) = random_step(heap, this_ref, 27)?;
+    // Java spec: ((long)(next(26)) << 27) + next(27)) / (double)(1L << 53)
+    let combined = (i64::from(hi) << 27) + i64::from(lo);
+    let v = combined as f64 / (1u64 << 53) as f64;
+    Ok(Some(Slot::Double(v)))
+}
+
+/// Native: `Random.nextFloat()F` — uniform [0.0, 1.0) as float.
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn native_random_next_float(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (_, bits) = random_step(heap, this_ref, 24)?;
+    // next(24) is non-negative, safe to cast to f32
+    let v = bits as f32 / (1u32 << 24) as f32;
+    Ok(Some(Slot::Float(v)))
+}
+
+/// Native: `Random.nextBoolean()Z` — random boolean.
+pub(crate) fn native_random_next_boolean(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (_, v) = random_step(heap, this_ref, 1)?;
+    Ok(Some(Slot::Int(v)))
+}
+
+// ---------------------------------------------------------------------------
+// java.lang.StringBuffer — mutable string, delegates to StringBuilder internals
+// (string_value field used as buffer, same as StringBuilder)
+// ---------------------------------------------------------------------------
+
+/// Native: `StringBuffer.<init>()V` — empty buffer.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_stringbuffer_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.string_value = Some(String::new());
+    Ok(None)
+}
+
+/// Native: `StringBuffer.<init>(Ljava/lang/String;)V` — init with string.
+pub(crate) fn native_stringbuffer_init_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = match args.get(1).copied() {
+        Some(Slot::Reference(Some(r))) => heap.get(r)?.string_value.clone().unwrap_or_default(),
+        _ => String::new(),
+    };
+    heap.get_mut(this_ref)?.string_value = Some(s);
+    Ok(None)
+}
+
+/// Native: `StringBuffer.append(...)StringBuffer` — append any type; returns `this`.
+pub(crate) fn native_stringbuffer_append(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let frag = match args.get(1).copied().unwrap_or(Slot::Reference(None)) {
+        Slot::Reference(Some(r)) => heap
+            .get(r)?
+            .string_value
+            .clone()
+            .unwrap_or_else(|| "null".to_string()),
+        Slot::Reference(None) => "null".to_string(),
+        Slot::Int(n) => n.to_string(),
+        Slot::Long(n) => n.to_string(),
+        Slot::Double(d) => format!("{d}"),
+        Slot::Float(f) => format!("{f}"),
+        Slot::ReturnAddress(_) => String::new(),
+    };
+    let buf = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new);
+    buf.push_str(&frag);
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuffer.toString()String`.
+pub(crate) fn native_stringbuffer_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `StringBuffer.length()I`.
+pub(crate) fn native_stringbuffer_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let len = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .unwrap_or("")
+        .len();
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(i32::MAX))))
+}
+
+// ---------------------------------------------------------------------------
+// java.util.StringJoiner
+// fields[0] = Reference(delimiter), fields[1] = Reference(prefix), fields[2] = Reference(suffix)
+// fields[3] = Reference(emptyValue), fields[4..] = added elements
+// instance_field_count = 4 (slots 0-3 pre-allocated)
+// ---------------------------------------------------------------------------
+
+/// Native: `StringJoiner.<init>(CharSequence)V` — delimiter only.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_stringjoiner_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let delim_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let empty_ref = heap.allocate_string(String::new());
+    let prefix_ref = heap.allocate_string(String::new());
+    let suffix_ref = heap.allocate_string(String::new());
+    heap.get_mut(this_ref)?.fields[0] = delim_slot;
+    heap.get_mut(this_ref)?.fields[1] = Slot::Reference(Some(prefix_ref));
+    heap.get_mut(this_ref)?.fields[2] = Slot::Reference(Some(suffix_ref));
+    heap.get_mut(this_ref)?.fields[3] = Slot::Reference(Some(empty_ref));
+    Ok(None)
+}
+
+/// Native: `StringJoiner.<init>(CharSequence,CharSequence,CharSequence)V` — delim + prefix + suffix.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_stringjoiner_init_prefix_suffix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let delim_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let prefix_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let suffix_slot = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let empty_ref = heap.allocate_string(String::new());
+    heap.get_mut(this_ref)?.fields[0] = delim_slot;
+    heap.get_mut(this_ref)?.fields[1] = prefix_slot;
+    heap.get_mut(this_ref)?.fields[2] = suffix_slot;
+    heap.get_mut(this_ref)?.fields[3] = Slot::Reference(Some(empty_ref));
+    Ok(None)
+}
+
+/// Native: `StringJoiner.add(CharSequence)StringJoiner` — append element.
+pub(crate) fn native_stringjoiner_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    heap.get_mut(this_ref)?.fields.push(elem);
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringJoiner.setEmptyValue(CharSequence)StringJoiner`.
+pub(crate) fn native_stringjoiner_set_empty_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let empty_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    heap.get_mut(this_ref)?.fields[3] = empty_slot;
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Helper: read a string from a slot (returns "" for null).
+fn slot_to_string(slot: Slot, heap: &duke_gc::Heap) -> String {
+    match slot {
+        Slot::Reference(Some(r)) => heap
+            .get(r)
+            .ok()
+            .and_then(|o| o.string_value.clone())
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
+/// Native: `StringJoiner.toString()String` — builds the joined result.
+pub(crate) fn native_stringjoiner_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    // elements start at index 4
+    let elems: Vec<Slot> = fields.get(4..).map(<[Slot]>::to_vec).unwrap_or_default();
+    if elems.is_empty() {
+        let empty_slot = fields.get(3).copied().unwrap_or(Slot::Reference(None));
+        let prefix = slot_to_string(
+            fields.get(1).copied().unwrap_or(Slot::Reference(None)),
+            heap,
+        );
+        let suffix = slot_to_string(
+            fields.get(2).copied().unwrap_or(Slot::Reference(None)),
+            heap,
+        );
+        let empty = slot_to_string(empty_slot, heap);
+        // If prefix+suffix are both empty, return emptyValue; otherwise prefix+suffix
+        let result = if prefix.is_empty() && suffix.is_empty() {
+            empty
+        } else {
+            format!("{prefix}{suffix}")
+        };
+        let r = heap.allocate_string(result);
+        return Ok(Some(Slot::Reference(Some(r))));
+    }
+    let delim = slot_to_string(
+        fields.first().copied().unwrap_or(Slot::Reference(None)),
+        heap,
+    );
+    let prefix = slot_to_string(
+        fields.get(1).copied().unwrap_or(Slot::Reference(None)),
+        heap,
+    );
+    let suffix = slot_to_string(
+        fields.get(2).copied().unwrap_or(Slot::Reference(None)),
+        heap,
+    );
+    let parts: Vec<String> = elems.iter().map(|s| slot_to_string(*s, heap)).collect();
+    let result = format!("{}{}{}", prefix, parts.join(&delim), suffix);
+    let r = heap.allocate_string(result);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `StringJoiner.length()I` — length of the `toString()` result.
+pub(crate) fn native_stringjoiner_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // Reuse toString and measure
+    let result = native_stringjoiner_tostring(args, heap, out, control)?;
+    let len = match result {
+        Some(Slot::Reference(Some(r))) => heap.get(r)?.string_value.as_deref().unwrap_or("").len(),
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(i32::MAX))))
+}
+
 // ---------------------------------------------------------------------------
 // HashMap natives
 // ---------------------------------------------------------------------------
@@ -39897,6 +40336,140 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("PriorityQueueTest.class", "testPollAll", "()I"),
             9,
+        );
+    }
+
+    // ---- Phase 38: Random, StringBuffer, StringJoiner, String.lines ----
+
+    #[test]
+    fn random_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testRandomRange", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn random_seed_deterministic() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testRandomSeedDeterministic", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn random_boolean() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testRandomBoolean", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn random_next_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testRandomNextInt", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn random_next_double() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testRandomNextDouble", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn random_next_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testRandomNextLong", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn stringbuffer_append() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringBufferAppend", "()I"),
+            11,
+        );
+    }
+
+    #[test]
+    fn stringbuffer_init() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringBufferInit", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn stringbuffer_tostring() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringBufferToString", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn stringjoiner_basic() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringJoinerBasic", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn stringjoiner_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringJoinerEmpty", "()I"),
+            0,
+        );
+    }
+
+    #[test]
+    fn stringjoiner_prefix_suffix() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase38Test.class",
+                "testStringJoinerWithPrefixSuffix",
+                "()I"
+            ),
+            1,
+        );
+    }
+
+    #[test]
+    fn stringjoiner_set_empty_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringJoinerSetEmptyValue", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn stringjoiner_length() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringJoinerLength", "()I"),
+            4,
+        );
+    }
+
+    #[test]
+    fn string_lines_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringLines", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn string_lines_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase38Test.class", "testStringLinesJoin", "()I"),
+            1,
         );
     }
 }

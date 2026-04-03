@@ -3051,6 +3051,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(I)I",
         native_string_code_point_at,
     );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "lines",
+        "()Ljava/util/stream/Stream;",
+        native_string_lines,
+    );
 
     // java/lang/StringBuilder — mutable string buffer
     let sb_ctx = ClassContext {
@@ -5152,5 +5158,214 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "close",
         "()V",
         native_file_input_stream_close,
+    );
+
+    // java/util/Random — 48-bit LCG pseudo-random number generator
+    // fields[0] = Long(seed)
+    let random_ctx = ClassContext {
+        class_name: "java/util/Random".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "seed".to_string(),
+            descriptor: "J".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(random_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/Random", "<init>", "()V", native_random_init);
+    registry.natives_mut().register(
+        "java/util/Random",
+        "<init>",
+        "(J)V",
+        native_random_init_seed,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/Random", "nextInt", "()I", native_random_next_int);
+    registry.natives_mut().register(
+        "java/util/Random",
+        "nextInt",
+        "(I)I",
+        native_random_next_int_bound,
+    );
+    registry.natives_mut().register(
+        "java/util/Random",
+        "nextLong",
+        "()J",
+        native_random_next_long,
+    );
+    registry.natives_mut().register(
+        "java/util/Random",
+        "nextDouble",
+        "()D",
+        native_random_next_double,
+    );
+    registry.natives_mut().register(
+        "java/util/Random",
+        "nextFloat",
+        "()F",
+        native_random_next_float,
+    );
+    registry.natives_mut().register(
+        "java/util/Random",
+        "nextBoolean",
+        "()Z",
+        native_random_next_boolean,
+    );
+
+    // java/lang/StringBuffer — mutable string (thread-safe in Java; here aliases StringBuilder)
+    // string_value used as the buffer
+    let sb_buf_ctx = ClassContext {
+        class_name: "java/lang/StringBuffer".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/lang/CharSequence".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(sb_buf_ctx);
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "<init>",
+        "()V",
+        native_stringbuffer_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_stringbuffer_init_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(Ljava/lang/String;)Ljava/lang/StringBuffer;",
+        native_stringbuffer_append,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(I)Ljava/lang/StringBuffer;",
+        native_stringbuffer_append,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(J)Ljava/lang/StringBuffer;",
+        native_stringbuffer_append,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(D)Ljava/lang/StringBuffer;",
+        native_stringbuffer_append,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(Z)Ljava/lang/StringBuffer;",
+        native_stringbuffer_append,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(Ljava/lang/Object;)Ljava/lang/StringBuffer;",
+        native_stringbuffer_append,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "toString",
+        "()Ljava/lang/String;",
+        native_stringbuffer_tostring,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "length",
+        "()I",
+        native_stringbuffer_length,
+    );
+
+    // java/util/StringJoiner — joins strings with delimiter, optional prefix/suffix
+    // fields[0]=delimiter, fields[1]=prefix, fields[2]=suffix, fields[3]=emptyValue,
+    // fields[4..]=added elements
+    let sj_ctx = ClassContext {
+        class_name: "java/util/StringJoiner".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "delimiter".to_string(),
+                descriptor: "Ljava/lang/CharSequence;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "prefix".to_string(),
+                descriptor: "Ljava/lang/CharSequence;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "suffix".to_string(),
+                descriptor: "Ljava/lang/CharSequence;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "emptyValue".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(sj_ctx);
+    registry.natives_mut().register(
+        "java/util/StringJoiner",
+        "<init>",
+        "(Ljava/lang/CharSequence;)V",
+        native_stringjoiner_init,
+    );
+    registry.natives_mut().register(
+        "java/util/StringJoiner",
+        "<init>",
+        "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;Ljava/lang/CharSequence;)V",
+        native_stringjoiner_init_prefix_suffix,
+    );
+    registry.natives_mut().register(
+        "java/util/StringJoiner",
+        "add",
+        "(Ljava/lang/CharSequence;)Ljava/util/StringJoiner;",
+        native_stringjoiner_add,
+    );
+    registry.natives_mut().register(
+        "java/util/StringJoiner",
+        "setEmptyValue",
+        "(Ljava/lang/CharSequence;)Ljava/util/StringJoiner;",
+        native_stringjoiner_set_empty_value,
+    );
+    registry.natives_mut().register(
+        "java/util/StringJoiner",
+        "toString",
+        "()Ljava/lang/String;",
+        native_stringjoiner_tostring,
+    );
+    registry.natives_mut().register(
+        "java/util/StringJoiner",
+        "length",
+        "()I",
+        native_stringjoiner_length,
     );
 }
