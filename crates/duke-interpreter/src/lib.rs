@@ -3641,6 +3641,41 @@ pub(crate) fn native_int_stream_map_to_obj(
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
+/// Native: `IntStream.distinct()IntStream` — removes duplicate int values.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_int_stream_distinct(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = int_stream_elems(heap, r);
+    let mut seen: Vec<i32> = Vec::new();
+    for v in elems {
+        if !seen.contains(&v) {
+            seen.push(v);
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, seen)))))
+}
+
+/// Native: `String.<init>(String)V` — copy constructor: copies `string_value` from source.
+pub(crate) fn native_string_init_copy(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let src_val = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
+        _ => None,
+    };
+    heap.get_mut(this_ref)?.string_value = src_val;
+    Ok(None)
+}
+
 /// Native: `OptionalInt.getAsInt()I`
 pub(crate) fn native_optional_int_get_as_int(
     args: &[Slot],
@@ -18156,6 +18191,248 @@ pub(crate) fn native_arrays_sort_int(
         _ => std::cmp::Ordering::Equal,
     });
     Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 44: Arrays.copyOfRange, List.subList, Comparator.reversed,
+//           Collections.binarySearch, String.intern, ArrayList.removeIf
+// ---------------------------------------------------------------------------
+
+/// Native: `Arrays.copyOfRange(int[], int, int)int[]` — slice of int array, zero-padded.
+pub(crate) fn native_arrays_copy_of_range_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let src_ref = extract_ref_arg(args, 0)?;
+    let from = match args.get(1) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let to = match args.get(2) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let new_len = to.saturating_sub(from);
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let dst_ref = heap.allocate("[I".to_string(), new_len);
+    for i in 0..new_len {
+        heap.get_mut(dst_ref)?.fields[i] =
+            src_fields.get(from + i).copied().unwrap_or(Slot::Int(0));
+    }
+    Ok(Some(Slot::Reference(Some(dst_ref))))
+}
+
+/// Native: `Arrays.copyOfRange(Object[], int, int)Object[]` — slice of reference array.
+pub(crate) fn native_arrays_copy_of_range_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let src_ref = extract_ref_arg(args, 0)?;
+    let from = match args.get(1) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let to = match args.get(2) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let new_len = to.saturating_sub(from);
+    let (src_class, src_fields) = {
+        let obj = heap.get(src_ref)?;
+        (obj.class_name.clone(), obj.fields.clone())
+    };
+    let dst_ref = heap.allocate(src_class, new_len);
+    for i in 0..new_len {
+        heap.get_mut(dst_ref)?.fields[i] = src_fields
+            .get(from + i)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+    }
+    Ok(Some(Slot::Reference(Some(dst_ref))))
+}
+
+/// Native: `ArrayList.subList(int, int)List` — returns a new `ArrayList` with the sub-range.
+pub(crate) fn native_arraylist_sub_list(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let from = match args.get(1) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let to = match args.get(2) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let new_len = to.saturating_sub(from);
+    // ArrayList layout: fields[0]=size, fields[1..]=elements
+    let src_elems: Vec<Slot> = {
+        let fields = &heap.get(this_ref)?.fields;
+        fields
+            .iter()
+            .skip(1 + from)
+            .take(new_len)
+            .copied()
+            .collect()
+    };
+    let sub_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    heap.get_mut(sub_ref)?.fields[0] = Slot::Int(i32::try_from(new_len).unwrap_or(0));
+    for elem in src_elems {
+        heap.get_mut(sub_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(sub_ref))))
+}
+
+/// Native: `ArrayList.removeIf(Predicate)Z` — removes all elements where predicate returns true.
+pub(crate) fn native_arraylist_remove_if(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    let mut kept = Vec::with_capacity(elems.len());
+    let mut removed = false;
+    for elem in elems {
+        let result = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "test",
+                "(Ljava/lang/Object;)Z",
+                vec![fn_slot, elem],
+            )?
+            .unwrap_or(Slot::Int(0));
+        match result {
+            Slot::Int(1) => {
+                removed = true;
+            } // predicate true → remove
+            _ => kept.push(elem),
+        }
+    }
+    let new_size = i32::try_from(kept.len()).unwrap_or(0);
+    heap.get_mut(this_ref)?.fields.truncate(1);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
+    for elem in kept {
+        heap.get_mut(this_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Int(i32::from(removed))))
+}
+
+/// Native: `Comparator.reversed()Comparator` — wraps comparator to invert ordering.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_comparator_reversed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let delegate = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ReversedComparator".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = delegate;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `ReversedComparator.compare(a, b)I` — inverts delegate comparison.
+pub(crate) fn native_reversed_comparator_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let delegate = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(del_ref)) = delegate else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let del_class = heap.get(del_ref)?.class_name.clone();
+    let result = ops
+        .invoke(
+            heap,
+            out,
+            &del_class,
+            "compare",
+            "(Ljava/lang/Object;Ljava/lang/Object;)I",
+            vec![delegate, a, b],
+        )?
+        .unwrap_or(Slot::Int(0));
+    let cmp = match result {
+        Slot::Int(n) => n,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(-cmp)))
+}
+
+/// Native: `Collections.binarySearch(List, T)I` — binary search on sorted `ArrayList`.
+pub(crate) fn native_collections_binary_search(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
+    let mut lo: i64 = 0;
+    let mut hi: i64 = i64::try_from(elems.len()).unwrap_or(0) - 1;
+    while lo <= hi {
+        let mid = lo + (hi - lo) / 2; // avoid overflow via i64 midpoint
+        let mid_elem = elems[usize::try_from(mid).unwrap_or(0)];
+        let cmp = compare_slots_natural(mid_elem, key, heap, out, ops)?;
+        match cmp.cmp(&0) {
+            std::cmp::Ordering::Equal => return Ok(Some(Slot::Int(i32::try_from(mid).unwrap_or(0)))),
+            std::cmp::Ordering::Less  => lo = mid + 1,
+            std::cmp::Ordering::Greater => hi = mid - 1,
+        }
+    }
+    // Return -(insertion point) - 1
+    let insertion = i32::try_from(lo).unwrap_or(0);
+    Ok(Some(Slot::Int(-(insertion + 1))))
+}
+
+/// Native: `String.intern()String` — returns canonical string (identity for our heap strings).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_string_intern(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // In our interpreter, string equality is by value already; intern = identity.
+    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
 }
 
 // ---- Arrays.asList ----
@@ -43346,6 +43623,116 @@ mod tests {
                 "()I"
             ),
             3,
+        );
+    }
+
+    // ---- Phase 44 tests ----
+
+    #[test]
+    fn test_arrays_copy_of_range_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testArraysCopyOfRangeInt", "()I"),
+            9,
+        );
+    }
+
+    #[test]
+    fn test_arrays_copy_of_range_object() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testArraysCopyOfRangeObject", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_arrays_copy_of_range_pad() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testArraysCopyOfRangePad", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_list_sub_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testListSubList", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_list_sub_list_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testListSubListGet", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_comparator_reversed() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testComparatorReversed", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_intern() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testStringIntern", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collections_binary_search() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testCollectionsBinarySearch", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_collections_binary_search_miss() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase44Test.class",
+                "testCollectionsBinarySearchMiss",
+                "()I"
+            ),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_remove_if() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testRemoveIf", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_string_distinct_chars() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testStringDistinctChars", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_map_values_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testMapValuesStream", "()I"),
+            60,
+        );
+    }
+
+    #[test]
+    fn test_map_entry_set_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase44Test.class", "testMapEntrySetStream", "()I"),
+            6,
         );
     }
 }

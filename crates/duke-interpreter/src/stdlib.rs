@@ -4246,6 +4246,27 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_arrays_sort_objects,
     );
 
+    // Arrays.copyOfRange (int[] and Object[] variants)
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "copyOfRange",
+        "([III)[I",
+        native_arrays_copy_of_range_int,
+    );
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "copyOfRange",
+        "([Ljava/lang/Object;II)[Ljava/lang/Object;",
+        native_arrays_copy_of_range_object,
+    );
+
+    // String.<init>(String)V — copy constructor
+    registry.natives_mut().register(
+        "java/lang/String",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_string_init_copy,
+    );
     // String.<init>(char[]) and String.valueOf(char[])
     registry.natives_mut().register(
         "java/lang/String",
@@ -4258,6 +4279,70 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "valueOf",
         "([C)Ljava/lang/String;",
         native_string_value_of_char_array,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "intern",
+        "()Ljava/lang/String;",
+        native_string_intern,
+    );
+
+    // ArrayList.subList(int, int) → returns a new ArrayList view (copy)
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "subList",
+        "(II)Ljava/util/List;",
+        native_arraylist_sub_list,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/ArrayList",
+        "removeIf",
+        "(Ljava/util/function/Predicate;)Z",
+        native_arraylist_remove_if,
+    );
+
+    // Comparator.reversed() → wraps the comparator in a ReverseComparator
+    registry.natives_mut().register_callback(
+        "duke/util/ComparingComparator",
+        "reversed",
+        "()Ljava/util/Comparator;",
+        native_comparator_reversed,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/NaturalOrderComparator",
+        "reversed",
+        "()Ljava/util/Comparator;",
+        native_comparator_reversed,
+    );
+    let reversed_ctx = ClassContext {
+        class_name: "duke/util/ReversedComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "delegate".to_string(),
+            descriptor: "Ljava/util/Comparator;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(reversed_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ReversedComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_reversed_comparator_compare,
+    );
+
+    // Collections.binarySearch
+    registry.natives_mut().register_callback(
+        "java/util/Collections",
+        "binarySearch",
+        "(Ljava/util/List;Ljava/lang/Object;)I",
+        native_collections_binary_search,
     );
 
     // java/util/TreeMap — sorted map backed by flat sorted key/val pairs
@@ -4951,6 +5036,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "mapToObj",
         "(Ljava/util/function/IntFunction;)Ljava/util/stream/Stream;",
         native_int_stream_map_to_obj,
+    );
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "distinct",
+        "()Ljava/util/stream/IntStream;",
+        native_int_stream_distinct,
     );
 
     // duke/util/OptionalInt — OptionalInt: fields[0]=Int(value), fields[1]=Int(present 0/1)
