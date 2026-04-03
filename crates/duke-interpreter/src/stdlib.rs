@@ -3946,6 +3946,221 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/Collection;Ljava/lang/Object;)I",
         native_collections_frequency,
     );
+    registry.natives_mut().register_callback(
+        "java/util/Collections",
+        "sort",
+        "(Ljava/util/List;Ljava/util/Comparator;)V",
+        native_collections_sort_with_comparator,
+    );
+
+    // java/util/TreeMap — sorted map backed by flat sorted key/val pairs
+    // fields[0] = Int(size), fields[1,2] = k0/v0, fields[3,4] = k1/v1, ...
+    let treemap_ctx = ClassContext {
+        class_name: "java/util/TreeMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(treemap_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/TreeMap", "<init>", "()V", native_treemap_init);
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_treemap_put,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_treemap_get,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        native_treemap_contains_key,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/TreeMap", "size", "()I", native_treemap_size);
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "firstKey",
+        "()Ljava/lang/Object;",
+        native_treemap_first_key,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "lastKey",
+        "()Ljava/lang/Object;",
+        native_treemap_last_key,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "remove",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_treemap_remove,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "isEmpty",
+        "()Z",
+        native_treemap_is_empty,
+    );
+
+    // java/util/Stack — LIFO stack backed by ArrayList field layout
+    let stack_ctx = ClassContext {
+        class_name: "java/util/Stack".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(stack_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/Stack", "<init>", "()V", native_stack_init);
+    registry.natives_mut().register(
+        "java/util/Stack",
+        "push",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_stack_push,
+    );
+    registry.natives_mut().register(
+        "java/util/Stack",
+        "pop",
+        "()Ljava/lang/Object;",
+        native_stack_pop,
+    );
+    registry.natives_mut().register(
+        "java/util/Stack",
+        "peek",
+        "()Ljava/lang/Object;",
+        native_stack_peek,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/Stack", "empty", "()Z", native_stack_empty);
+    registry
+        .natives_mut()
+        .register("java/util/Stack", "size", "()I", native_stack_size);
+
+    // java/util/Comparator — static factory methods
+    let comparator_ctx = ClassContext {
+        class_name: "java/util/Comparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(comparator_ctx);
+    registry.natives_mut().register(
+        "java/util/Comparator",
+        "naturalOrder",
+        "()Ljava/util/Comparator;",
+        native_comparator_natural_order,
+    );
+    registry.natives_mut().register(
+        "java/util/Comparator",
+        "reverseOrder",
+        "()Ljava/util/Comparator;",
+        native_comparator_reverse_order,
+    );
+    registry.natives_mut().register(
+        "java/util/Comparator",
+        "comparingInt",
+        "(Ljava/util/function/ToIntFunction;)Ljava/util/Comparator;",
+        native_comparator_comparing_int,
+    );
+
+    // duke/util/NaturalOrderComparator — singleton, compare via compareTo
+    let natural_ord_ctx = ClassContext {
+        class_name: "duke/util/NaturalOrderComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(natural_ord_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/NaturalOrderComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_natural_order_compare,
+    );
+
+    // duke/util/ReverseOrderComparator — singleton, negates natural order
+    let reverse_ord_ctx = ClassContext {
+        class_name: "duke/util/ReverseOrderComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(reverse_ord_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ReverseOrderComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_reverse_order_compare,
+    );
+
+    // duke/util/ComparingIntComparator — wraps a ToIntFunction key extractor
+    // fields[0] = Reference(fn_ref)
+    let comparing_int_ctx = ClassContext {
+        class_name: "duke/util/ComparingIntComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "keyExtractor".to_string(),
+            descriptor: "Ljava/util/function/ToIntFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(comparing_int_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ComparingIntComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_comparing_int_compare,
+    );
 
     // java/util/Objects — null-safe utility methods
     let objects_ctx = ClassContext {
