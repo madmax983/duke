@@ -1155,6 +1155,386 @@ pub(crate) fn native_throwable_add_suppressed(
     Ok(None)
 }
 
+/// Native: `Throwable.<init>(String)V` — stores detail message in `string_value`.
+pub(crate) fn native_throwable_init_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let msg = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
+        _ => None,
+    };
+    heap.get_mut(this_ref)?.string_value = msg;
+    Ok(None)
+}
+
+/// Native: `Throwable.getMessage()String` — returns the stored detail message.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_throwable_get_message(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(r))) => {
+            let msg = heap.get(*r)?.string_value.clone();
+            let slot = msg.map_or(Slot::Reference(None), |s| Slot::Reference(Some(heap.allocate_string(s))));
+            Ok(Some(slot))
+        }
+        _ => Ok(Some(Slot::Reference(None))),
+    }
+}
+
+/// Native: `Throwable.toString()String` — returns `"ClassName: message"` or just class name.
+pub(crate) fn native_throwable_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    let class_name = obj.class_name.replace('/', ".");
+    let s = match &obj.string_value {
+        Some(msg) => format!("{class_name}: {msg}"),
+        None => class_name,
+    };
+    let _ = obj;
+    let r = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---- List.of / Set.of / Map.of factory methods ----
+
+/// Helper: create an `ArrayList` from a slice of `Slot`s.
+fn make_list_from_slots(
+    elems: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<u64> {
+    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(&[Slot::Reference(Some(list_ref))], heap, out, control)?;
+    for &elem in elems {
+        native_arraylist_add(&[Slot::Reference(Some(list_ref)), elem], heap, out, control)?;
+    }
+    Ok(list_ref)
+}
+
+/// Native: `List.of(Object...)List` — all args (fixed-arity or varargs) become a new `ArrayList`.
+///
+/// Handles descriptors with 0–6+ fixed args and the varargs `([O)List` form.
+pub(crate) fn native_list_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // Varargs form: single arg that is an Object[] array.
+    let elems: Vec<Slot> = if args.len() == 1 {
+        if let Some(Slot::Reference(Some(arr_ref))) = args.first() {
+            let obj = heap.get(*arr_ref)?;
+            if obj.class_name.starts_with('[') {
+                let fields = obj.fields.clone();
+                let _ = obj;
+                fields
+            } else {
+                args.to_vec()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        args.to_vec()
+    };
+    let list_ref = make_list_from_slots(&elems, heap, out, control)?;
+    Ok(Some(Slot::Reference(Some(list_ref))))
+}
+
+/// Helper: create a `HashSet` from a slice of `Slot`s.
+fn make_set_from_slots(
+    elems: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<u64> {
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+    for &elem in elems {
+        native_hashset_add(&[Slot::Reference(Some(set_ref)), elem], heap, out, control)?;
+    }
+    Ok(set_ref)
+}
+
+/// Native: `Set.of(Object...)Set` — all args (fixed-arity or varargs) become a new `HashSet`.
+///
+/// Handles both fixed-arity descriptors (multiple direct element args)
+/// and the single-array varargs form `([O)Set`.
+pub(crate) fn native_set_of_factory(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let elems: Vec<Slot> = if args.len() == 1 {
+        if let Some(Slot::Reference(Some(arr_ref))) = args.first() {
+            let obj = heap.get(*arr_ref)?;
+            if obj.class_name.starts_with('[') {
+                let fields = obj.fields.clone();
+                let _ = obj;
+                fields
+            } else {
+                args.to_vec()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        args.to_vec()
+    };
+    let set_ref = make_set_from_slots(&elems, heap, out, control)?;
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+/// Native: `Map.of(K,V,...)Map` — pairs of args become entries in a new `HashMap`.
+pub(crate) fn native_map_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+    native_hashmap_init(&[Slot::Reference(Some(map_ref))], heap, out, control)?;
+    let mut i = 0;
+    while i + 1 < args.len() {
+        let k = args[i];
+        let v = args[i + 1];
+        native_hashmap_put(&[Slot::Reference(Some(map_ref)), k, v], heap, out, control)?;
+        i += 2;
+    }
+    Ok(Some(Slot::Reference(Some(map_ref))))
+}
+
+// ---- Optional<T> natives ----
+
+/// Native: `Optional.empty()Optional` — returns an Optional with no value.
+pub(crate) fn native_optional_empty(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/util/Optional".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Reference(None);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Optional.of(T)Optional` — wraps value; throws NPE if null.
+pub(crate) fn native_optional_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = args.first().copied().unwrap_or(Slot::Reference(None));
+    if matches!(val, Slot::Reference(None)) {
+        return Err(VmError::NullPointerException);
+    }
+    let r = heap.allocate("java/util/Optional".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = val;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Optional.ofNullable(T)Optional` — wraps value or empty if null.
+pub(crate) fn native_optional_of_nullable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let val = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("java/util/Optional".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = val;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Optional.get()T` — returns value or throws `NoSuchElementException`.
+pub(crate) fn native_optional_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    if matches!(val, Slot::Reference(None)) {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    Ok(Some(val))
+}
+
+/// Native: `Optional.isPresent()Z` — true if a value is present.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_optional_is_present(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let present = !matches!(
+        heap.get(this_ref)?.fields.first(),
+        Some(Slot::Reference(None)) | None
+    );
+    Ok(Some(Slot::Int(i32::from(present))))
+}
+
+/// Native: `Optional.isEmpty()Z` — true if no value is present (Java 11+).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_optional_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let empty = matches!(
+        heap.get(this_ref)?.fields.first(),
+        Some(Slot::Reference(None)) | None
+    );
+    Ok(Some(Slot::Int(i32::from(empty))))
+}
+
+/// Native: `Optional.orElse(T)T` — returns value if present, else the argument.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_optional_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let result = if matches!(val, Slot::Reference(None)) {
+        args.get(1).copied().unwrap_or(Slot::Reference(None))
+    } else {
+        val
+    };
+    Ok(Some(result))
+}
+
+/// Native: `Optional.orElseThrow()T` — returns value or throws `NoSuchElementException`.
+pub(crate) fn native_optional_or_else_throw(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_optional_get(args, heap, out, control)
+}
+
+// ---- ArrayList / HashMap bulk operations ----
+
+/// Native: `ArrayList.addAll(Collection)Z` — appends all elements from a compatible collection.
+pub(crate) fn native_arraylist_add_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let src_ref = extract_ref_arg(args, 1)?;
+    let src_size = match heap.get(src_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => return Ok(Some(Slot::Int(0))),
+    };
+    let elems: Vec<Slot> = heap.get(src_ref)?.fields[1..=src_size].to_vec();
+    let modified = !elems.is_empty();
+    for elem in elems {
+        native_arraylist_add(&[Slot::Reference(Some(this_ref)), elem], heap, out, control)?;
+    }
+    Ok(Some(Slot::Int(i32::from(modified))))
+}
+
+/// Native: `HashMap.putAll(Map)V` — copies all entries from the source `HashMap`.
+pub(crate) fn native_hashmap_put_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let src_ref = extract_ref_arg(args, 1)?;
+    let fields = heap.get(src_ref)?.fields.clone();
+    // fields[0] = size, fields[1..] = k0, v0, k1, v1, ...
+    let mut i = 1;
+    while i + 1 < fields.len() {
+        let k = fields[i];
+        let v = fields[i + 1];
+        native_hashmap_put(&[Slot::Reference(Some(this_ref)), k, v], heap, out, control)?;
+        i += 2;
+    }
+    Ok(None)
+}
+
+/// Native: `HashMap.computeIfAbsent(K, Function)V` — returns existing value or computes and stores it.
+pub(crate) fn native_hashmap_compute_if_absent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    // Check if key already present.
+    let existing = native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+    if let Some(v) = existing
+        && !matches!(v, Slot::Reference(None))
+    {
+        return Ok(Some(v));
+    }
+    // Key absent — invoke the mapping function (lambda / SAM).
+    let fn_ref = extract_ref_arg(args, 2)?;
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let computed = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![Slot::Reference(Some(fn_ref)), key],
+    )?;
+    if let Some(value) = computed
+        && !matches!(value, Slot::Reference(None))
+    {
+        native_hashmap_put(
+            &[Slot::Reference(Some(this_ref)), key, value],
+            heap,
+            out,
+            control,
+        )?;
+        return Ok(Some(value));
+    }
+    Ok(Some(Slot::Reference(None)))
+}
+
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
 /// args: `[this_ref, name_ref, ordinal_int]`
 pub(crate) fn native_enum_init(
@@ -22187,6 +22567,170 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("ArraysAsListTest.class", "testEmptyArray", "()I"),
             0
+        );
+    }
+
+    // ---- Phase 32: Throwable.getMessage, List/Set/Map.of, Optional, bulk ops ----
+
+    #[test]
+    fn throwable_get_message() {
+        assert_eq!(
+            run_bootstrap_int("ThrowableTest.class", "testGetMessage", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn throwable_get_message_null() {
+        assert_eq!(
+            run_bootstrap_int("ThrowableTest.class", "testGetMessageNull", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn throwable_tostring() {
+        assert_eq!(
+            run_bootstrap_int("ThrowableTest.class", "testToString", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn throwable_catch_get_message() {
+        assert_eq!(
+            run_bootstrap_int("ThrowableTest.class", "testCatchGetMessage", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn list_of_zero() {
+        assert_eq!(
+            run_bootstrap_int("ListOfTest.class", "testListOfZero", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn list_of_one() {
+        assert_eq!(
+            run_bootstrap_int("ListOfTest.class", "testListOfOne", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn list_of_three() {
+        assert_eq!(
+            run_bootstrap_int("ListOfTest.class", "testListOfThree", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn list_of_get() {
+        assert_eq!(
+            run_bootstrap_int("ListOfTest.class", "testListOfGet", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn set_of_two() {
+        assert_eq!(
+            run_bootstrap_int("ListOfTest.class", "testSetOfTwo", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn map_of_one() {
+        assert_eq!(
+            run_bootstrap_int("ListOfTest.class", "testMapOfOne", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn map_of_two() {
+        assert_eq!(
+            run_bootstrap_int("ListOfTest.class", "testMapOfTwo", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn optional_empty() {
+        assert_eq!(
+            run_bootstrap_int("OptionalTest.class", "testEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn optional_of() {
+        assert_eq!(run_bootstrap_int("OptionalTest.class", "testOf", "()I"), 1);
+    }
+
+    #[test]
+    fn optional_get() {
+        assert_eq!(run_bootstrap_int("OptionalTest.class", "testGet", "()I"), 5);
+    }
+
+    #[test]
+    fn optional_or_else_empty() {
+        assert_eq!(
+            run_bootstrap_int("OptionalTest.class", "testOrElse", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn optional_or_else_present() {
+        assert_eq!(
+            run_bootstrap_int("OptionalTest.class", "testOrElsePresent", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn optional_is_empty() {
+        assert_eq!(
+            run_bootstrap_int("OptionalTest.class", "testIsEmpty", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn optional_of_nullable_null() {
+        assert_eq!(
+            run_bootstrap_int("OptionalTest.class", "testOfNullable", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn arraylist_add_all() {
+        assert_eq!(
+            run_bootstrap_int("CollectionBulkTest.class", "testAddAll", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn arraylist_add_all_empty_returns_false() {
+        assert_eq!(
+            run_bootstrap_int("CollectionBulkTest.class", "testAddAllEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn hashmap_put_all() {
+        assert_eq!(
+            run_bootstrap_int("CollectionBulkTest.class", "testPutAll", "()I"),
+            3
         );
     }
 
