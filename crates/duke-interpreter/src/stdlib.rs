@@ -5039,9 +5039,86 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_collectors_joining_no_arg,
     );
 
-    // Stream.limit / skip / flatMap
+    // Stream.generate / iterate / concat / empty
     registry.natives_mut().register(
+        "java/util/stream/Stream",
+        "generate",
+        "(Ljava/util/function/Supplier;)Ljava/util/stream/Stream;",
+        native_stream_generate,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Stream",
+        "iterate",
+        "(Ljava/lang/Object;Ljava/util/function/UnaryOperator;)Ljava/util/stream/Stream;",
+        native_stream_iterate,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Stream",
+        "concat",
+        "(Ljava/util/stream/Stream;Ljava/util/stream/Stream;)Ljava/util/stream/Stream;",
+        native_stream_concat,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Stream",
+        "empty",
+        "()Ljava/util/stream/Stream;",
+        native_stream_empty,
+    );
+    // Register sentinel classes for lazy generator/iterator streams.
+    registry.register(ClassContext {
+        class_name: "duke/util/GeneratorStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "supplier".to_string(),
+            descriptor: "Ljava/util/function/Supplier;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Stream".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    registry.register(ClassContext {
+        class_name: "duke/util/IteratorStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "seed".to_string(),
+                descriptor: "Ljava/lang/Object;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "fn".to_string(),
+                descriptor: "Ljava/util/function/UnaryOperator;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/stream/Stream".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+
+    // Stream.limit / skip / flatMap
+    registry.natives_mut().register_callback(
         "duke/util/Stream",
+        "limit",
+        "(J)Ljava/util/stream/Stream;",
+        native_stream_limit,
+    );
+    // Also register limit on sentinel streams so they can be materialised.
+    registry.natives_mut().register_callback(
+        "duke/util/GeneratorStream",
+        "limit",
+        "(J)Ljava/util/stream/Stream;",
+        native_stream_limit,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IteratorStream",
         "limit",
         "(J)Ljava/util/stream/Stream;",
         native_stream_limit,

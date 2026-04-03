@@ -3234,8 +3234,9 @@ pub(crate) fn native_stream_to_array(
 pub(crate) fn native_stream_limit(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let max_size = match args.get(1).copied() {
@@ -3243,6 +3244,75 @@ pub(crate) fn native_stream_limit(
         Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
         _ => 0,
     };
+    let class_name = heap.get(stream_ref)?.class_name.clone();
+
+    // Lazy generators: materialise N elements on limit().
+    if class_name == "duke/util/GeneratorStream" {
+        let supplier_slot = heap
+            .get(stream_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(sup_ref)) = supplier_slot else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        let sup_class = heap.get(sup_ref)?.class_name.clone();
+        let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+        heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(max_size).unwrap_or(0));
+        for _ in 0..max_size {
+            let elem = ops
+                .invoke(
+                    heap,
+                    out,
+                    &sup_class,
+                    "get",
+                    "()Ljava/lang/Object;",
+                    vec![Slot::Reference(Some(sup_ref))],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            heap.get_mut(out_ref)?.fields.push(elem);
+        }
+        return Ok(Some(Slot::Reference(Some(out_ref))));
+    }
+
+    if class_name == "duke/util/IteratorStream" {
+        // fields[0] = current seed, fields[1] = UnaryOperator fn
+        let seed = heap
+            .get(stream_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let fn_slot = heap
+            .get(stream_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+        heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(max_size).unwrap_or(0));
+        let mut current = seed;
+        for _ in 0..max_size {
+            heap.get_mut(out_ref)?.fields.push(current);
+            current = ops
+                .invoke(
+                    heap,
+                    out,
+                    &fn_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![fn_slot, current],
+                )?
+                .unwrap_or(Slot::Reference(None));
+        }
+        return Ok(Some(Slot::Reference(Some(out_ref))));
+    }
+
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -20626,6 +20696,83 @@ fn patch_forwarded_slots(
             heap.apply_forward(slot);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 48: Stream.generate/iterate/concat/empty
+// ---------------------------------------------------------------------------
+
+/// Native: `Stream.generate(Supplier)Stream` — returns a `duke/util/GeneratorStream` sentinel.
+/// Materialised into a real Stream when `.limit(N)` is called.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_stream_generate(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let supplier = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/GeneratorStream".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = supplier;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Stream.iterate(seed, UnaryOperator)Stream` — returns a `duke/util/IteratorStream`.
+/// Materialised into a real Stream when `.limit(N)` is called.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_stream_iterate(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let seed = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/IteratorStream".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = seed;
+    heap.get_mut(r)?.fields[1] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Stream.concat(Stream, Stream)Stream` — concatenates two eager streams.
+pub(crate) fn native_stream_concat(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a_ref = extract_ref_arg(args, 0)?;
+    let b_ref = extract_ref_arg(args, 1)?;
+    let a_size = match heap.get(a_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let b_size = match heap.get(b_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let a_elems: Vec<Slot> = heap.get(a_ref)?.fields[1..=a_size].to_vec();
+    let b_elems: Vec<Slot> = heap.get(b_ref)?.fields[1..=b_size].to_vec();
+    let total = a_size + b_size;
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(total).unwrap_or(0));
+    for elem in a_elems.into_iter().chain(b_elems) {
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `Stream.empty()Stream` — returns a zero-element stream.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_stream_empty(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
 }
 
 // ---------------------------------------------------------------------------
@@ -44461,6 +44608,104 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase47Test.class", "testCollectionsMax", "()I"),
             4,
+        );
+    }
+
+    // ---- Phase 48 ----
+
+    #[test]
+    fn test_stream_generate() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testStreamGenerate", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_stream_iterate() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testStreamIterate", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn test_stream_concat() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testStreamConcat", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_stream_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testStreamEmpty", "()I"),
+            0,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_range_closed() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testIntStreamRangeClosed", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_map_compute() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testMapCompute", "()I"),
+            20,
+        );
+    }
+
+    #[test]
+    fn test_map_compute_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testMapComputeAbsent", "()I"),
+            99,
+        );
+    }
+
+    #[test]
+    fn test_optional_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testOptionalMap", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_optional_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testOptionalFilter", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_optional_filter_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testOptionalFilterEmpty", "()I"),
+            0,
+        );
+    }
+
+    #[test]
+    fn test_optional_or_else() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testOptionalOrElse", "()I"),
+            99,
+        );
+    }
+
+    #[test]
+    fn test_optional_or_else_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase48Test.class", "testOptionalOrElseGet", "()I"),
+            77,
         );
     }
 }
