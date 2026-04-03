@@ -1182,7 +1182,9 @@ pub(crate) fn native_throwable_get_message(
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
             let msg = heap.get(*r)?.string_value.clone();
-            let slot = msg.map_or(Slot::Reference(None), |s| Slot::Reference(Some(heap.allocate_string(s))));
+            let slot = msg.map_or(Slot::Reference(None), |s| {
+                Slot::Reference(Some(heap.allocate_string(s)))
+            });
             Ok(Some(slot))
         }
         _ => Ok(Some(Slot::Reference(None))),
