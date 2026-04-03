@@ -4152,6 +4152,114 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(grouping_ctx);
 
+    // Collectors.toSet() and Collectors.toMap(keyFn, valFn)
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "toSet",
+        "()Ljava/util/stream/Collector;",
+        native_collectors_to_set,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/stream/Collectors",
+        "toMap",
+        "(Ljava/util/function/Function;Ljava/util/function/Function;)Ljava/util/stream/Collector;",
+        native_collectors_to_map,
+    );
+    let to_set_ctx = ClassContext {
+        class_name: "duke/util/ToSetCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(to_set_ctx);
+    let to_map_ctx = ClassContext {
+        class_name: "duke/util/ToMapCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "keyFn".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "valFn".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(to_map_ctx);
+
+    // Stream.mapToInt(ToIntFunction) → IntStream
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "mapToInt",
+        "(Ljava/util/function/ToIntFunction;)Ljava/util/stream/IntStream;",
+        native_stream_map_to_int,
+    );
+
+    // IntStream.reduce
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "reduce",
+        "(ILjava/util/function/IntBinaryOperator;)I",
+        native_int_stream_reduce_identity,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "reduce",
+        "(Ljava/util/function/IntBinaryOperator;)Ljava/util/OptionalInt;",
+        native_int_stream_reduce_optional,
+    );
+
+    // Stream.reduce(BinaryOperator) and Stream.reduce(identity, BinaryOperator) — Phase 37 had reduce, but adding 2-arg
+    // Stream.min(Comparator) and Stream.max(Comparator)
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "min",
+        "(Ljava/util/Comparator;)Ljava/util/Optional;",
+        native_stream_min_comparator,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "max",
+        "(Ljava/util/Comparator;)Ljava/util/Optional;",
+        native_stream_max_comparator,
+    );
+
+    // Arrays.sort(Object[]) — natural order sort
+    registry.natives_mut().register_callback(
+        "java/util/Arrays",
+        "sort",
+        "([Ljava/lang/Object;)V",
+        native_arrays_sort_objects,
+    );
+
+    // String.<init>(char[]) and String.valueOf(char[])
+    registry.natives_mut().register(
+        "java/lang/String",
+        "<init>",
+        "([C)V",
+        native_string_init_from_chars,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "valueOf",
+        "([C)Ljava/lang/String;",
+        native_string_value_of_char_array,
+    );
+
     // java/util/TreeMap — sorted map backed by flat sorted key/val pairs
     // fields[0] = Int(size), fields[1,2] = k0/v0, fields[3,4] = k1/v1, ...
     let treemap_ctx = ClassContext {
@@ -4620,6 +4728,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "reduce",
         "(Ljava/util/function/BinaryOperator;)Ljava/util/Optional;",
         native_stream_reduce,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "reduce",
+        "(Ljava/lang/Object;Ljava/util/function/BinaryOperator;)Ljava/lang/Object;",
+        native_stream_reduce_with_identity,
     );
     registry.natives_mut().register_callback(
         "duke/util/Stream",
