@@ -900,6 +900,83 @@ mod tests {
         assert_eq!(names, vec!["x.txt", "y.txt"]);
     }
 
+    #[test]
+    fn parse_eocd_cd_past_eof() {
+        let zip = build_stored_zip("test.txt", b"data");
+        // Corrupt the cd_size in the EOCD (offset 12 from EOCD start)
+        let eocd_pos = zip.len() - EOCD_MIN_SIZE;
+        let mut corrupted_zip = zip;
+
+        // EOCD layout:
+        // 12: size of CD (4)
+        // Set it to something huge
+        let huge_size = 0xFFFF_FFFF_u32;
+        corrupted_zip[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&huge_size.to_le_bytes());
+
+        let err = ZipReader::from_bytes(corrupted_zip).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("central directory extends past end of file"));
+        }
+    }
+
+    #[test]
+    fn parse_cd_entry_truncated() {
+        let zip = build_stored_zip("test.txt", b"data");
+        // EOCD start
+        let eocd_pos = zip.len() - EOCD_MIN_SIZE;
+        // CD offset is at EOCD + 16
+        let cd_offset = read_u32_le(&zip, eocd_pos + 16) as usize;
+
+        // Truncate the ZIP file right after the CD starts (so it's < 46 bytes)
+        let _corrupted_zip = zip[..cd_offset + 10].to_vec();
+
+        // We also need to fix up the EOCD so it points to the right place and doesn't fail the initial scan.
+        // Easiest is to just manually call parse_central_directory or parse_eocd_and_central_directory
+        // on a carefully crafted byte array.
+
+        // Let's just create a fake EOCD and CD that is truncated.
+        // We'll reuse the `build_stored_zip` but truncate it before EOCD, append EOCD, but the CD is shortened.
+        let err = parse_central_directory(&zip, cd_offset, 10, 1).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("central directory entry truncated"));
+        }
+    }
+
+    #[test]
+    fn parse_cd_bad_signature() {
+        let mut zip = build_stored_zip("test.txt", b"data");
+        let eocd_pos = zip.len() - EOCD_MIN_SIZE;
+        let cd_offset = read_u32_le(&zip, eocd_pos + 16) as usize;
+
+        // Corrupt the CD signature
+        zip[cd_offset] ^= 0xFF;
+
+        let err = ZipReader::from_bytes(zip).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("expected central directory signature"));
+        }
+    }
+
+    #[test]
+    fn parse_cd_filename_truncated() {
+        let zip = build_stored_zip("test.txt", b"data");
+        let eocd_pos = zip.len() - EOCD_MIN_SIZE;
+        let cd_offset = read_u32_le(&zip, eocd_pos + 16) as usize;
+
+
+        // Let's pretend the CD size is exactly 46 (so it truncates the filename)
+        // But we have to test `parse_central_directory` directly to simulate `name_start + filename_len > cd_end`
+        let err = parse_central_directory(&zip, cd_offset, 46, 1).unwrap_err();
+
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("central directory entry filename truncated"));
+        }
+    }
+
     // ── ZipLoader (ClassLoader) ──────────────────────────────────────────
 
     #[test]
