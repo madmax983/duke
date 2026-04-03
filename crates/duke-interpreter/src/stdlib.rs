@@ -8282,4 +8282,115 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/time/Instant;)Z",
         native_instant_is_after,
     );
+
+    // ---- Phase 63: java.time.LocalDateTime ----
+    let localdatetime_ctx = ClassContext {
+        class_name: "java/time/LocalDateTime".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(localdatetime_ctx);
+
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "of",
+        "(IIIII)Ljava/time/LocalDateTime;",
+        native_localdatetime_of_ymd_hm,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "of",
+        "(IIIIII)Ljava/time/LocalDateTime;",
+        native_localdatetime_of_ymd_hms,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "of",
+        "(Ljava/time/LocalDate;III)Ljava/time/LocalDateTime;",
+        native_localdatetime_of_date_hms,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "now",
+        "()Ljava/time/LocalDateTime;",
+        native_localdatetime_now,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getYear",
+        "()I",
+        native_localdatetime_get_year,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getMonthValue",
+        "()I",
+        native_localdatetime_get_month_value,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getDayOfMonth",
+        "()I",
+        native_localdatetime_get_day_of_month,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getHour",
+        "()I",
+        native_localdatetime_get_hour,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getMinute",
+        "()I",
+        native_localdatetime_get_minute,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getSecond",
+        "()I",
+        native_localdatetime_get_second,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "toLocalDate",
+        "()Ljava/time/LocalDate;",
+        native_localdatetime_to_local_date,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "isBefore",
+        "(Ljava/time/chrono/ChronoLocalDateTime;)Z",
+        native_localdatetime_is_before,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "isAfter",
+        "(Ljava/time/chrono/ChronoLocalDateTime;)Z",
+        native_localdatetime_is_after,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "toString",
+        "()Ljava/lang/String;",
+        native_localdatetime_to_string,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "plusDays",
+        "(J)Ljava/time/LocalDateTime;",
+        native_localdatetime_plus_days,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "withHour",
+        "(I)Ljava/time/LocalDateTime;",
+        native_localdatetime_with_hour,
+    );
 }
