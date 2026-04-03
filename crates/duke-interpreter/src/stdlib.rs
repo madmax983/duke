@@ -4548,6 +4548,233 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_collectors_joining_no_arg,
     );
 
+    // Stream.limit / skip / flatMap
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "limit",
+        "(J)Ljava/util/stream/Stream;",
+        native_stream_limit,
+    );
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "skip",
+        "(J)Ljava/util/stream/Stream;",
+        native_stream_skip,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "flatMap",
+        "(Ljava/util/function/Function;)Ljava/util/stream/Stream;",
+        native_stream_flat_map,
+    );
+
+    // duke/util/IntStream — unboxed int stream
+    // fields[0]=Int(size), fields[1..n]=Int(value) elements
+    let int_stream_ctx = ClassContext {
+        class_name: "duke/util/IntStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(int_stream_ctx);
+
+    // java/util/stream/IntStream — public API alias
+    let j_int_stream_ctx = ClassContext {
+        class_name: "java/util/stream/IntStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(j_int_stream_ctx);
+
+    // IntStream static factories
+    registry.natives_mut().register(
+        "java/util/stream/IntStream",
+        "range",
+        "(II)Ljava/util/stream/IntStream;",
+        native_int_stream_range,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/IntStream",
+        "rangeClosed",
+        "(II)Ljava/util/stream/IntStream;",
+        native_int_stream_range_closed,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/IntStream",
+        "of",
+        "([I)Ljava/util/stream/IntStream;",
+        native_int_stream_of,
+    );
+
+    // IntStream terminal ops
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "count",
+        "()J",
+        native_int_stream_count,
+    );
+    registry
+        .natives_mut()
+        .register("duke/util/IntStream", "sum", "()I", native_int_stream_sum);
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "min",
+        "()Ljava/util/OptionalInt;",
+        native_int_stream_min,
+    );
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "max",
+        "()Ljava/util/OptionalInt;",
+        native_int_stream_max,
+    );
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "average",
+        "()Ljava/util/OptionalDouble;",
+        native_int_stream_average,
+    );
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "toArray",
+        "()[I",
+        native_int_stream_to_array,
+    );
+
+    // IntStream intermediate ops
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "filter",
+        "(Ljava/util/function/IntPredicate;)Ljava/util/stream/IntStream;",
+        native_int_stream_filter,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "map",
+        "(Ljava/util/function/IntUnaryOperator;)Ljava/util/stream/IntStream;",
+        native_int_stream_map,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "forEach",
+        "(Ljava/util/function/IntConsumer;)V",
+        native_int_stream_for_each,
+    );
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "boxed",
+        "()Ljava/util/stream/Stream;",
+        native_int_stream_boxed,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "mapToObj",
+        "(Ljava/util/function/IntFunction;)Ljava/util/stream/Stream;",
+        native_int_stream_map_to_obj,
+    );
+
+    // duke/util/OptionalInt — OptionalInt: fields[0]=Int(value), fields[1]=Int(present 0/1)
+    let opt_int_ctx = ClassContext {
+        class_name: "duke/util/OptionalInt".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "present".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(opt_int_ctx);
+    // Also register as java/util/OptionalInt for dispatch
+    let j_opt_int_ctx = ClassContext {
+        class_name: "java/util/OptionalInt".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(j_opt_int_ctx);
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "getAsInt",
+        "()I",
+        native_optional_int_get_as_int,
+    );
+
+    // duke/util/OptionalDouble
+    let opt_dbl_ctx = ClassContext {
+        class_name: "duke/util/OptionalDouble".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "D".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "present".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(opt_dbl_ctx);
+    let j_opt_dbl_ctx = ClassContext {
+        class_name: "java/util/OptionalDouble".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(j_opt_dbl_ctx);
+    registry.natives_mut().register(
+        "duke/util/OptionalDouble",
+        "getAsDouble",
+        "()D",
+        native_optional_double_get_as_double,
+    );
+
     // java/util/PriorityQueue — min-heap; fields[0]=Int(size), fields[1..]=heap array
     let pq_ctx = ClassContext {
         class_name: "java/util/PriorityQueue".to_string(),
