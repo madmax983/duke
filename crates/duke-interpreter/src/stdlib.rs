@@ -4096,6 +4096,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "([I)Ljava/util/stream/IntStream;",
         native_arrays_stream_int,
     );
+    // Arrays.stream(Object[]) → Stream
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "stream",
+        "([Ljava/lang/Object;)Ljava/util/stream/Stream;",
+        native_arrays_stream_object,
+    );
 
     // Math.random()
     registry
