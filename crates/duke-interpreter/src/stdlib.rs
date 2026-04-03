@@ -5330,6 +5330,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()I",
         native_optional_int_get_as_int,
     );
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "isPresent",
+        "()Z",
+        native_optional_int_is_present,
+    );
 
     // duke/util/OptionalDouble
     let opt_dbl_ctx = ClassContext {
@@ -7012,4 +7018,127 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(averaging_ctx);
+
+    // ---------------------------------------------------------------------------
+    // Phase 53: IntStream/LongStream terminal ops, Comparator.comparingLong,
+    //           Optional.or / ifPresentOrElse, Collectors.toUnmodifiable*
+    // ---------------------------------------------------------------------------
+
+    // IntStream.findFirst / anyMatch / allMatch / noneMatch
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "findFirst",
+        "()Ljava/util/OptionalInt;",
+        native_int_stream_find_first,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "anyMatch",
+        "(Ljava/util/function/IntPredicate;)Z",
+        native_int_stream_any_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "allMatch",
+        "(Ljava/util/function/IntPredicate;)Z",
+        native_int_stream_all_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "noneMatch",
+        "(Ljava/util/function/IntPredicate;)Z",
+        native_int_stream_none_match,
+    );
+
+    // IntStream.mapToLong(IntToLongFunction) → LongStream
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "mapToLong",
+        "(Ljava/util/function/IntToLongFunction;)Ljava/util/stream/LongStream;",
+        native_int_stream_map_to_long,
+    );
+
+    // LongStream.findFirst / anyMatch / allMatch / noneMatch
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "findFirst",
+        "()Ljava/util/OptionalLong;",
+        native_long_stream_find_first,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "anyMatch",
+        "(Ljava/util/function/LongPredicate;)Z",
+        native_long_stream_any_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "allMatch",
+        "(Ljava/util/function/LongPredicate;)Z",
+        native_long_stream_all_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "noneMatch",
+        "(Ljava/util/function/LongPredicate;)Z",
+        native_long_stream_none_match,
+    );
+
+    // Comparator.comparingLong(ToLongFunction)
+    registry.natives_mut().register(
+        "java/util/Comparator",
+        "comparingLong",
+        "(Ljava/util/function/ToLongFunction;)Ljava/util/Comparator;",
+        native_comparator_comparing_long,
+    );
+    let comparing_long_ctx = ClassContext {
+        class_name: "duke/util/ComparingLongComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "keyExtractor".to_string(),
+            descriptor: "Ljava/util/function/ToLongFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(comparing_long_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ComparingLongComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_comparing_long_compare,
+    );
+
+    // Optional.or(Supplier<Optional>) and Optional.ifPresentOrElse(Consumer, Runnable)
+    registry.natives_mut().register_callback(
+        "java/util/Optional",
+        "or",
+        "(Ljava/util/function/Supplier;)Ljava/util/Optional;",
+        native_optional_or,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Optional",
+        "ifPresentOrElse",
+        "(Ljava/util/function/Consumer;Ljava/lang/Runnable;)V",
+        native_optional_if_present_or_else,
+    );
+
+    // Collectors.toUnmodifiableList() and toUnmodifiableSet() (Java 10)
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "toUnmodifiableList",
+        "()Ljava/util/stream/Collector;",
+        native_collectors_to_unmodifiable_list,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "toUnmodifiableSet",
+        "()Ljava/util/stream/Collector;",
+        native_collectors_to_unmodifiable_set,
+    );
 }
