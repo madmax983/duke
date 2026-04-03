@@ -4333,6 +4333,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_arraylist_for_each,
     );
 
+    // Stream.takeWhile / dropWhile (Java 9)
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "takeWhile",
+        "(Ljava/util/function/Predicate;)Ljava/util/stream/Stream;",
+        native_stream_take_while,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "dropWhile",
+        "(Ljava/util/function/Predicate;)Ljava/util/stream/Stream;",
+        native_stream_drop_while,
+    );
+
     // Stream.sorted(Comparator) with comparator
     registry.natives_mut().register_callback(
         "duke/util/Stream",
@@ -4377,6 +4391,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "unmodifiableMap",
         "(Ljava/util/Map;)Ljava/util/Map;",
         native_collections_unmodifiable_map,
+    );
+    // Collections.reverseOrder() — same as Comparator.reverseOrder()
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "reverseOrder",
+        "()Ljava/util/Comparator;",
+        native_comparator_reverse_order,
     );
 
     // Collectors.partitioningBy(Predicate) — bool-keyed map

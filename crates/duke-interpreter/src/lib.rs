@@ -20606,6 +20606,101 @@ fn patch_forwarded_slots(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 46: Stream.takeWhile/dropWhile (Java 9)
+// ---------------------------------------------------------------------------
+
+/// Native: `Stream.takeWhile(Predicate)Stream` — keeps prefix while predicate holds.
+pub(crate) fn native_stream_take_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let mut kept: Vec<Slot> = Vec::new();
+    for elem in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(Ljava/lang/Object;)Z",
+            vec![Slot::Reference(Some(pred_ref)), elem],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            kept.push(elem);
+        } else {
+            break;
+        }
+    }
+    let new_size = i32::try_from(kept.len()).unwrap_or(0);
+    let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
+    for elem in kept {
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(new_stream))))
+}
+
+/// Native: `Stream.dropWhile(Predicate)Stream` — drops prefix while predicate holds, keeps rest.
+pub(crate) fn native_stream_drop_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let mut dropping = true;
+    let mut kept: Vec<Slot> = Vec::new();
+    for elem in elems {
+        if dropping {
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(Ljava/lang/Object;)Z",
+                vec![Slot::Reference(Some(pred_ref)), elem],
+            )?;
+            if matches!(result, Some(Slot::Int(n)) if n != 0) {
+                continue;
+            }
+            dropping = false;
+        }
+        kept.push(elem);
+    }
+    let new_size = i32::try_from(kept.len()).unwrap_or(0);
+    let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
+    for elem in kept {
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(new_stream))))
+}
+
+// ---------------------------------------------------------------------------
 // Phase 45: ArrayList.forEach, Stream.sorted(Comparator), Arrays.toString,
 //           HashMap.replace, Collections.swap/unmodifiableMap,
 //           Collectors.partitioningBy, IntStream.sorted
@@ -44139,6 +44234,104 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase45Test.class", "testCollectionsUnmodifiableMap", "()I"),
             7,
+        );
+    }
+
+    // ---- Phase 46 ----
+
+    #[test]
+    fn test_string_repeat() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testStringRepeat", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_is_blank() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testStringIsBlank", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_is_blank_not() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testStringIsBlankNot", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_lines() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testStringLines", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_stream_take_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testStreamTakeWhile", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_stream_drop_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testStreamDropWhile", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testMapPutIfAbsent", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_map_compute_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testMapComputeIfAbsent", "()I"),
+            42,
+        );
+    }
+
+    #[test]
+    fn test_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testMapMerge", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_collections_reverse_order() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testCollectionsReverseOrder", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_optional_of_nullable() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testOptionalOfNullable", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_optional_of_nullable_null() {
+        assert_eq!(
+            run_bootstrap_int("Phase46Test.class", "testOptionalOfNullableNull", "()I"),
+            0,
         );
     }
 }
