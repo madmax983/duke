@@ -2587,6 +2587,16 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     // java/lang/Boolean — boxed boolean + static utility
+    // Allocate TRUE/FALSE singletons before registering the class so static_fields
+    // can reference them via heap address.
+    let bool_true_ref = heap.allocate("java/lang/Boolean".to_string(), 1);
+    if let Ok(obj) = heap.get_mut(bool_true_ref) {
+        obj.fields[0] = Slot::Int(1);
+    }
+    let bool_false_ref = heap.allocate("java/lang/Boolean".to_string(), 1);
+    if let Ok(obj) = heap.get_mut(bool_false_ref) {
+        obj.fields[0] = Slot::Int(0);
+    }
     let boolean_ctx = ClassContext {
         class_name: "java/lang/Boolean".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -2599,12 +2609,26 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 is_static: false,
             },
             FieldEntry {
+                name: "TRUE".to_string(),
+                descriptor: "Ljava/lang/Boolean;".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "FALSE".to_string(),
+                descriptor: "Ljava/lang/Boolean;".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
                 name: "TYPE".to_string(),
                 descriptor: "Ljava/lang/Class;".to_string(),
                 is_static: true,
             },
         ],
-        static_fields: vec![Slot::Reference(None)],
+        static_fields: vec![
+            Slot::Reference(Some(bool_true_ref)),
+            Slot::Reference(Some(bool_false_ref)),
+            Slot::Reference(None), // TYPE
+        ],
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
@@ -4300,6 +4324,95 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/function/Predicate;)Z",
         native_arraylist_remove_if,
     );
+
+    // List.forEach(Consumer) / ArrayList.forEach(Consumer)
+    registry.natives_mut().register_callback(
+        "java/util/ArrayList",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_arraylist_for_each,
+    );
+
+    // Stream.sorted(Comparator) with comparator
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "sorted",
+        "(Ljava/util/Comparator;)Ljava/util/stream/Stream;",
+        native_stream_sorted_comparator,
+    );
+
+    // Arrays.toString(int[]) and Arrays.toString(Object[])
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "toString",
+        "([I)Ljava/lang/String;",
+        native_arrays_to_string_int,
+    );
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "toString",
+        "([Ljava/lang/Object;)Ljava/lang/String;",
+        native_arrays_to_string_object,
+    );
+
+    // HashMap.replace(k, v) → old value or null
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "replace",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_replace,
+    );
+
+    // Collections.swap(list, i, j)
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "swap",
+        "(Ljava/util/List;II)V",
+        native_collections_swap,
+    );
+
+    // Collections.unmodifiableMap(map) — identity stub
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "unmodifiableMap",
+        "(Ljava/util/Map;)Ljava/util/Map;",
+        native_collections_unmodifiable_map,
+    );
+
+    // Collectors.partitioningBy(Predicate) — bool-keyed map
+    registry.natives_mut().register_callback(
+        "java/util/stream/Collectors",
+        "partitioningBy",
+        "(Ljava/util/function/Predicate;)Ljava/util/stream/Collector;",
+        native_collectors_partitioning_by,
+    );
+    let partitioning_ctx = ClassContext {
+        class_name: "duke/util/PartitioningByCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "predicate".to_string(),
+            descriptor: "Ljava/util/function/Predicate;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(partitioning_ctx);
+
+    // IntStream.sorted()
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "sorted",
+        "()Ljava/util/stream/IntStream;",
+        native_int_stream_sorted,
+    );
+
+    // Comparator.comparingInt(ToIntFunction)
+    // (already registered in Phase 34, but adding alias for lambda dispatch)
 
     // Comparator.reversed() → wraps the comparator in a ReverseComparator
     registry.natives_mut().register_callback(
