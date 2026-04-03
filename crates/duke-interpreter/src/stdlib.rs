@@ -7545,4 +7545,184 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
     });
+
+    // ---- Phase 57: Collectors.reducing sentinels ----
+
+    // ReducingNoIdentityCollector: fields[0] = BinaryOperator
+    registry.register(ClassContext {
+        class_name: "duke/util/ReducingNoIdentityCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "op".to_string(),
+            descriptor: "Ljava/util/function/BinaryOperator;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "reducing",
+        "(Ljava/util/function/BinaryOperator;)Ljava/util/stream/Collector;",
+        native_collectors_reducing_no_identity,
+    );
+
+    // ReducingCollector: fields[0]=identity, fields[1]=BinaryOperator
+    registry.register(ClassContext {
+        class_name: "duke/util/ReducingCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "identity".to_string(),
+                descriptor: "Ljava/lang/Object;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "op".to_string(),
+                descriptor: "Ljava/util/function/BinaryOperator;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "reducing",
+        "(Ljava/lang/Object;Ljava/util/function/BinaryOperator;)Ljava/util/stream/Collector;",
+        native_collectors_reducing_with_identity,
+    );
+
+    // ReducingMappingCollector: fields[0]=identity, fields[1]=mapper, fields[2]=BinaryOperator
+    registry.register(ClassContext {
+        class_name: "duke/util/ReducingMappingCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "identity".to_string(),
+                descriptor: "Ljava/lang/Object;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "mapper".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "op".to_string(),
+                descriptor: "Ljava/util/function/BinaryOperator;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "reducing",
+        "(Ljava/lang/Object;Ljava/util/function/Function;Ljava/util/function/BinaryOperator;)Ljava/util/stream/Collector;",
+        native_collectors_reducing_mapping,
+    );
+
+    // ---- Phase 57: Stream.iterate 3-arg (Java 9) ----
+    registry.natives_mut().register_callback(
+        "java/util/stream/Stream",
+        "iterate",
+        "(Ljava/lang/Object;Ljava/util/function/Predicate;Ljava/util/function/UnaryOperator;)Ljava/util/stream/Stream;",
+        native_stream_iterate_predicate,
+    );
+
+    // ---- Phase 57: Optional.stream() ----
+    registry.natives_mut().register(
+        "java/util/Optional",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_optional_stream,
+    );
+
+    // ---- Phase 57: ArrayDeque completion ----
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "addFirst",
+        "(Ljava/lang/Object;)V",
+        native_arraydeque_add_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "addLast",
+        "(Ljava/lang/Object;)V",
+        native_arraydeque_add_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "offerFirst",
+        "(Ljava/lang/Object;)Z",
+        native_arraydeque_offer_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "offerLast",
+        "(Ljava/lang/Object;)Z",
+        native_arraydeque_offer_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "peekFirst",
+        "()Ljava/lang/Object;",
+        native_arraydeque_peek_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "peekLast",
+        "()Ljava/lang/Object;",
+        native_arraydeque_peek_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "pollFirst",
+        "()Ljava/lang/Object;",
+        native_arraydeque_poll_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "pollLast",
+        "()Ljava/lang/Object;",
+        native_arraydeque_poll_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_arraydeque_contains,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_arraydeque_stream,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/ArrayDeque",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_arraydeque_for_each,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "clear",
+        "()V",
+        native_arraydeque_clear,
+    );
 }

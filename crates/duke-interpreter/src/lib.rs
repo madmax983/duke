@@ -3293,6 +3293,134 @@ pub(crate) fn native_stream_collect(
         let boxed = heap.allocate("java/lang/Double".to_string(), 1);
         heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
         Ok(Some(Slot::Reference(Some(boxed))))
+    } else if collector_class == "duke/util/ReducingNoIdentityCollector" {
+        // reducing(BinaryOperator) → Optional<T>
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let op_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(bop_ref)) = op_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let op_class = heap.get(bop_ref)?.class_name.clone();
+        let result = if elems.is_empty() {
+            None
+        } else {
+            let mut acc = elems[0];
+            for elem in elems.into_iter().skip(1) {
+                acc = ops
+                    .invoke(
+                        heap,
+                        out,
+                        &op_class,
+                        "apply",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                        vec![op_slot, acc, elem],
+                    )?
+                    .unwrap_or(Slot::Reference(None));
+            }
+            Some(acc)
+        };
+        let opt_ref = make_optional(heap, result);
+        Ok(Some(Slot::Reference(Some(opt_ref))))
+    } else if collector_class == "duke/util/ReducingCollector" {
+        // reducing(identity, BinaryOperator) → T
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let identity_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let op_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(bop_ref)) = op_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let op_class = heap.get(bop_ref)?.class_name.clone();
+        let mut acc = identity_slot;
+        for elem in elems {
+            acc = ops
+                .invoke(
+                    heap,
+                    out,
+                    &op_class,
+                    "apply",
+                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![op_slot, acc, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+        }
+        Ok(Some(acc))
+    } else if collector_class == "duke/util/ReducingMappingCollector" {
+        // reducing(identity, mapper, BinaryOperator) → U
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let identity_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let mapper_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let op_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(2)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(bop_ref)) = op_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let mapper_class = heap.get(mapper_ref)?.class_name.clone();
+        let op_class = heap.get(bop_ref)?.class_name.clone();
+        let mut acc = identity_slot;
+        for elem in elems {
+            let mapped = ops
+                .invoke(
+                    heap,
+                    out,
+                    &mapper_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![mapper_slot, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            acc = ops
+                .invoke(
+                    heap,
+                    out,
+                    &op_class,
+                    "apply",
+                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![op_slot, acc, mapped],
+                )?
+                .unwrap_or(Slot::Reference(None));
+        }
+        Ok(Some(acc))
     } else if collector_class == "duke/util/CollectingAndThenCollector" {
         // collectingAndThen(downstream, finisher): fields[0]=downstream, fields[1]=finisher
         let collector_ref = match args.get(1) {
@@ -24312,6 +24440,333 @@ pub(crate) fn native_collectors_averaging_double(
     let r = heap.allocate("duke/util/AveragingDoubleCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 57: Collectors.reducing, Stream.iterate predicate, Optional.stream,
+//           ArrayDeque completion
+// ---------------------------------------------------------------------------
+
+/// Native: `Collectors.reducing(BinaryOperator)` — returns a
+/// `ReducingNoIdentityCollector` with fields[0]=op.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_reducing_no_identity(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let op_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ReducingNoIdentityCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = op_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.reducing(T, BinaryOperator)` — returns a
+/// `ReducingCollector` with fields[0]=identity, fields[1]=op.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_reducing_with_identity(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let identity_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let op_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ReducingCollector".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = identity_slot;
+    heap.get_mut(r)?.fields[1] = op_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.reducing(U, Function, BinaryOperator)` — returns a
+/// `ReducingMappingCollector` with fields[0]=identity, fields[1]=mapper, fields[2]=op.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_reducing_mapping(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let identity_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let mapper_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let op_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ReducingMappingCollector".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = identity_slot;
+    heap.get_mut(r)?.fields[1] = mapper_slot;
+    heap.get_mut(r)?.fields[2] = op_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Stream.iterate(seed, Predicate, UnaryOperator)Stream` — Java 9 3-arg form.
+/// Eagerly materialises elements while predicate returns true, capped at 10,000.
+pub(crate) fn native_stream_iterate_predicate(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let seed = args.first().copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let next_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Err(VmError::NullPointerException);
+    };
+    let Slot::Reference(Some(next_ref)) = next_slot else {
+        return Err(VmError::NullPointerException);
+    };
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let next_class = heap.get(next_ref)?.class_name.clone();
+
+    let mut elems: Vec<Slot> = Vec::new();
+    let mut current = seed;
+    for _ in 0..10_000usize {
+        let test = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(Ljava/lang/Object;)Z",
+            vec![pred_slot, current],
+        )?;
+        match test {
+            Some(Slot::Int(1)) => {}
+            _ => break,
+        }
+        elems.push(current);
+        current = ops
+            .invoke(
+                heap,
+                out,
+                &next_class,
+                "apply",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                vec![next_slot, current],
+            )?
+            .unwrap_or(Slot::Reference(None));
+    }
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    let size = i32::try_from(elems.len()).unwrap_or(i32::MAX);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(size);
+    for elem in elems {
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `Optional.stream()Stream` — returns a stream of 0 or 1 elements.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_optional_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    match value {
+        Slot::Reference(None) => {
+            heap.get_mut(out_ref)?.fields[0] = Slot::Int(0);
+        }
+        v => {
+            heap.get_mut(out_ref)?.fields[0] = Slot::Int(1);
+            heap.get_mut(out_ref)?.fields.push(v);
+        }
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `ArrayDeque.addFirst(Object)V` — inserts element at front.
+pub(crate) fn native_arraydeque_add_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraydeque_push(args, heap, out, control)
+}
+
+/// Native: `ArrayDeque.addLast(Object)V` — appends element at back.
+pub(crate) fn native_arraydeque_add_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)?;
+    Ok(None)
+}
+
+/// Native: `ArrayDeque.offerFirst(Object)Z` — inserts at front, returns true.
+pub(crate) fn native_arraydeque_offer_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraydeque_push(args, heap, out, control)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `ArrayDeque.offerLast(Object)Z` — appends at back, returns true.
+pub(crate) fn native_arraydeque_offer_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `ArrayDeque.peekFirst()Object` — same as peek (front element, null if empty).
+pub(crate) fn native_arraydeque_peek_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraydeque_peek(args, heap, out, control)
+}
+
+/// Native: `ArrayDeque.peekLast()Object` — returns last element without removing; null if empty.
+pub(crate) fn native_arraydeque_peek_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    Ok(Some(heap.get(this_ref)?.fields[size]))
+}
+
+/// Native: `ArrayDeque.pollFirst()Object` — same as poll (remove front, null if empty).
+pub(crate) fn native_arraydeque_poll_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraydeque_poll(args, heap, out, control)
+}
+
+/// Native: `ArrayDeque.pollLast()Object` — removes and returns last element; null if empty.
+pub(crate) fn native_arraydeque_poll_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let elem = heap.get_mut(this_ref)?.fields.remove(size);
+    let new_size = i32::try_from(size - 1).unwrap_or(0);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
+    Ok(Some(elem))
+}
+
+/// Native: `ArrayDeque.contains(Object)Z` — returns true if element is present.
+pub(crate) fn native_arraydeque_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    let found = elems.iter().any(|e| slots_equal(e, &target, heap));
+    Ok(Some(Slot::Int(i32::from(found))))
+}
+
+/// Native: `ArrayDeque.stream()Stream` — returns elements as an eager Stream.
+pub(crate) fn native_arraydeque_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
+    for elem in elems {
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `ArrayDeque.forEach(Consumer)V` — invokes consumer for each element.
+pub(crate) fn native_arraydeque_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(cons_ref)) = consumer_slot else {
+        return Err(VmError::NullPointerException);
+    };
+    let cons_class = heap.get(cons_ref)?.class_name.clone();
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    for elem in elems {
+        ops.invoke(
+            heap,
+            out,
+            &cons_class,
+            "accept",
+            "(Ljava/lang/Object;)V",
+            vec![consumer_slot, elem],
+        )?;
+    }
+    Ok(None)
+}
+
+/// Native: `ArrayDeque.clear()V` — removes all elements.
+pub(crate) fn native_arraydeque_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields.truncate(1);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------
@@ -49065,6 +49520,178 @@ mod tests {
                 "()I"
             ),
             3
+        );
+    }
+
+    // ---- Phase 57: Collectors.reducing ----
+
+    #[test]
+    fn test_collectors_reducing_no_identity() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase57Test.class",
+                "testCollectorsReducingNoIdentity",
+                "()I"
+            ),
+            10
+        );
+    }
+
+    #[test]
+    fn test_collectors_reducing_no_identity_empty() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase57Test.class",
+                "testCollectorsReducingNoIdentityEmpty",
+                "()I"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn test_collectors_reducing_with_identity() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase57Test.class",
+                "testCollectorsReducingWithIdentity",
+                "()I"
+            ),
+            10
+        );
+    }
+
+    #[test]
+    fn test_collectors_reducing_with_identity_empty() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase57Test.class",
+                "testCollectorsReducingWithIdentityEmpty",
+                "()I"
+            ),
+            42
+        );
+    }
+
+    #[test]
+    fn test_collectors_reducing_mapping() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testCollectorsReducingMapping", "()I"),
+            10
+        );
+    }
+
+    // ---- Phase 57: Stream.iterate predicate ----
+
+    #[test]
+    fn test_stream_iterate_predicate() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testStreamIteratePredicate", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_stream_iterate_predicate_empty() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase57Test.class",
+                "testStreamIteratePredicateEmpty",
+                "()I"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn test_stream_iterate_predicate_count() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase57Test.class",
+                "testStreamIteratePredicateCount",
+                "()I"
+            ),
+            5
+        );
+    }
+
+    // ---- Phase 57: Optional.stream() ----
+
+    #[test]
+    fn test_optional_stream_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testOptionalStreamPresent", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_optional_stream_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testOptionalStreamEmpty", "()I"),
+            0
+        );
+    }
+
+    // ---- Phase 57: ArrayDeque completion ----
+
+    #[test]
+    fn test_arraydeque_add_first_peek_first() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase57Test.class",
+                "testArrayDequeAddFirstPeekFirst",
+                "()I"
+            ),
+            2
+        );
+    }
+
+    #[test]
+    fn test_arraydeque_add_last_peek_last() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testArrayDequeAddLastPeekLast", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_arraydeque_poll_first() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testArrayDequePollFirst", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_arraydeque_poll_last() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testArrayDequePollLast", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_arraydeque_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testArrayDequeContains", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_arraydeque_clear() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testArrayDequeClear", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_arraydeque_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase57Test.class", "testArrayDequeForEach", "()I"),
+            6
         );
     }
 }
