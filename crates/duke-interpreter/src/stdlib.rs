@@ -6,21 +6,32 @@ use duke_runtime::Slot;
 
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
-    // Allocate a PrintStream object on the heap.
-    let ps_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
+    // Allocate PrintStream objects for System.out and System.err.
+    let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
+    let ps_err_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
 
-    // Create java/lang/System ClassContext with a single static field `out`.
+    // Create java/lang/System ClassContext with static fields `out`, `err`, `lineSeparator`.
     let system_ctx = ClassContext {
         class_name: "java/lang/System".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "out".to_string(),
-            descriptor: "Ljava/io/PrintStream;".to_string(),
-            is_static: true,
-        }],
-        static_fields: vec![Slot::Reference(Some(ps_ref))],
+        fields: vec![
+            FieldEntry {
+                name: "out".to_string(),
+                descriptor: "Ljava/io/PrintStream;".to_string(),
+                is_static: true,
+            },
+            FieldEntry {
+                name: "err".to_string(),
+                descriptor: "Ljava/io/PrintStream;".to_string(),
+                is_static: true,
+            },
+        ],
+        static_fields: vec![
+            Slot::Reference(Some(ps_out_ref)),
+            Slot::Reference(Some(ps_err_ref)),
+        ],
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
@@ -943,6 +954,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "arraycopy",
         "(Ljava/lang/Object;ILjava/lang/Object;II)V",
         native_system_arraycopy,
+    );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "lineSeparator",
+        "()Ljava/lang/String;",
+        native_system_line_separator,
+    );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "identityHashCode",
+        "(Ljava/lang/Object;)I",
+        native_system_identity_hash_code,
     );
 
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
@@ -3132,6 +3155,54 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/Comparator;)V",
         array_list_sort,
     );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "remove",
+        "(I)Ljava/lang/Object;",
+        native_arraylist_remove_at,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "remove",
+        "(Ljava/lang/Object;)Z",
+        native_arraylist_remove_obj,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_arraylist_contains,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "clear",
+        "()V",
+        native_arraylist_clear,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "isEmpty",
+        "()Z",
+        native_arraylist_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "set",
+        "(ILjava/lang/Object;)Ljava/lang/Object;",
+        native_arraylist_set,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "indexOf",
+        "(Ljava/lang/Object;)I",
+        native_arraylist_index_of,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "add",
+        "(ILjava/lang/Object;)V",
+        native_arraylist_add_at,
+    );
 
     // duke/util/ArrayListIterator — internal iterator for ArrayList
     // fields[0] = ArrayList reference, fields[1] = current index (Int)
@@ -3292,6 +3363,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "entrySet",
         "()Ljava/util/Set;",
         native_hashmap_entry_set,
+    );
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "putIfAbsent",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_put_if_absent,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/HashMap", "clear", "()V", native_hashmap_clear);
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "containsValue",
+        "(Ljava/lang/Object;)Z",
+        native_hashmap_contains_value,
     );
 
     // java/util/Map$Entry — key/value pair produced by HashMap.entrySet()
