@@ -4333,6 +4333,195 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_hashmap_entry_set,
     );
 
+    // duke/util/Stream — lazy pipeline backed by flat element array
+    // fields[0] = Int(size), fields[1..] = element refs
+    let stream_ctx = ClassContext {
+        class_name: "duke/util/Stream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(stream_ctx);
+
+    // java/util/stream/Stream — public API alias for duke/util/Stream
+    let jstream_ctx = ClassContext {
+        class_name: "java/util/stream/Stream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(jstream_ctx);
+    registry.natives_mut().register(
+        "java/util/stream/Stream",
+        "of",
+        "([Ljava/lang/Object;)Ljava/util/stream/Stream;",
+        native_stream_of,
+    );
+    registry
+        .natives_mut()
+        .register("duke/util/Stream", "count", "()J", native_stream_count);
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "filter",
+        "(Ljava/util/function/Predicate;)Ljava/util/stream/Stream;",
+        native_stream_filter,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "map",
+        "(Ljava/util/function/Function;)Ljava/util/stream/Stream;",
+        native_stream_map,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_stream_for_each,
+    );
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "collect",
+        "(Ljava/util/stream/Collector;)Ljava/lang/Object;",
+        native_stream_collect,
+    );
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "distinct",
+        "()Ljava/util/stream/Stream;",
+        native_stream_distinct,
+    );
+    // ArrayList.stream() — wraps ArrayList elements into a Stream
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_arraylist_stream,
+    );
+
+    // java/util/stream/Collectors — static factory for collectors
+    let collectors_ctx = ClassContext {
+        class_name: "java/util/stream/Collectors".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(collectors_ctx);
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "toList",
+        "()Ljava/util/stream/Collector;",
+        native_collectors_to_list,
+    );
+
+    // duke/util/ToListCollector — sentinel object for collect(Collectors.toList())
+    let to_list_ctx = ClassContext {
+        class_name: "duke/util/ToListCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(to_list_ctx);
+
+    // java/util/ArrayDeque — double-ended queue backed by flat element array
+    // fields[0] = Int(size), fields[1..] = elements (front at index 1)
+    let arraydeque_ctx = ClassContext {
+        class_name: "java/util/ArrayDeque".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Deque".to_string(),
+            "java/lang/Iterable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(arraydeque_ctx);
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "<init>",
+        "()V",
+        native_arraydeque_init,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "push",
+        "(Ljava/lang/Object;)V",
+        native_arraydeque_push,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "pop",
+        "()Ljava/lang/Object;",
+        native_arraydeque_pop,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "offer",
+        "(Ljava/lang/Object;)Z",
+        native_arraydeque_offer,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_arraydeque_add,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "poll",
+        "()Ljava/lang/Object;",
+        native_arraydeque_poll,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "peek",
+        "()Ljava/lang/Object;",
+        native_arraydeque_peek,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "size",
+        "()I",
+        native_arraydeque_size,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "isEmpty",
+        "()Z",
+        native_arraydeque_is_empty,
+    );
+
     // java/util/Objects — null-safe utility methods
     let objects_ctx = ClassContext {
         class_name: "java/util/Objects".to_string(),
