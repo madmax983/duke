@@ -1580,7 +1580,7 @@ pub(crate) fn native_linked_list_get(
 }
 
 /// Native: `LinkedList.addFirst(Object)V` — inserts at index 0.
-/// Field layout: fields[0]=Int(size), fields[1..size]=elements.
+/// Field layout: `fields[0]`=Int(size), `fields[1..size]`=elements.
 pub(crate) fn native_linked_list_add_first(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -24783,7 +24783,7 @@ pub(crate) fn native_double_stream_skip(
 }
 
 /// Native: `Collectors.groupingBy(Function, Collector)Collector` — 2-arg version with downstream.
-/// Creates a `duke/util/GroupingBy2Collector` with fields[0]=keyFn, fields[1]=downstream.
+/// Creates a `duke/util/GroupingBy2Collector` with `fields[0]`=keyFn, `fields[1]`=downstream.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_grouping_by_2(
     args: &[Slot],
@@ -25375,7 +25375,7 @@ pub(crate) fn native_collectors_to_unmodifiable_map(
 }
 
 /// Native: `Collectors.collectingAndThen(downstream, finisher)Collector` — returns a
-/// `CollectingAndThenCollector` with fields[0]=downstream, fields[1]=finisher.
+/// `CollectingAndThenCollector` with `fields[0]`=downstream, `fields[1]`=finisher.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_collecting_and_then(
     args: &[Slot],
@@ -25411,7 +25411,7 @@ pub(crate) fn native_collectors_averaging_double(
 // ---------------------------------------------------------------------------
 
 /// Native: `Collectors.reducing(BinaryOperator)` — returns a
-/// `ReducingNoIdentityCollector` with fields[0]=op.
+/// `ReducingNoIdentityCollector` with `fields[0]`=op.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_reducing_no_identity(
     args: &[Slot],
@@ -25426,7 +25426,7 @@ pub(crate) fn native_collectors_reducing_no_identity(
 }
 
 /// Native: `Collectors.reducing(T, BinaryOperator)` — returns a
-/// `ReducingCollector` with fields[0]=identity, fields[1]=op.
+/// `ReducingCollector` with `fields[0]`=identity, `fields[1]`=op.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_reducing_with_identity(
     args: &[Slot],
@@ -25443,7 +25443,7 @@ pub(crate) fn native_collectors_reducing_with_identity(
 }
 
 /// Native: `Collectors.reducing(U, Function, BinaryOperator)` — returns a
-/// `ReducingMappingCollector` with fields[0]=identity, fields[1]=mapper, fields[2]=op.
+/// `ReducingMappingCollector` with `fields[0]`=identity, `fields[1]`=mapper, `fields[2]`=op.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_reducing_mapping(
     args: &[Slot],
