@@ -8393,4 +8393,30 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(I)Ljava/time/LocalDateTime;",
         native_localdatetime_with_hour,
     );
+
+    // Phase 64 additions
+    registry.natives_mut().register(
+        "java/lang/String",
+        "indent",
+        "(I)Ljava/lang/String;",
+        native_string_indent,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "setCharAt",
+        "(IC)V",
+        native_stringbuilder_set_char_at,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "disjoint",
+        "(Ljava/util/Collection;Ljava/util/Collection;)Z",
+        native_collections_disjoint,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/HashMap",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute_if_present,
+    );
 }

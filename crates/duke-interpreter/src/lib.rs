@@ -27019,6 +27019,159 @@ pub(crate) fn native_localdatetime_with_hour(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 64: String.indent, StringBuilder.setCharAt, Collections.disjoint,
+//           HashMap.computeIfPresent
+// ---------------------------------------------------------------------------
+
+/// Native: `String.indent(int) -> String` — prepends `n` spaces to each line.
+/// Negative `n` removes up to `|n|` leading spaces per line (Java 12+ semantics).
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_string_indent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let n = extract_int_arg(args, 1)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let result: String = if n >= 0 {
+        let prefix = " ".repeat(n as usize);
+        s.lines()
+            .map(|line| {
+                let mut out = String::with_capacity(prefix.len() + line.len() + 1);
+                out.push_str(&prefix);
+                out.push_str(line);
+                out.push('\n');
+                out
+            })
+            .collect()
+    } else {
+        let remove = (-n) as usize;
+        s.lines()
+            .map(|line| {
+                let stripped = line.trim_start_matches(' ');
+                let leading = line.len() - stripped.len();
+                let keep = leading.saturating_sub(remove);
+                let spaces = " ".repeat(keep);
+                let mut out = String::with_capacity(keep + stripped.len() + 1);
+                out.push_str(&spaces);
+                out.push_str(stripped);
+                out.push('\n');
+                out
+            })
+            .collect()
+    };
+    let r = heap.allocate_string(result);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `StringBuilder.setCharAt(int, char) -> void`
+pub(crate) fn native_stringbuilder_set_char_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(usize::MAX);
+    let ch = match args.get(2) {
+        Some(Slot::Int(v)) => char::from_u32(u32::from_ne_bytes(v.to_ne_bytes())).unwrap_or('\0'),
+        _ => '\0',
+    };
+    let s = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new)
+        .clone();
+    let mut chars: Vec<char> = s.chars().collect();
+    if idx < chars.len() {
+        chars[idx] = ch;
+    }
+    let new_s: String = chars.into_iter().collect();
+    heap.get_mut(this_ref)?.string_value = Some(new_s);
+    Ok(None)
+}
+
+/// Native: `Collections.disjoint(Collection, Collection) -> boolean`
+/// Returns true if the two collections have no elements in common.
+pub(crate) fn native_collections_disjoint(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a_ref = extract_ref_arg(args, 0)?;
+    let b_ref = extract_ref_arg(args, 1)?;
+    // Both use ArrayList/HashSet layout: fields[0]=size, fields[1..=size]=elements
+    let a_size = match heap.get(a_ref)?.fields.first() {
+        Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
+        _ => 0,
+    };
+    let b_size = match heap.get(b_ref)?.fields.first() {
+        Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
+        _ => 0,
+    };
+    let a_elems: Vec<Slot> = heap.get(a_ref)?.fields
+        [1..=a_size.min(heap.get(a_ref)?.fields.len().saturating_sub(1))]
+        .to_vec();
+    let b_elems: Vec<Slot> = heap.get(b_ref)?.fields
+        [1..=b_size.min(heap.get(b_ref)?.fields.len().saturating_sub(1))]
+        .to_vec();
+    let disjoint = a_elems
+        .iter()
+        .all(|a| !b_elems.iter().any(|b| slots_equal(a, b, heap)));
+    Ok(Some(Slot::Int(i32::from(disjoint))))
+}
+
+/// Native: `HashMap.computeIfPresent(K, BiFunction<K,V,V>) -> V`
+/// If key is present, applies the function to (key, `old_value`); replaces with result.
+/// If function returns null, removes the key.
+pub(crate) fn native_hashmap_compute_if_present(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    // Look up existing value.
+    let existing = native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+    let old_value = match existing {
+        Some(v) if !matches!(v, Slot::Reference(None)) => v,
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    // Key present — invoke the remapping function.
+    let fn_ref = extract_ref_arg(args, 2)?;
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let new_value = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![Slot::Reference(Some(fn_ref)), key, old_value],
+    )?;
+    match new_value {
+        Some(v) if !matches!(v, Slot::Reference(None)) => {
+            native_hashmap_put(
+                &[Slot::Reference(Some(this_ref)), key, v],
+                heap,
+                out,
+                control,
+            )?;
+            Ok(Some(v))
+        }
+        _ => {
+            // null return → remove key
+            native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+            Ok(Some(Slot::Reference(None)))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -52564,6 +52717,95 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase63Test.class", "testLocalDateTimeNow", "()I"),
             1970
+        );
+    }
+
+    // Phase 64: String.indent, StringBuilder.setCharAt, Collections.disjoint, HashMap.computeIfPresent
+    #[test]
+    fn test_string_indent_positive() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentPositive", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn test_string_indent_negative() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentNegative", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_string_indent_zero() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentZero", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_string_indent_starts_with() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentStartsWith", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_stringbuilder_set_char_at() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringBuilderSetCharAt", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_stringbuilder_set_char_at_value() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase64Test.class",
+                "testStringBuilderSetCharAtValue",
+                "()I"
+            ),
+            7
+        );
+    }
+
+    #[test]
+    fn test_collections_disjoint_true() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testCollectionsDisjointTrue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_collections_disjoint_false() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testCollectionsDisjointFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_hashmap_compute_if_present_hit() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testHashMapComputeIfPresentHit", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_hashmap_compute_if_present_miss() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase64Test.class",
+                "testHashMapComputeIfPresentMiss",
+                "()I"
+            ),
+            1
         );
     }
 }
