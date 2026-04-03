@@ -1580,7 +1580,7 @@ pub(crate) fn native_linked_list_get(
 }
 
 /// Native: `LinkedList.addFirst(Object)V` — inserts at index 0.
-/// Field layout: fields[0]=Int(size), fields[1..size]=elements.
+/// Field layout: fields\[0\]=Int(size), fields\[1..size\]=elements.
 pub(crate) fn native_linked_list_add_first(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3733,7 +3733,7 @@ pub(crate) fn native_collectors_counting(
 }
 
 /// Native: `Collectors.groupingBy(Function)Collector` — returns a grouping-by collector.
-/// Stores `fn_slot` in `fields[0]`.
+/// Stores `fn_slot` in `fields\[0\]`.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_grouping_by(
     args: &[Slot],
@@ -4848,7 +4848,7 @@ pub(crate) fn native_reverse_order_compare(
 }
 
 /// Native: `Comparator.comparingInt(ToIntFunction)Comparator` — wraps key extractor.
-/// Creates a `duke/util/ComparingIntComparator` with `fields[0] = fn_ref`.
+/// Creates a `duke/util/ComparingIntComparator` with `fields\[0\] = fn_ref`.
 pub(crate) fn native_comparator_comparing_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -6666,7 +6666,7 @@ pub(crate) fn native_println_char(
 /// Convert a heap object to its Java display string.
 ///
 /// Checks `string_value` first (handles String/StringBuilder).
-/// For boxed primitives, extracts the stored value from `fields[0]`.
+/// For boxed primitives, extracts the stored value from `fields\[0\]`.
 /// Falls back to `class_name@hex_ref` for opaque objects.
 fn heap_object_to_string(obj: &duke_gc::HeapObject, obj_ref: u64) -> String {
     if let Some(s) = &obj.string_value {
@@ -8011,7 +8011,7 @@ pub(crate) fn native_arrays_stream_object(
 }
 
 /// Native: `Comparator.comparing(Function)Comparator` — creates a comparator by key extractor.
-/// Returns a `duke/util/ComparingComparator` with `fields[0]`=fn\_ref.
+/// Returns a `duke/util/ComparingComparator` with `fields\[0\]`=fn\_ref.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_comparator_comparing(
     args: &[Slot],
@@ -19602,7 +19602,7 @@ pub(crate) fn native_random_init_seed(
     Ok(None)
 }
 
-/// Retrieve and advance seed from `fields[0]`, returning new seed and `bits` high bits.
+/// Retrieve and advance seed from `fields\[0\]`, returning new seed and `bits` high bits.
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 fn random_step(heap: &mut duke_gc::Heap, this_ref: u64, bits: u32) -> VmResult<(u64, i32)> {
     let old_seed = match heap.get(this_ref)?.fields.first().copied() {
@@ -20216,7 +20216,7 @@ pub(crate) fn native_optional_or_else_get(
 // HashMap extensions: compute, merge
 // ---------------------------------------------------------------------------
 
-/// Helper: find key index in `HashMap` fields (`fields[0]`=size, `fields[1,3,5..]`=keys, `fields[2,4,6..]`=vals).
+/// Helper: find key index in `HashMap` fields (`fields\[0\]`=size, `fields[1,3,5..]`=keys, `fields[2,4,6..]`=vals).
 fn hashmap_find_key(fields: &[Slot], key: Slot, heap: &duke_gc::Heap) -> Option<usize> {
     let size = match fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -21835,7 +21835,7 @@ pub(crate) fn native_int_stream_sorted(
 // ---------------------------------------------------------------------------
 
 /// Native: `Comparator.thenComparing(Comparator)Comparator` — chains two comparators.
-/// Stores primary in `fields[0]`, secondary in `fields[1]`.
+/// Stores primary in `fields\[0\]`, secondary in `fields\[1\]`.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_comparator_then_comparing(
     args: &[Slot],
@@ -22213,7 +22213,7 @@ pub(crate) fn native_stream_map_to_long(
     Ok(Some(Slot::Reference(Some(make_long_stream(heap, values)))))
 }
 
-/// Allocates a `duke/util/LongStream` with `fields[0]=Int(size), fields[1..n]=Long(value)`.
+/// Allocates a `duke/util/LongStream` with `fields\[0\]=Int(size), fields[1..n]=Long(value)`.
 fn make_long_stream(heap: &mut duke_gc::Heap, values: Vec<i64>) -> u64 {
     let r = heap.allocate("duke/util/LongStream".to_string(), 1);
     if let Ok(obj) = heap.get_mut(r) {
@@ -22295,7 +22295,7 @@ pub(crate) fn native_stream_map_to_double(
     )))))
 }
 
-/// Allocates a `duke/util/DoubleStream` with `fields[0]=Int(size), fields[1..n]=Double(value)`.
+/// Allocates a `duke/util/DoubleStream` with `fields\[0\]=Int(size), fields[1..n]=Double(value)`.
 fn make_double_stream(heap: &mut duke_gc::Heap, values: Vec<f64>) -> u64 {
     let r = heap.allocate("duke/util/DoubleStream".to_string(), 1);
     if let Ok(obj) = heap.get_mut(r) {
@@ -22384,7 +22384,7 @@ fn double_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<f64> {
         .unwrap_or_default()
 }
 
-/// Allocate an `OptionalLong`: `fields[0]=Long(value)`, `fields[1]=Int(present)`.
+/// Allocate an `OptionalLong`: `fields\[0\]=Long(value)`, `fields\[1\]=Int(present)`.
 fn make_optional_long(heap: &mut duke_gc::Heap, value: Option<i64>) -> u64 {
     let r = heap.allocate("duke/util/OptionalLong".to_string(), 2);
     if let Ok(obj) = heap.get_mut(r) {
@@ -23340,7 +23340,7 @@ pub(crate) fn native_long_stream_none_match(
 }
 
 /// Native: `Comparator.comparingLong(ToLongFunction)Comparator` — wraps key extractor.
-/// Creates a `duke/util/ComparingLongComparator` with `fields[0] = fn_ref`.
+/// Creates a `duke/util/ComparingLongComparator` with `fields\[0\] = fn_ref`.
 pub(crate) fn native_comparator_comparing_long(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -23692,7 +23692,7 @@ pub(crate) fn native_double_stream_skip(
 }
 
 /// Native: `Collectors.groupingBy(Function, Collector)Collector` — 2-arg version with downstream.
-/// Creates a `duke/util/GroupingBy2Collector` with fields[0]=keyFn, fields[1]=downstream.
+/// Creates a `duke/util/GroupingBy2Collector` with fields\[0\]=keyFn, fields\[1\]=downstream.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_grouping_by_2(
     args: &[Slot],
@@ -24284,7 +24284,7 @@ pub(crate) fn native_collectors_to_unmodifiable_map(
 }
 
 /// Native: `Collectors.collectingAndThen(downstream, finisher)Collector` — returns a
-/// `CollectingAndThenCollector` with fields[0]=downstream, fields[1]=finisher.
+/// `CollectingAndThenCollector` with fields\[0\]=downstream, fields\[1\]=finisher.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_collecting_and_then(
     args: &[Slot],
