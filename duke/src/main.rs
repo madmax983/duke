@@ -7,6 +7,7 @@ use std::process;
 
 mod analyze;
 mod html;
+mod uml;
 
 use duke_bytecode::{decode, generate_mermaid_call_graph, generate_mermaid_cfg};
 use duke_classfile::{
@@ -212,6 +213,7 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke html <classfile.class> [output.html]");
+        eprintln!("       duke uml <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke cg <classfile.class>");
@@ -254,6 +256,12 @@ fn main() {
             None
         };
         dump_html(&args[2], output_path);
+        return;
+    }
+
+    // Dispatch `uml`: output UML class diagram for class.
+    if args.len() >= 3 && args[1] == "uml" {
+        dump_uml(&args[2]);
         return;
     }
 
@@ -1284,4 +1292,17 @@ mod tests {
         // It shouldn't panic, but print an error to stderr (handled by the branch we want to cover)
         emit_mermaid_heap(&heap, Some(MermaidDest::File(path.to_string())));
     }
+}
+
+fn dump_uml(path: &str) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("duke: cannot read '{path}': {e}");
+        std::process::exit(1);
+    });
+    let cf = duke_classfile::parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error: {e}");
+        std::process::exit(1);
+    });
+
+    println!("{}", uml::generate_mermaid_uml(&cf));
 }
