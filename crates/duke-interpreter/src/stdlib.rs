@@ -4096,6 +4096,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "([I)Ljava/util/stream/IntStream;",
         native_arrays_stream_int,
     );
+    // Arrays.stream(int[], int, int) → IntStream (subrange)
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "stream",
+        "([III)Ljava/util/stream/IntStream;",
+        native_arrays_stream_int_range,
+    );
     // Arrays.stream(Object[]) → Stream
     registry.natives_mut().register(
         "java/util/Arrays",
@@ -5009,19 +5016,31 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(to_list_ctx);
 
-    // duke/util/JoiningCollector — joining collector; fields[0]=delimiter ref
+    // duke/util/JoiningCollector — joining collector; fields[0]=delimiter, [1]=prefix, [2]=suffix
     let joining_ctx = ClassContext {
         class_name: "duke/util/JoiningCollector".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "delimiter".to_string(),
-            descriptor: "Ljava/lang/String;".to_string(),
-            is_static: false,
-        }],
+        fields: vec![
+            FieldEntry {
+                name: "delimiter".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "prefix".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "suffix".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+        ],
         static_fields: Vec::new(),
-        instance_field_count: 1,
+        instance_field_count: 3,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
     };
@@ -5037,6 +5056,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "joining",
         "()Ljava/util/stream/Collector;",
         native_collectors_joining_no_arg,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "joining",
+        "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/util/stream/Collector;",
+        native_collectors_joining_full,
     );
 
     // Stream.generate / iterate / concat / empty
@@ -5701,6 +5726,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "map",
         "(Ljava/util/function/Function;)Ljava/util/Optional;",
         native_optional_map,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Optional",
+        "flatMap",
+        "(Ljava/util/function/Function;)Ljava/util/Optional;",
+        native_optional_flat_map,
     );
     registry.natives_mut().register_callback(
         "java/util/Optional",
