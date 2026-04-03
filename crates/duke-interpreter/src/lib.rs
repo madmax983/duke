@@ -18413,8 +18413,10 @@ pub(crate) fn native_collections_binary_search(
         let mid_elem = elems[usize::try_from(mid).unwrap_or(0)];
         let cmp = compare_slots_natural(mid_elem, key, heap, out, ops)?;
         match cmp.cmp(&0) {
-            std::cmp::Ordering::Equal => return Ok(Some(Slot::Int(i32::try_from(mid).unwrap_or(0)))),
-            std::cmp::Ordering::Less  => lo = mid + 1,
+            std::cmp::Ordering::Equal => {
+                return Ok(Some(Slot::Int(i32::try_from(mid).unwrap_or(0))));
+            }
+            std::cmp::Ordering::Less => lo = mid + 1,
             std::cmp::Ordering::Greater => hi = mid - 1,
         }
     }
