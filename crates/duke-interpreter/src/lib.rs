@@ -13547,9 +13547,13 @@ pub(crate) fn native_arraylist_set(
         });
     }
     let field_idx = idx as usize + 1;
-    let old = *heap.get(this_ref)?.fields.get(field_idx).ok_or_else(|| VmError::JavaException {
-        class_name: "java/lang/IndexOutOfBoundsException".to_string(),
-    })?;
+    let old = *heap
+        .get(this_ref)?
+        .fields
+        .get(field_idx)
+        .ok_or_else(|| VmError::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        })?;
     heap.get_mut(this_ref)?.fields[field_idx] = value;
     Ok(Some(old))
 }
