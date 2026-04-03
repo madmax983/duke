@@ -52105,6 +52105,42 @@ mod tests {
             3
         );
     }
+
+    #[test]
+    fn test_localdate_now() {
+        // interpreter epoch 0 = 1970-01-01, so getYear() = 1970
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateNow", "()I"),
+            1970
+        );
+    }
+
+    #[test]
+    fn test_localdate_to_string() {
+        // "2024-12-31" has length 10
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateToString", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_duration_to_seconds() {
+        // 2 minutes = 120 seconds
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationToSeconds", "()I"),
+            120
+        );
+    }
+
+    #[test]
+    fn test_dispatch_cache_hot_path() {
+        // exercises invokestatic dispatch cache warm path (5 calls to same method)
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDispatchCacheHotPath", "()I"),
+            10
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;

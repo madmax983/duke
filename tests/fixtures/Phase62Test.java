@@ -137,4 +137,37 @@ public class Phase62Test {
         if (b.isAfter(a))  r += 2;
         return r; // expect 3
     }
+
+    // LocalDate.now() — returns a valid date (epoch 0 = 1970-01-01 in interpreter)
+    public static int testLocalDateNow() {
+        LocalDate d = LocalDate.now();
+        // epoch 0 → year=1970
+        return d.getYear(); // expect 1970
+    }
+
+    // LocalDate.toString() — ISO-8601 format check via length
+    public static int testLocalDateToString() {
+        LocalDate d = LocalDate.of(2024, 12, 31);
+        String s = d.toString(); // "2024-12-31"
+        return s.length(); // expect 10
+    }
+
+    // Duration.toSeconds() — alias for getSeconds
+    public static int testDurationToSeconds() {
+        Duration d = Duration.ofMinutes(2L);
+        return (int) d.toSeconds(); // expect 120
+    }
+
+    // Exercise dispatch cache hot path: call same static method 5 times in a loop
+    public static int testDispatchCacheHotPath() {
+        int sum = 0;
+        for (int i = 0; i < 5; i++) {
+            sum += helperStaticMethod(i);
+        }
+        return sum; // 0+1+2+3+4 = 10
+    }
+
+    private static int helperStaticMethod(int x) {
+        return x;
+    }
 }
