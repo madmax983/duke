@@ -966,7 +966,6 @@ mod tests {
         let eocd_pos = zip.len() - EOCD_MIN_SIZE;
         let cd_offset = read_u32_le(&zip, eocd_pos + 16) as usize;
 
-
         // Let's pretend the CD size is exactly 46 (so it truncates the filename)
         // But we have to test `parse_central_directory` directly to simulate `name_start + filename_len > cd_end`
         let err = parse_central_directory(&zip, cd_offset, 46, 1).unwrap_err();
@@ -974,6 +973,22 @@ mod tests {
         assert!(matches!(err, LoadError::ZipFormat { .. }));
         if let LoadError::ZipFormat { msg } = err {
             assert!(msg.contains("central directory entry filename truncated"));
+        }
+    }
+
+
+    #[test]
+    fn find_eocd_not_found_within_max_search() {
+        // Create a buffer larger than EOCD_MAX_SEARCH without an EOCD signature
+        let mut data = vec![0; EOCD_MAX_SEARCH + 100];
+        // Put the signature *just* outside the search window
+        let sig_pos = data.len() - EOCD_MAX_SEARCH - 5;
+        data[sig_pos..sig_pos + 4].copy_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+
+        let err = ZipReader::from_bytes(data).unwrap_err();
+        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        if let LoadError::ZipFormat { msg } = err {
+            assert!(msg.contains("could not find end-of-central-directory record"));
         }
     }
 
