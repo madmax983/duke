@@ -2647,6 +2647,88 @@ pub(crate) fn native_stream_collect(
             }
         }
         Ok(Some(Slot::Reference(Some(map_ref))))
+    } else if collector_class == "duke/util/ToSetCollector" {
+        // Collect into HashSet (deduplicates).
+        let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+        heap.get_mut(set_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            // Check for duplicate before inserting
+            let set_fields = heap.get(set_ref)?.fields.clone();
+            let set_size = match set_fields.first() {
+                Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                _ => 0,
+            };
+            let already = set_fields[1..=set_size]
+                .iter()
+                .any(|s| slots_equal(s, &elem, heap));
+            if !already {
+                let cur_size = match heap.get(set_ref)?.fields.first() {
+                    Some(Slot::Int(n)) => *n,
+                    _ => 0,
+                };
+                heap.get_mut(set_ref)?.fields.push(elem);
+                heap.get_mut(set_ref)?.fields[0] = Slot::Int(cur_size + 1);
+            }
+        }
+        Ok(Some(Slot::Reference(Some(set_ref))))
+    } else if collector_class == "duke/util/ToMapCollector" {
+        // Collect into HashMap using key/val extractor functions.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let key_fn = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let val_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(key_ref)) = key_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(val_ref)) = val_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let key_class = heap.get(key_ref)?.class_name.clone();
+        let val_class = heap.get(val_ref)?.class_name.clone();
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let k = ops
+                .invoke(
+                    heap,
+                    out,
+                    &key_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![key_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let v = ops
+                .invoke(
+                    heap,
+                    out,
+                    &val_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![val_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let cur_size = match heap.get(map_ref)?.fields.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
+            };
+            heap.get_mut(map_ref)?.fields.push(k);
+            heap.get_mut(map_ref)?.fields.push(v);
+            heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
+        }
+        Ok(Some(Slot::Reference(Some(map_ref))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -2902,6 +2984,42 @@ pub(crate) fn native_stream_reduce(
     }
     heap.get_mut(reduce_result_ref)?.fields[0] = acc;
     Ok(Some(Slot::Reference(Some(reduce_result_ref))))
+}
+
+/// Native: `Stream.reduce(identity, BinaryOperator)Object` — fold with initial value.
+pub(crate) fn native_stream_reduce_with_identity(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let identity = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(identity));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut acc = identity;
+    for elem in elems {
+        acc = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "apply",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                vec![fn_slot, acc, elem],
+            )?
+            .unwrap_or(Slot::Reference(None));
+    }
+    Ok(Some(acc))
 }
 
 /// Native: `Stream.toList()List` — terminal op returning an unmodifiable list (same as collect).
@@ -3168,6 +3286,18 @@ fn make_int_stream(heap: &mut duke_gc::Heap, values: Vec<i32>) -> u64 {
     heap.get_mut(r).expect("fresh").fields[0] = Slot::Int(n);
     for v in values {
         heap.get_mut(r).expect("fresh").fields.push(Slot::Int(v));
+    }
+    r
+}
+
+/// Create an `OptionalInt` heap object. `None` = empty, `Some(v)` = present.
+fn make_optional_int(heap: &mut duke_gc::Heap, value: Option<i32>) -> u64 {
+    let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
+    if let Some(v) = value {
+        heap.get_mut(r).expect("fresh").fields[0] = Slot::Int(v);
+        heap.get_mut(r).expect("fresh").fields[1] = Slot::Int(1);
+    } else {
+        heap.get_mut(r).expect("fresh").fields[1] = Slot::Int(0);
     }
     r
 }
@@ -7147,6 +7277,344 @@ pub(crate) fn native_comparing_comparator_compare(
         _ => 0,
     };
     Ok(Some(Slot::Int(cmp)))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 43: Collectors.toSet/toMap, Stream.mapToInt/min/max, IntStream.reduce,
+//           Arrays.sort(Object[]), String(char[])/valueOf(char[])
+// ---------------------------------------------------------------------------
+
+/// Native: `Collectors.toSet()Collector` — returns a `ToSetCollector` sentinel.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_to_set(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/ToSetCollector".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.toMap(keyFn, valFn)Collector` — stores both functions in `ToMapCollector`.
+pub(crate) fn native_collectors_to_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let key_fn = args.first().copied().unwrap_or(Slot::Reference(None));
+    let val_fn = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ToMapCollector".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = key_fn;
+    heap.get_mut(r)?.fields[1] = val_fn;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Stream.mapToInt(ToIntFunction)IntStream` — maps each element via `applyAsInt`.
+pub(crate) fn native_stream_map_to_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut values = Vec::with_capacity(elems.len());
+    for elem in elems {
+        let result = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(Ljava/lang/Object;)I",
+                vec![fn_slot, elem],
+            )?
+            .unwrap_or(Slot::Int(0));
+        match result {
+            Slot::Int(n) => values.push(n),
+            _ => values.push(0),
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
+/// Native: `IntStream.reduce(int, IntBinaryOperator)I` — fold with identity via callback.
+pub(crate) fn native_int_stream_reduce_identity(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let identity = match args.get(1) {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    let fn_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Int(identity)));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let values = int_stream_elems(heap, stream_ref);
+    let mut acc = identity;
+    for v in values {
+        let result = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(II)I",
+                vec![fn_slot, Slot::Int(acc), Slot::Int(v)],
+            )?
+            .unwrap_or(Slot::Int(0));
+        acc = match result {
+            Slot::Int(n) => n,
+            _ => 0,
+        };
+    }
+    Ok(Some(Slot::Int(acc)))
+}
+
+/// Native: `IntStream.reduce(IntBinaryOperator)OptionalInt` — fold without identity.
+pub(crate) fn native_int_stream_reduce_optional(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        // Return empty OptionalInt
+        let r = make_optional_int(heap, None);
+        return Ok(Some(Slot::Reference(Some(r))));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let values = int_stream_elems(heap, stream_ref);
+    if values.is_empty() {
+        return Ok(Some(Slot::Reference(Some(make_optional_int(heap, None)))));
+    }
+    let mut acc = values[0];
+    for &v in &values[1..] {
+        let result = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(II)I",
+                vec![fn_slot, Slot::Int(acc), Slot::Int(v)],
+            )?
+            .unwrap_or(Slot::Int(0));
+        acc = match result {
+            Slot::Int(n) => n,
+            _ => 0,
+        };
+    }
+    Ok(Some(Slot::Reference(Some(make_optional_int(
+        heap,
+        Some(acc),
+    )))))
+}
+
+/// Native: `Stream.min(Comparator)Optional` — returns minimum element by comparator.
+pub(crate) fn native_stream_min_comparator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    stream_min_max_by_comparator(args, heap, out, ops, false)
+}
+
+/// Native: `Stream.max(Comparator)Optional` — returns maximum element by comparator.
+pub(crate) fn native_stream_max_comparator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    stream_min_max_by_comparator(args, heap, out, ops, true)
+}
+
+fn stream_min_max_by_comparator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    want_max: bool,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let cmp_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
+        let r = heap.allocate("java/util/Optional".to_string(), 1);
+        heap.get_mut(r)?.fields[0] = Slot::Reference(None);
+        return Ok(Some(Slot::Reference(Some(r))));
+    };
+    let cmp_class = heap.get(cmp_ref)?.class_name.clone();
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let opt_r = heap.allocate("java/util/Optional".to_string(), 1);
+    if elems.is_empty() {
+        heap.get_mut(opt_r)?.fields[0] = Slot::Reference(None);
+        return Ok(Some(Slot::Reference(Some(opt_r))));
+    }
+    let mut best = elems[0];
+    for elem in elems.into_iter().skip(1) {
+        let cmp_result = ops
+            .invoke(
+                heap,
+                out,
+                &cmp_class,
+                "compare",
+                "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                vec![cmp_slot, elem, best],
+            )?
+            .unwrap_or(Slot::Int(0));
+        let cmp_val = match cmp_result {
+            Slot::Int(n) => n,
+            _ => 0,
+        };
+        // For min: pick elem if elem < best (cmp_val < 0)
+        // For max: pick elem if elem > best (cmp_val > 0)
+        if (want_max && cmp_val > 0) || (!want_max && cmp_val < 0) {
+            best = elem;
+        }
+    }
+    heap.get_mut(opt_r)?.fields[0] = best;
+    Ok(Some(Slot::Reference(Some(opt_r))))
+}
+
+/// Native: `Arrays.sort(Object[])V` — natural order sort using `compareTo`.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn native_arrays_sort_objects(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let len = heap.get(arr_ref)?.fields.len();
+    // Insertion sort with compareTo callbacks
+    for i in 1..len {
+        let mut j = i;
+        while j > 0 {
+            let a = heap.get(arr_ref)?.fields[j - 1];
+            let b = heap.get(arr_ref)?.fields[j];
+            let cmp = compare_slots_natural(a, b, heap, out, ops)?;
+            if cmp <= 0 {
+                break;
+            }
+            heap.write_field(arr_ref, j - 1, b)?;
+            heap.write_field(arr_ref, j, a)?;
+            j -= 1;
+        }
+    }
+    Ok(None)
+}
+
+fn compare_slots_natural(
+    a: Slot,
+    b: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<i32> {
+    match (a, b) {
+        (Slot::Reference(Some(ra)), Slot::Reference(Some(_rb))) => {
+            let a_class = heap.get(ra)?.class_name.clone();
+            let result = ops
+                .invoke(
+                    heap,
+                    out,
+                    &a_class,
+                    "compareTo",
+                    "(Ljava/lang/Object;)I",
+                    vec![a, b],
+                )?
+                .unwrap_or(Slot::Int(0));
+            Ok(match result {
+                Slot::Int(n) => n,
+                _ => 0,
+            })
+        }
+        (Slot::Int(a), Slot::Int(b)) => Ok(a.cmp(&b) as i32),
+        _ => Ok(0),
+    }
+}
+
+/// Native: `String.<init>(char[])V` — constructs a String from a char array.
+pub(crate) fn native_string_init_from_chars(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let Some(Slot::Reference(Some(arr_ref))) = args.get(1).copied() else {
+        heap.get_mut(this_ref)?.string_value = Some(String::new());
+        return Ok(None);
+    };
+    let chars: String = heap
+        .get(arr_ref)?
+        .fields
+        .iter()
+        .filter_map(|s| match s {
+            Slot::Int(n) => char::from_u32(u32::try_from(*n).unwrap_or(0)),
+            _ => None,
+        })
+        .collect();
+    heap.get_mut(this_ref)?.string_value = Some(chars);
+    Ok(None)
+}
+
+/// Native: `String.valueOf(char[])String` — creates String from char array.
+pub(crate) fn native_string_value_of_char_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => {
+            return Ok(Some(Slot::Reference(Some(
+                heap.allocate_string(String::new()),
+            ))));
+        }
+    };
+    let chars: String = heap
+        .get(arr_ref)?
+        .fields
+        .iter()
+        .filter_map(|s| match s {
+            Slot::Int(n) => char::from_u32(u32::try_from(*n).unwrap_or(0)),
+            _ => None,
+        })
+        .collect();
+    Ok(Some(Slot::Reference(Some(heap.allocate_string(chars)))))
 }
 
 /// Native: `Collections.singletonList(Object)List` — returns a one-element `ArrayList`.
@@ -42752,6 +43220,132 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase42Test.class", "testLongCompare", "()I"),
             1,
+        );
+    }
+
+    // ---- Phase 43 tests ----
+
+    #[test]
+    fn test_stream_map_to_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testStreamMapToInt", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn test_stream_map_to_int_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testStreamMapToIntMax", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testCollectorsToSet", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testCollectorsToMap", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_map_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testCollectorsToMapGet", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_stream_min_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testStreamMinComparator", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_stream_max_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testStreamMaxComparator", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_reduce() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testIntStreamReduce", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_reduce_optional() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testIntStreamReduceOptional", "()I"),
+            14,
+        );
+    }
+
+    #[test]
+    fn test_stream_reduce() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testStreamReduce", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_stream_reduce_identity() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testStreamReduceIdentity", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_arrays_sort_objects() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testArraysSortObjects", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_value_of_char_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testStringValueOfCharArray", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_new_string_from_char_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase43Test.class", "testNewStringFromCharArray", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collections_frequency_phase43() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase43Test.class",
+                "testCollectionsFrequencyAlreadyDone",
+                "()I"
+            ),
+            3,
         );
     }
 }
