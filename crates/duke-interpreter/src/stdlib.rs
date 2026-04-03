@@ -7725,4 +7725,87 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()V",
         native_arraydeque_clear,
     );
+
+    // ---- Phase 58: Comparator.comparingDouble ----
+    registry.natives_mut().register(
+        "java/util/Comparator",
+        "comparingDouble",
+        "(Ljava/util/function/ToDoubleFunction;)Ljava/util/Comparator;",
+        native_comparator_comparing_double,
+    );
+    // Register reversed() on all key-extractor comparator types
+    for class in &[
+        "duke/util/ComparingIntComparator",
+        "duke/util/ComparingLongComparator",
+        "duke/util/ComparingDoubleComparator",
+        "duke/util/ThenComparingComparator",
+    ] {
+        registry.natives_mut().register_callback(
+            class,
+            "reversed",
+            "()Ljava/util/Comparator;",
+            native_comparator_reversed,
+        );
+    }
+    registry.register(ClassContext {
+        class_name: "duke/util/ComparingDoubleComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "keyExtractor".to_string(),
+            descriptor: "Ljava/util/function/ToDoubleFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    registry.natives_mut().register_callback(
+        "duke/util/ComparingDoubleComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_comparing_double_compare,
+    );
+
+    // ---- Phase 58: Map.copyOf, Map.entry, Map.ofEntries ----
+    registry.natives_mut().register(
+        "java/util/Map",
+        "copyOf",
+        "(Ljava/util/Map;)Ljava/util/Map;",
+        native_map_copy_of,
+    );
+    registry.natives_mut().register(
+        "java/util/Map",
+        "entry",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map$Entry;",
+        native_map_entry_factory,
+    );
+    registry.natives_mut().register(
+        "java/util/Map",
+        "ofEntries",
+        "([Ljava/util/Map$Entry;)Ljava/util/Map;",
+        native_map_of_entries,
+    );
+
+    // ---- Phase 58: Collections.singletonMap, singleton (set), unmodifiableSet ----
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "singletonMap",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map;",
+        native_collections_singleton_map,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "singleton",
+        "(Ljava/lang/Object;)Ljava/util/Set;",
+        native_collections_singleton_set,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "unmodifiableSet",
+        "(Ljava/util/Set;)Ljava/util/Set;",
+        native_collections_unmodifiable_set,
+    );
 }

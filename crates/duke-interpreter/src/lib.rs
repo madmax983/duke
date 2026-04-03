@@ -23530,6 +23530,187 @@ pub(crate) fn native_comparing_long_compare(
     Ok(Some(Slot::Int(result)))
 }
 
+// ---------------------------------------------------------------------------
+// Phase 58: Comparator.comparingDouble, Map.copyOf/entry/ofEntries,
+//           Collections.singletonMap/singletonSet/unmodifiableSet
+// ---------------------------------------------------------------------------
+
+/// Creates a `duke/util/ComparingDoubleComparator` with `fields[0] = fn_ref`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_comparator_comparing_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_ref = extract_ref_arg(args, 0)?;
+    let r = heap.allocate("duke/util/ComparingDoubleComparator".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Reference(Some(fn_ref));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `ComparingDoubleComparator.compare(O,O)I` — calls `fn.applyAsDouble(o)` for each.
+pub(crate) fn native_comparing_double_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let ka = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsDouble",
+            "(Ljava/lang/Object;)D",
+            vec![fn_slot, a],
+        )?
+        .unwrap_or(Slot::Double(0.0));
+    let kb = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsDouble",
+            "(Ljava/lang/Object;)D",
+            vec![fn_slot, b],
+        )?
+        .unwrap_or(Slot::Double(0.0));
+    let result = match (ka, kb) {
+        (Slot::Double(da), Slot::Double(db)) => da.total_cmp(&db) as i32,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `Map.copyOf(Map)Map` — returns an unmodifiable copy backed by `HashMap`.
+pub(crate) fn native_map_copy_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let src_ref = extract_ref_arg(args, 0)?;
+    let copy_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+    native_hashmap_init(&[Slot::Reference(Some(copy_ref))], heap, out, control)?;
+    // Iterate source map's interleaved key-val pairs: fields[0]=size, fields[1..]=k,v,k,v,...
+    let size = match heap.get(src_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let pairs: Vec<Slot> = heap.get(src_ref)?.fields[1..=size * 2].to_vec();
+    let mut i = 0;
+    while i + 1 < pairs.len() {
+        let k = pairs[i];
+        let v = pairs[i + 1];
+        native_hashmap_put(&[Slot::Reference(Some(copy_ref)), k, v], heap, out, control)?;
+        i += 2;
+    }
+    Ok(Some(Slot::Reference(Some(copy_ref))))
+}
+
+/// Native: `Map.entry(K,V)Map.Entry` — creates an immutable Map.Entry.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_map_entry_factory(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let key = args.first().copied().unwrap_or(Slot::Reference(None));
+    let val = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("java/util/Map$Entry".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = key;
+    heap.get_mut(r)?.fields[1] = val;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Map.ofEntries(Map.Entry[])Map` — builds a `HashMap` from varargs Entry array.
+pub(crate) fn native_map_of_entries(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+    native_hashmap_init(&[Slot::Reference(Some(map_ref))], heap, out, control)?;
+    // args[0] is the Object[] array of Map.Entry objects (anewarray layout: fields = elements)
+    if let Some(Slot::Reference(Some(arr_ref))) = args.first().copied() {
+        let entries: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
+        for entry_slot in entries {
+            let Slot::Reference(Some(entry_ref)) = entry_slot else {
+                continue;
+            };
+            let key = heap
+                .get(entry_ref)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Reference(None));
+            let val = heap
+                .get(entry_ref)?
+                .fields
+                .get(1)
+                .copied()
+                .unwrap_or(Slot::Reference(None));
+            native_hashmap_put(
+                &[Slot::Reference(Some(map_ref)), key, val],
+                heap,
+                out,
+                control,
+            )?;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(map_ref))))
+}
+
+/// Native: `Collections.singletonMap(K,V)Map` — returns a single-entry unmodifiable map.
+pub(crate) fn native_collections_singleton_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_map_of(args, heap, out, control)
+}
+
+/// Native: `Collections.singleton(E)Set` — returns a single-element unmodifiable set.
+pub(crate) fn native_collections_singleton_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_set_of_factory(args, heap, out, control)
+}
+
+/// Native: `Collections.unmodifiableSet(Set)Set` — returns a view of the set (same backing object).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collections_unmodifiable_set(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // Our sets are already value objects; just return the same reference.
+    let set_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    Ok(Some(set_slot))
+}
+
 /// Native: `Optional.or(Supplier<Optional>)Optional` (Java 9) —
 /// returns this Optional if present; otherwise invokes supplier and returns its result.
 pub(crate) fn native_optional_or(
@@ -49692,6 +49873,116 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase57Test.class", "testArrayDequeForEach", "()I"),
             6
+        );
+    }
+
+    // ---- Phase 58: Comparator.comparingDouble ----
+
+    #[test]
+    fn test_comparator_comparing_double() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testComparatorComparingDouble", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_comparator_comparing_double_reversed() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase58Test.class",
+                "testComparatorComparingDoubleReversed",
+                "()I"
+            ),
+            5
+        );
+    }
+
+    // ---- Phase 58: Map.copyOf ----
+
+    #[test]
+    fn test_map_copy_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testMapCopyOf", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_map_copy_of_contents() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testMapCopyOfContents", "()I"),
+            5
+        );
+    }
+
+    // ---- Phase 58: Map.entry ----
+
+    #[test]
+    fn test_map_entry() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testMapEntry", "()I"),
+            45
+        );
+    }
+
+    // ---- Phase 58: Map.ofEntries ----
+
+    #[test]
+    fn test_map_of_entries() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testMapOfEntries", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_map_of_entries_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testMapOfEntriesGet", "()I"),
+            20
+        );
+    }
+
+    // ---- Phase 58: Collections.singletonMap ----
+
+    #[test]
+    fn test_collections_singleton_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testCollectionsSingletonMap", "()I"),
+            100
+        );
+    }
+
+    // ---- Phase 58: Collections.singleton (set) ----
+
+    #[test]
+    fn test_collections_singleton_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testCollectionsSingletonSet", "()I"),
+            2
+        );
+    }
+
+    // ---- Phase 58: Collections.unmodifiableSet ----
+
+    #[test]
+    fn test_collections_unmodifiable_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase58Test.class", "testCollectionsUnmodifiableSet", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_collections_unmodifiable_set_contains() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase58Test.class",
+                "testCollectionsUnmodifiableSetContains",
+                "()I"
+            ),
+            1
         );
     }
 }
