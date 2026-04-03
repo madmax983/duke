@@ -7035,22 +7035,89 @@ pub(crate) fn native_string_concat(
 }
 
 /// Formats a single boxed slot value using the given format specifier.
+/// Apply width/alignment/flags to an already-formatted value string.
+fn apply_format_width(s: String, width: usize, left_align: bool, zero_pad: bool) -> String {
+    if s.len() >= width {
+        return s;
+    }
+    let pad = width - s.len();
+    if left_align {
+        format!("{s}{}", " ".repeat(pad))
+    } else if zero_pad {
+        // zero-pad: insert zeros after optional sign
+        if s.starts_with('-') || s.starts_with('+') {
+            let (sign, rest) = s.split_at(1);
+            format!("{sign}{}{rest}", "0".repeat(pad))
+        } else {
+            format!("{}{s}", "0".repeat(pad))
+        }
+    } else {
+        format!("{}{s}", " ".repeat(pad))
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn format_arg(
     spec: char,
+    flags: &str,
+    width: Option<usize>,
     precision: Option<usize>,
     slot: &Slot,
     heap: &duke_gc::Heap,
 ) -> VmResult<String> {
-    match slot {
-        Slot::Reference(None) => Ok("null".to_string()),
+    let left_align = flags.contains('-');
+    let force_sign = flags.contains('+');
+    let zero_pad = flags.contains('0') && !left_align;
+
+    let raw = match slot {
+        Slot::Reference(None) => {
+            if spec == 'b' {
+                "false".to_string()
+            } else {
+                "null".to_string()
+            }
+        }
         Slot::Reference(Some(r)) => {
             let obj = heap.get(*r)?;
             match spec {
-                's' => Ok(heap_object_to_string(obj, *r)),
-                'd' => match obj.fields.first() {
-                    Some(Slot::Int(v)) => Ok(v.to_string()),
-                    Some(Slot::Long(v)) => Ok(v.to_string()),
-                    _ => Ok("0".to_string()),
+                's' => heap_object_to_string(obj, *r),
+                'b' => {
+                    // true if non-null Boolean true, else depends
+                    if obj.class_name == "java/lang/Boolean" {
+                        match obj.fields.first() {
+                            Some(Slot::Int(n)) => {
+                                if *n != 0 { "true" } else { "false" }.to_string()
+                            }
+                            _ => "true".to_string(),
+                        }
+                    } else {
+                        "true".to_string() // non-null object → true
+                    }
+                }
+                'c' => {
+                    let code = match obj.fields.first() {
+                        Some(Slot::Int(n)) => *n,
+                        _ => 0,
+                    };
+                    #[allow(clippy::cast_sign_loss)]
+                    char::from_u32(code as u32).map_or(String::new(), |c| c.to_string())
+                }
+                'd' => {
+                    let v = match obj.fields.first() {
+                        Some(Slot::Int(v)) => i64::from(*v),
+                        Some(Slot::Long(v)) => *v,
+                        _ => 0,
+                    };
+                    if force_sign && v >= 0 {
+                        format!("+{v}")
+                    } else {
+                        v.to_string()
+                    }
+                }
+                'o' => match obj.fields.first() {
+                    Some(Slot::Int(v)) => format!("{v:o}"),
+                    Some(Slot::Long(v)) => format!("{v:o}"),
+                    _ => "0".to_string(),
                 },
                 'f' => {
                     let v = match obj.fields.first() {
@@ -7058,22 +7125,118 @@ fn format_arg(
                         Some(Slot::Float(v)) => f64::from(*v),
                         _ => 0.0,
                     };
-                    Ok(precision.map_or_else(|| format!("{v:.6}"), |p| format!("{v:.p$}")))
+                    let s = precision.map_or_else(|| format!("{v:.6}"), |p| format!("{v:.p$}"));
+                    if force_sign && v >= 0.0 {
+                        format!("+{s}")
+                    } else {
+                        s
+                    }
+                }
+                'e' => {
+                    let v = match obj.fields.first() {
+                        Some(Slot::Double(v)) => *v,
+                        Some(Slot::Float(v)) => f64::from(*v),
+                        _ => 0.0,
+                    };
+                    let prec = precision.unwrap_or(6);
+                    // format in scientific notation matching Java's %e output
+                    let s = format_scientific(v, prec, false);
+                    if force_sign && v >= 0.0 {
+                        format!("+{s}")
+                    } else {
+                        s
+                    }
                 }
                 'x' => match obj.fields.first() {
-                    Some(Slot::Int(v)) => Ok(format!("{v:x}")),
-                    Some(Slot::Long(v)) => Ok(format!("{v:x}")),
-                    _ => Ok("0".to_string()),
+                    Some(Slot::Int(v)) => format!("{v:x}"),
+                    Some(Slot::Long(v)) => format!("{v:x}"),
+                    _ => "0".to_string(),
                 },
                 'X' => match obj.fields.first() {
-                    Some(Slot::Int(v)) => Ok(format!("{v:X}")),
-                    Some(Slot::Long(v)) => Ok(format!("{v:X}")),
-                    _ => Ok("0".to_string()),
+                    Some(Slot::Int(v)) => format!("{v:X}"),
+                    Some(Slot::Long(v)) => format!("{v:X}"),
+                    _ => "0".to_string(),
                 },
-                _ => Ok(String::new()),
+                _ => String::new(),
             }
         }
-        _ => Ok(String::new()),
+        Slot::Int(n) => match spec {
+            'd' => {
+                if force_sign && *n >= 0 {
+                    format!("+{n}")
+                } else {
+                    n.to_string()
+                }
+            }
+            'b' => "true".to_string(),
+            'c' =>
+            {
+                #[allow(clippy::cast_sign_loss)]
+                char::from_u32(*n as u32).map_or(String::new(), |c| c.to_string())
+            }
+            'o' => format!("{n:o}"),
+            'x' => format!("{n:x}"),
+            'X' => format!("{n:X}"),
+            _ => n.to_string(),
+        },
+        Slot::Long(n) => match spec {
+            'd' => {
+                if force_sign && *n >= 0 {
+                    format!("+{n}")
+                } else {
+                    n.to_string()
+                }
+            }
+            'o' => format!("{n:o}"),
+            'x' => format!("{n:x}"),
+            'X' => format!("{n:X}"),
+            _ => n.to_string(),
+        },
+        Slot::Double(v) => match spec {
+            'f' => {
+                let s = precision.map_or_else(|| format!("{v:.6}"), |p| format!("{v:.p$}"));
+                if force_sign && *v >= 0.0 {
+                    format!("+{s}")
+                } else {
+                    s
+                }
+            }
+            'e' => {
+                let prec = precision.unwrap_or(6);
+                let s = format_scientific(*v, prec, false);
+                if force_sign && *v >= 0.0 {
+                    format!("+{s}")
+                } else {
+                    s
+                }
+            }
+            _ => format!("{v}"),
+        },
+        _ => String::new(),
+    };
+
+    Ok(match width {
+        None => raw,
+        Some(w) => apply_format_width(raw, w, left_align, zero_pad),
+    })
+}
+
+/// Format a float in Java-style scientific notation `1.234568e+05`.
+fn format_scientific(v: f64, prec: usize, upper: bool) -> String {
+    if v == 0.0 {
+        let zeros = "0".repeat(prec);
+        let e = if upper { 'E' } else { 'e' };
+        return format!("0.{zeros}{e}+00");
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let exp = v.abs().log10().floor() as i32;
+    let mantissa = v / 10_f64.powi(exp);
+    let s = format!("{mantissa:.prec$}");
+    let e_char = if upper { 'E' } else { 'e' };
+    if exp >= 0 {
+        format!("{s}{e_char}+{exp:02}")
+    } else {
+        format!("{s}{e_char}-{:02}", exp.unsigned_abs())
     }
 }
 
@@ -7102,9 +7265,36 @@ pub(crate) fn native_string_format(
             continue;
         }
 
-        // Parse optional precision: %.2f
+        // Parse flags: -, +, 0
+        let mut flags = String::new();
+        while let Some(&f) = chars.peek() {
+            if matches!(f, '-' | '+' | '0' | ' ' | '#') {
+                flags.push(f);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+
+        // Parse optional width
+        let mut width_str = String::new();
+        while let Some(&d) = chars.peek() {
+            if d.is_ascii_digit() {
+                width_str.push(d);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        let width: Option<usize> = if width_str.is_empty() {
+            None
+        } else {
+            width_str.parse().ok()
+        };
+
+        // Parse optional precision: .N
         let precision: Option<usize> = if chars.peek() == Some(&'.') {
-            chars.next(); // consume '.'
+            chars.next();
             let mut prec_str = String::new();
             while let Some(&d) = chars.peek() {
                 if d.is_ascii_digit() {
@@ -7119,23 +7309,14 @@ pub(crate) fn native_string_format(
             None
         };
 
-        // Skip optional width digits
-        while let Some(&d) = chars.peek() {
-            if d.is_ascii_digit() {
-                chars.next();
-            } else {
-                break;
-            }
-        }
-
         let Some(spec) = chars.next() else {
-            break; // Unexpected end of format string
+            break;
         };
 
         match spec {
             '%' => result.push('%'),
             'n' => result.push('\n'),
-            's' | 'd' | 'f' | 'x' | 'X' => {
+            's' | 'd' | 'f' | 'x' | 'X' | 'b' | 'c' | 'o' | 'e' | 'E' => {
                 let slot = if arg_idx < arr_len {
                     match args.get(1) {
                         Some(Slot::Reference(Some(r))) => heap
@@ -7150,7 +7331,7 @@ pub(crate) fn native_string_format(
                     Slot::Reference(None)
                 };
                 arg_idx += 1;
-                let formatted = format_arg(spec, precision, &slot, heap)?;
+                let formatted = format_arg(spec, &flags, width, precision, &slot, heap)?;
                 result.push_str(&formatted);
             }
             _ => {
@@ -18954,6 +19135,68 @@ pub(crate) fn native_hashset_iter_next(
     Ok(Some(element))
 }
 
+/// Native: `HashSet.stream()Stream` — wraps elements into a `duke/util/Stream`.
+pub(crate) fn native_hashset_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
+    for elem in elems {
+        heap.get_mut(stream_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+/// Native: `LinkedList.stream()Stream` — wraps elements into a `duke/util/Stream`.
+pub(crate) fn native_linked_list_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_stream(args, heap, out, control)
+}
+
+/// Native: `Collections.nCopies(int, Object)List` — returns a list of N copies of an element.
+pub(crate) fn native_collections_n_copies(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let n = usize::try_from(extract_int_arg(args, 0)?.max(0)).unwrap_or(0);
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    heap.get_mut(list_ref)?.fields[0] = Slot::Int(i32::try_from(n).unwrap_or(0));
+    for _ in 0..n {
+        heap.get_mut(list_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(list_ref))))
+}
+
+/// Native: `String.chars()IntStream` — returns char code points as an `IntStream`.
+pub(crate) fn native_string_chars(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let values: Vec<i32> = s.chars().map(|c| c as i32).collect();
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
 const PROCESS_ID_FIELD: usize = 0;
 const PROCESS_STDIN_FIELD: usize = 1;
 const PROCESS_STDOUT_FIELD: usize = 2;
@@ -28469,7 +28712,7 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Long".to_string(), 1);
         heap.get_mut(r).unwrap().fields[0] = Slot::Long(12345_i64);
-        let result = format_arg('d', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        let result = format_arg('d', "", None, None, &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "12345");
     }
 
@@ -28478,7 +28721,7 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Double".to_string(), 1);
         heap.get_mut(r).unwrap().fields[0] = Slot::Double(std::f64::consts::PI);
-        let result = format_arg('f', Some(2), &Slot::Reference(Some(r)), &heap).unwrap();
+        let result = format_arg('f', "", None, Some(2), &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "3.14");
     }
 
@@ -28487,7 +28730,7 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Float".to_string(), 1);
         heap.get_mut(r).unwrap().fields[0] = Slot::Float(1.5_f32);
-        let result = format_arg('f', Some(1), &Slot::Reference(Some(r)), &heap).unwrap();
+        let result = format_arg('f', "", None, Some(1), &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "1.5");
     }
 
@@ -28496,7 +28739,7 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Integer".to_string(), 1);
         heap.get_mut(r).unwrap().fields[0] = Slot::Int(255);
-        let result = format_arg('x', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        let result = format_arg('x', "", None, None, &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "ff");
     }
 
@@ -28505,7 +28748,7 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Integer".to_string(), 1);
         heap.get_mut(r).unwrap().fields[0] = Slot::Int(255);
-        let result = format_arg('X', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        let result = format_arg('X', "", None, None, &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "FF");
     }
 
@@ -28514,14 +28757,14 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Long".to_string(), 1);
         heap.get_mut(r).unwrap().fields[0] = Slot::Long(255_i64);
-        let result = format_arg('x', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        let result = format_arg('x', "", None, None, &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "ff");
     }
 
     #[test]
     fn format_arg_null_returns_null_string() {
         let heap = duke_gc::Heap::new();
-        let result = format_arg('s', None, &Slot::Reference(None), &heap).unwrap();
+        let result = format_arg('s', "", None, None, &Slot::Reference(None), &heap).unwrap();
         assert_eq!(result, "null");
     }
 
@@ -33969,7 +34212,7 @@ mod tests {
         let mut heap = duke_gc::Heap::new();
         let r = heap.allocate("java/lang/Long".to_string(), 1);
         heap.get_mut(r).unwrap().fields[0] = Slot::Long(255_i64);
-        let result = format_arg('X', None, &Slot::Reference(Some(r)), &heap).unwrap();
+        let result = format_arg('X', "", None, None, &Slot::Reference(Some(r)), &heap).unwrap();
         assert_eq!(result, "FF");
     }
 
@@ -41897,6 +42140,176 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase40Test.class", "testIntStreamMapToObj", "()I"),
             3,
+        );
+    }
+
+    // ---- Phase 41: String.format extensions, stream methods, nCopies, chars ----
+
+    #[test]
+    fn test_format_width() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatWidth", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_format_left_align() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatLeftAlign", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_format_boolean_specifier() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatBooleanSpecifier", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_format_char_specifier() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatCharSpecifier", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_format_octal_specifier() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatOctalSpecifier", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_format_scientific() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatScientific", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_format_zero_pad() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatZeroPad", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_format_plus() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testFormatPlus", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_hashset_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testHashSetStream", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_linked_list_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testLinkedListStream", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_parse_int_hex() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testParseIntHex", "()I"),
+            255,
+        );
+    }
+
+    #[test]
+    fn test_parse_int_binary() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testParseIntBinary", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn test_parse_int_octal() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testParseIntOctal", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_parse_long_hex() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testParseLongHex", "()I"),
+            31,
+        );
+    }
+
+    #[test]
+    fn test_int_to_hex_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testIntToHexString", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_int_to_binary_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testIntToBinaryString", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_int_to_octal_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testIntToOctalString", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collections_n_copies() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testCollectionsNCopies", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_collections_n_copies_content() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testCollectionsNCopiesContent", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_chars() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testStringChars", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_string_chars_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase41Test.class", "testStringCharsSum", "()I"),
+            294,
         );
     }
 }
