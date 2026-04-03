@@ -11989,6 +11989,26 @@ impl FramePool {
     }
 }
 
+/// Pre-resolved method dispatch entry — cached on first resolution to eliminate
+/// repeated [`ClassRegistry`] `HashMap` lookups on hot call sites.
+///
+/// Stored in the static dispatch cache (`dispatch_cache`) and the virtual
+/// dispatch cache (`vtable_cache`).  All `Arc` fields are cheap to clone
+/// (reference-count bump only).
+///
+/// The caches are keyed as follows:
+/// - `dispatch_cache`: `(caller_class, cp_idx)` for `invokestatic`/`invokespecial`
+/// - `vtable_cache`: `(caller_class, cp_idx, receiver_runtime_class)` for `invokevirtual`
+struct CachedDispatch {
+    class_name: String,
+    method_idx: usize,
+    arg_count: usize,
+    max_locals: usize,
+    max_stack: usize,
+    pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    instructions: std::sync::Arc<[(usize, Instruction)]>,
+}
+
 struct ExecutionState {
     current_class: String,
     method_idx: usize,
@@ -11997,7 +12017,12 @@ struct ExecutionState {
     frame: Frame,
     call_stack: Vec<CallFrame>,
     frame_pool: FramePool,
-    dispatch_cache: HashMap<String, HashMap<u16, (String, usize, usize)>>,
+    /// Static dispatch cache for `invokestatic` and `invokespecial`.
+    /// Key: (`caller_class`, `cp_idx`) → pre-resolved method data.
+    dispatch_cache: HashMap<String, HashMap<u16, CachedDispatch>>,
+    /// Polymorphic inline cache for `invokevirtual`.
+    /// Key: (`caller_class`, `cp_idx`, `receiver_runtime_class`) → pre-resolved method data.
+    vtable_cache: HashMap<String, HashMap<u16, HashMap<String, CachedDispatch>>>,
     idx: usize,
     string_intern: HashMap<usize, u64>,
     #[cfg(feature = "telemetry")]
@@ -12341,6 +12366,7 @@ impl ExecutionState {
             call_stack: Vec::new(),
             frame_pool: FramePool::new(),
             dispatch_cache: HashMap::new(),
+            vtable_cache: HashMap::new(),
             idx: 0,
             string_intern: HashMap::new(),
             #[cfg(feature = "telemetry")]
@@ -12367,6 +12393,11 @@ fn refresh_current_method_name(
         .unwrap_or_default();
 }
 
+/// Swap interpreter state to begin executing a callee method.
+///
+/// All method data is passed pre-resolved so this function performs **zero**
+/// [`ClassRegistry`] lookups — eliminating the registry `HashMap` access from every
+/// method-dispatch hot path.
 #[allow(clippy::too_many_arguments)]
 fn activate_method_state(
     frame: &mut Frame,
@@ -12375,14 +12406,15 @@ fn activate_method_state(
     instructions: &mut std::sync::Arc<[(usize, Instruction)]>,
     current_class: &mut String,
     call_stack: &mut Vec<CallFrame>,
-    registry: &ClassRegistry,
     callee_class: String,
     callee_idx: usize,
     callee_pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
     callee_frame: Frame,
+    callee_instructions: std::sync::Arc<[(usize, Instruction)]>,
     resume_idx: usize,
+    #[cfg(feature = "telemetry")] registry: &ClassRegistry,
     #[cfg(feature = "telemetry")] current_method: &mut String,
-) -> VmResult<()> {
+) {
     call_stack.push(CallFrame {
         frame: std::mem::replace(frame, callee_frame),
         method_idx: *method_idx,
@@ -12393,11 +12425,9 @@ fn activate_method_state(
     *method_idx = callee_idx;
     *pc_to_idx = callee_pc_to_idx;
     *current_class = callee_class;
-    *instructions =
-        std::sync::Arc::clone(&registry.get(current_class)?.methods[*method_idx].instructions);
+    *instructions = callee_instructions;
     #[cfg(feature = "telemetry")]
     refresh_current_method_name(current_method, registry, current_class, *method_idx);
-    Ok(())
 }
 
 enum ExecutionOutcome {
@@ -12744,6 +12774,7 @@ fn run_execution(
         call_stack,
         frame_pool,
         dispatch_cache,
+        vtable_cache,
         idx,
         string_intern,
         #[cfg(feature = "telemetry")]
@@ -12971,32 +13002,24 @@ fn run_execution(
         match &instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
-                if let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
+                if let Some(cached) = dispatch_cache
                     .get(current_class.as_str())
                     .and_then(|m| m.get(&cp_idx.0))
                 {
-                    // Fast path: cache hit — skip CP walk and method search.
-                    let (callee_pc_to_idx, callee_frame) = {
-                        let ctx = registry.get(cached_cls)?;
-                        let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
-                        let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
-                        let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
-                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                        locals_buf.resize(max_locals, Slot::Int(0));
-                        if cached_ac > max_locals {
-                            return Err(VmError::LocalOutOfBounds {
-                                index: cached_ac,
-                                max_locals,
-                            });
-                        }
-                        for i in (0..cached_ac).rev() {
-                            locals_buf[i] = frame.pop()?;
-                        }
-                        let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                        (pci, f)
-                    };
-                    let callee_class = cached_cls.clone();
-                    let callee_idx = cached_idx;
+                    // Fast path: cache hit — zero registry lookups.
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(cached.max_locals, Slot::Int(0));
+                    if cached.arg_count > cached.max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: cached.arg_count,
+                            max_locals: cached.max_locals,
+                        });
+                    }
+                    for i in (0..cached.arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
+                    }
+                    let callee_frame =
+                        Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
                     activate_method_state(
                         frame,
                         method_idx,
@@ -13004,15 +13027,17 @@ fn run_execution(
                         instructions,
                         current_class,
                         call_stack,
-                        registry,
-                        callee_class,
-                        callee_idx,
-                        callee_pc_to_idx,
+                        cached.class_name.clone(),
+                        cached.method_idx,
+                        std::sync::Arc::clone(&cached.pc_to_idx),
                         callee_frame,
+                        std::sync::Arc::clone(&cached.instructions),
                         *idx + 1,
                         #[cfg(feature = "telemetry")]
+                        registry,
+                        #[cfg(feature = "telemetry")]
                         current_method,
-                    )?;
+                    );
                     *idx = 0;
                     continue;
                 }
@@ -13054,15 +13079,29 @@ fn run_execution(
                 match callee_idx {
                     Some(callee_idx) => {
                         let arg_count = parse_arg_count(&callee_desc);
-                        dispatch_cache
-                            .entry(current_class.clone())
-                            .or_default()
-                            .insert(cp_idx.0, (callee_class_key.clone(), callee_idx, arg_count));
-                        let (callee_pc_to_idx, callee_frame) = {
+                        let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                             let ctx = registry.get(&callee_class_key)?;
                             let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                             let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                             let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
+                            let instrs =
+                                std::sync::Arc::clone(&ctx.methods[callee_idx].instructions);
+                            // Populate cache with all pre-resolved data.
+                            dispatch_cache
+                                .entry(current_class.clone())
+                                .or_default()
+                                .insert(
+                                    cp_idx.0,
+                                    CachedDispatch {
+                                        class_name: callee_class_key.clone(),
+                                        method_idx: callee_idx,
+                                        arg_count,
+                                        max_locals,
+                                        max_stack,
+                                        pc_to_idx: std::sync::Arc::clone(&pci),
+                                        instructions: std::sync::Arc::clone(&instrs),
+                                    },
+                                );
                             let (mut locals_buf, stack_buf) = frame_pool.acquire();
                             locals_buf.resize(max_locals, Slot::Int(0));
                             if arg_count > max_locals {
@@ -13075,7 +13114,7 @@ fn run_execution(
                                 locals_buf[i] = frame.pop()?;
                             }
                             let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                            (pci, f)
+                            (pci, instrs, f)
                         };
                         activate_method_state(
                             frame,
@@ -13084,15 +13123,17 @@ fn run_execution(
                             instructions,
                             current_class,
                             call_stack,
-                            registry,
                             callee_class_key,
                             callee_idx,
                             callee_pc_to_idx,
                             callee_frame,
+                            callee_instructions,
                             *idx + 1,
                             #[cfg(feature = "telemetry")]
+                            registry,
+                            #[cfg(feature = "telemetry")]
                             current_method,
-                        )?;
+                        );
                         *idx = 0;
                         continue;
                     }
@@ -14054,32 +14095,25 @@ fn run_execution(
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
                 // Fast path: cache hit for invokespecial (static dispatch — safe to cache).
                 if matches!(instr, Instruction::Invokespecial(_))
-                    && let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
+                    && let Some(cached) = dispatch_cache
                         .get(current_class.as_str())
                         .and_then(|m| m.get(&cp_idx.0))
                 {
-                    let (callee_pc_to_idx, callee_frame) = {
-                        let ctx = registry.get(cached_cls)?;
-                        let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
-                        let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
-                        let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
-                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                        locals_buf.resize(max_locals, Slot::Int(0));
-                        if cached_ac + 1 > max_locals {
-                            return Err(VmError::LocalOutOfBounds {
-                                index: cached_ac + 1,
-                                max_locals,
-                            });
-                        }
-                        for i in (1..=cached_ac).rev() {
-                            locals_buf[i] = frame.pop()?;
-                        }
-                        locals_buf[0] = frame.pop()?; // `this`
-                        let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                        (pci, f)
-                    };
-                    let dispatch_class = cached_cls.clone();
-                    let callee_idx = cached_idx;
+                    // Zero registry lookups — all data pre-cached.
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(cached.max_locals, Slot::Int(0));
+                    if cached.arg_count + 1 > cached.max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: cached.arg_count + 1,
+                            max_locals: cached.max_locals,
+                        });
+                    }
+                    for i in (1..=cached.arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
+                    }
+                    locals_buf[0] = frame.pop()?; // `this`
+                    let callee_frame =
+                        Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
                     activate_method_state(
                         frame,
                         method_idx,
@@ -14087,15 +14121,17 @@ fn run_execution(
                         instructions,
                         current_class,
                         call_stack,
-                        registry,
-                        dispatch_class,
-                        callee_idx,
-                        callee_pc_to_idx,
+                        cached.class_name.clone(),
+                        cached.method_idx,
+                        std::sync::Arc::clone(&cached.pc_to_idx),
                         callee_frame,
+                        std::sync::Arc::clone(&cached.instructions),
                         *idx + 1,
                         #[cfg(feature = "telemetry")]
+                        registry,
+                        #[cfg(feature = "telemetry")]
                         current_method,
-                    )?;
+                    );
                     *idx = 0;
                     continue;
                 }
@@ -14133,6 +14169,49 @@ fn run_execution(
                     } else {
                         None
                     };
+                // vtable fast path for invokevirtual — check PIC after receiver type is known.
+                if matches!(instr, Instruction::Invokevirtual(_))
+                    && let Some(ref runtime_class) = virtual_start
+                    && let Some(cached) = vtable_cache
+                        .get(current_class.as_str())
+                        .and_then(|m| m.get(&cp_idx.0))
+                        .and_then(|m| m.get(runtime_class.as_str()))
+                {
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(cached.max_locals, Slot::Int(0));
+                    if cached.arg_count + 1 > cached.max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: cached.arg_count + 1,
+                            max_locals: cached.max_locals,
+                        });
+                    }
+                    for i in (1..=cached.arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
+                    }
+                    locals_buf[0] = frame.pop()?; // `this`
+                    let callee_frame =
+                        Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
+                    activate_method_state(
+                        frame,
+                        method_idx,
+                        pc_to_idx,
+                        instructions,
+                        current_class,
+                        call_stack,
+                        cached.class_name.clone(),
+                        cached.method_idx,
+                        std::sync::Arc::clone(&cached.pc_to_idx),
+                        callee_frame,
+                        std::sync::Arc::clone(&cached.instructions),
+                        *idx + 1,
+                        #[cfg(feature = "telemetry")]
+                        registry,
+                        #[cfg(feature = "telemetry")]
+                        current_method,
+                    );
+                    *idx = 0;
+                    continue;
+                }
                 let resolved = if let Some(runtime_class) = virtual_start.as_ref() {
                     match resolve_method_in_hierarchy_lookup(
                         registry,
@@ -14221,7 +14300,7 @@ fn run_execution(
                                     &lambda_info.impl_desc,
                                 );
                                 if let Some((dispatch_class, impl_idx)) = resolved {
-                                    let (callee_pc_to_idx, callee_frame) = {
+                                    let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                                         let ctx = registry.get(&dispatch_class)?;
                                         let max_locals =
                                             usize::from(ctx.methods[impl_idx].max_locals);
@@ -14229,6 +14308,9 @@ fn run_execution(
                                             usize::from(ctx.methods[impl_idx].max_stack);
                                         let pci =
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let instrs = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].instructions,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         let expanded_impl_args = expand_args_for_desc(
@@ -14243,7 +14325,7 @@ fn run_execution(
                                         }
                                         let f =
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                                        (pci, f)
+                                        (pci, instrs, f)
                                     };
                                     activate_method_state(
                                         frame,
@@ -14252,15 +14334,17 @@ fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        registry,
                                         dispatch_class,
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
+                                        callee_instructions,
                                         *idx + 1,
                                         #[cfg(feature = "telemetry")]
+                                        registry,
+                                        #[cfg(feature = "telemetry")]
                                         current_method,
-                                    )?;
+                                    );
                                     *idx = 0;
                                     continue;
                                 }
@@ -14470,13 +14554,6 @@ fn run_execution(
                     }
                 };
                 let arg_count = parse_arg_count(&callee_desc);
-                // Populate dispatch cache for invokespecial (static dispatch — result is stable).
-                if matches!(instr, Instruction::Invokespecial(_)) {
-                    dispatch_cache
-                        .entry(current_class.clone())
-                        .or_default()
-                        .insert(cp_idx.0, (dispatch_class.clone(), callee_idx, arg_count));
-                }
                 #[cfg(feature = "telemetry")]
                 if matches!(instr, Instruction::Invokevirtual(_)) {
                     registry.telemetry.dispatch_resolution.record(
@@ -14486,11 +14563,49 @@ fn run_execution(
                         dispatch_class != callee_class_key,
                     );
                 }
-                let (callee_pc_to_idx, callee_frame) = {
+                let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                     let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                     let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
+                    let instrs = std::sync::Arc::clone(&ctx.methods[callee_idx].instructions);
+                    // Populate dispatch cache for invokespecial (static dispatch — stable result).
+                    // Also populate vtable cache for invokevirtual when receiver type is known.
+                    if matches!(instr, Instruction::Invokespecial(_)) {
+                        dispatch_cache
+                            .entry(current_class.clone())
+                            .or_default()
+                            .insert(
+                                cp_idx.0,
+                                CachedDispatch {
+                                    class_name: dispatch_class.clone(),
+                                    method_idx: callee_idx,
+                                    arg_count,
+                                    max_locals,
+                                    max_stack,
+                                    pc_to_idx: std::sync::Arc::clone(&pci),
+                                    instructions: std::sync::Arc::clone(&instrs),
+                                },
+                            );
+                    } else if let Some(ref runtime_class) = virtual_start {
+                        vtable_cache
+                            .entry(current_class.clone())
+                            .or_default()
+                            .entry(cp_idx.0)
+                            .or_default()
+                            .insert(
+                                runtime_class.clone(),
+                                CachedDispatch {
+                                    class_name: dispatch_class.clone(),
+                                    method_idx: callee_idx,
+                                    arg_count,
+                                    max_locals,
+                                    max_stack,
+                                    pc_to_idx: std::sync::Arc::clone(&pci),
+                                    instructions: std::sync::Arc::clone(&instrs),
+                                },
+                            );
+                    }
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
@@ -14505,7 +14620,7 @@ fn run_execution(
                     }
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                    (pci, f)
+                    (pci, instrs, f)
                 };
                 activate_method_state(
                     frame,
@@ -14514,15 +14629,17 @@ fn run_execution(
                     instructions,
                     current_class,
                     call_stack,
-                    registry,
                     dispatch_class,
                     callee_idx,
                     callee_pc_to_idx,
                     callee_frame,
+                    callee_instructions,
                     *idx + 1,
                     #[cfg(feature = "telemetry")]
+                    registry,
+                    #[cfg(feature = "telemetry")]
                     current_method,
-                )?;
+                );
                 *idx = 0;
                 continue;
             }
@@ -15370,7 +15487,7 @@ fn run_execution(
                                     &lambda_info.impl_desc,
                                 );
                                 if let Some((dispatch_class, impl_idx)) = resolved {
-                                    let (callee_pc_to_idx, callee_frame) = {
+                                    let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                                         let ctx = registry.get(&dispatch_class)?;
                                         let max_locals =
                                             usize::from(ctx.methods[impl_idx].max_locals);
@@ -15378,6 +15495,9 @@ fn run_execution(
                                             usize::from(ctx.methods[impl_idx].max_stack);
                                         let pci =
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let instrs = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].instructions,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         let expanded_impl_args = expand_args_for_desc(
@@ -15392,7 +15512,7 @@ fn run_execution(
                                         }
                                         let f =
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                                        (pci, f)
+                                        (pci, instrs, f)
                                     };
                                     activate_method_state(
                                         frame,
@@ -15401,15 +15521,17 @@ fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        registry,
                                         dispatch_class,
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
+                                        callee_instructions,
                                         *idx + 1,
                                         #[cfg(feature = "telemetry")]
+                                        registry,
+                                        #[cfg(feature = "telemetry")]
                                         current_method,
-                                    )?;
+                                    );
                                     *idx = 0;
                                     continue;
                                 }
@@ -15427,7 +15549,7 @@ fn run_execution(
                                     &lambda_info.impl_desc,
                                 );
                                 if let Some((dispatch_class, impl_idx)) = resolved {
-                                    let (callee_pc_to_idx, callee_frame) = {
+                                    let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                                         let ctx = registry.get(&dispatch_class)?;
                                         let max_locals =
                                             usize::from(ctx.methods[impl_idx].max_locals);
@@ -15435,6 +15557,9 @@ fn run_execution(
                                             usize::from(ctx.methods[impl_idx].max_stack);
                                         let pci =
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let instrs = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].instructions,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         let expanded_impl_args = expand_args_for_desc(
@@ -15449,7 +15574,7 @@ fn run_execution(
                                         }
                                         let f =
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                                        (pci, f)
+                                        (pci, instrs, f)
                                     };
                                     activate_method_state(
                                         frame,
@@ -15458,15 +15583,17 @@ fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        registry,
                                         dispatch_class,
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
+                                        callee_instructions,
                                         *idx + 1,
                                         #[cfg(feature = "telemetry")]
+                                        registry,
+                                        #[cfg(feature = "telemetry")]
                                         current_method,
-                                    )?;
+                                    );
                                     *idx = 0;
                                     continue;
                                 }
@@ -15595,11 +15722,12 @@ fn run_execution(
                     &dispatch_class,
                     dispatch_class != actual_class,
                 );
-                let (callee_pc_to_idx, callee_frame) = {
+                let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                     let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                     let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
+                    let instrs = std::sync::Arc::clone(&ctx.methods[callee_idx].instructions);
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
@@ -15614,7 +15742,7 @@ fn run_execution(
                     }
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                    (pci, f)
+                    (pci, instrs, f)
                 };
                 activate_method_state(
                     frame,
@@ -15623,15 +15751,17 @@ fn run_execution(
                     instructions,
                     current_class,
                     call_stack,
-                    registry,
                     dispatch_class,
                     callee_idx,
                     callee_pc_to_idx,
                     callee_frame,
+                    callee_instructions,
                     *idx + 1,
                     #[cfg(feature = "telemetry")]
+                    registry,
+                    #[cfg(feature = "telemetry")]
                     current_method,
-                )?;
+                );
                 *idx = 0;
                 continue;
             }
