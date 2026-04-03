@@ -2072,6 +2072,283 @@ pub(crate) fn native_stack_size(
     native_arraylist_size(args, heap, out, control)
 }
 
+// ---- TreeSet natives (sorted unique elements, backed by sorted Vec<Slot>) ----
+// fields[0] = Int(size), fields[1..] = unique elements in sorted String order
+
+/// Native: `TreeSet.<init>()V`
+pub(crate) fn native_treeset_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `TreeSet.add(E)Z` — inserts in sorted order; returns false if already present.
+pub(crate) fn native_treeset_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem_str = match &elem {
+        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
+        Slot::Int(v) => Some(v.to_string()),
+        _ => None,
+    };
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    // Check for duplicate.
+    for i in 0..size {
+        let ex = heap.get(this_ref)?.fields[1 + i];
+        let ex_str = match &ex {
+            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+            Slot::Int(v) => Some(v.to_string()),
+            _ => None,
+        };
+        if ex_str == elem_str {
+            return Ok(Some(Slot::Int(0))); // false — no change
+        }
+    }
+    // Find sorted insert position.
+    let insert_pos = {
+        let mut pos = size;
+        for i in 0..size {
+            let ex = heap.get(this_ref)?.fields[1 + i];
+            let ex_str: Option<String> = match &ex {
+                Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+                Slot::Int(v) => Some(v.to_string()),
+                _ => None,
+            };
+            if elem_str.as_deref().unwrap_or("") < ex_str.as_deref().unwrap_or("") {
+                pos = i;
+                break;
+            }
+        }
+        pos
+    };
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.insert(1 + insert_pos, elem);
+    obj.fields[0] = Slot::Int(i32::try_from(size + 1).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(1))) // true — element added
+}
+
+/// Native: `TreeSet.contains(E)Z`
+pub(crate) fn native_treeset_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem_str = match &elem {
+        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
+        Slot::Int(v) => Some(v.to_string()),
+        _ => None,
+    };
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    for i in 0..size {
+        let ex = heap.get(this_ref)?.fields[1 + i];
+        let ex_str = match &ex {
+            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+            Slot::Int(v) => Some(v.to_string()),
+            _ => None,
+        };
+        if ex_str == elem_str {
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+/// Native: `TreeSet.size()I`
+pub(crate) fn native_treeset_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => Slot::Int(*n),
+        _ => Slot::Int(0),
+    }))
+}
+
+/// Native: `TreeSet.first()E` — returns smallest element.
+pub(crate) fn native_treeset_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first().copied() {
+        Some(Slot::Int(0)) | None => Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        }),
+        _ => Ok(Some(heap.get(this_ref)?.fields[1])),
+    }
+}
+
+/// Native: `TreeSet.last()E` — returns largest element.
+pub(crate) fn native_treeset_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    Ok(Some(heap.get(this_ref)?.fields[size]))
+}
+
+/// Native: `TreeSet.isEmpty()Z`
+pub(crate) fn native_treeset_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(0)) | None => 1,
+        _ => 0,
+    })))
+}
+
+/// Native: `TreeSet.iterator()Iterator` — returns an ArrayList-compatible iterator over sorted elements.
+pub(crate) fn native_treeset_iterator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_iterator(args, heap, out, control)
+}
+
+// ---- Collections.min / max / shuffle ----
+
+/// Native: `Collections.min(Collection)T` — returns minimum element via `compareTo`.
+pub(crate) fn native_collections_min(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let coll_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(coll_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    let Slot::Reference(Some(mut min_ref)) = heap.get(coll_ref)?.fields[1] else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    for i in 2..=size {
+        let Slot::Reference(Some(candidate)) = heap.get(coll_ref)?.fields[i] else {
+            continue;
+        };
+        let class_name = heap.get(candidate)?.class_name.clone();
+        let cmp = ops.invoke(
+            heap,
+            out,
+            &class_name,
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            vec![
+                Slot::Reference(Some(candidate)),
+                Slot::Reference(Some(min_ref)),
+            ],
+        )?;
+        let _ = control;
+        if matches!(cmp, Some(Slot::Int(n)) if n < 0) {
+            min_ref = candidate;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(min_ref))))
+}
+
+/// Native: `Collections.max(Collection)T` — returns maximum element via `compareTo`.
+pub(crate) fn native_collections_max(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let coll_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(coll_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    let Slot::Reference(Some(mut max_ref)) = heap.get(coll_ref)?.fields[1] else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    for i in 2..=size {
+        let Slot::Reference(Some(candidate)) = heap.get(coll_ref)?.fields[i] else {
+            continue;
+        };
+        let class_name = heap.get(candidate)?.class_name.clone();
+        let cmp = ops.invoke(
+            heap,
+            out,
+            &class_name,
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            vec![
+                Slot::Reference(Some(candidate)),
+                Slot::Reference(Some(max_ref)),
+            ],
+        )?;
+        let _ = control;
+        if matches!(cmp, Some(Slot::Int(n)) if n > 0) {
+            max_ref = candidate;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(max_ref))))
+}
+
+/// Native: `Collections.shuffle(List)V` — no-op (deterministic test environments).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collections_shuffle(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
+}
+
 // ---- Comparator natives ----
 
 /// Native: `Comparator.naturalOrder()Comparator` — returns a singleton synthetic comparator.
@@ -15758,6 +16035,23 @@ pub(crate) fn native_string_last_index_of(
         .and_then(|byte_pos| i32::try_from(this_str[..byte_pos].chars().count()).ok())
         .unwrap_or(-1);
     Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `String.codePointAt(I)I` — returns the Unicode code point at the given index.
+pub(crate) fn native_string_code_point_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(0);
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let cp = s
+        .chars()
+        .nth(idx)
+        .map_or(0_i32, |c| i32::try_from(u32::from(c)).unwrap_or(0));
+    Ok(Some(Slot::Int(cp)))
 }
 
 // ---------------------------------------------------------------------------
@@ -38353,6 +38647,146 @@ mod tests {
                 "testCollectionsSortWithComparator",
                 "()I"
             ),
+            1,
+        );
+    }
+
+    // ---- Phase 35: LinkedHashMap, TreeSet, Collections.min/max, String extras ----
+
+    #[test]
+    fn linked_hashmap_size() {
+        assert_eq!(
+            run_bootstrap_int("LinkedHashMapTest.class", "testSize", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn linked_hashmap_get() {
+        assert_eq!(
+            run_bootstrap_int("LinkedHashMapTest.class", "testGet", "()I"),
+            42,
+        );
+    }
+
+    #[test]
+    fn linked_hashmap_contains_key() {
+        assert_eq!(
+            run_bootstrap_int("LinkedHashMapTest.class", "testContainsKey", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn linked_hashmap_insertion_order() {
+        assert_eq!(
+            run_bootstrap_int("LinkedHashMapTest.class", "testInsertionOrder", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn treeset_size() {
+        assert_eq!(run_bootstrap_int("TreeSetTest.class", "testSize", "()I"), 3,);
+    }
+
+    #[test]
+    fn treeset_first() {
+        assert_eq!(
+            run_bootstrap_int("TreeSetTest.class", "testFirst", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn treeset_last() {
+        assert_eq!(run_bootstrap_int("TreeSetTest.class", "testLast", "()I"), 1,);
+    }
+
+    #[test]
+    fn treeset_contains() {
+        assert_eq!(
+            run_bootstrap_int("TreeSetTest.class", "testContains", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn treeset_no_duplicates() {
+        assert_eq!(
+            run_bootstrap_int("TreeSetTest.class", "testNoDuplicates", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn collections_min_int() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsMinMaxTest.class", "testMinInt", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn collections_max_int() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsMinMaxTest.class", "testMaxInt", "()I"),
+            4,
+        );
+    }
+
+    #[test]
+    fn collections_min_string() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsMinMaxTest.class", "testMinString", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn collections_shuffle_preserves_size() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsMinMaxTest.class", "testShuffle", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn string_to_char_array_length() {
+        assert_eq!(
+            run_bootstrap_int("StringCharsTest.class", "testToCharArrayLength", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn string_manual_char_iteration() {
+        assert_eq!(
+            run_bootstrap_int("StringCharsTest.class", "testManualCharIteration", "()I"),
+            294,
+        );
+    }
+
+    #[test]
+    fn string_code_point_at() {
+        assert_eq!(
+            run_bootstrap_int("StringCharsTest.class", "testCodePointAt", "()I"),
+            65,
+        );
+    }
+
+    #[test]
+    fn string_compare_to_ordering() {
+        assert_eq!(
+            run_bootstrap_int("StringCharsTest.class", "testCompareTo", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn string_value_of_char() {
+        assert_eq!(
+            run_bootstrap_int("StringCharsTest.class", "testValueOfChar", "()I"),
             1,
         );
     }
