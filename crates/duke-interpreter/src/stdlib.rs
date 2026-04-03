@@ -3604,6 +3604,116 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Object;)Z",
         native_hashmap_contains_value,
     );
+    registry.natives_mut().register_callback(
+        "java/util/HashMap",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_hashmap_for_each,
+    );
+
+    // java/util/LinkedList — doubly-ended list/deque backed by ArrayList field layout
+    // fields[0] = Int(size), fields[1..] = elements (head-to-tail order)
+    // NOTE: super_class is Object (not ArrayList) so instance_field_count is not summed twice.
+    let linked_list_ctx = ClassContext {
+        class_name: "java/util/LinkedList".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/Iterable".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(linked_list_ctx);
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "<init>",
+        "()V",
+        native_linked_list_init,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "size",
+        "()I",
+        native_linked_list_size,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_linked_list_add,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        native_linked_list_get,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "addFirst",
+        "(Ljava/lang/Object;)V",
+        native_linked_list_add_first,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "addLast",
+        "(Ljava/lang/Object;)V",
+        native_linked_list_add_last,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "peekFirst",
+        "()Ljava/lang/Object;",
+        native_linked_list_peek_first,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "peekLast",
+        "()Ljava/lang/Object;",
+        native_linked_list_peek_last,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "removeFirst",
+        "()Ljava/lang/Object;",
+        native_linked_list_remove_first,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "removeLast",
+        "()Ljava/lang/Object;",
+        native_linked_list_remove_last,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "poll",
+        "()Ljava/lang/Object;",
+        native_linked_list_poll,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "offer",
+        "(Ljava/lang/Object;)Z",
+        native_linked_list_offer,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "isEmpty",
+        "()Z",
+        native_linked_list_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_linked_list_iterator,
+    );
 
     // java/util/Map$Entry — key/value pair produced by HashMap.entrySet()
     // fields[0] = key, fields[1] = value

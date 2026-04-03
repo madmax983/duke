@@ -1537,6 +1537,258 @@ pub(crate) fn native_hashmap_compute_if_absent(
     Ok(Some(Slot::Reference(None)))
 }
 
+// ---- LinkedList natives (field layout identical to ArrayList: fields[0]=size, fields[1..]=elements) ----
+
+/// Native: `LinkedList.<init>()V` — same initialisation as `ArrayList`.
+pub(crate) fn native_linked_list_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_init(args, heap, out, control)
+}
+
+/// Native: `LinkedList.size()I`
+pub(crate) fn native_linked_list_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_size(args, heap, out, control)
+}
+
+/// Native: `LinkedList.add(Object)Z` — appends to tail.
+pub(crate) fn native_linked_list_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)
+}
+
+/// Native: `LinkedList.get(I)Object`
+pub(crate) fn native_linked_list_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_get(args, heap, out, control)
+}
+
+/// Native: `LinkedList.addFirst(Object)V` — inserts at index 0.
+/// Field layout: fields[0]=Int(size), fields[1..size]=elements.
+pub(crate) fn native_linked_list_add_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = extract_slot_arg(args, 1);
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let obj = heap.get_mut(this_ref)?;
+    // Shift existing elements right by one.
+    obj.fields.insert(1, elem);
+    obj.fields[0] = Slot::Int(i32::try_from(size + 1).unwrap_or(i32::MAX));
+    Ok(None)
+}
+
+/// Native: `LinkedList.addLast(Object)V` — appends to tail (same as add).
+pub(crate) fn native_linked_list_add_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)?;
+    Ok(None)
+}
+
+/// Native: `LinkedList.peekFirst()Object` — returns head without removal, or null if empty.
+pub(crate) fn native_linked_list_peek_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    if size == 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    Ok(Some(heap.get(this_ref)?.fields[1]))
+}
+
+/// Native: `LinkedList.peekLast()Object` — returns tail without removal, or null if empty.
+pub(crate) fn native_linked_list_peek_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    Ok(Some(heap.get(this_ref)?.fields[size]))
+}
+
+/// Native: `LinkedList.removeFirst()Object` — removes and returns head.
+pub(crate) fn native_linked_list_remove_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    let obj = heap.get_mut(this_ref)?;
+    let elem = obj.fields.remove(1);
+    obj.fields[0] = Slot::Int(i32::try_from(size - 1).unwrap_or(0));
+    Ok(Some(elem))
+}
+
+/// Native: `LinkedList.removeLast()Object` — removes and returns tail.
+pub(crate) fn native_linked_list_remove_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    let obj = heap.get_mut(this_ref)?;
+    let elem = obj.fields.remove(size);
+    obj.fields[0] = Slot::Int(i32::try_from(size - 1).unwrap_or(0));
+    Ok(Some(elem))
+}
+
+/// Native: `LinkedList.poll()Object` — removes and returns head, or null if empty.
+pub(crate) fn native_linked_list_poll(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let obj = heap.get_mut(this_ref)?;
+    let elem = obj.fields.remove(1);
+    obj.fields[0] = Slot::Int(i32::try_from(size - 1).unwrap_or(0));
+    Ok(Some(elem))
+}
+
+/// Native: `LinkedList.offer(Object)Z` — appends to tail, returns true.
+pub(crate) fn native_linked_list_offer(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)
+}
+
+/// Native: `LinkedList.isEmpty()Z`
+pub(crate) fn native_linked_list_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_is_empty(args, heap, out, control)
+}
+
+/// Native: `LinkedList.iterator()Iterator` — returns an ArrayList-compatible iterator.
+pub(crate) fn native_linked_list_iterator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_iterator(args, heap, out, control)
+}
+
+// ---- HashMap.forEach callback ----
+
+/// Native: `HashMap.forEach(BiConsumer)V` — iterates key-value pairs, invoking `accept(k, v)`.
+pub(crate) fn native_hashmap_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let consumer_ref = extract_ref_arg(args, 1)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    // Snapshot key-val pairs (fields[1,2], fields[3,4], ...)
+    let pairs: Vec<(Slot, Slot)> = (0..size)
+        .map(|i| {
+            let key = heap
+                .get(this_ref)
+                .map(|o| o.fields[1 + i * 2])
+                .unwrap_or(Slot::Reference(None));
+            let val = heap
+                .get(this_ref)
+                .map(|o| o.fields[2 + i * 2])
+                .unwrap_or(Slot::Reference(None));
+            (key, val)
+        })
+        .collect();
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    for (key, val) in pairs {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;Ljava/lang/Object;)V",
+            vec![Slot::Reference(Some(consumer_ref)), key, val],
+        )?;
+    }
+    let _ = control;
+    Ok(None)
+}
+
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
 /// args: `[this_ref, name_ref, ordinal_int]`
 pub(crate) fn native_enum_init(
@@ -37434,6 +37686,132 @@ mod tests {
             &mut control,
         )
         .expect("ZipFile.close should succeed");
+    }
+
+    // ---- Phase 33: HashSet iteration, LinkedList, HashMap.forEach, Integer string conv ----
+
+    #[test]
+    fn hashset_for_each_counts_elements() {
+        assert_eq!(
+            run_bootstrap_int("HashSetIterTest.class", "testHashSetForEach", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn hashset_keyset_for_each_counts_entries() {
+        assert_eq!(
+            run_bootstrap_int("HashSetIterTest.class", "testKeySetForEach", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn hashset_for_each_sums_integers() {
+        assert_eq!(
+            run_bootstrap_int("HashSetIterTest.class", "testSumValues", "()I"),
+            60,
+        );
+    }
+
+    #[test]
+    fn linked_list_size() {
+        assert_eq!(
+            run_bootstrap_int("LinkedListTest.class", "testSize", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn linked_list_peek_first() {
+        assert_eq!(
+            run_bootstrap_int("LinkedListTest.class", "testPeekFirst", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn linked_list_remove_first() {
+        assert_eq!(
+            run_bootstrap_int("LinkedListTest.class", "testRemoveFirst", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn linked_list_add_first() {
+        assert_eq!(
+            run_bootstrap_int("LinkedListTest.class", "testAddFirst", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn linked_list_peek_last() {
+        assert_eq!(
+            run_bootstrap_int("LinkedListTest.class", "testPeekLast", "()I"),
+            9,
+        );
+    }
+
+    #[test]
+    fn linked_list_poll() {
+        assert_eq!(
+            run_bootstrap_int("LinkedListTest.class", "testPoll", "()I"),
+            101,
+        );
+    }
+
+    #[test]
+    fn integer_to_binary_string_length() {
+        assert_eq!(
+            run_bootstrap_int("IntegerStringConvTest.class", "testToBinaryString", "()I"),
+            4,
+        );
+    }
+
+    #[test]
+    fn integer_to_hex_string_length() {
+        assert_eq!(
+            run_bootstrap_int("IntegerStringConvTest.class", "testToHexString", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn integer_to_octal_string_length() {
+        assert_eq!(
+            run_bootstrap_int("IntegerStringConvTest.class", "testToOctalString", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn integer_to_binary_string_one() {
+        assert_eq!(
+            run_bootstrap_int(
+                "IntegerStringConvTest.class",
+                "testToBinaryStringOne",
+                "()I"
+            ),
+            1,
+        );
+    }
+
+    #[test]
+    fn hashmap_for_each_count() {
+        assert_eq!(
+            run_bootstrap_int("HashMapForEachTest.class", "testForEachCount", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn hashmap_for_each_sum_values() {
+        assert_eq!(
+            run_bootstrap_int("HashMapForEachTest.class", "testForEachSumValues", "()I"),
+            30,
+        );
     }
 }
 #[cfg(test)]
