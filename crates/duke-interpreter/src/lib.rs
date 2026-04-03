@@ -2738,6 +2738,91 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
         }
         Ok(Some(Slot::Reference(Some(map_ref))))
+    } else if collector_class == "duke/util/ToMapMergeCollector" {
+        // Collect into HashMap with merge function for duplicate keys.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let key_fn = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let val_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let merge_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(2)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(key_ref)) = key_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(val_ref)) = val_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(merge_ref)) = merge_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let key_class = heap.get(key_ref)?.class_name.clone();
+        let val_class = heap.get(val_ref)?.class_name.clone();
+        let merge_class = heap.get(merge_ref)?.class_name.clone();
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let k = ops
+                .invoke(
+                    heap,
+                    out,
+                    &key_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![key_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let v = ops
+                .invoke(
+                    heap,
+                    out,
+                    &val_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![val_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let fields = heap.get(map_ref)?.fields.clone();
+            if let Some(i) = find_hashmap_entry_index(&fields, &k, heap) {
+                // Duplicate key — apply merge function: merge(existing, new)
+                let existing = fields[i + 1];
+                let merged = ops
+                    .invoke(
+                        heap,
+                        out,
+                        &merge_class,
+                        "apply",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                        vec![merge_fn, existing, v],
+                    )?
+                    .unwrap_or(Slot::Reference(None));
+                heap.get_mut(map_ref)?.fields[i + 1] = merged;
+            } else {
+                let cur_size = match heap.get(map_ref)?.fields.first() {
+                    Some(Slot::Int(n)) => *n,
+                    _ => 0,
+                };
+                heap.get_mut(map_ref)?.fields.push(k);
+                heap.get_mut(map_ref)?.fields.push(v);
+                heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
+            }
+        }
+        Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/PartitioningByCollector" {
         // Collect into a Map<Boolean, List> partitioned by predicate.
         let collector_ref = match args.get(1) {
@@ -22937,6 +23022,25 @@ pub(crate) fn native_double_stream_of(
     )))))
 }
 
+/// Native: `DoubleStream.of(double)DoubleStream` — single-element factory.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_double_stream_of_single(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = match args.first() {
+        Some(Slot::Double(d)) => *d,
+        Some(Slot::Float(f)) => f64::from(*f),
+        _ => 0.0,
+    };
+    Ok(Some(Slot::Reference(Some(make_double_stream(
+        heap,
+        vec![v],
+    )))))
+}
+
 // ---- DoubleStream terminal ops ----
 
 /// Native: `DoubleStream.count()J`
@@ -23709,6 +23813,231 @@ pub(crate) fn native_collections_unmodifiable_set(
     // Our sets are already value objects; just return the same reference.
     let set_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     Ok(Some(set_slot))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 59: Stream.flatMapToInt/Long/Double, Collectors.toMap (3-arg),
+//           forEach on HashSet/TreeSet/TreeMap/LinkedList/LinkedHashMap/PriorityQueue
+// ---------------------------------------------------------------------------
+
+/// Native: `Stream.flatMapToInt(Function<T,IntStream>)IntStream`
+pub(crate) fn native_stream_flat_map_to_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut result: Vec<i32> = Vec::new();
+    for elem in elems {
+        let sub = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![fn_slot, elem],
+        )?;
+        if let Some(Slot::Reference(Some(sub_ref))) = sub {
+            result.extend(int_stream_elems(heap, sub_ref));
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, result)))))
+}
+
+/// Native: `Stream.flatMapToLong(Function<T,LongStream>)LongStream`
+pub(crate) fn native_stream_flat_map_to_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut result: Vec<i64> = Vec::new();
+    for elem in elems {
+        let sub = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![fn_slot, elem],
+        )?;
+        if let Some(Slot::Reference(Some(sub_ref))) = sub {
+            result.extend(long_stream_elems(heap, sub_ref));
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_long_stream(heap, result)))))
+}
+
+/// Native: `Stream.flatMapToDouble(Function<T,DoubleStream>)DoubleStream`
+pub(crate) fn native_stream_flat_map_to_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_double_stream(
+            heap,
+            vec![],
+        )))));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut result: Vec<f64> = Vec::new();
+    for elem in elems {
+        let sub = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![fn_slot, elem],
+        )?;
+        if let Some(Slot::Reference(Some(sub_ref))) = sub {
+            result.extend(double_stream_elems(heap, sub_ref));
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_double_stream(
+        heap, result,
+    )))))
+}
+
+/// Native: `Collectors.toMap(keyFn, valFn, mergeFn)Collector` — stores three functions.
+pub(crate) fn native_collectors_to_map_merge(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let key_fn = args.first().copied().unwrap_or(Slot::Reference(None));
+    let val_fn = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let merge_fn = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ToMapMergeCollector".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = key_fn;
+    heap.get_mut(r)?.fields[1] = val_fn;
+    heap.get_mut(r)?.fields[2] = merge_fn;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `HashSet.forEach(Consumer)V`
+pub(crate) fn native_hashset_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(consumer_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(None);
+    };
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    for elem in elems {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;)V",
+            vec![Slot::Reference(Some(consumer_ref)), elem],
+        )?;
+    }
+    Ok(None)
+}
+
+/// Native: `TreeSet.forEach(Consumer)V`
+pub(crate) fn native_treeset_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    // TreeSet uses same layout as HashSet: fields[0]=size, fields[1..size]=elements
+    native_hashset_for_each(args, heap, out, control, ops)
+}
+
+/// Native: `TreeMap.forEach(BiConsumer)V`
+pub(crate) fn native_treemap_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    // TreeMap uses same layout as HashMap: fields[0]=size, fields[1,2]=k0/v0 ...
+    native_hashmap_for_each(args, heap, out, control, ops)
+}
+
+/// Native: `LinkedHashMap.forEach(BiConsumer)V`
+pub(crate) fn native_linkedhashmap_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    native_hashmap_for_each(args, heap, out, control, ops)
+}
+
+/// Native: `LinkedList.forEach(Consumer)V`
+pub(crate) fn native_linked_list_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_for_each(args, heap, out, control, ops)
+}
+
+/// Native: `PriorityQueue.forEach(Consumer)V`
+pub(crate) fn native_priorityqueue_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_for_each(args, heap, out, control, ops)
 }
 
 /// Native: `Optional.or(Supplier<Optional>)Optional` (Java 9) —
@@ -49983,6 +50312,112 @@ mod tests {
                 "()I"
             ),
             1
+        );
+    }
+
+    // ---- Phase 59: Stream.flatMapToInt/Long/Double, Collectors.toMap (3-arg), collection forEach ----
+
+    #[test]
+    fn test_stream_flat_map_to_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testStreamFlatMapToInt", "()I"),
+            394
+        );
+    }
+
+    #[test]
+    fn test_stream_flat_map_to_int_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testStreamFlatMapToIntCount", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_stream_flat_map_to_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testStreamFlatMapToLong", "()I"),
+            66
+        );
+    }
+
+    #[test]
+    fn test_stream_flat_map_to_double() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testStreamFlatMapToDouble", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testCollectorsToMapMerge", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_map_merge_size() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testCollectorsToMapMergeSize", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_map_merge_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testCollectorsToMapMergeValue", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_hashset_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testHashSetForEach", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_treeset_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testTreeSetForEach", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_treemap_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testTreeMapForEach", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_linked_list_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testLinkedListForEach", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_linkedhashmap_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testLinkedHashMapForEach", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_priorityqueue_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase59Test.class", "testPriorityQueueForEach", "()I"),
+            15
         );
     }
 }
