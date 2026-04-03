@@ -13466,8 +13466,12 @@ fn run_execution(
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
-                                        let expanded_impl_args = expand_args_for_desc(&impl_args, &lambda_info.impl_desc);
-                                        for (i, slot) in expanded_impl_args.into_iter().enumerate() {
+                                        let expanded_impl_args = expand_args_for_desc(
+                                            &impl_args,
+                                            &lambda_info.impl_desc,
+                                        );
+                                        for (i, slot) in expanded_impl_args.into_iter().enumerate()
+                                        {
                                             if i < max_locals {
                                                 locals_buf[i] = slot;
                                             }
@@ -14611,8 +14615,12 @@ fn run_execution(
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
-                                        let expanded_impl_args = expand_args_for_desc(&impl_args, &lambda_info.impl_desc);
-                                        for (i, slot) in expanded_impl_args.into_iter().enumerate() {
+                                        let expanded_impl_args = expand_args_for_desc(
+                                            &impl_args,
+                                            &lambda_info.impl_desc,
+                                        );
+                                        for (i, slot) in expanded_impl_args.into_iter().enumerate()
+                                        {
                                             if i < max_locals {
                                                 locals_buf[i] = slot;
                                             }
@@ -14664,8 +14672,12 @@ fn run_execution(
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
-                                        let expanded_impl_args = expand_args_for_desc(&impl_args, &lambda_info.impl_desc);
-                                        for (i, slot) in expanded_impl_args.into_iter().enumerate() {
+                                        let expanded_impl_args = expand_args_for_desc(
+                                            &impl_args,
+                                            &lambda_info.impl_desc,
+                                        );
+                                        for (i, slot) in expanded_impl_args.into_iter().enumerate()
+                                        {
                                             if i < max_locals {
                                                 locals_buf[i] = slot;
                                             }
@@ -16930,7 +16942,10 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
 /// If the descriptor contains no wide types this is a zero-copy clone.
 fn expand_args_for_desc(args: &[Slot], descriptor: &str) -> Vec<Slot> {
     let param_types = parse_arg_types(descriptor);
-    let wide_count = param_types.iter().filter(|&&c| c == 'J' || c == 'D').count();
+    let wide_count = param_types
+        .iter()
+        .filter(|&&c| c == 'J' || c == 'D')
+        .count();
     if wide_count == 0 || args.is_empty() {
         return args.to_vec();
     }
