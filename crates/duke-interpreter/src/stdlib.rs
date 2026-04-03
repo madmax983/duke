@@ -6898,12 +6898,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_optional_long_is_present,
     );
 
-    // DoubleStream static factory
+    // DoubleStream static factory (varargs and single-element forms)
     registry.natives_mut().register(
         "java/util/stream/DoubleStream",
         "of",
         "([D)Ljava/util/stream/DoubleStream;",
         native_double_stream_of,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/DoubleStream",
+        "of",
+        "(D)Ljava/util/stream/DoubleStream;",
+        native_double_stream_of_single,
     );
 
     // DoubleStream terminal ops (in addition to sum already registered)
@@ -7807,5 +7813,71 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "unmodifiableSet",
         "(Ljava/util/Set;)Ljava/util/Set;",
         native_collections_unmodifiable_set,
+    );
+
+    // ---- Phase 59: Stream.flatMapToInt/Long/Double ----
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "flatMapToInt",
+        "(Ljava/util/function/Function;)Ljava/util/stream/IntStream;",
+        native_stream_flat_map_to_int,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "flatMapToLong",
+        "(Ljava/util/function/Function;)Ljava/util/stream/LongStream;",
+        native_stream_flat_map_to_long,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "flatMapToDouble",
+        "(Ljava/util/function/Function;)Ljava/util/stream/DoubleStream;",
+        native_stream_flat_map_to_double,
+    );
+
+    // ---- Phase 59: Collectors.toMap (3-arg with merge function) ----
+    registry.natives_mut().register_callback(
+        "java/util/stream/Collectors",
+        "toMap",
+        "(Ljava/util/function/Function;Ljava/util/function/Function;Ljava/util/function/BinaryOperator;)Ljava/util/stream/Collector;",
+        native_collectors_to_map_merge,
+    );
+
+    // ---- Phase 59: forEach on remaining collection types ----
+    registry.natives_mut().register_callback(
+        "java/util/HashSet",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_hashset_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/TreeSet",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_treeset_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/TreeMap",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_treemap_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedList",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_linked_list_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashMap",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_linkedhashmap_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/PriorityQueue",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_priorityqueue_for_each,
     );
 }
