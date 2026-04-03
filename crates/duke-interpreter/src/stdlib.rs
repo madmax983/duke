@@ -3045,6 +3045,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)I",
         native_string_last_index_of,
     );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "codePointAt",
+        "(I)I",
+        native_string_code_point_at,
+    );
 
     // java/lang/StringBuilder — mutable string buffer
     let sb_ctx = ClassContext {
@@ -3952,6 +3958,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/List;Ljava/util/Comparator;)V",
         native_collections_sort_with_comparator,
     );
+    registry.natives_mut().register_callback(
+        "java/util/Collections",
+        "min",
+        "(Ljava/util/Collection;)Ljava/lang/Object;",
+        native_collections_min,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Collections",
+        "max",
+        "(Ljava/util/Collection;)Ljava/lang/Object;",
+        native_collections_max,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "shuffle",
+        "(Ljava/util/List;)V",
+        native_collections_shuffle,
+    );
 
     // java/util/TreeMap — sorted map backed by flat sorted key/val pairs
     // fields[0] = Int(size), fields[1,2] = k0/v0, fields[3,4] = k1/v1, ...
@@ -4160,6 +4184,153 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "compare",
         "(Ljava/lang/Object;Ljava/lang/Object;)I",
         native_comparing_int_compare,
+    );
+
+    // java/util/TreeSet — sorted set backed by flat sorted elements
+    // fields[0] = Int(size), fields[1..] = sorted elements (no duplicates)
+    let treeset_ctx = ClassContext {
+        class_name: "java/util/TreeSet".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/Set".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(treeset_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/TreeSet", "<init>", "()V", native_treeset_init);
+    registry.natives_mut().register(
+        "java/util/TreeSet",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_treeset_add,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeSet",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_treeset_contains,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/TreeSet", "size", "()I", native_treeset_size);
+    registry.natives_mut().register(
+        "java/util/TreeSet",
+        "first",
+        "()Ljava/lang/Object;",
+        native_treeset_first,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeSet",
+        "last",
+        "()Ljava/lang/Object;",
+        native_treeset_last,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeSet",
+        "isEmpty",
+        "()Z",
+        native_treeset_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeSet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_treeset_iterator,
+    );
+
+    // java/util/LinkedHashMap — insertion-order map (reuses HashMap layout)
+    // Our HashMap already preserves insertion order via linear scan.
+    // super_class=Object (not HashMap) to avoid double field count.
+    let linked_hashmap_ctx = ClassContext {
+        class_name: "java/util/LinkedHashMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(linked_hashmap_ctx);
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "<init>",
+        "()V",
+        native_hashmap_init,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "put",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_put,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        native_hashmap_contains_key,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "size",
+        "()I",
+        native_hashmap_size,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "remove",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_remove,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "isEmpty",
+        "()Z",
+        native_hashmap_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "getOrDefault",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get_or_default,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        native_hashmap_key_set,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "values",
+        "()Ljava/util/Collection;",
+        native_hashmap_values,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        native_hashmap_entry_set,
     );
 
     // java/util/Objects — null-safe utility methods
