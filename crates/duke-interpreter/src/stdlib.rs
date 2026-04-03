@@ -7266,4 +7266,153 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(grouping2_ctx);
+
+    // ---------------------------------------------------------------------------
+    // Phase 55: Complete DoubleStream, LongStream gaps, Collectors.summingLong/averagingDouble
+    // ---------------------------------------------------------------------------
+
+    // DoubleStream — forEach, anyMatch/allMatch/noneMatch, findFirst
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "forEach",
+        "(Ljava/util/function/DoubleConsumer;)V",
+        native_double_stream_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "anyMatch",
+        "(Ljava/util/function/DoublePredicate;)Z",
+        native_double_stream_any_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "allMatch",
+        "(Ljava/util/function/DoublePredicate;)Z",
+        native_double_stream_all_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "noneMatch",
+        "(Ljava/util/function/DoublePredicate;)Z",
+        native_double_stream_none_match,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "findFirst",
+        "()Ljava/util/OptionalDouble;",
+        native_double_stream_find_first,
+    );
+
+    // DoubleStream — reduce (identity + optional)
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "reduce",
+        "(DLjava/util/function/DoubleBinaryOperator;)D",
+        native_double_stream_reduce_identity,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "reduce",
+        "(Ljava/util/function/DoubleBinaryOperator;)Ljava/util/OptionalDouble;",
+        native_double_stream_reduce_optional,
+    );
+
+    // DoubleStream — flatMap, mapToInt, mapToLong, distinct, boxed
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "flatMap",
+        "(Ljava/util/function/DoubleFunction;)Ljava/util/stream/DoubleStream;",
+        native_double_stream_flat_map,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "mapToInt",
+        "(Ljava/util/function/DoubleToIntFunction;)Ljava/util/stream/IntStream;",
+        native_double_stream_map_to_int,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "mapToLong",
+        "(Ljava/util/function/DoubleToLongFunction;)Ljava/util/stream/LongStream;",
+        native_double_stream_map_to_long,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "distinct",
+        "()Ljava/util/stream/DoubleStream;",
+        native_double_stream_distinct,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "boxed",
+        "()Ljava/util/stream/Stream;",
+        native_double_stream_boxed,
+    );
+
+    // OptionalDouble.isPresent()
+    registry.natives_mut().register(
+        "duke/util/OptionalDouble",
+        "isPresent",
+        "()Z",
+        native_optional_double_is_present,
+    );
+
+    // LongStream — reduce(optional), mapToDouble
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "reduce",
+        "(Ljava/util/function/LongBinaryOperator;)Ljava/util/OptionalLong;",
+        native_long_stream_reduce_optional,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "mapToDouble",
+        "(Ljava/util/function/LongToDoubleFunction;)Ljava/util/stream/DoubleStream;",
+        native_long_stream_map_to_double,
+    );
+
+    // Collectors.summingLong + AveragingDouble
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "summingLong",
+        "(Ljava/util/function/ToLongFunction;)Ljava/util/stream/Collector;",
+        native_collectors_summing_long,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "averagingDouble",
+        "(Ljava/util/function/ToDoubleFunction;)Ljava/util/stream/Collector;",
+        native_collectors_averaging_double,
+    );
+    // Sentinel classes for new collectors
+    registry.register(ClassContext {
+        class_name: "duke/util/SummingLongCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToLongFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    registry.register(ClassContext {
+        class_name: "duke/util/AveragingDoubleCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToDoubleFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
 }
