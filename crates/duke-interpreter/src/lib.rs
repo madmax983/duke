@@ -2953,11 +2953,7 @@ pub(crate) fn native_stream_collect(
             }
         }
         #[allow(clippy::cast_precision_loss)]
-        let avg = if count == 0 {
-            0.0
-        } else {
-            sum / count as f64
-        };
+        let avg = if count == 0 { 0.0 } else { sum / count as f64 };
         // Return boxed Double
         let boxed = heap.allocate("java/lang/Double".to_string(), 1);
         heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
@@ -23758,7 +23754,10 @@ pub(crate) fn native_double_stream_flat_map(
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
-        return Ok(Some(Slot::Reference(Some(make_double_stream(heap, vec![])))));
+        return Ok(Some(Slot::Reference(Some(make_double_stream(
+            heap,
+            vec![],
+        )))));
     };
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -23776,7 +23775,9 @@ pub(crate) fn native_double_stream_flat_map(
             result.extend(double_stream_elems(heap, sub_ref));
         }
     }
-    Ok(Some(Slot::Reference(Some(make_double_stream(heap, result)))))
+    Ok(Some(Slot::Reference(Some(make_double_stream(
+        heap, result,
+    )))))
 }
 
 /// Native: `DoubleStream.mapToInt(DoubleToIntFunction)IntStream`
@@ -23955,7 +23956,10 @@ pub(crate) fn native_long_stream_map_to_double(
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
-        return Ok(Some(Slot::Reference(Some(make_double_stream(heap, vec![])))));
+        return Ok(Some(Slot::Reference(Some(make_double_stream(
+            heap,
+            vec![],
+        )))));
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -23976,7 +23980,9 @@ pub(crate) fn native_long_stream_map_to_double(
             _ => 0.0,
         });
     }
-    Ok(Some(Slot::Reference(Some(make_double_stream(heap, result)))))
+    Ok(Some(Slot::Reference(Some(make_double_stream(
+        heap, result,
+    )))))
 }
 
 /// Native: `Collectors.summingLong(ToLongFunction)Collector` — returns a `SummingLongCollector`.
