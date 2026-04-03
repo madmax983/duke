@@ -2550,14 +2550,23 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let delim = match heap.get(collector_ref)?.fields.first() {
-            Some(Slot::Reference(Some(dr))) => heap
-                .get(*dr)
+        let read_str_field = |heap: &duke_gc::Heap, idx: usize| -> String {
+            match heap
+                .get(collector_ref)
                 .ok()
-                .and_then(|o| o.string_value.clone())
-                .unwrap_or_default(),
-            _ => String::new(),
+                .and_then(|o| o.fields.get(idx).copied())
+            {
+                Some(Slot::Reference(Some(dr))) => heap
+                    .get(dr)
+                    .ok()
+                    .and_then(|o| o.string_value.clone())
+                    .unwrap_or_default(),
+                _ => String::new(),
+            }
         };
+        let delim = read_str_field(heap, 0);
+        let prefix = read_str_field(heap, 1);
+        let suffix = read_str_field(heap, 2);
         let parts: Vec<String> = elems
             .iter()
             .filter_map(|s| match s {
@@ -2565,7 +2574,7 @@ pub(crate) fn native_stream_collect(
                 _ => None,
             })
             .collect();
-        let joined = parts.join(&delim);
+        let joined = format!("{}{}{}", prefix, parts.join(&delim), suffix);
         let result_ref = heap.allocate_string(joined);
         Ok(Some(Slot::Reference(Some(result_ref))))
     } else if collector_class == "duke/util/CountingCollector" {
@@ -3168,6 +3177,24 @@ pub(crate) fn native_stream_to_list(
     native_stream_collect(args, heap, out, control, ops)
 }
 
+/// Helper: allocate a `JoiningCollector` with 3 fields: delimiter, prefix, suffix.
+fn make_joining_collector(
+    heap: &mut duke_gc::Heap,
+    delimiter: &str,
+    prefix: &str,
+    suffix: &str,
+) -> u64 {
+    let collector_ref = heap.allocate("duke/util/JoiningCollector".to_string(), 3);
+    let delim_ref = heap.allocate_string(delimiter.to_string());
+    let prefix_ref = heap.allocate_string(prefix.to_string());
+    let suffix_ref = heap.allocate_string(suffix.to_string());
+    let obj = heap.get_mut(collector_ref).expect("just allocated");
+    obj.fields[0] = Slot::Reference(Some(delim_ref));
+    obj.fields[1] = Slot::Reference(Some(prefix_ref));
+    obj.fields[2] = Slot::Reference(Some(suffix_ref));
+    collector_ref
+}
+
 /// Native: `Collectors.joining(delim)Collector` — returns a joining collector with delimiter.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collectors_joining(
@@ -3184,9 +3211,7 @@ pub(crate) fn native_collectors_joining(
             .unwrap_or_default(),
         _ => String::new(),
     };
-    let collector_ref = heap.allocate("duke/util/JoiningCollector".to_string(), 1);
-    let delim_ref = heap.allocate_string(delim);
-    heap.get_mut(collector_ref)?.fields[0] = Slot::Reference(Some(delim_ref));
+    let collector_ref = make_joining_collector(heap, &delim, "", "");
     Ok(Some(Slot::Reference(Some(collector_ref))))
 }
 
@@ -3198,9 +3223,32 @@ pub(crate) fn native_collectors_joining_no_arg(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let collector_ref = heap.allocate("duke/util/JoiningCollector".to_string(), 1);
-    let delim_ref = heap.allocate_string(String::new());
-    heap.get_mut(collector_ref)?.fields[0] = Slot::Reference(Some(delim_ref));
+    let collector_ref = make_joining_collector(heap, "", "", "");
+    Ok(Some(Slot::Reference(Some(collector_ref))))
+}
+
+/// Native: `Collectors.joining(delim, prefix, suffix)Collector` — full 3-arg joining collector.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_joining_full(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let read_str = |heap: &duke_gc::Heap, idx: usize| -> String {
+        match args.get(idx) {
+            Some(Slot::Reference(Some(r))) => heap
+                .get(*r)
+                .ok()
+                .and_then(|o| o.string_value.clone())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    };
+    let delim = read_str(heap, 0);
+    let prefix = read_str(heap, 1);
+    let suffix = read_str(heap, 2);
+    let collector_ref = make_joining_collector(heap, &delim, &prefix, &suffix);
     Ok(Some(Slot::Reference(Some(collector_ref))))
 }
 
@@ -7434,6 +7482,34 @@ pub(crate) fn native_arrays_stream_int(
     let arr_obj = heap.get(arr_ref)?;
     let values: Vec<i32> = arr_obj
         .fields
+        .iter()
+        .filter_map(|s| if let Slot::Int(n) = s { Some(*n) } else { None })
+        .collect();
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
+/// Native: `Arrays.stream(int[], int, int)IntStream` — wraps a subrange as an `IntStream`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_arrays_stream_int_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let from = match args.get(1) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let to = match args.get(2) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let arr_obj = heap.get(arr_ref)?;
+    let values: Vec<i32> = arr_obj
+        .fields
+        .get(from..to.min(arr_obj.fields.len()))
+        .unwrap_or(&[])
         .iter()
         .filter_map(|s| if let Slot::Int(n) = s { Some(*n) } else { None })
         .collect();
@@ -19554,6 +19630,45 @@ pub(crate) fn native_optional_filter(
     let stored = if passes { value } else { Slot::Reference(None) };
     heap.get_mut(result_ref)?.fields[0] = stored;
     Ok(Some(Slot::Reference(Some(result_ref))))
+}
+
+/// Native: `Optional.flatMap(Function)Optional` — maps value to Optional if present, flattens.
+pub(crate) fn native_optional_flat_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let opt_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let value = heap
+        .get(opt_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    if matches!(value, Slot::Reference(None)) {
+        let empty_ref = heap.allocate("java/util/Optional".to_string(), 1);
+        heap.get_mut(empty_ref)?.fields[0] = Slot::Reference(None);
+        return Ok(Some(Slot::Reference(Some(empty_ref))));
+    }
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        let empty_ref = heap.allocate("java/util/Optional".to_string(), 1);
+        heap.get_mut(empty_ref)?.fields[0] = Slot::Reference(None);
+        return Ok(Some(Slot::Reference(Some(empty_ref))));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    // The function returns an Optional — return it directly (flat, not wrapped again)
+    let result = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![fn_slot, value],
+    )?;
+    Ok(Some(result.unwrap_or(Slot::Reference(None))))
 }
 
 /// Native: `Optional.ifPresent(Consumer)V` — invokes consumer if value is present.
@@ -46516,6 +46631,163 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase51Test.class", "testCollectorsAveragingInt", "()I"),
             3
+        );
+    }
+
+    // ===========================================================================
+    // Phase 52 — Stream.flatMap, Optional.flatMap/map/filter/orElse/ifPresent,
+    //            Arrays.stream, Collectors.joining(3-arg), Map.forEach, computeIfAbsent
+    // ===========================================================================
+
+    #[test]
+    fn test_stream_flat_map_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testStreamFlatMap", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_stream_flat_map_sum_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testStreamFlatMapSum", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_arrays_stream_int_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testArraysStreamInt", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_arrays_stream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testArraysStreamRange", "()I"),
+            50
+        );
+    }
+
+    #[test]
+    fn test_optional_map_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalMap", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_optional_map_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalMapEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_optional_flat_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalFlatMap", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn test_optional_or_else_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalOrElse", "()I"),
+            99
+        );
+    }
+
+    #[test]
+    fn test_optional_or_else_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalOrElsePresent", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_optional_or_else_get_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalOrElseGet", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn test_optional_if_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalIfPresent", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_optional_if_present_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalIfPresentEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_optional_filter_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalFilter", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_optional_filter_out() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testOptionalFilterOut", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_collectors_joining_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testCollectorsJoining", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_collectors_joining_full() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testCollectorsJoiningFull", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_map_for_each_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testMapForEach", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_map_compute_if_absent_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testMapComputeIfAbsent", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_map_get_or_default_p52() {
+        assert_eq!(
+            run_bootstrap_int("Phase52Test.class", "testMapGetOrDefault", "()I"),
+            4
         );
     }
 }
