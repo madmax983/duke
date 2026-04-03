@@ -12848,9 +12848,7 @@ fn run_execution(
                 // ⚡ Bolt: `ExceptionEntry` now derives `Clone`, avoiding manual field-by-field mapping.
                 let exc_table = registry.get(&current_class)?.methods[*method_idx]
                     .exception_table
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>();
+                    .clone();
                 let handler = find_exception_handler(
                     &exc_table,
                     $throw_pc,
@@ -12919,9 +12917,7 @@ fn run_execution(
                                 // ⚡ Bolt: `ExceptionEntry` now derives `Clone`, avoiding manual field-by-field mapping.
                                 let tbl = ctx.methods[*method_idx]
                                     .exception_table
-                                    .iter()
-                                    .cloned()
-                                    .collect::<Vec<_>>();
+                                    .clone();
                                 (tbl, cpc)
                             };
                             let handler = find_exception_handler(
