@@ -26665,6 +26665,360 @@ pub(crate) fn native_instant_is_after(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 63: java.time.LocalDateTime
+// Layout: fields[0]=epoch_days(Int), fields[1]=hour(Int),
+//         fields[2]=minute(Int), fields[3]=second(Int), fields[4]=nano(Int)
+// ---------------------------------------------------------------------------
+
+/// Native: `LocalDateTime.of(int,int,int,int,int) -> LocalDateTime`
+#[allow(clippy::cast_sign_loss)] // month/day from Java int are always positive
+pub(crate) fn native_localdatetime_of_ymd_hm(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let year = extract_int_arg(args, 0)?;
+    let month = extract_int_arg(args, 1)? as u32;
+    let day = extract_int_arg(args, 2)? as u32;
+    let hour = extract_int_arg(args, 3)?;
+    let minute = extract_int_arg(args, 4)?;
+    let epoch = ymd_to_epoch_days(year, month, day);
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    heap.get_mut(r)?.fields[2] = Slot::Int(minute);
+    heap.get_mut(r)?.fields[3] = Slot::Int(0);
+    heap.get_mut(r)?.fields[4] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.of(int,int,int,int,int,int) -> LocalDateTime`
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_localdatetime_of_ymd_hms(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let year = extract_int_arg(args, 0)?;
+    let month = extract_int_arg(args, 1)? as u32;
+    let day = extract_int_arg(args, 2)? as u32;
+    let hour = extract_int_arg(args, 3)?;
+    let minute = extract_int_arg(args, 4)?;
+    let second = extract_int_arg(args, 5)?;
+    let epoch = ymd_to_epoch_days(year, month, day);
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    heap.get_mut(r)?.fields[2] = Slot::Int(minute);
+    heap.get_mut(r)?.fields[3] = Slot::Int(second);
+    heap.get_mut(r)?.fields[4] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.of(LocalDate, int, int, int) -> LocalDateTime`
+/// Synthetic overload: accepts `LocalDate` ref + hour/minute/second as ints.
+pub(crate) fn native_localdatetime_of_date_hms(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let date_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(date_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let hour = extract_int_arg(args, 1)?;
+    let minute = extract_int_arg(args, 2)?;
+    let second = extract_int_arg(args, 3)?;
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    heap.get_mut(r)?.fields[2] = Slot::Int(minute);
+    heap.get_mut(r)?.fields[3] = Slot::Int(second);
+    heap.get_mut(r)?.fields[4] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.now() -> LocalDateTime` — returns 1970-01-01T00:00:00 in interpreter.
+pub(crate) fn native_localdatetime_now(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    for i in 0..5 {
+        heap.get_mut(r)?.fields[i] = Slot::Int(0);
+    }
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.getYear() -> int`
+pub(crate) fn native_localdatetime_get_year(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (year, _, _) = epoch_days_to_ymd(epoch);
+    Ok(Some(Slot::Int(year)))
+}
+
+/// Native: `LocalDateTime.getMonthValue() -> int`
+pub(crate) fn native_localdatetime_get_month_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, month, _) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // month is [1,12]
+    Ok(Some(Slot::Int(month as i32)))
+}
+
+/// Native: `LocalDateTime.getDayOfMonth() -> int`
+pub(crate) fn native_localdatetime_get_day_of_month(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, _, day) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // day is [1,31]
+    Ok(Some(Slot::Int(day as i32)))
+}
+
+/// Native: `LocalDateTime.getHour() -> int`
+pub(crate) fn native_localdatetime_get_hour(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `LocalDateTime.getMinute() -> int`
+pub(crate) fn native_localdatetime_get_minute(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `LocalDateTime.getSecond() -> int`
+pub(crate) fn native_localdatetime_get_second(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(3) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `LocalDateTime.toLocalDate() -> LocalDate`
+pub(crate) fn native_localdatetime_to_local_date(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.isBefore(LocalDateTime) -> boolean`
+pub(crate) fn native_localdatetime_is_before(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_epoch = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    if a_epoch != b_epoch {
+        return Ok(Some(Slot::Int(i32::from(a_epoch < b_epoch))));
+    }
+    // same day — compare time fields
+    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
+    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
+    for idx in 1..=3 {
+        let a = match fields_a.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        let b = match fields_b.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        if a != b {
+            return Ok(Some(Slot::Int(i32::from(a < b))));
+        }
+    }
+    Ok(Some(Slot::Int(0))) // equal
+}
+
+/// Native: `LocalDateTime.isAfter(LocalDateTime) -> boolean`
+pub(crate) fn native_localdatetime_is_after(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_epoch = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    if a_epoch != b_epoch {
+        return Ok(Some(Slot::Int(i32::from(a_epoch > b_epoch))));
+    }
+    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
+    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
+    for idx in 1..=3 {
+        let a = match fields_a.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        let b = match fields_b.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        if a != b {
+            return Ok(Some(Slot::Int(i32::from(a > b))));
+        }
+    }
+    Ok(Some(Slot::Int(0))) // equal
+}
+
+/// Native: `LocalDateTime.toString() -> String` — ISO-8601 format
+pub(crate) fn native_localdatetime_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let epoch = match fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let hour = match fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let min = match fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let sec = match fields.get(3) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    let s = format!("{y:04}-{m:02}-{d:02}T{hour:02}:{min:02}:{sec:02}");
+    let sr = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(sr))))
+}
+
+/// Native: `LocalDateTime.plusDays(long) -> LocalDateTime`
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn native_localdatetime_plus_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let days = extract_long_arg(args, 1)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let epoch = match fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let new_epoch = epoch.saturating_add(days as i32);
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    for i in 1..5 {
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
+    }
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.withHour(int) -> LocalDateTime`
+pub(crate) fn native_localdatetime_with_hour(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let hour = extract_int_arg(args, 1)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    for i in 0..5 {
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
+    }
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -52139,6 +52493,77 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase62Test.class", "testDispatchCacheHotPath", "()I"),
             10
+        );
+    }
+
+    // ---- Phase 63: LocalDateTime ----
+
+    #[test]
+    fn test_localdatetime_components() {
+        // 2024-06-15 → 20_240_615
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeComponents", "()I"),
+            20_240_615
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_time() {
+        // 23:45:59 → 23*10000 + 45*100 + 59 = 234559
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeTime", "()I"),
+            234_559
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_to_local_date() {
+        // 2023-12-25 → 20_231_225
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeToLocalDate", "()I"),
+            20_231_225
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_ordering() {
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeOrdering", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_to_string() {
+        // "2024-03-15T09:05:07" length = 19
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeToString", "()I"),
+            19
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_plus_days() {
+        // 2024-01-30 + 2 days = 2024-02-01
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimePlusDays", "()I"),
+            20_240_201
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_with_hour() {
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeWithHour", "()I"),
+            18
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_now() {
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeNow", "()I"),
+            1970
         );
     }
 }
