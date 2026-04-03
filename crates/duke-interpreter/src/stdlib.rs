@@ -6703,4 +6703,282 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()D",
         native_double_stream_sum,
     );
+
+    // -----------------------------------------------------------------------
+    // Phase 51: Full LongStream, DoubleStream ops, IntStream.asLongStream/asDoubleStream,
+    //           Collectors.summingInt/averagingInt
+    // -----------------------------------------------------------------------
+
+    // LongStream static factories
+    registry.natives_mut().register(
+        "java/util/stream/LongStream",
+        "of",
+        "([J)Ljava/util/stream/LongStream;",
+        native_long_stream_of,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/LongStream",
+        "range",
+        "(JJ)Ljava/util/stream/LongStream;",
+        native_long_stream_range,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/LongStream",
+        "rangeClosed",
+        "(JJ)Ljava/util/stream/LongStream;",
+        native_long_stream_range_closed,
+    );
+
+    // LongStream terminal ops
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "count",
+        "()J",
+        native_long_stream_count,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "min",
+        "()Ljava/util/OptionalLong;",
+        native_long_stream_min,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "max",
+        "()Ljava/util/OptionalLong;",
+        native_long_stream_max,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "average",
+        "()Ljava/util/OptionalDouble;",
+        native_long_stream_average,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "toArray",
+        "()[J",
+        native_long_stream_to_array,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "sorted",
+        "()Ljava/util/stream/LongStream;",
+        native_long_stream_sorted,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "distinct",
+        "()Ljava/util/stream/LongStream;",
+        native_long_stream_distinct,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "reduce",
+        "(JLjava/util/function/LongBinaryOperator;)J",
+        native_long_stream_reduce_identity,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "boxed",
+        "()Ljava/util/stream/Stream;",
+        native_long_stream_boxed,
+    );
+
+    // LongStream intermediate ops
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "filter",
+        "(Ljava/util/function/LongPredicate;)Ljava/util/stream/LongStream;",
+        native_long_stream_filter,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "map",
+        "(Ljava/util/function/LongUnaryOperator;)Ljava/util/stream/LongStream;",
+        native_long_stream_map,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "forEach",
+        "(Ljava/util/function/LongConsumer;)V",
+        native_long_stream_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "mapToInt",
+        "(Ljava/util/function/LongToIntFunction;)Ljava/util/stream/IntStream;",
+        native_long_stream_map_to_int,
+    );
+
+    // OptionalLong synthetic class
+    let opt_long_ctx = ClassContext {
+        class_name: "duke/util/OptionalLong".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "present".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(opt_long_ctx);
+    // Also register as java/util/OptionalLong for dispatch
+    let opt_long_ctx2 = ClassContext {
+        class_name: "java/util/OptionalLong".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(opt_long_ctx2);
+    registry.natives_mut().register(
+        "duke/util/OptionalLong",
+        "getAsLong",
+        "()J",
+        native_optional_long_get_as_long,
+    );
+    registry.natives_mut().register(
+        "duke/util/OptionalLong",
+        "isPresent",
+        "()Z",
+        native_optional_long_is_present,
+    );
+
+    // DoubleStream static factory
+    registry.natives_mut().register(
+        "java/util/stream/DoubleStream",
+        "of",
+        "([D)Ljava/util/stream/DoubleStream;",
+        native_double_stream_of,
+    );
+
+    // DoubleStream terminal ops (in addition to sum already registered)
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "count",
+        "()J",
+        native_double_stream_count,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "min",
+        "()Ljava/util/OptionalDouble;",
+        native_double_stream_min,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "max",
+        "()Ljava/util/OptionalDouble;",
+        native_double_stream_max,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "average",
+        "()Ljava/util/OptionalDouble;",
+        native_double_stream_average,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "toArray",
+        "()[D",
+        native_double_stream_to_array,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "sorted",
+        "()Ljava/util/stream/DoubleStream;",
+        native_double_stream_sorted,
+    );
+
+    // DoubleStream intermediate ops
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "filter",
+        "(Ljava/util/function/DoublePredicate;)Ljava/util/stream/DoubleStream;",
+        native_double_stream_filter,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "map",
+        "(Ljava/util/function/DoubleUnaryOperator;)Ljava/util/stream/DoubleStream;",
+        native_double_stream_map,
+    );
+
+    // IntStream.asLongStream / asDoubleStream
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "asLongStream",
+        "()Ljava/util/stream/LongStream;",
+        native_int_stream_as_long_stream,
+    );
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "asDoubleStream",
+        "()Ljava/util/stream/DoubleStream;",
+        native_int_stream_as_double_stream,
+    );
+
+    // Collectors.summingInt / averagingInt
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "summingInt",
+        "(Ljava/util/function/ToIntFunction;)Ljava/util/stream/Collector;",
+        native_collectors_summing_int,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "averagingInt",
+        "(Ljava/util/function/ToIntFunction;)Ljava/util/stream/Collector;",
+        native_collectors_averaging_int,
+    );
+    // SummingIntCollector and AveragingIntCollector sentinel classes
+    let summing_ctx = ClassContext {
+        class_name: "duke/util/SummingIntCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToIntFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(summing_ctx);
+    let averaging_ctx = ClassContext {
+        class_name: "duke/util/AveragingIntCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToIntFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(averaging_ctx);
 }
