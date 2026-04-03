@@ -3942,6 +3942,19 @@ pub(crate) fn native_optional_int_get_as_int(
     Ok(Some(Slot::Int(v)))
 }
 
+/// Native: `OptionalInt.isPresent()Z`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_optional_int_is_present(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
+    Ok(Some(Slot::Int(i32::from(present))))
+}
+
 /// Native: `OptionalDouble.getAsDouble()D`
 pub(crate) fn native_optional_double_get_as_double(
     args: &[Slot],
@@ -22607,6 +22620,432 @@ pub(crate) fn native_collectors_averaging_int(
     let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     let r = heap.allocate("duke/util/AveragingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 53: IntStream/LongStream terminal ops, Comparator.comparingLong,
+//           Optional.or / ifPresentOrElse, Collectors.toUnmodifiable*
+// ---------------------------------------------------------------------------
+
+/// Native: `IntStream.findFirst()OptionalInt`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_int_stream_find_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = int_stream_elems(heap, r);
+    let opt = make_optional_int(heap, elems.into_iter().next());
+    Ok(Some(Slot::Reference(Some(opt))))
+}
+
+/// Native: `IntStream.anyMatch(IntPredicate)Z`
+pub(crate) fn native_int_stream_any_match(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let elems = int_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(I)Z",
+            vec![pred_slot, Slot::Int(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+/// Native: `IntStream.allMatch(IntPredicate)Z`
+pub(crate) fn native_int_stream_all_match(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Ok(Some(Slot::Int(1)));
+    };
+    let elems = int_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(I)Z",
+            vec![pred_slot, Slot::Int(v)],
+        )?;
+        if !matches!(result, Some(Slot::Int(n)) if n != 0) {
+            return Ok(Some(Slot::Int(0)));
+        }
+    }
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `IntStream.noneMatch(IntPredicate)Z`
+pub(crate) fn native_int_stream_none_match(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Ok(Some(Slot::Int(1)));
+    };
+    let elems = int_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(I)Z",
+            vec![pred_slot, Slot::Int(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            return Ok(Some(Slot::Int(0)));
+        }
+    }
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `IntStream.mapToLong(IntToLongFunction)LongStream`
+pub(crate) fn native_int_stream_map_to_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
+    };
+    let elems = int_stream_elems(heap, r);
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut result = Vec::new();
+    for v in elems {
+        let r = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsLong",
+            "(I)J",
+            vec![fn_slot, Slot::Int(v)],
+        )?;
+        result.push(match r {
+            Some(Slot::Long(n)) => n,
+            Some(Slot::Int(n)) => i64::from(n),
+            _ => 0,
+        });
+    }
+    Ok(Some(Slot::Reference(Some(make_long_stream(heap, result)))))
+}
+
+/// Native: `LongStream.findFirst()OptionalLong`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_long_stream_find_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = long_stream_elems(heap, r);
+    let opt = make_optional_long(heap, elems.into_iter().next());
+    Ok(Some(Slot::Reference(Some(opt))))
+}
+
+/// Native: `LongStream.anyMatch(LongPredicate)Z`
+pub(crate) fn native_long_stream_any_match(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let elems = long_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(J)Z",
+            vec![pred_slot, Slot::Long(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+/// Native: `LongStream.allMatch(LongPredicate)Z`
+pub(crate) fn native_long_stream_all_match(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Ok(Some(Slot::Int(1)));
+    };
+    let elems = long_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(J)Z",
+            vec![pred_slot, Slot::Long(v)],
+        )?;
+        if !matches!(result, Some(Slot::Int(n)) if n != 0) {
+            return Ok(Some(Slot::Int(0)));
+        }
+    }
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `LongStream.noneMatch(LongPredicate)Z`
+pub(crate) fn native_long_stream_none_match(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Ok(Some(Slot::Int(1)));
+    };
+    let elems = long_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(J)Z",
+            vec![pred_slot, Slot::Long(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            return Ok(Some(Slot::Int(0)));
+        }
+    }
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `Comparator.comparingLong(ToLongFunction)Comparator` — wraps key extractor.
+/// Creates a `duke/util/ComparingLongComparator` with `fields[0] = fn_ref`.
+pub(crate) fn native_comparator_comparing_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_ref = extract_ref_arg(args, 0)?;
+    let r = heap.allocate("duke/util/ComparingLongComparator".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Reference(Some(fn_ref));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `ComparingLongComparator.compare(O,O)I` — calls `fn.applyAsLong(o)` for each element.
+pub(crate) fn native_comparing_long_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let ka = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsLong",
+            "(Ljava/lang/Object;)J",
+            vec![fn_slot, a],
+        )?
+        .unwrap_or(Slot::Long(0));
+    let kb = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsLong",
+            "(Ljava/lang/Object;)J",
+            vec![fn_slot, b],
+        )?
+        .unwrap_or(Slot::Long(0));
+    let result = match (ka, kb) {
+        (Slot::Long(la), Slot::Long(lb)) => la.cmp(&lb) as i32,
+        (Slot::Int(ia), Slot::Int(ib)) => ia.cmp(&ib) as i32,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `Optional.or(Supplier<Optional>)Optional` (Java 9) —
+/// returns this Optional if present; otherwise invokes supplier and returns its result.
+pub(crate) fn native_optional_or(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let opt_ref = extract_ref_arg(args, 0)?;
+    let supplier_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let value = heap
+        .get(opt_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    // If present (non-null value stored), return self
+    if !matches!(value, Slot::Reference(None)) {
+        return Ok(Some(Slot::Reference(Some(opt_ref))));
+    }
+    let Slot::Reference(Some(supplier_ref)) = supplier_slot else {
+        return Ok(Some(Slot::Reference(Some(opt_ref))));
+    };
+    let supplier_class = heap.get(supplier_ref)?.class_name.clone();
+    let result = ops.invoke(
+        heap,
+        out,
+        &supplier_class,
+        "get",
+        "()Ljava/lang/Object;",
+        vec![supplier_slot],
+    )?;
+    Ok(Some(result.unwrap_or(Slot::Reference(None))))
+}
+
+/// Native: `Optional.ifPresentOrElse(Consumer, Runnable)V` (Java 9) —
+/// if value present invokes consumer, otherwise invokes runnable.
+pub(crate) fn native_optional_if_present_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let opt_ref = extract_ref_arg(args, 0)?;
+    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let runnable_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let value = heap
+        .get(opt_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    if matches!(value, Slot::Reference(None)) {
+        let Slot::Reference(Some(runnable_ref)) = runnable_slot else {
+            return Ok(None);
+        };
+        let runnable_class = heap.get(runnable_ref)?.class_name.clone();
+        ops.invoke(
+            heap,
+            out,
+            &runnable_class,
+            "run",
+            "()V",
+            vec![runnable_slot],
+        )?;
+    } else {
+        let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
+            return Ok(None);
+        };
+        let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;)V",
+            vec![consumer_slot, value],
+        )?;
+    }
+    Ok(None)
+}
+
+/// Native: `Collectors.toUnmodifiableList()Collector` (Java 10) —
+/// returns the same `ToListCollector` sentinel; our interpreter treats all lists as modifiable.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_to_unmodifiable_list(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/ToListCollector".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.toUnmodifiableSet()Collector` (Java 10) —
+/// returns the same `ToSetCollector` sentinel.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_to_unmodifiable_set(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/ToSetCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -46788,6 +47227,192 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase52Test.class", "testMapGetOrDefault", "()I"),
             4
+        );
+    }
+
+    // ---- Phase 53 ----
+
+    #[test]
+    fn test_int_stream_find_first() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamFindFirst", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_int_stream_find_first_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamFindFirstEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_int_stream_any_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamAnyMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_int_stream_any_match_fail() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamAnyMatchFail", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_int_stream_all_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamAllMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_int_stream_all_match_fail() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamAllMatchFail", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_int_stream_none_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamNoneMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_int_stream_none_match_fail() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamNoneMatchFail", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_long_stream_find_first() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testLongStreamFindFirst", "()I"),
+            100
+        );
+    }
+
+    #[test]
+    fn test_long_stream_any_match_p53() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testLongStreamAnyMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_long_stream_all_match_p53() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testLongStreamAllMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_long_stream_none_match_p53() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testLongStreamNoneMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_int_stream_map_to_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testIntStreamMapToLong", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_comparator_comparing_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testComparatorComparingLong", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_optional_or() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testOptionalOr", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn test_optional_or_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testOptionalOrPresent", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_optional_if_present_or_else() {
+        assert_eq!(
+            run_bootstrap_int("Phase53Test.class", "testOptionalIfPresentOrElse", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_optional_if_present_or_else_empty() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase53Test.class",
+                "testOptionalIfPresentOrElseEmpty",
+                "()I"
+            ),
+            99
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_unmodifiable_list() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase53Test.class",
+                "testCollectorsToUnmodifiableList",
+                "()I"
+            ),
+            3
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_unmodifiable_list_contents() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase53Test.class",
+                "testCollectorsToUnmodifiableListContents",
+                "()I"
+            ),
+            60
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_unmodifiable_set() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase53Test.class",
+                "testCollectorsToUnmodifiableSet",
+                "()I"
+            ),
+            3
         );
     }
 }
