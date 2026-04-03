@@ -845,4 +845,91 @@ mod tests {
         let res_valid = verify(&instructions_wide_valid, 1, 11);
         assert!(res_valid.is_ok());
     }
+
+    #[test]
+    fn test_check_locals_coverage() {
+        let max_locals = 5;
+
+        let valid_cases = vec![
+            Instruction::Iload(0),
+            Instruction::Lload(1),
+            Instruction::Fload(2),
+            Instruction::Dload(3),
+            Instruction::Aload(4),
+            Instruction::Istore(0),
+            Instruction::Lstore(1),
+            Instruction::Fstore(2),
+            Instruction::Dstore(3),
+            Instruction::Astore(4),
+            Instruction::Ret(0),
+        ];
+
+        for instr in valid_cases {
+            assert!(check_locals(&instr, 0, max_locals).is_ok());
+        }
+
+        let invalid_cases = vec![
+            Instruction::Iload(5),
+            Instruction::Lload(5),
+            Instruction::Fload(5),
+            Instruction::Dload(5),
+            Instruction::Aload(5),
+            Instruction::Istore(5),
+            Instruction::Lstore(5),
+            Instruction::Fstore(5),
+            Instruction::Dstore(5),
+            Instruction::Astore(5),
+            Instruction::Ret(5),
+        ];
+
+        for instr in invalid_cases {
+            assert!(matches!(
+                check_locals(&instr, 0, max_locals),
+                Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn test_check_locals_coverage_wides() {
+        let max_locals = 5;
+        let valid_wides = vec![
+            Instruction::IloadW(0),
+            Instruction::LloadW(1),
+            Instruction::FloadW(2),
+            Instruction::DloadW(3),
+            Instruction::AloadW(4),
+            Instruction::IstoreW(0),
+            Instruction::LstoreW(1),
+            Instruction::FstoreW(2),
+            Instruction::DstoreW(3),
+            Instruction::AstoreW(4),
+            Instruction::RetW(0),
+        ];
+
+        for instr in valid_wides {
+            assert!(check_locals(&instr, 0, max_locals).is_ok());
+        }
+
+        let invalid_wides = vec![
+            Instruction::IloadW(5),
+            Instruction::LloadW(5),
+            Instruction::FloadW(5),
+            Instruction::DloadW(5),
+            Instruction::AloadW(5),
+            Instruction::IstoreW(5),
+            Instruction::LstoreW(5),
+            Instruction::FstoreW(5),
+            Instruction::DstoreW(5),
+            Instruction::AstoreW(5),
+            Instruction::RetW(5),
+        ];
+
+        for instr in invalid_wides {
+            assert!(matches!(
+                check_locals(&instr, 0, max_locals),
+                Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+            ));
+        }
+    }
 }
