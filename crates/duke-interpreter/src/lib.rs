@@ -25863,6 +25863,808 @@ pub(crate) fn native_arraydeque_clear(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 62: java.time (LocalDate, LocalDateTime, Instant, Duration, Period)
+// ---------------------------------------------------------------------------
+
+/// Convert (year, month, day) to a proleptic Gregorian epoch day count.
+/// Day 0 = 1970-01-01.  Howard Hinnant's branchless algorithm.
+#[allow(
+    clippy::cast_lossless,         // i32/u32 → i64 widening casts
+    clippy::cast_possible_truncation, // result fits i32 for any valid Gregorian date
+    clippy::missing_const_for_fn   // i64::from not const-stable yet
+)]
+fn ymd_to_epoch_days(year: i32, month: u32, day: u32) -> i32 {
+    let (y, m, d) = (year as i64, month as i64, day as i64);
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400); // year of era [0, 399]
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1; // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // day of era [0, 146096]
+    (era * 146_097 + doe - 719_468) as i32
+}
+
+/// Convert a proleptic Gregorian epoch day to (year, month, day).
+#[allow(
+    clippy::cast_lossless,            // i32 → i64 widening cast
+    clippy::cast_possible_truncation, // y fits i32 for valid dates
+    clippy::cast_sign_loss,           // m/d are [1,12]/[1,31], sign-safe u32
+    clippy::missing_const_for_fn      // i64::from not const-stable yet
+)]
+fn epoch_days_to_ymd(epoch_days: i32) -> (i32, u32, u32) {
+    let z = epoch_days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097); // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
+// ---- LocalDate layout: fields[0] = Slot::Int(epoch_days) ----
+
+/// Native: `LocalDate.of(int, int, int) -> LocalDate`
+#[allow(clippy::cast_sign_loss)] // month/day from Java int are always positive
+pub(crate) fn native_localdate_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let year = extract_int_arg(args, 0)?;
+    let month = extract_int_arg(args, 1)? as u32;
+    let day = extract_int_arg(args, 2)? as u32;
+    let epoch = ymd_to_epoch_days(year, month, day);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.now() -> LocalDate` — returns 1970-01-01 (epoch 0) in this interpreter.
+pub(crate) fn native_localdate_now(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0); // epoch 0 = 1970-01-01
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.getYear() -> int`
+pub(crate) fn native_localdate_get_year(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (year, _, _) = epoch_days_to_ymd(epoch);
+    Ok(Some(Slot::Int(year)))
+}
+
+/// Native: `LocalDate.getMonthValue() -> int`
+pub(crate) fn native_localdate_get_month_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, month, _) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // month is [1,12], fits i32
+    Ok(Some(Slot::Int(month as i32)))
+}
+
+/// Native: `LocalDate.getDayOfMonth() -> int`
+pub(crate) fn native_localdate_get_day_of_month(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, _, day) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // day is [1,31], fits i32
+    Ok(Some(Slot::Int(day as i32)))
+}
+
+/// Native: `LocalDate.plusDays(long) -> LocalDate`
+pub(crate) fn native_localdate_plus_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let days = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    #[allow(clippy::cast_possible_truncation)] // saturating_add handles out-of-range
+    let new_epoch = epoch.saturating_add(days as i32);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.minusDays(long) -> LocalDate`
+pub(crate) fn native_localdate_minus_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let days = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    #[allow(clippy::cast_possible_truncation)] // saturating_sub handles out-of-range
+    let new_epoch = epoch.saturating_sub(days as i32);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.plusMonths(long) -> LocalDate`
+pub(crate) fn native_localdate_plus_months(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let months = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    let total_months = i64::from(y) * 12 + (i64::from(m) - 1) + months;
+    #[allow(clippy::cast_possible_truncation)] // year range is reasonable for Java dates
+    let ny = (total_months / 12) as i32;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // rem is [0,11] so +1 is [1,12], always positive and fits u32
+    let nm = ((total_months % 12) + 1) as u32;
+    // clamp day to valid range for that month
+    let max_day = days_in_month(ny, nm);
+    let nd = d.min(max_day);
+    let new_epoch = ymd_to_epoch_days(ny, nm, nd);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.plusYears(long) -> LocalDate`
+pub(crate) fn native_localdate_plus_years(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let years = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_truncation)] // year range is reasonable for Java dates
+    let ny = y + years as i32;
+    let max_day = days_in_month(ny, m);
+    let nd = d.min(max_day);
+    let new_epoch = ymd_to_epoch_days(ny, m, nd);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.isBefore(LocalDate) -> boolean`
+pub(crate) fn native_localdate_is_before(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a < b))))
+}
+
+/// Native: `LocalDate.isAfter(LocalDate) -> boolean`
+pub(crate) fn native_localdate_is_after(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a > b))))
+}
+
+/// Native: `LocalDate.isEqual(LocalDate) -> boolean`
+pub(crate) fn native_localdate_is_equal(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a == b))))
+}
+
+/// Native: `LocalDate.toEpochDay() -> long`
+pub(crate) fn native_localdate_to_epoch_day(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(i64::from(epoch))))
+}
+
+/// Native: `LocalDate.toString() -> String`
+pub(crate) fn native_localdate_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    let s = format!("{y:04}-{m:02}-{d:02}");
+    let sr = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(sr))))
+}
+
+/// Helper: days in a given month of a given year (handles leap years).
+const fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        2 => {
+            if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 30, // months 4,6,9,11 + any invalid input
+    }
+}
+
+// ---- Duration layout: fields[0]=Slot::Long(seconds), fields[1]=Slot::Int(nanos_adj) ----
+
+/// Native: `Duration.ofSeconds(long) -> Duration`
+pub(crate) fn native_duration_of_seconds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let secs = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(secs);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.ofMinutes(long) -> Duration`
+pub(crate) fn native_duration_of_minutes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let mins = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(mins * 60);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.ofHours(long) -> Duration`
+pub(crate) fn native_duration_of_hours(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let hrs = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(hrs * 3600);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.ofDays(long) -> Duration`
+pub(crate) fn native_duration_of_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let days = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(days * 86_400);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.getSeconds() -> long`
+pub(crate) fn native_duration_get_seconds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs)))
+}
+
+/// Native: `Duration.toSeconds() -> long`
+pub(crate) fn native_duration_to_seconds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_duration_get_seconds(args, heap, out, control)
+}
+
+/// Native: `Duration.toMinutes() -> long`
+pub(crate) fn native_duration_to_minutes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs / 60)))
+}
+
+/// Native: `Duration.toHours() -> long`
+pub(crate) fn native_duration_to_hours(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs / 3600)))
+}
+
+/// Native: `Duration.toDays() -> long`
+pub(crate) fn native_duration_to_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs / 86_400)))
+}
+
+/// Native: `Duration.plus(Duration) -> Duration`
+pub(crate) fn native_duration_plus(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let a_nano = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_secs = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b_nano = match heap.get(other_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let total_nano = i64::from(a_nano) + i64::from(b_nano);
+    let carry = total_nano / 1_000_000_000;
+    #[allow(clippy::cast_possible_truncation)] // rem fits in i32: [0, 999_999_999]
+    let rem_nano = (total_nano % 1_000_000_000) as i32;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(a_secs + b_secs + carry);
+    heap.get_mut(r)?.fields[1] = Slot::Int(rem_nano);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.minus(Duration) -> Duration`
+pub(crate) fn native_duration_minus(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let a_nano = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_secs = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b_nano = match heap.get(other_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let total_nano = i64::from(a_nano) - i64::from(b_nano);
+    let carry = if total_nano < 0 {
+        (total_nano - 999_999_999) / 1_000_000_000
+    } else {
+        total_nano / 1_000_000_000
+    };
+    #[allow(clippy::cast_possible_truncation)] // rem fits in i32: [-(999_999_999), 999_999_999]
+    let rem_nano = (total_nano - carry * 1_000_000_000) as i32;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(a_secs - b_secs + carry);
+    heap.get_mut(r)?.fields[1] = Slot::Int(rem_nano);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.isNegative() -> boolean`
+pub(crate) fn native_duration_is_negative(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(secs < 0))))
+}
+
+/// Native: `Duration.isZero() -> boolean`
+pub(crate) fn native_duration_is_zero(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let nano = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(secs == 0 && nano == 0))))
+}
+
+// ---- Period layout: fields[0]=years(Int), fields[1]=months(Int), fields[2]=days(Int) ----
+
+/// Native: `Period.of(int, int, int) -> Period`
+pub(crate) fn native_period_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let years = extract_int_arg(args, 0)?;
+    let months = extract_int_arg(args, 1)?;
+    let days = extract_int_arg(args, 2)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(years);
+    heap.get_mut(r)?.fields[1] = Slot::Int(months);
+    heap.get_mut(r)?.fields[2] = Slot::Int(days);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.ofDays(int) -> Period`
+pub(crate) fn native_period_of_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let days = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    heap.get_mut(r)?.fields[2] = Slot::Int(days);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.ofMonths(int) -> Period`
+pub(crate) fn native_period_of_months(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let months = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0);
+    heap.get_mut(r)?.fields[1] = Slot::Int(months);
+    heap.get_mut(r)?.fields[2] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.ofYears(int) -> Period`
+pub(crate) fn native_period_of_years(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let years = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(years);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    heap.get_mut(r)?.fields[2] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.getYears() -> int`
+pub(crate) fn native_period_get_years(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `Period.getMonths() -> int`
+pub(crate) fn native_period_get_months(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `Period.getDays() -> int`
+pub(crate) fn native_period_get_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `Period.isNegative() -> boolean`
+pub(crate) fn native_period_is_negative(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let f = heap.get(this_ref)?.fields.clone();
+    let neg = f.iter().any(|s| matches!(s, Slot::Int(v) if *v < 0));
+    Ok(Some(Slot::Int(i32::from(neg))))
+}
+
+/// Native: `Period.isZero() -> boolean`
+pub(crate) fn native_period_is_zero(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let f = heap.get(this_ref)?.fields.clone();
+    let zero = f.iter().all(|s| matches!(s, Slot::Int(0)));
+    Ok(Some(Slot::Int(i32::from(zero))))
+}
+
+// ---- Instant layout: fields[0]=Slot::Long(epoch_seconds), fields[1]=Slot::Int(nanos_adj) ----
+
+/// Native: `Instant.ofEpochSecond(long) -> Instant`
+pub(crate) fn native_instant_of_epoch_second(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let secs = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Instant".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(secs);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Instant.ofEpochMilli(long) -> Instant`
+pub(crate) fn native_instant_of_epoch_milli(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let millis = extract_long_arg(args, 0)?;
+    let secs = millis / 1000;
+    #[allow(clippy::cast_possible_truncation)] // nanos = [0, 999_000_000], fits i32
+    let nanos = ((millis % 1000) * 1_000_000) as i32;
+    let r = heap.allocate("java/time/Instant".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(secs);
+    heap.get_mut(r)?.fields[1] = Slot::Int(nanos);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Instant.getEpochSecond() -> long`
+pub(crate) fn native_instant_get_epoch_second(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs)))
+}
+
+/// Native: `Instant.toEpochMilli() -> long`
+pub(crate) fn native_instant_to_epoch_milli(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let nanos = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs * 1000 + i64::from(nanos) / 1_000_000)))
+}
+
+/// Native: `Instant.isBefore(Instant) -> boolean`
+pub(crate) fn native_instant_is_before(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a < b))))
+}
+
+/// Native: `Instant.isAfter(Instant) -> boolean`
+pub(crate) fn native_instant_is_after(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a > b))))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -51156,6 +51958,150 @@ mod tests {
     fn test_treeset_stream() {
         assert_eq!(
             run_bootstrap_int("Phase60Test.class", "testTreeSetStream", "()I"),
+            3
+        );
+    }
+
+    // ---- Phase 62: java.time (LocalDate, Duration, Period, Instant) ----
+
+    #[test]
+    fn test_localdate_components() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateComponents", "()I"),
+            20_240_315
+        );
+    }
+
+    #[test]
+    fn test_localdate_plus_days() {
+        // 2024-01-01 + 31 days = 2024-02-01
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDatePlusDays", "()I"),
+            20_240_201
+        );
+    }
+
+    #[test]
+    fn test_localdate_minus_days() {
+        // 2024-03-01 - 1 day = 2024-02-29 (leap year)
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateMinusDays", "()I"),
+            20_240_229
+        );
+    }
+
+    #[test]
+    fn test_localdate_plus_months() {
+        // 2023-11-30 + 3 months = 2024-02-29 (clamped to Feb end in leap year)
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDatePlusMonths", "()I"),
+            20_240_229
+        );
+    }
+
+    #[test]
+    fn test_localdate_plus_years() {
+        // 2020-06-15 + 4 years = 2024-06-15
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDatePlusYears", "()I"),
+            20_240_615
+        );
+    }
+
+    #[test]
+    fn test_localdate_comparisons() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateComparisons", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_localdate_epoch_day() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateEpochDay", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_duration_seconds() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationSeconds", "()I"),
+            3723
+        );
+    }
+
+    #[test]
+    fn test_duration_minutes() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationMinutes", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_duration_arithmetic() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationArithmetic", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_duration_flags() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationFlags", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_period_components() {
+        // Period.of(1, 6, 15): 1*10000 + 6*100 + 15 = 10615
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testPeriodComponents", "()I"),
+            10615
+        );
+    }
+
+    #[test]
+    fn test_period_factories() {
+        // 7 + 300 + 20000 = 20307
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testPeriodFactories", "()I"),
+            20307
+        );
+    }
+
+    #[test]
+    fn test_period_flags() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testPeriodFlags", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_instant_epoch_second() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testInstantEpochSecond", "()I"),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn test_instant_epoch_milli() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testInstantEpochMilli", "()I"),
+            5000
+        );
+    }
+
+    #[test]
+    fn test_instant_comparisons() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testInstantComparisons", "()I"),
             3
         );
     }
