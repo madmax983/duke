@@ -7415,4 +7415,134 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
     });
+
+    // ---------------------------------------------------------------------------
+    // Phase 56: Collectors.minBy/maxBy, summingDouble, averagingLong,
+    //           toUnmodifiableMap, collectingAndThen
+    // ---------------------------------------------------------------------------
+
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "minBy",
+        "(Ljava/util/Comparator;)Ljava/util/stream/Collector;",
+        native_collectors_min_by,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "maxBy",
+        "(Ljava/util/Comparator;)Ljava/util/stream/Collector;",
+        native_collectors_max_by,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "summingDouble",
+        "(Ljava/util/function/ToDoubleFunction;)Ljava/util/stream/Collector;",
+        native_collectors_summing_double,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "averagingLong",
+        "(Ljava/util/function/ToLongFunction;)Ljava/util/stream/Collector;",
+        native_collectors_averaging_long,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "toUnmodifiableMap",
+        "(Ljava/util/function/Function;Ljava/util/function/Function;)Ljava/util/stream/Collector;",
+        native_collectors_to_unmodifiable_map,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "collectingAndThen",
+        "(Ljava/util/stream/Collector;Ljava/util/function/Function;)Ljava/util/stream/Collector;",
+        native_collectors_collecting_and_then,
+    );
+
+    // MinByCollector: fields[0] = comparator
+    registry.register(ClassContext {
+        class_name: "duke/util/MinByCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "comparator".to_string(),
+            descriptor: "Ljava/util/Comparator;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    // MaxByCollector: fields[0] = comparator
+    registry.register(ClassContext {
+        class_name: "duke/util/MaxByCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "comparator".to_string(),
+            descriptor: "Ljava/util/Comparator;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    // SummingDoubleCollector: fields[0] = ToDoubleFunction
+    registry.register(ClassContext {
+        class_name: "duke/util/SummingDoubleCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToDoubleFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    // AveragingLongCollector: fields[0] = ToLongFunction
+    registry.register(ClassContext {
+        class_name: "duke/util/AveragingLongCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToLongFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
+    // CollectingAndThenCollector: fields[0]=downstream, fields[1]=finisher
+    registry.register(ClassContext {
+        class_name: "duke/util/CollectingAndThenCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "downstream".to_string(),
+                descriptor: "Ljava/util/stream/Collector;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "finisher".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    });
 }
