@@ -2194,6 +2194,72 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Integer;)I",
         native_integer_compareto,
     );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "bitCount",
+        "(I)I",
+        native_integer_bitcount,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "numberOfLeadingZeros",
+        "(I)I",
+        native_integer_leading_zeros,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "numberOfTrailingZeros",
+        "(I)I",
+        native_integer_trailing_zeros,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "highestOneBit",
+        "(I)I",
+        native_integer_highest_one_bit,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "lowestOneBit",
+        "(I)I",
+        native_integer_lowest_one_bit,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "reverse",
+        "(I)I",
+        native_integer_reverse,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "reverseBytes",
+        "(I)I",
+        native_integer_reverse_bytes,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Integer", "signum", "(I)I", native_integer_signum);
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "compare",
+        "(II)I",
+        native_integer_compare_static,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Integer", "sum", "(II)I", native_integer_sum);
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "max",
+        "(II)I",
+        native_integer_max_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "min",
+        "(II)I",
+        native_integer_min_static,
+    );
 
     // java/lang/Long — boxed long with value field + numeric constants
     let long_ctx = ClassContext {
@@ -2314,6 +2380,54 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Long;)I",
         native_long_compareto,
     );
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "bitCount", "(J)I", native_long_bitcount);
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "numberOfLeadingZeros",
+        "(J)I",
+        native_long_leading_zeros,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "numberOfTrailingZeros",
+        "(J)I",
+        native_long_trailing_zeros,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "highestOneBit",
+        "(J)J",
+        native_long_highest_one_bit,
+    );
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "lowestOneBit",
+        "(J)J",
+        native_long_lowest_one_bit,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "reverse", "(J)J", native_long_reverse);
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "reverseBytes",
+        "(J)J",
+        native_long_reverse_bytes,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "signum", "(J)I", native_long_signum);
+    registry.natives_mut().register(
+        "java/lang/Long",
+        "compare",
+        "(JJ)I",
+        native_long_compare_static,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "sum", "(JJ)J", native_long_sum);
 
     // java/lang/Double — boxed double with value field + numeric constants
     let double_ctx = ClassContext {
@@ -3574,6 +3688,98 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "sort",
         "(Ljava/util/List;)V",
         native_collections_sort,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "emptyList",
+        "()Ljava/util/List;",
+        native_collections_empty_list,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "emptySet",
+        "()Ljava/util/Set;",
+        native_collections_empty_set,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "emptyMap",
+        "()Ljava/util/Map;",
+        native_collections_empty_map,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "singletonList",
+        "(Ljava/lang/Object;)Ljava/util/List;",
+        native_collections_singleton_list,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "reverse",
+        "(Ljava/util/List;)V",
+        native_collections_reverse,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "frequency",
+        "(Ljava/util/Collection;Ljava/lang/Object;)I",
+        native_collections_frequency,
+    );
+
+    // java/util/Objects — null-safe utility methods
+    let objects_ctx = ClassContext {
+        class_name: "java/util/Objects".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(objects_ctx);
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "isNull",
+        "(Ljava/lang/Object;)Z",
+        native_objects_is_null,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "nonNull",
+        "(Ljava/lang/Object;)Z",
+        native_objects_non_null,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "requireNonNull",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_objects_require_non_null,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "requireNonNull",
+        "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;",
+        native_objects_require_non_null_msg,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "equals",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+        native_objects_equals,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "toString",
+        "(Ljava/lang/Object;)Ljava/lang/String;",
+        native_objects_tostring,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "hashCode",
+        "(Ljava/lang/Object;)I",
+        native_objects_hashcode,
     );
 
     // ── java.util.zip ──────────────────────────────────────────────────

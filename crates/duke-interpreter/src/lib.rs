@@ -3715,6 +3715,482 @@ pub(crate) fn native_integer_compareto(
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
+// ---- Integer bit / arithmetic operations ----
+
+/// Native: `Integer.bitCount(int)` — count number of set bits (popcount).
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+pub(crate) fn native_integer_bitcount(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)? as u32;
+    Ok(Some(Slot::Int(v.count_ones() as i32)))
+}
+
+/// Native: `Integer.numberOfLeadingZeros(int)` — count leading zero bits.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+pub(crate) fn native_integer_leading_zeros(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)? as u32;
+    Ok(Some(Slot::Int(v.leading_zeros() as i32)))
+}
+
+/// Native: `Integer.numberOfTrailingZeros(int)` — count trailing zero bits.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+pub(crate) fn native_integer_trailing_zeros(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)? as u32;
+    Ok(Some(Slot::Int(v.trailing_zeros() as i32)))
+}
+
+/// Native: `Integer.highestOneBit(int)` — return value with only the highest set bit.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub(crate) fn native_integer_highest_one_bit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)? as u32;
+    let result = if v == 0 { 0u32 } else { 1u32 << v.ilog2() };
+    Ok(Some(Slot::Int(result as i32)))
+}
+
+/// Native: `Integer.lowestOneBit(int)` — return value with only the lowest set bit.
+#[allow(clippy::cast_possible_wrap)]
+pub(crate) fn native_integer_lowest_one_bit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)?;
+    Ok(Some(Slot::Int(v & v.wrapping_neg())))
+}
+
+/// Native: `Integer.reverse(int)` — reverse bit order.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub(crate) fn native_integer_reverse(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)? as u32;
+    Ok(Some(Slot::Int(v.reverse_bits() as i32)))
+}
+
+/// Native: `Integer.reverseBytes(int)` — reverse byte order (swap endianness).
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub(crate) fn native_integer_reverse_bytes(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)? as u32;
+    Ok(Some(Slot::Int(v.swap_bytes() as i32)))
+}
+
+/// Native: `Integer.signum(int)` — returns -1, 0, or 1.
+pub(crate) fn native_integer_signum(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_int_arg(args, 0)?;
+    Ok(Some(Slot::Int(v.signum())))
+}
+
+/// Native: `Integer.compare(int, int)` — static two-value comparison.
+pub(crate) fn native_integer_compare_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+}
+
+/// Native: `Integer.sum(int, int)` — static addition (functional interface target).
+pub(crate) fn native_integer_sum(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
+    Ok(Some(Slot::Int(a.wrapping_add(b))))
+}
+
+/// Native: `Integer.max(int, int)` — static max (functional interface target).
+pub(crate) fn native_integer_max_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
+    Ok(Some(Slot::Int(a.max(b))))
+}
+
+/// Native: `Integer.min(int, int)` — static min (functional interface target).
+pub(crate) fn native_integer_min_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
+    Ok(Some(Slot::Int(a.min(b))))
+}
+
+// ---- Long bit / arithmetic operations ----
+
+/// Native: `Long.bitCount(long)` — count number of set bits.
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
+pub(crate) fn native_long_bitcount(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)? as u64;
+    Ok(Some(Slot::Int(v.count_ones() as i32)))
+}
+
+/// Native: `Long.numberOfLeadingZeros(long)` — count leading zero bits.
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
+pub(crate) fn native_long_leading_zeros(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)? as u64;
+    Ok(Some(Slot::Int(v.leading_zeros() as i32)))
+}
+
+/// Native: `Long.numberOfTrailingZeros(long)` — count trailing zero bits.
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
+pub(crate) fn native_long_trailing_zeros(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)? as u64;
+    Ok(Some(Slot::Int(v.trailing_zeros() as i32)))
+}
+
+/// Native: `Long.highestOneBit(long)` — return value with only the highest set bit.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub(crate) fn native_long_highest_one_bit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)? as u64;
+    let result = if v == 0 { 0u64 } else { 1u64 << v.ilog2() };
+    Ok(Some(Slot::Long(result as i64)))
+}
+
+/// Native: `Long.lowestOneBit(long)` — return value with only the lowest set bit.
+pub(crate) fn native_long_lowest_one_bit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)?;
+    Ok(Some(Slot::Long(v & v.wrapping_neg())))
+}
+
+/// Native: `Long.reverse(long)` — reverse bit order.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub(crate) fn native_long_reverse(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)? as u64;
+    Ok(Some(Slot::Long(v.reverse_bits() as i64)))
+}
+
+/// Native: `Long.reverseBytes(long)` — reverse byte order (swap endianness).
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub(crate) fn native_long_reverse_bytes(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)? as u64;
+    Ok(Some(Slot::Long(v.swap_bytes() as i64)))
+}
+
+/// Native: `Long.signum(long)` — returns -1, 0, or 1.
+pub(crate) fn native_long_signum(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let v = extract_long_arg(args, 0)?;
+    Ok(Some(Slot::Int(v.signum() as i32)))
+}
+
+/// Native: `Long.compare(long, long)` — static two-value comparison.
+pub(crate) fn native_long_compare_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
+    Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+}
+
+/// Native: `Long.sum(long, long)` — static addition (functional interface target).
+pub(crate) fn native_long_sum(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_long_arg(args, 0)?;
+    let b = extract_long_arg(args, 1)?;
+    Ok(Some(Slot::Long(a.wrapping_add(b))))
+}
+
+// ---- java.util.Objects natives ----
+
+/// Native: `Objects.isNull(Object)Z` — returns 1 if argument is null.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_objects_is_null(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let is_null = matches!(args.first(), Some(Slot::Reference(None)) | None);
+    Ok(Some(Slot::Int(i32::from(is_null))))
+}
+
+/// Native: `Objects.nonNull(Object)Z` — returns 1 if argument is not null.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_objects_non_null(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let is_null = matches!(args.first(), Some(Slot::Reference(None)) | None);
+    Ok(Some(Slot::Int(i32::from(!is_null))))
+}
+
+/// Native: `Objects.requireNonNull(Object)Object` — throws NPE if null, else returns arg.
+pub(crate) fn native_objects_require_non_null(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(None)) | None => Err(VmError::NullPointerException),
+        Some(s) => Ok(Some(*s)),
+    }
+}
+
+/// Native: `Objects.requireNonNull(Object, String)Object` — throws NPE with message if null.
+pub(crate) fn native_objects_require_non_null_msg(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(None)) | None => Err(VmError::NullPointerException),
+        Some(s) => Ok(Some(*s)),
+    }
+}
+
+/// Native: `Objects.equals(Object, Object)Z` — null-safe equality check.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_objects_equals(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = args.first().copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let equal = slots_equal(&a, &b, heap);
+    Ok(Some(Slot::Int(i32::from(equal))))
+}
+
+/// Native: `Objects.toString(Object)` — returns `"null"` if null, else `string_value` or class name.
+pub(crate) fn native_objects_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let s = match args.first() {
+        Some(Slot::Reference(None)) | None => heap.allocate_string("null".to_string()),
+        Some(Slot::Reference(Some(r))) => {
+            let obj = heap.get(*r)?;
+            let text = obj
+                .string_value
+                .as_deref()
+                .map_or_else(|| format!("{}@{}", obj.class_name, r), str::to_owned);
+            let _ = obj;
+            heap.allocate_string(text)
+        }
+        Some(Slot::Int(n)) => heap.allocate_string(n.to_string()),
+        Some(Slot::Long(n)) => heap.allocate_string(n.to_string()),
+        Some(other) => heap.allocate_string(format!("{other:?}")),
+    };
+    Ok(Some(Slot::Reference(Some(s))))
+}
+
+/// Native: `Objects.hashCode(Object)I` — returns 0 for null, else object identity hash.
+#[allow(clippy::cast_possible_truncation, clippy::unnecessary_wraps)]
+pub(crate) fn native_objects_hashcode(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let hash = match args.first() {
+        Some(Slot::Reference(Some(r))) => (*r & 0x7FFF_FFFF) as i32,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(hash)))
+}
+
+// ---- Collections utilities ----
+
+/// Native: `Collections.emptyList()List` — returns a new empty `ArrayList`.
+pub(crate) fn native_collections_empty_list(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(&[Slot::Reference(Some(r))], heap, out, control)?;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collections.emptySet()Set` — returns a new empty `HashSet`.
+pub(crate) fn native_collections_empty_set(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(r))], heap, out, control)?;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collections.emptyMap()Map` — returns a new empty `HashMap`.
+pub(crate) fn native_collections_empty_map(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/util/HashMap".to_string(), 1);
+    native_hashmap_init(&[Slot::Reference(Some(r))], heap, out, control)?;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collections.singletonList(Object)List` — returns a one-element `ArrayList`.
+pub(crate) fn native_collections_singleton_list(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let element = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(&[Slot::Reference(Some(r))], heap, out, control)?;
+    native_arraylist_add(&[Slot::Reference(Some(r)), element], heap, out, control)?;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collections.reverse(List)V` — reverses an `ArrayList` in-place.
+pub(crate) fn native_collections_reverse(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => return Ok(None),
+    };
+    // Elements are at fields[1..=size]; reverse that slice.
+    let fields = &mut heap.get_mut(list_ref)?.fields;
+    fields[1..=size].reverse();
+    Ok(None)
+}
+
+/// Native: `Collections.frequency(Collection, Object)I` — count occurrences of element.
+pub(crate) fn native_collections_frequency(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let coll_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let size = match heap.get(coll_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => return Ok(Some(Slot::Int(0))),
+    };
+    let fields = heap.get(coll_ref)?.fields[1..=size].to_vec();
+    let count = fields
+        .iter()
+        .filter(|s| slots_equal(s, &target, heap))
+        .count();
+    Ok(Some(Slot::Int(i32::try_from(count).unwrap_or(i32::MAX))))
+}
+
 // ---- String.valueOf overloads ----
 
 /// Native: `String.valueOf(long)` — converts long to String.
@@ -20840,6 +21316,312 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("SystemExtTest.class", "testIdentityHashCodeNull", "()I"),
             0
+        );
+    }
+
+    // ---- Phase 30: Integer/Long bit ops, Objects, Collections utilities ----
+
+    #[test]
+    fn integer_bitcount() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testBitCount", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn integer_bitcount_zero() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testBitCountZero", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn integer_leading_zeros() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testLeadingZeros", "()I"),
+            31
+        );
+    }
+
+    #[test]
+    fn integer_trailing_zeros() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testTrailingZeros", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn integer_highest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testHighestOneBit", "()I"),
+            64
+        );
+    }
+
+    #[test]
+    fn integer_lowest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testLowestOneBit", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn integer_signum_positive() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testSignumPositive", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn integer_signum_negative() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testSignumNegative", "()I"),
+            -1
+        );
+    }
+
+    #[test]
+    fn integer_signum_zero() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testSignumZero", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn integer_compare_static() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testCompare", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn integer_sum() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testSum", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn integer_max_static() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testMax", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn integer_min_static() {
+        assert_eq!(
+            run_bootstrap_int("IntegerBitOpsTest.class", "testMin", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn long_bitcount() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testBitCount", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn long_leading_zeros() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testLeadingZeros", "()I"),
+            63
+        );
+    }
+
+    #[test]
+    fn long_trailing_zeros() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testTrailingZeros", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn long_highest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testHighestOneBit", "()I"),
+            64
+        );
+    }
+
+    #[test]
+    fn long_lowest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testLowestOneBit", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn long_signum_positive() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testSignumPositive", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn long_signum_negative() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testSignumNegative", "()I"),
+            -1
+        );
+    }
+
+    #[test]
+    fn long_signum_zero() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testSignumZero", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn long_compare_static() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testCompare", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn long_sum() {
+        assert_eq!(
+            run_bootstrap_int("LongBitOpsTest.class", "testSum", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn objects_is_null_true() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testIsNull", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn objects_is_null_false() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testIsNullFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn objects_non_null_true() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testNonNull", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn objects_non_null_false() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testNonNullFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn objects_require_non_null() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testRequireNonNull", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn objects_equals_same() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testEquals", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn objects_equals_both_null() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testEqualsBothNull", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn objects_equals_one_null() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testEqualsOneNull", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn objects_hash_code_null() {
+        assert_eq!(
+            run_bootstrap_int("ObjectsTest.class", "testHashCode", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn collections_empty_list_size() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsUtilTest.class", "testEmptyList", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn collections_singleton_list_size() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsUtilTest.class", "testSingletonList", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn collections_singleton_list_get() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsUtilTest.class", "testSingletonListGet", "()I"),
+            99
+        );
+    }
+
+    #[test]
+    fn collections_reverse_first_element() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsUtilTest.class", "testReverse", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn collections_reverse_size_unchanged() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsUtilTest.class", "testReverseSize", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("CollectionsUtilTest.class", "testFrequency", "()I"),
+            2
         );
     }
 
