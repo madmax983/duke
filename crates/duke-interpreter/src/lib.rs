@@ -3762,11 +3762,7 @@ pub(crate) fn native_integer_highest_one_bit(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let v = extract_int_arg(args, 0)? as u32;
-    let result = if v == 0 {
-        0u32
-    } else {
-        1u32 << (31 - v.leading_zeros())
-    };
+    let result = if v == 0 { 0u32 } else { 1u32 << v.ilog2() };
     Ok(Some(Slot::Int(result as i32)))
 }
 
@@ -3868,7 +3864,11 @@ pub(crate) fn native_integer_min_static(
 // ---- Long bit / arithmetic operations ----
 
 /// Native: `Long.bitCount(long)` — count number of set bits.
-#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 pub(crate) fn native_long_bitcount(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -3880,7 +3880,11 @@ pub(crate) fn native_long_bitcount(
 }
 
 /// Native: `Long.numberOfLeadingZeros(long)` — count leading zero bits.
-#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 pub(crate) fn native_long_leading_zeros(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -3892,7 +3896,11 @@ pub(crate) fn native_long_leading_zeros(
 }
 
 /// Native: `Long.numberOfTrailingZeros(long)` — count trailing zero bits.
-#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 pub(crate) fn native_long_trailing_zeros(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -3912,11 +3920,7 @@ pub(crate) fn native_long_highest_one_bit(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let v = extract_long_arg(args, 0)? as u64;
-    let result = if v == 0 {
-        0u64
-    } else {
-        1u64 << (63 - v.leading_zeros())
-    };
+    let result = if v == 0 { 0u64 } else { 1u64 << v.ilog2() };
     Ok(Some(Slot::Long(result as i64)))
 }
 
