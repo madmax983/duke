@@ -2884,6 +2884,498 @@ pub(crate) fn native_collectors_to_list(
     Ok(Some(Slot::Reference(Some(collector_ref))))
 }
 
+// ---------------------------------------------------------------------------
+// Stream.limit / Stream.skip / Stream.flatMap
+// ---------------------------------------------------------------------------
+
+/// Native: `Stream.limit(long)Stream` — keeps first N elements.
+pub(crate) fn native_stream_limit(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let max_size = match args.get(1).copied() {
+        Some(Slot::Long(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let take = size.min(max_size);
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(take).unwrap_or(0));
+    for elem in elems.into_iter().take(take) {
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `Stream.skip(long)Stream` — skips first N elements.
+pub(crate) fn native_stream_skip(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let skip_n = match args.get(1).copied() {
+        Some(Slot::Long(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let skipped: Vec<Slot> = elems.into_iter().skip(skip_n).collect();
+    let new_size = i32::try_from(skipped.len()).unwrap_or(0);
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(new_size);
+    for elem in skipped {
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `Stream.flatMap(Function)Stream` — maps each element to a Stream and flattens.
+pub(crate) fn native_stream_flat_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut flat: Vec<Slot> = Vec::new();
+    for elem in elems {
+        let inner = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![fn_slot, elem],
+        )?;
+        if let Some(Slot::Reference(Some(inner_ref))) = inner {
+            // inner should be a duke/util/Stream — flatten its elements
+            let inner_size = match heap.get(inner_ref)?.fields.first() {
+                Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                _ => 0,
+            };
+            let inner_elems: Vec<Slot> = heap.get(inner_ref)?.fields[1..=inner_size].to_vec();
+            flat.extend(inner_elems);
+        }
+    }
+    let new_size = i32::try_from(flat.len()).unwrap_or(0);
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(new_size);
+    for elem in flat {
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+// ---------------------------------------------------------------------------
+// IntStream — duke/util/IntStream
+// fields[0]=Int(size), fields[1..n]=Int(value) elements (unboxed ints)
+// ---------------------------------------------------------------------------
+
+/// Build an `IntStream` heap object from a `Vec<i32>`.
+fn make_int_stream(heap: &mut duke_gc::Heap, values: Vec<i32>) -> u64 {
+    let n = i32::try_from(values.len()).unwrap_or(0);
+    let r = heap.allocate("duke/util/IntStream".to_string(), 1);
+    heap.get_mut(r).expect("fresh").fields[0] = Slot::Int(n);
+    for v in values {
+        heap.get_mut(r).expect("fresh").fields.push(Slot::Int(v));
+    }
+    r
+}
+
+/// Extract int elements from an `IntStream` heap object.
+fn int_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i32> {
+    let size = match heap.get(ref_).ok().and_then(|o| o.fields.first().copied()) {
+        Some(Slot::Int(n)) => usize::try_from(n).unwrap_or(0),
+        _ => 0,
+    };
+    heap.get(ref_)
+        .ok()
+        .map(|o| {
+            o.fields[1..=size]
+                .iter()
+                .filter_map(|s| if let Slot::Int(n) = s { Some(*n) } else { None })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Native: `IntStream.range(int,int)IntStream` — half-open range [start, end).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_int_stream_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let start = match args.first().copied() {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    let end = match args.get(1).copied() {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    let values: Vec<i32> = (start..end).collect();
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
+/// Native: `IntStream.rangeClosed(int,int)IntStream` — inclusive range [start, end].
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_int_stream_range_closed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let start = match args.first().copied() {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    let end = match args.get(1).copied() {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    let values: Vec<i32> = (start..=end).collect();
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
+/// Native: `IntStream.of(int...)IntStream` — from an int array argument.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_int_stream_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // args[0] is the int[] array ref
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let values: Vec<i32> = heap
+        .get(arr_ref)?
+        .fields
+        .iter()
+        .filter_map(|s| if let Slot::Int(n) = s { Some(*n) } else { None })
+        .collect();
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
+/// Native: `IntStream.count()J`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_int_stream_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let n = match heap.get(r)?.fields.first() {
+        Some(Slot::Int(n)) => i64::from(*n),
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(n)))
+}
+
+/// Native: `IntStream.sum()I`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_int_stream_sum(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let sum: i32 = int_stream_elems(heap, r)
+        .iter()
+        .copied()
+        .fold(0_i32, i32::wrapping_add);
+    Ok(Some(Slot::Int(sum)))
+}
+
+/// Native: `IntStream.min()OptionalInt`
+pub(crate) fn native_int_stream_min(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = int_stream_elems(heap, r);
+    // OptionalInt: fields[0]=Int(value), fields[1]=Int(1=present/0=empty)
+    let opt_ref = heap.allocate("duke/util/OptionalInt".to_string(), 2);
+    if let Some(&v) = elems.iter().min() {
+        heap.get_mut(opt_ref)?.fields[0] = Slot::Int(v);
+        heap.get_mut(opt_ref)?.fields[1] = Slot::Int(1);
+    } else {
+        heap.get_mut(opt_ref)?.fields[1] = Slot::Int(0);
+    }
+    Ok(Some(Slot::Reference(Some(opt_ref))))
+}
+
+/// Native: `IntStream.max()OptionalInt`
+pub(crate) fn native_int_stream_max(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = int_stream_elems(heap, r);
+    let opt_ref = heap.allocate("duke/util/OptionalInt".to_string(), 2);
+    if let Some(&v) = elems.iter().max() {
+        heap.get_mut(opt_ref)?.fields[0] = Slot::Int(v);
+        heap.get_mut(opt_ref)?.fields[1] = Slot::Int(1);
+    } else {
+        heap.get_mut(opt_ref)?.fields[1] = Slot::Int(0);
+    }
+    Ok(Some(Slot::Reference(Some(opt_ref))))
+}
+
+/// Native: `IntStream.average()OptionalDouble`
+pub(crate) fn native_int_stream_average(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = int_stream_elems(heap, r);
+    // OptionalDouble: fields[0]=Double(value), fields[1]=Int(1=present/0=empty)
+    let opt_ref = heap.allocate("duke/util/OptionalDouble".to_string(), 2);
+    if elems.is_empty() {
+        heap.get_mut(opt_ref)?.fields[1] = Slot::Int(0);
+    } else {
+        let sum: i64 = elems.iter().map(|&n| i64::from(n)).sum();
+        #[allow(clippy::cast_precision_loss)]
+        let avg = sum as f64 / elems.len() as f64;
+        heap.get_mut(opt_ref)?.fields[0] = Slot::Double(avg);
+        heap.get_mut(opt_ref)?.fields[1] = Slot::Int(1);
+    }
+    Ok(Some(Slot::Reference(Some(opt_ref))))
+}
+
+/// Native: `IntStream.toArray()int[]`
+pub(crate) fn native_int_stream_to_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = int_stream_elems(heap, r);
+    let n = i32::try_from(elems.len()).unwrap_or(0);
+    let arr_ref = heap.allocate("[I".to_string(), 0);
+    heap.get_mut(arr_ref)?.fields.push(Slot::Int(n)); // length header
+    for v in elems {
+        heap.get_mut(arr_ref)?.fields.push(Slot::Int(v));
+    }
+    Ok(Some(Slot::Reference(Some(arr_ref))))
+}
+
+/// Native: `IntStream.filter(IntPredicate)IntStream`
+pub(crate) fn native_int_stream_filter(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let elems = int_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let mut kept = Vec::new();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(I)Z",
+            vec![pred_slot, Slot::Int(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            kept.push(v);
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, kept)))))
+}
+
+/// Native: `IntStream.map(IntUnaryOperator)IntStream`
+pub(crate) fn native_int_stream_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let elems = int_stream_elems(heap, r);
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut result = Vec::new();
+    for v in elems {
+        let r = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsInt",
+            "(I)I",
+            vec![fn_slot, Slot::Int(v)],
+        )?;
+        result.push(match r {
+            Some(Slot::Int(n)) => n,
+            _ => 0,
+        });
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, result)))))
+}
+
+/// Native: `IntStream.forEach(IntConsumer)V`
+pub(crate) fn native_int_stream_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
+        return Ok(None);
+    };
+    let elems = int_stream_elems(heap, r);
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    for v in elems {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(I)V",
+            vec![consumer_slot, Slot::Int(v)],
+        )?;
+    }
+    Ok(None)
+}
+
+/// Native: `IntStream.boxed()Stream` — wraps each int into `java/lang/Integer`.
+pub(crate) fn native_int_stream_boxed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let elems = int_stream_elems(heap, r);
+    let n = i32::try_from(elems.len()).unwrap_or(0);
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
+    for v in elems {
+        let boxed_ref = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(boxed_ref)?.fields[0] = Slot::Int(v);
+        heap.get_mut(stream_ref)?
+            .fields
+            .push(Slot::Reference(Some(boxed_ref)));
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+/// Native: `IntStream.mapToObj(IntFunction)Stream` — maps ints to objects.
+pub(crate) fn native_int_stream_map_to_obj(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let elems = int_stream_elems(heap, r);
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut mapped = Vec::new();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(I)Ljava/lang/Object;",
+            vec![fn_slot, Slot::Int(v)],
+        )?;
+        mapped.push(result.unwrap_or(Slot::Reference(None)));
+    }
+    let new_size = i32::try_from(mapped.len()).unwrap_or(0);
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(new_size);
+    for elem in mapped {
+        heap.get_mut(stream_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+/// Native: `OptionalInt.getAsInt()I`
+pub(crate) fn native_optional_int_get_as_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let v = match heap.get(r)?.fields.first().copied() {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `OptionalDouble.getAsDouble()D`
+pub(crate) fn native_optional_double_get_as_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let v = match heap.get(r)?.fields.first().copied() {
+        Some(Slot::Double(d)) => d,
+        _ => 0.0,
+    };
+    Ok(Some(Slot::Double(v)))
+}
+
 // ---- ArrayDeque natives ----
 // fields[0]=Int(size), fields[1..size]=elements (front at index 1)
 
@@ -41259,6 +41751,152 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase39Test.class", "testHashMapMergeAbsent", "()I"),
             42,
+        );
+    }
+
+    // ---- Phase 40: IntStream, Stream.limit/skip/flatMap ----
+
+    #[test]
+    fn test_int_stream_range_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamRangeSum", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_range_closed_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamRangeClosedSum", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_range_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamRangeCount", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_range_closed_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamRangeClosedCount", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamFilter", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamMap", "()I"),
+            14,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_for_each_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamForEachCount", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_min() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamMin", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamMax", "()I"),
+            8,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_average() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamAverage", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_to_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamToArray", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_boxed() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamBoxed", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamOf", "()I"),
+            60,
+        );
+    }
+
+    #[test]
+    fn test_stream_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testStreamLimit", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_stream_skip() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testStreamSkip", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_stream_skip_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testStreamSkipLimit", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_stream_flat_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testStreamFlatMap", "()I"),
+            4,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_map_to_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase40Test.class", "testIntStreamMapToObj", "()I"),
+            3,
         );
     }
 }
