@@ -2547,193 +2547,278 @@ pub(crate) fn native_stream_collect(
 
     match collector_class.as_str() {
         "duke/util/JoiningCollector" => {
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let read_str_field = |heap: &duke_gc::Heap, idx: usize| -> String {
-                match heap
-                    .get(collector_ref)
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let read_str_field = |heap: &duke_gc::Heap, idx: usize| -> String {
+            match heap
+                .get(collector_ref)
+                .ok()
+                .and_then(|o| o.fields.get(idx).copied())
+            {
+                Some(Slot::Reference(Some(dr))) => heap
+                    .get(dr)
                     .ok()
-                    .and_then(|o| o.fields.get(idx).copied())
-                {
-                    Some(Slot::Reference(Some(dr))) => heap
-                        .get(dr)
-                        .ok()
-                        .and_then(|o| o.string_value.clone())
-                        .unwrap_or_default(),
-                    _ => String::new(),
-                }
-            };
-            let delim = read_str_field(heap, 0);
-            let prefix = read_str_field(heap, 1);
-            let suffix = read_str_field(heap, 2);
-            let parts: Vec<String> = elems
-                .iter()
-                .filter_map(|s| match s {
-                    Slot::Reference(Some(r)) => heap.get(*r).ok()?.string_value.clone(),
-                    _ => None,
-                })
-                .collect();
-            let joined = format!("{}{}{}", prefix, parts.join(&delim), suffix);
-            let result_ref = heap.allocate_string(joined);
-            Ok(Some(Slot::Reference(Some(result_ref))))
+                    .and_then(|o| o.string_value.clone())
+                    .unwrap_or_default(),
+                _ => String::new(),
+            }
+        };
+        let delim = read_str_field(heap, 0);
+        let prefix = read_str_field(heap, 1);
+        let suffix = read_str_field(heap, 2);
+        let parts: Vec<String> = elems
+            .iter()
+            .filter_map(|s| match s {
+                Slot::Reference(Some(r)) => heap.get(*r).ok()?.string_value.clone(),
+                _ => None,
+            })
+            .collect();
+        let joined = format!("{}{}{}", prefix, parts.join(&delim), suffix);
+        let result_ref = heap.allocate_string(joined);
+        Ok(Some(Slot::Reference(Some(result_ref))))
         }
         "duke/util/CountingCollector" => {
-            // collect() returns Object; box the Long so bytecode can checkcast/invokevirtual it.
-            let boxed = heap.allocate("java/lang/Long".to_string(), 1);
-            heap.get_mut(boxed)?.fields[0] = Slot::Long(i64::from(size));
-            Ok(Some(Slot::Reference(Some(boxed))))
+        // collect() returns Object; box the Long so bytecode can checkcast/invokevirtual it.
+        let boxed = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Long(i64::from(size));
+        Ok(Some(Slot::Reference(Some(boxed))))
         }
         "duke/util/GroupingByCollector" => {
-            // GroupingByCollector: fields[0] = key function slot
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
+        // GroupingByCollector: fields[0] = key function slot
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        // Build a HashMap: key → ArrayList of values
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let key = ops
+                .invoke(
+                    heap,
+                    out,
+                    &fn_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![fn_slot, elem],
+                )?
                 .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Ok(Some(Slot::Reference(None)));
+            // find existing bucket or create new list
+            let fields = heap.get(map_ref)?.fields.clone();
+            let size_n = match fields.first() {
+                Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                _ => 0,
             };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            // Build a HashMap: key → ArrayList of values
-            let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
-            heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
-            for elem in elems {
-                let key = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &fn_class,
-                        "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![fn_slot, elem],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
-                // find existing bucket or create new list
-                let fields = heap.get(map_ref)?.fields.clone();
-                let size_n = match fields.first() {
-                    Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-                    _ => 0,
-                };
-                let mut found_ki = None;
-                for i in 0..size_n {
-                    let ki = 1 + i * 2;
-                    if fields.get(ki).is_some_and(|k| slots_equal(k, &key, heap)) {
-                        found_ki = Some(ki);
-                        break;
-                    }
-                }
-                if let Some(ki) = found_ki {
-                    // Append elem to existing list
-                    let list_slot = heap
-                        .get(map_ref)?
-                        .fields
-                        .get(ki + 1)
-                        .copied()
-                        .unwrap_or(Slot::Reference(None));
-                    if let Slot::Reference(Some(list_ref)) = list_slot {
-                        let list_size = match heap.get(list_ref)?.fields.first() {
-                            Some(Slot::Int(n)) => *n,
-                            _ => 0,
-                        };
-                        heap.get_mut(list_ref)?.fields.push(elem);
-                        heap.get_mut(list_ref)?.fields[0] = Slot::Int(list_size + 1);
-                    }
-                } else {
-                    // New key — create list with one element
-                    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
-                    heap.get_mut(list_ref)?.fields[0] = Slot::Int(1);
-                    heap.get_mut(list_ref)?.fields.push(elem);
-                    heap.get_mut(map_ref)?.fields.push(key);
-                    heap.get_mut(map_ref)?
-                        .fields
-                        .push(Slot::Reference(Some(list_ref)));
-                    heap.get_mut(map_ref)?.fields[0] =
-                        Slot::Int(i32::try_from(size_n + 1).unwrap_or(i32::MAX));
+            let mut found_ki = None;
+            for i in 0..size_n {
+                let ki = 1 + i * 2;
+                if fields.get(ki).is_some_and(|k| slots_equal(k, &key, heap)) {
+                    found_ki = Some(ki);
+                    break;
                 }
             }
-            Ok(Some(Slot::Reference(Some(map_ref))))
-        }
-        "duke/util/ToSetCollector" => {
-            // Collect into HashSet (deduplicates).
-            let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
-            heap.get_mut(set_ref)?.fields[0] = Slot::Int(0);
-            for elem in elems {
-                // Check for duplicate before inserting
-                let set_fields = heap.get(set_ref)?.fields.clone();
-                let set_size = match set_fields.first() {
-                    Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-                    _ => 0,
-                };
-                let already = set_fields[1..=set_size]
-                    .iter()
-                    .any(|s| slots_equal(s, &elem, heap));
-                if !already {
-                    let cur_size = match heap.get(set_ref)?.fields.first() {
+            if let Some(ki) = found_ki {
+                // Append elem to existing list
+                let list_slot = heap
+                    .get(map_ref)?
+                    .fields
+                    .get(ki + 1)
+                    .copied()
+                    .unwrap_or(Slot::Reference(None));
+                if let Slot::Reference(Some(list_ref)) = list_slot {
+                    let list_size = match heap.get(list_ref)?.fields.first() {
                         Some(Slot::Int(n)) => *n,
                         _ => 0,
                     };
-                    heap.get_mut(set_ref)?.fields.push(elem);
-                    heap.get_mut(set_ref)?.fields[0] = Slot::Int(cur_size + 1);
+                    heap.get_mut(list_ref)?.fields.push(elem);
+                    heap.get_mut(list_ref)?.fields[0] = Slot::Int(list_size + 1);
                 }
+            } else {
+                // New key — create list with one element
+                let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+                heap.get_mut(list_ref)?.fields[0] = Slot::Int(1);
+                heap.get_mut(list_ref)?.fields.push(elem);
+                heap.get_mut(map_ref)?.fields.push(key);
+                heap.get_mut(map_ref)?
+                    .fields
+                    .push(Slot::Reference(Some(list_ref)));
+                heap.get_mut(map_ref)?.fields[0] =
+                    Slot::Int(i32::try_from(size_n + 1).unwrap_or(i32::MAX));
             }
-            Ok(Some(Slot::Reference(Some(set_ref))))
+        }
+        Ok(Some(Slot::Reference(Some(map_ref))))
+        }
+        "duke/util/ToSetCollector" => {
+        // Collect into HashSet (deduplicates).
+        let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+        heap.get_mut(set_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            // Check for duplicate before inserting
+            let set_fields = heap.get(set_ref)?.fields.clone();
+            let set_size = match set_fields.first() {
+                Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                _ => 0,
+            };
+            let already = set_fields[1..=set_size]
+                .iter()
+                .any(|s| slots_equal(s, &elem, heap));
+            if !already {
+                let cur_size = match heap.get(set_ref)?.fields.first() {
+                    Some(Slot::Int(n)) => *n,
+                    _ => 0,
+                };
+                heap.get_mut(set_ref)?.fields.push(elem);
+                heap.get_mut(set_ref)?.fields[0] = Slot::Int(cur_size + 1);
+            }
+        }
+        Ok(Some(Slot::Reference(Some(set_ref))))
         }
         "duke/util/ToMapCollector" => {
-            // Collect into HashMap using key/val extractor functions.
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let key_fn = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
+        // Collect into HashMap using key/val extractor functions.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let key_fn = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let val_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(key_ref)) = key_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(val_ref)) = val_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let key_class = heap.get(key_ref)?.class_name.clone();
+        let val_class = heap.get(val_ref)?.class_name.clone();
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let k = ops
+                .invoke(
+                    heap,
+                    out,
+                    &key_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![key_fn, elem],
+                )?
                 .unwrap_or(Slot::Reference(None));
-            let val_fn = heap
-                .get(collector_ref)?
-                .fields
-                .get(1)
-                .copied()
+            let v = ops
+                .invoke(
+                    heap,
+                    out,
+                    &val_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![val_fn, elem],
+                )?
                 .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(key_ref)) = key_fn else {
-                return Err(VmError::NullPointerException);
+            let cur_size = match heap.get(map_ref)?.fields.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
             };
-            let Slot::Reference(Some(val_ref)) = val_fn else {
-                return Err(VmError::NullPointerException);
-            };
-            let key_class = heap.get(key_ref)?.class_name.clone();
-            let val_class = heap.get(val_ref)?.class_name.clone();
-            let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
-            heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
-            for elem in elems {
-                let k = ops
+            heap.get_mut(map_ref)?.fields.push(k);
+            heap.get_mut(map_ref)?.fields.push(v);
+            heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
+        }
+        Ok(Some(Slot::Reference(Some(map_ref))))
+        }
+        "duke/util/ToMapMergeCollector" => {
+        // Collect into HashMap with merge function for duplicate keys.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let key_fn = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let val_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let merge_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(2)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(key_ref)) = key_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(val_ref)) = val_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(merge_ref)) = merge_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let key_class = heap.get(key_ref)?.class_name.clone();
+        let val_class = heap.get(val_ref)?.class_name.clone();
+        let merge_class = heap.get(merge_ref)?.class_name.clone();
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let k = ops
+                .invoke(
+                    heap,
+                    out,
+                    &key_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![key_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let v = ops
+                .invoke(
+                    heap,
+                    out,
+                    &val_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![val_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let fields = heap.get(map_ref)?.fields.clone();
+            if let Some(i) = find_hashmap_entry_index(&fields, &k, heap) {
+                // Duplicate key — apply merge function: merge(existing, new)
+                let existing = fields[i + 1];
+                let merged = ops
                     .invoke(
                         heap,
                         out,
-                        &key_class,
+                        &merge_class,
                         "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![key_fn, elem],
+                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                        vec![merge_fn, existing, v],
                     )?
                     .unwrap_or(Slot::Reference(None));
-                let v = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &val_class,
-                        "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![val_fn, elem],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
+                heap.get_mut(map_ref)?.fields[i + 1] = merged;
+            } else {
                 let cur_size = match heap.get(map_ref)?.fields.first() {
                     Some(Slot::Int(n)) => *n,
                     _ => 0,
@@ -2742,722 +2827,596 @@ pub(crate) fn native_stream_collect(
                 heap.get_mut(map_ref)?.fields.push(v);
                 heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
             }
-            Ok(Some(Slot::Reference(Some(map_ref))))
         }
-        "duke/util/ToMapMergeCollector" => {
-            // Collect into HashMap with merge function for duplicate keys.
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let key_fn = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let val_fn = heap
-                .get(collector_ref)?
-                .fields
-                .get(1)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let merge_fn = heap
-                .get(collector_ref)?
-                .fields
-                .get(2)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(key_ref)) = key_fn else {
-                return Err(VmError::NullPointerException);
-            };
-            let Slot::Reference(Some(val_ref)) = val_fn else {
-                return Err(VmError::NullPointerException);
-            };
-            let Slot::Reference(Some(merge_ref)) = merge_fn else {
-                return Err(VmError::NullPointerException);
-            };
-            let key_class = heap.get(key_ref)?.class_name.clone();
-            let val_class = heap.get(val_ref)?.class_name.clone();
-            let merge_class = heap.get(merge_ref)?.class_name.clone();
-            let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
-            heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
-            for elem in elems {
-                let k = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &key_class,
-                        "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![key_fn, elem],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
-                let v = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &val_class,
-                        "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![val_fn, elem],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
-                let fields = heap.get(map_ref)?.fields.clone();
-                if let Some(i) = find_hashmap_entry_index(&fields, &k, heap) {
-                    // Duplicate key — apply merge function: merge(existing, new)
-                    let existing = fields[i + 1];
-                    let merged = ops
-                        .invoke(
-                            heap,
-                            out,
-                            &merge_class,
-                            "apply",
-                            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-                            vec![merge_fn, existing, v],
-                        )?
-                        .unwrap_or(Slot::Reference(None));
-                    heap.get_mut(map_ref)?.fields[i + 1] = merged;
-                } else {
-                    let cur_size = match heap.get(map_ref)?.fields.first() {
-                        Some(Slot::Int(n)) => *n,
-                        _ => 0,
-                    };
-                    heap.get_mut(map_ref)?.fields.push(k);
-                    heap.get_mut(map_ref)?.fields.push(v);
-                    heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
-                }
-            }
-            Ok(Some(Slot::Reference(Some(map_ref))))
+        Ok(Some(Slot::Reference(Some(map_ref))))
         }
         "duke/util/PartitioningByCollector" => {
-            // Collect into a Map<Boolean, List> partitioned by predicate.
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
+        // Collect into a Map<Boolean, List> partitioned by predicate.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let pred_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(pred_ref)) = pred_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let pred_class = heap.get(pred_ref)?.class_name.clone();
+        // Create two lists and the result map.
+        let true_list = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(true_list)?.fields[0] = Slot::Int(0);
+        let false_list = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(false_list)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(Ljava/lang/Object;)Z",
+                vec![Slot::Reference(Some(pred_ref)), elem],
+            )?;
+            let is_true = matches!(result, Some(Slot::Int(n)) if n != 0);
+            let target = if is_true { true_list } else { false_list };
+            let cur_size = match heap.get(target)?.fields.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
             };
-            let pred_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(pred_ref)) = pred_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let pred_class = heap.get(pred_ref)?.class_name.clone();
-            // Create two lists and the result map.
-            let true_list = heap.allocate("java/util/ArrayList".to_string(), 1);
-            heap.get_mut(true_list)?.fields[0] = Slot::Int(0);
-            let false_list = heap.allocate("java/util/ArrayList".to_string(), 1);
-            heap.get_mut(false_list)?.fields[0] = Slot::Int(0);
-            for elem in elems {
-                let result = ops.invoke(
-                    heap,
-                    out,
-                    &pred_class,
-                    "test",
-                    "(Ljava/lang/Object;)Z",
-                    vec![Slot::Reference(Some(pred_ref)), elem],
-                )?;
-                let is_true = matches!(result, Some(Slot::Int(n)) if n != 0);
-                let target = if is_true { true_list } else { false_list };
-                let cur_size = match heap.get(target)?.fields.first() {
-                    Some(Slot::Int(n)) => *n,
-                    _ => 0,
-                };
-                heap.get_mut(target)?.fields.push(elem);
-                heap.get_mut(target)?.fields[0] = Slot::Int(cur_size + 1);
-            }
-            // Build HashMap: Boolean(1)→trueList, Boolean(0)→falseList
-            let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
-            heap.get_mut(map_ref)?.fields[0] = Slot::Int(2);
-            let bool_true = heap.allocate("java/lang/Boolean".to_string(), 1);
-            heap.get_mut(bool_true)?.fields[0] = Slot::Int(1);
-            let bool_false = heap.allocate("java/lang/Boolean".to_string(), 1);
-            heap.get_mut(bool_false)?.fields[0] = Slot::Int(0);
-            heap.get_mut(map_ref)?
-                .fields
-                .push(Slot::Reference(Some(bool_true)));
-            heap.get_mut(map_ref)?
-                .fields
-                .push(Slot::Reference(Some(true_list)));
-            heap.get_mut(map_ref)?
-                .fields
-                .push(Slot::Reference(Some(bool_false)));
-            heap.get_mut(map_ref)?
-                .fields
-                .push(Slot::Reference(Some(false_list)));
-            Ok(Some(Slot::Reference(Some(map_ref))))
+            heap.get_mut(target)?.fields.push(elem);
+            heap.get_mut(target)?.fields[0] = Slot::Int(cur_size + 1);
+        }
+        // Build HashMap: Boolean(1)→trueList, Boolean(0)→falseList
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(2);
+        let bool_true = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_true)?.fields[0] = Slot::Int(1);
+        let bool_false = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_false)?.fields[0] = Slot::Int(0);
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_true)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(true_list)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_false)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(false_list)));
+        Ok(Some(Slot::Reference(Some(map_ref))))
         }
         "duke/util/SummingIntCollector" => {
-            // Sum via applyAsInt(elem) for each element.
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            let mut sum = 0_i32;
-            for elem in elems {
-                let result = ops.invoke(
-                    heap,
-                    out,
-                    &fn_class,
-                    "applyAsInt",
-                    "(Ljava/lang/Object;)I",
-                    vec![fn_slot, elem],
-                )?;
-                if let Some(Slot::Int(n)) = result {
-                    sum = sum.wrapping_add(n);
-                }
+        // Sum via applyAsInt(elem) for each element.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0_i32;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(Ljava/lang/Object;)I",
+                vec![fn_slot, elem],
+            )?;
+            if let Some(Slot::Int(n)) = result {
+                sum = sum.wrapping_add(n);
             }
-            // Return boxed Integer
-            let boxed = heap.allocate("java/lang/Integer".to_string(), 1);
-            heap.get_mut(boxed)?.fields[0] = Slot::Int(sum);
-            Ok(Some(Slot::Reference(Some(boxed))))
+        }
+        // Return boxed Integer
+        let boxed = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Int(sum);
+        Ok(Some(Slot::Reference(Some(boxed))))
         }
         "duke/util/AveragingIntCollector" => {
-            // Average via applyAsInt(elem) for each element.
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            let mut sum = 0_i64;
-            let mut count = 0_usize;
-            for elem in elems {
-                let result = ops.invoke(
-                    heap,
-                    out,
-                    &fn_class,
-                    "applyAsInt",
-                    "(Ljava/lang/Object;)I",
-                    vec![fn_slot, elem],
-                )?;
-                if let Some(Slot::Int(n)) = result {
-                    sum += i64::from(n);
-                    count += 1;
-                }
+        // Average via applyAsInt(elem) for each element.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0_i64;
+        let mut count = 0_usize;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(Ljava/lang/Object;)I",
+                vec![fn_slot, elem],
+            )?;
+            if let Some(Slot::Int(n)) = result {
+                sum += i64::from(n);
+                count += 1;
             }
-            #[allow(clippy::cast_precision_loss)]
-            let avg = if count == 0 {
-                0.0
-            } else {
-                sum as f64 / count as f64
-            };
-            // Return boxed Double
-            let boxed = heap.allocate("java/lang/Double".to_string(), 1);
-            heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
-            Ok(Some(Slot::Reference(Some(boxed))))
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let avg = if count == 0 {
+            0.0
+        } else {
+            sum as f64 / count as f64
+        };
+        // Return boxed Double
+        let boxed = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
+        Ok(Some(Slot::Reference(Some(boxed))))
         }
         "duke/util/SummingLongCollector" => {
-            // Sum via applyAsLong(elem) for each element.
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            let mut sum = 0_i64;
-            for elem in elems {
-                let result = ops.invoke(
-                    heap,
-                    out,
-                    &fn_class,
-                    "applyAsLong",
-                    "(Ljava/lang/Object;)J",
-                    vec![fn_slot, elem],
-                )?;
-                match result {
-                    Some(Slot::Long(n)) => sum = sum.wrapping_add(n),
-                    Some(Slot::Int(n)) => sum = sum.wrapping_add(i64::from(n)),
-                    _ => {}
-                }
+        // Sum via applyAsLong(elem) for each element.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0_i64;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsLong",
+                "(Ljava/lang/Object;)J",
+                vec![fn_slot, elem],
+            )?;
+            match result {
+                Some(Slot::Long(n)) => sum = sum.wrapping_add(n),
+                Some(Slot::Int(n)) => sum = sum.wrapping_add(i64::from(n)),
+                _ => {}
             }
-            // Return boxed Long
-            let boxed = heap.allocate("java/lang/Long".to_string(), 1);
-            heap.get_mut(boxed)?.fields[0] = Slot::Long(sum);
-            Ok(Some(Slot::Reference(Some(boxed))))
+        }
+        // Return boxed Long
+        let boxed = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Long(sum);
+        Ok(Some(Slot::Reference(Some(boxed))))
         }
         "duke/util/AveragingDoubleCollector" => {
-            // Average via applyAsDouble(elem) for each element.
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
+        // Average via applyAsDouble(elem) for each element.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0.0_f64;
+        let mut count = 0_usize;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsDouble",
+                "(Ljava/lang/Object;)D",
+                vec![fn_slot, elem],
+            )?;
+            match result {
+                Some(Slot::Double(d)) => {
+                    sum += d;
+                    count += 1;
+                }
+                Some(Slot::Float(f)) => {
+                    sum += f64::from(f);
+                    count += 1;
+                }
+                Some(Slot::Int(n)) => {
+                    sum += f64::from(n);
+                    count += 1;
+                }
+                _ => {}
+            }
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let avg = if count == 0 { 0.0 } else { sum / count as f64 };
+        // Return boxed Double
+        let boxed = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
+        Ok(Some(Slot::Reference(Some(boxed))))
+        }
+        "duke/util/MappingCollector" => {
+        // MappingCollector: fields[0]=mapper fn, fields[1]=downstream collector
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let mapper_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let downstream_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let mapper_class = heap.get(mapper_ref)?.class_name.clone();
+        // Map each element through the mapper function
+        let mut mapped_elems = Vec::with_capacity(elems.len());
+        for elem in elems {
+            let mapped = ops
+                .invoke(
+                    heap,
+                    out,
+                    &mapper_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![mapper_slot, elem],
+                )?
                 .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            let mut sum = 0.0_f64;
-            let mut count = 0_usize;
-            for elem in elems {
-                let result = ops.invoke(
+            mapped_elems.push(mapped);
+        }
+        // Build a temporary stream from mapped elements and collect with downstream
+        let mapped_size = i32::try_from(mapped_elems.len()).unwrap_or(0);
+        let tmp_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+        heap.get_mut(tmp_stream)?.fields[0] = Slot::Int(mapped_size);
+        for elem in mapped_elems {
+            heap.get_mut(tmp_stream)?.fields.push(elem);
+        }
+        let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
+        native_stream_collect(&tmp_args, heap, out, control, ops)
+        }
+        "duke/util/GroupingBy2Collector" => {
+        // groupingBy(keyFn, downstream): fields[0]=keyFn, fields[1]=downstream collector
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let downstream_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        // First pass: group raw elements by key into HashMap<key, ArrayList<elem>>
+        let raw_map = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(raw_map)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let key = ops
+                .invoke(
                     heap,
                     out,
                     &fn_class,
-                    "applyAsDouble",
-                    "(Ljava/lang/Object;)D",
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
                     vec![fn_slot, elem],
-                )?;
-                match result {
-                    Some(Slot::Double(d)) => {
-                        sum += d;
-                        count += 1;
-                    }
-                    Some(Slot::Float(f)) => {
-                        sum += f64::from(f);
-                        count += 1;
-                    }
-                    Some(Slot::Int(n)) => {
-                        sum += f64::from(n);
-                        count += 1;
-                    }
-                    _ => {}
-                }
-            }
-            #[allow(clippy::cast_precision_loss)]
-            let avg = if count == 0 { 0.0 } else { sum / count as f64 };
-            // Return boxed Double
-            let boxed = heap.allocate("java/lang/Double".to_string(), 1);
-            heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
-            Ok(Some(Slot::Reference(Some(boxed))))
-        }
-        "duke/util/MappingCollector" => {
-            // MappingCollector: fields[0]=mapper fn, fields[1]=downstream collector
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let mapper_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
+                )?
                 .unwrap_or(Slot::Reference(None));
-            let downstream_slot = heap
-                .get(collector_ref)?
-                .fields
-                .get(1)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let mapper_class = heap.get(mapper_ref)?.class_name.clone();
-            // Map each element through the mapper function
-            let mut mapped_elems = Vec::with_capacity(elems.len());
-            for elem in elems {
-                let mapped = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &mapper_class,
-                        "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![mapper_slot, elem],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
-                mapped_elems.push(mapped);
-            }
-            // Build a temporary stream from mapped elements and collect with downstream
-            let mapped_size = i32::try_from(mapped_elems.len()).unwrap_or(0);
-            let tmp_stream = heap.allocate("duke/util/Stream".to_string(), 1);
-            heap.get_mut(tmp_stream)?.fields[0] = Slot::Int(mapped_size);
-            for elem in mapped_elems {
-                heap.get_mut(tmp_stream)?.fields.push(elem);
-            }
-            let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
-            native_stream_collect(&tmp_args, heap, out, control, ops)
-        }
-        "duke/util/GroupingBy2Collector" => {
-            // groupingBy(keyFn, downstream): fields[0]=keyFn, fields[1]=downstream collector
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let downstream_slot = heap
-                .get(collector_ref)?
-                .fields
-                .get(1)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            // First pass: group raw elements by key into HashMap<key, ArrayList<elem>>
-            let raw_map = heap.allocate("java/util/HashMap".to_string(), 1);
-            heap.get_mut(raw_map)?.fields[0] = Slot::Int(0);
-            for elem in elems {
-                let key = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &fn_class,
-                        "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![fn_slot, elem],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
-                let fields = heap.get(raw_map)?.fields.clone();
-                let size_n = match fields.first() {
-                    Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-                    _ => 0,
-                };
-                let mut found_ki = None;
-                for i in 0..size_n {
-                    let ki = 1 + i * 2;
-                    if fields.get(ki).is_some_and(|k| slots_equal(k, &key, heap)) {
-                        found_ki = Some(ki);
-                        break;
-                    }
-                }
-                if let Some(ki) = found_ki {
-                    let list_slot = heap
-                        .get(raw_map)?
-                        .fields
-                        .get(ki + 1)
-                        .copied()
-                        .unwrap_or(Slot::Reference(None));
-                    if let Slot::Reference(Some(list_ref)) = list_slot {
-                        let list_size = match heap.get(list_ref)?.fields.first() {
-                            Some(Slot::Int(n)) => *n,
-                            _ => 0,
-                        };
-                        heap.get_mut(list_ref)?.fields.push(elem);
-                        heap.get_mut(list_ref)?.fields[0] = Slot::Int(list_size + 1);
-                    }
-                } else {
-                    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
-                    heap.get_mut(list_ref)?.fields[0] = Slot::Int(1);
-                    heap.get_mut(list_ref)?.fields.push(elem);
-                    heap.get_mut(raw_map)?.fields.push(key);
-                    heap.get_mut(raw_map)?
-                        .fields
-                        .push(Slot::Reference(Some(list_ref)));
-                    heap.get_mut(raw_map)?.fields[0] =
-                        Slot::Int(i32::try_from(size_n + 1).unwrap_or(i32::MAX));
-                }
-            }
-            // Second pass: apply downstream collector to each group's ArrayList
-            let result_map = heap.allocate("java/util/HashMap".to_string(), 1);
-            heap.get_mut(result_map)?.fields[0] = Slot::Int(0);
-            let raw_fields = heap.get(raw_map)?.fields.clone();
-            let group_count = match raw_fields.first() {
+            let fields = heap.get(raw_map)?.fields.clone();
+            let size_n = match fields.first() {
                 Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
                 _ => 0,
             };
-            for i in 0..group_count {
-                let key = raw_fields
-                    .get(1 + i * 2)
-                    .copied()
-                    .unwrap_or(Slot::Reference(None));
-                let list_slot = raw_fields
-                    .get(2 + i * 2)
-                    .copied()
-                    .unwrap_or(Slot::Reference(None));
-                let Slot::Reference(Some(list_ref)) = list_slot else {
-                    continue;
-                };
-                let group_size_field = heap
-                    .get(list_ref)?
-                    .fields
-                    .first()
-                    .copied()
-                    .unwrap_or(Slot::Int(0));
-                let group_size = match group_size_field {
-                    Slot::Int(n) => n,
-                    _ => 0,
-                };
-                let tmp_stream = heap.allocate("duke/util/Stream".to_string(), 1);
-                heap.get_mut(tmp_stream)?.fields[0] = group_size_field;
-                let group_elems: Vec<Slot> = heap.get(list_ref)?.fields
-                    [1..=usize::try_from(group_size).unwrap_or(0)]
-                    .to_vec();
-                for e in group_elems {
-                    heap.get_mut(tmp_stream)?.fields.push(e);
+            let mut found_ki = None;
+            for i in 0..size_n {
+                let ki = 1 + i * 2;
+                if fields.get(ki).is_some_and(|k| slots_equal(k, &key, heap)) {
+                    found_ki = Some(ki);
+                    break;
                 }
-                let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
-                let collected = native_stream_collect(&tmp_args, heap, out, control, ops)?
-                    .unwrap_or(Slot::Reference(None));
-                let cur_result_size = match heap.get(result_map)?.fields.first() {
-                    Some(Slot::Int(n)) => *n,
-                    _ => 0,
-                };
-                heap.get_mut(result_map)?.fields.push(key);
-                heap.get_mut(result_map)?.fields.push(collected);
-                heap.get_mut(result_map)?.fields[0] = Slot::Int(cur_result_size + 1);
             }
-            Ok(Some(Slot::Reference(Some(result_map))))
+            if let Some(ki) = found_ki {
+                let list_slot = heap
+                    .get(raw_map)?
+                    .fields
+                    .get(ki + 1)
+                    .copied()
+                    .unwrap_or(Slot::Reference(None));
+                if let Slot::Reference(Some(list_ref)) = list_slot {
+                    let list_size = match heap.get(list_ref)?.fields.first() {
+                        Some(Slot::Int(n)) => *n,
+                        _ => 0,
+                    };
+                    heap.get_mut(list_ref)?.fields.push(elem);
+                    heap.get_mut(list_ref)?.fields[0] = Slot::Int(list_size + 1);
+                }
+            } else {
+                let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+                heap.get_mut(list_ref)?.fields[0] = Slot::Int(1);
+                heap.get_mut(list_ref)?.fields.push(elem);
+                heap.get_mut(raw_map)?.fields.push(key);
+                heap.get_mut(raw_map)?
+                    .fields
+                    .push(Slot::Reference(Some(list_ref)));
+                heap.get_mut(raw_map)?.fields[0] =
+                    Slot::Int(i32::try_from(size_n + 1).unwrap_or(i32::MAX));
+            }
+        }
+        // Second pass: apply downstream collector to each group's ArrayList
+        let result_map = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(result_map)?.fields[0] = Slot::Int(0);
+        let raw_fields = heap.get(raw_map)?.fields.clone();
+        let group_count = match raw_fields.first() {
+            Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+            _ => 0,
+        };
+        for i in 0..group_count {
+            let key = raw_fields
+                .get(1 + i * 2)
+                .copied()
+                .unwrap_or(Slot::Reference(None));
+            let list_slot = raw_fields
+                .get(2 + i * 2)
+                .copied()
+                .unwrap_or(Slot::Reference(None));
+            let Slot::Reference(Some(list_ref)) = list_slot else {
+                continue;
+            };
+            let group_size_field = heap
+                .get(list_ref)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Int(0));
+            let group_size = match group_size_field {
+                Slot::Int(n) => n,
+                _ => 0,
+            };
+            let tmp_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+            heap.get_mut(tmp_stream)?.fields[0] = group_size_field;
+            let group_elems: Vec<Slot> =
+                heap.get(list_ref)?.fields[1..=usize::try_from(group_size).unwrap_or(0)].to_vec();
+            for e in group_elems {
+                heap.get_mut(tmp_stream)?.fields.push(e);
+            }
+            let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
+            let collected = native_stream_collect(&tmp_args, heap, out, control, ops)?
+                .unwrap_or(Slot::Reference(None));
+            let cur_result_size = match heap.get(result_map)?.fields.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
+            };
+            heap.get_mut(result_map)?.fields.push(key);
+            heap.get_mut(result_map)?.fields.push(collected);
+            heap.get_mut(result_map)?.fields[0] = Slot::Int(cur_result_size + 1);
+        }
+        Ok(Some(Slot::Reference(Some(result_map))))
         }
         "duke/util/MinByCollector" => {
-            // minBy(comparator): fields[0] = comparator
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
+        // minBy(comparator): fields[0] = comparator
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let cmp_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
+            let r = make_optional(heap, None);
+            return Ok(Some(Slot::Reference(Some(r))));
+        };
+        let cmp_class = heap.get(cmp_ref)?.class_name.clone();
+        let mut min: Option<Slot> = None;
+        for elem in elems {
+            let is_less = if let Some(ref cur) = min {
+                let result = ops
+                    .invoke(
+                        heap,
+                        out,
+                        &cmp_class,
+                        "compare",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                        vec![cmp_slot, elem, *cur],
+                    )?
+                    .unwrap_or(Slot::Int(0));
+                matches!(result, Slot::Int(n) if n < 0)
+            } else {
+                true
             };
-            let cmp_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
-                let r = make_optional(heap, None);
-                return Ok(Some(Slot::Reference(Some(r))));
-            };
-            let cmp_class = heap.get(cmp_ref)?.class_name.clone();
-            let mut min: Option<Slot> = None;
-            for elem in elems {
-                let is_less = if let Some(ref cur) = min {
-                    let result = ops
-                        .invoke(
-                            heap,
-                            out,
-                            &cmp_class,
-                            "compare",
-                            "(Ljava/lang/Object;Ljava/lang/Object;)I",
-                            vec![cmp_slot, elem, *cur],
-                        )?
-                        .unwrap_or(Slot::Int(0));
-                    matches!(result, Slot::Int(n) if n < 0)
-                } else {
-                    true
-                };
-                if is_less {
-                    min = Some(elem);
-                }
+            if is_less {
+                min = Some(elem);
             }
-            let r = make_optional(heap, min);
-            Ok(Some(Slot::Reference(Some(r))))
+        }
+        let r = make_optional(heap, min);
+        Ok(Some(Slot::Reference(Some(r))))
         }
         "duke/util/MaxByCollector" => {
-            // maxBy(comparator): fields[0] = comparator
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
+        // maxBy(comparator): fields[0] = comparator
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let cmp_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
+            let r = make_optional(heap, None);
+            return Ok(Some(Slot::Reference(Some(r))));
+        };
+        let cmp_class = heap.get(cmp_ref)?.class_name.clone();
+        let mut max: Option<Slot> = None;
+        for elem in elems {
+            let is_greater = if let Some(ref cur) = max {
+                let result = ops
+                    .invoke(
+                        heap,
+                        out,
+                        &cmp_class,
+                        "compare",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                        vec![cmp_slot, elem, *cur],
+                    )?
+                    .unwrap_or(Slot::Int(0));
+                matches!(result, Slot::Int(n) if n > 0)
+            } else {
+                true
             };
-            let cmp_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
-                let r = make_optional(heap, None);
-                return Ok(Some(Slot::Reference(Some(r))));
-            };
-            let cmp_class = heap.get(cmp_ref)?.class_name.clone();
-            let mut max: Option<Slot> = None;
-            for elem in elems {
-                let is_greater = if let Some(ref cur) = max {
-                    let result = ops
-                        .invoke(
-                            heap,
-                            out,
-                            &cmp_class,
-                            "compare",
-                            "(Ljava/lang/Object;Ljava/lang/Object;)I",
-                            vec![cmp_slot, elem, *cur],
-                        )?
-                        .unwrap_or(Slot::Int(0));
-                    matches!(result, Slot::Int(n) if n > 0)
-                } else {
-                    true
-                };
-                if is_greater {
-                    max = Some(elem);
-                }
+            if is_greater {
+                max = Some(elem);
             }
-            let r = make_optional(heap, max);
-            Ok(Some(Slot::Reference(Some(r))))
+        }
+        let r = make_optional(heap, max);
+        Ok(Some(Slot::Reference(Some(r))))
         }
         "duke/util/SummingDoubleCollector" => {
-            // summingDouble: fields[0] = ToDoubleFunction
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            let mut sum = 0.0_f64;
-            for elem in elems {
-                let result = ops.invoke(
-                    heap,
-                    out,
-                    &fn_class,
-                    "applyAsDouble",
-                    "(Ljava/lang/Object;)D",
-                    vec![fn_slot, elem],
-                )?;
-                match result {
-                    Some(Slot::Double(d)) => sum += d,
-                    Some(Slot::Float(f)) => sum += f64::from(f),
-                    Some(Slot::Int(n)) => sum += f64::from(n),
-                    _ => {}
-                }
+        // summingDouble: fields[0] = ToDoubleFunction
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0.0_f64;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsDouble",
+                "(Ljava/lang/Object;)D",
+                vec![fn_slot, elem],
+            )?;
+            match result {
+                Some(Slot::Double(d)) => sum += d,
+                Some(Slot::Float(f)) => sum += f64::from(f),
+                Some(Slot::Int(n)) => sum += f64::from(n),
+                _ => {}
             }
-            let boxed = heap.allocate("java/lang/Double".to_string(), 1);
-            heap.get_mut(boxed)?.fields[0] = Slot::Double(sum);
-            Ok(Some(Slot::Reference(Some(boxed))))
+        }
+        let boxed = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Double(sum);
+        Ok(Some(Slot::Reference(Some(boxed))))
         }
         "duke/util/AveragingLongCollector" => {
-            // averagingLong: fields[0] = ToLongFunction
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let fn_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(fn_ref)) = fn_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let fn_class = heap.get(fn_ref)?.class_name.clone();
-            let mut sum = 0_i64;
-            let mut count = 0_usize;
-            for elem in elems {
-                let result = ops.invoke(
-                    heap,
-                    out,
-                    &fn_class,
-                    "applyAsLong",
-                    "(Ljava/lang/Object;)J",
-                    vec![fn_slot, elem],
-                )?;
-                match result {
-                    Some(Slot::Long(n)) => {
-                        sum = sum.wrapping_add(n);
-                        count += 1;
-                    }
-                    Some(Slot::Int(n)) => {
-                        sum = sum.wrapping_add(i64::from(n));
-                        count += 1;
-                    }
-                    _ => {}
+        // averagingLong: fields[0] = ToLongFunction
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0_i64;
+        let mut count = 0_usize;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsLong",
+                "(Ljava/lang/Object;)J",
+                vec![fn_slot, elem],
+            )?;
+            match result {
+                Some(Slot::Long(n)) => {
+                    sum = sum.wrapping_add(n);
+                    count += 1;
                 }
+                Some(Slot::Int(n)) => {
+                    sum = sum.wrapping_add(i64::from(n));
+                    count += 1;
+                }
+                _ => {}
             }
-            #[allow(clippy::cast_precision_loss)]
-            let avg = if count == 0 {
-                0.0
-            } else {
-                sum as f64 / count as f64
-            };
-            let boxed = heap.allocate("java/lang/Double".to_string(), 1);
-            heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
-            Ok(Some(Slot::Reference(Some(boxed))))
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let avg = if count == 0 {
+            0.0
+        } else {
+            sum as f64 / count as f64
+        };
+        let boxed = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
+        Ok(Some(Slot::Reference(Some(boxed))))
         }
         "duke/util/ReducingNoIdentityCollector" => {
-            // reducing(BinaryOperator) → Optional<T>
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let op_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(bop_ref)) = op_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let op_class = heap.get(bop_ref)?.class_name.clone();
-            let result = if elems.is_empty() {
-                None
-            } else {
-                let mut acc = elems[0];
-                for elem in elems.into_iter().skip(1) {
-                    acc = ops
-                        .invoke(
-                            heap,
-                            out,
-                            &op_class,
-                            "apply",
-                            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-                            vec![op_slot, acc, elem],
-                        )?
-                        .unwrap_or(Slot::Reference(None));
-                }
-                Some(acc)
-            };
-            let opt_ref = make_optional(heap, result);
-            Ok(Some(Slot::Reference(Some(opt_ref))))
-        }
-        "duke/util/ReducingCollector" => {
-            // reducing(identity, BinaryOperator) → T
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let identity_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let op_slot = heap
-                .get(collector_ref)?
-                .fields
-                .get(1)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(bop_ref)) = op_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let op_class = heap.get(bop_ref)?.class_name.clone();
-            let mut acc = identity_slot;
-            for elem in elems {
+        // reducing(BinaryOperator) → Optional<T>
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let op_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(bop_ref)) = op_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let op_class = heap.get(bop_ref)?.class_name.clone();
+        let result = if elems.is_empty() {
+            None
+        } else {
+            let mut acc = elems[0];
+            for elem in elems.into_iter().skip(1) {
                 acc = ops
                     .invoke(
                         heap,
@@ -3469,111 +3428,151 @@ pub(crate) fn native_stream_collect(
                     )?
                     .unwrap_or(Slot::Reference(None));
             }
-            Ok(Some(acc))
+            Some(acc)
+        };
+        let opt_ref = make_optional(heap, result);
+        Ok(Some(Slot::Reference(Some(opt_ref))))
+        }
+        "duke/util/ReducingCollector" => {
+        // reducing(identity, BinaryOperator) → T
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let identity_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let op_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(bop_ref)) = op_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let op_class = heap.get(bop_ref)?.class_name.clone();
+        let mut acc = identity_slot;
+        for elem in elems {
+            acc = ops
+                .invoke(
+                    heap,
+                    out,
+                    &op_class,
+                    "apply",
+                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![op_slot, acc, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+        }
+        Ok(Some(acc))
         }
         "duke/util/ReducingMappingCollector" => {
-            // reducing(identity, mapper, BinaryOperator) → U
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let identity_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
+        // reducing(identity, mapper, BinaryOperator) → U
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let identity_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let mapper_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let op_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(2)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(bop_ref)) = op_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let mapper_class = heap.get(mapper_ref)?.class_name.clone();
+        let op_class = heap.get(bop_ref)?.class_name.clone();
+        let mut acc = identity_slot;
+        for elem in elems {
+            let mapped = ops
+                .invoke(
+                    heap,
+                    out,
+                    &mapper_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![mapper_slot, elem],
+                )?
                 .unwrap_or(Slot::Reference(None));
-            let mapper_slot = heap
-                .get(collector_ref)?
-                .fields
-                .get(1)
-                .copied()
+            acc = ops
+                .invoke(
+                    heap,
+                    out,
+                    &op_class,
+                    "apply",
+                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![op_slot, acc, mapped],
+                )?
                 .unwrap_or(Slot::Reference(None));
-            let op_slot = heap
-                .get(collector_ref)?
-                .fields
-                .get(2)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let Slot::Reference(Some(bop_ref)) = op_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let mapper_class = heap.get(mapper_ref)?.class_name.clone();
-            let op_class = heap.get(bop_ref)?.class_name.clone();
-            let mut acc = identity_slot;
-            for elem in elems {
-                let mapped = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &mapper_class,
-                        "apply",
-                        "(Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![mapper_slot, elem],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
-                acc = ops
-                    .invoke(
-                        heap,
-                        out,
-                        &op_class,
-                        "apply",
-                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-                        vec![op_slot, acc, mapped],
-                    )?
-                    .unwrap_or(Slot::Reference(None));
-            }
-            Ok(Some(acc))
+        }
+        Ok(Some(acc))
         }
         "duke/util/CollectingAndThenCollector" => {
-            // collectingAndThen(downstream, finisher): fields[0]=downstream, fields[1]=finisher
-            let collector_ref = match args.get(1) {
-                Some(Slot::Reference(Some(r))) => *r,
-                _ => return Err(VmError::NullPointerException),
-            };
-            let downstream_slot = heap
-                .get(collector_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let finisher_slot = heap
-                .get(collector_ref)?
-                .fields
-                .get(1)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let Slot::Reference(Some(finisher_ref)) = finisher_slot else {
-                return Err(VmError::NullPointerException);
-            };
-            let finisher_class = heap.get(finisher_ref)?.class_name.clone();
-            // First collect with downstream
-            let tmp_args = vec![Slot::Reference(Some(stream_ref)), downstream_slot];
-            let intermediate = native_stream_collect(&tmp_args, heap, out, control, ops)?
-                .unwrap_or(Slot::Reference(None));
-            // Then apply finisher
-            let result = ops.invoke(
-                heap,
-                out,
-                &finisher_class,
-                "apply",
-                "(Ljava/lang/Object;)Ljava/lang/Object;",
-                vec![finisher_slot, intermediate],
-            )?;
-            Ok(result.or(Some(Slot::Reference(None))))
+        // collectingAndThen(downstream, finisher): fields[0]=downstream, fields[1]=finisher
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let downstream_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let finisher_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(finisher_ref)) = finisher_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let finisher_class = heap.get(finisher_ref)?.class_name.clone();
+        // First collect with downstream
+        let tmp_args = vec![Slot::Reference(Some(stream_ref)), downstream_slot];
+        let intermediate = native_stream_collect(&tmp_args, heap, out, control, ops)?
+            .unwrap_or(Slot::Reference(None));
+        // Then apply finisher
+        let result = ops.invoke(
+            heap,
+            out,
+            &finisher_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![finisher_slot, intermediate],
+        )?;
+        Ok(result.or(Some(Slot::Reference(None))))
         }
         _ => {
-            // ToListCollector (default): collect into ArrayList.
-            let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
-            heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
-            for elem in elems {
-                heap.get_mut(list_ref)?.fields.push(elem);
-            }
-            Ok(Some(Slot::Reference(Some(list_ref))))
+        // ToListCollector (default): collect into ArrayList.
+        let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
+        for elem in elems {
+            heap.get_mut(list_ref)?.fields.push(elem);
         }
+        Ok(Some(Slot::Reference(Some(list_ref))))
+    }
     }
 }
 
