@@ -4250,6 +4250,394 @@ pub(crate) fn native_math_min_double(
     Ok(Some(Slot::Double(a.min(b))))
 }
 
+// ---- Extended Math trig / transcendental natives ----
+
+/// Native: `Math.sin(double)` — sine (argument in radians).
+pub(crate) fn native_math_sin(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.sin())))
+}
+
+/// Native: `Math.cos(double)` — cosine (argument in radians).
+pub(crate) fn native_math_cos(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.cos())))
+}
+
+/// Native: `Math.tan(double)` — tangent (argument in radians).
+pub(crate) fn native_math_tan(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.tan())))
+}
+
+/// Native: `Math.asin(double)` — arc sine, result in [-π/2, π/2].
+pub(crate) fn native_math_asin(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.asin())))
+}
+
+/// Native: `Math.acos(double)` — arc cosine, result in [0, π].
+pub(crate) fn native_math_acos(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.acos())))
+}
+
+/// Native: `Math.atan(double)` — arc tangent, result in [-π/2, π/2].
+pub(crate) fn native_math_atan(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.atan())))
+}
+
+/// Native: `Math.atan2(double, double)` — angle of vector (y, x) in [-π, π].
+pub(crate) fn native_math_atan2(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let y = extract_double_arg(args, 0)?;
+    let x = extract_double_arg(args, 1)?;
+    Ok(Some(Slot::Double(y.atan2(x))))
+}
+
+/// Native: `Math.log(double)` — natural logarithm.
+pub(crate) fn native_math_log(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.ln())))
+}
+
+/// Native: `Math.log10(double)` — base-10 logarithm.
+pub(crate) fn native_math_log10(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.log10())))
+}
+
+/// Native: `Math.exp(double)` — Euler's number raised to the given power.
+pub(crate) fn native_math_exp(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.exp())))
+}
+
+/// Native: `Math.signum(double)` — sign of a: -1.0, 0.0, or 1.0.
+pub(crate) fn native_math_signum_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.signum())))
+}
+
+/// Native: `Math.signum(float)` — sign of a as float: -1.0, 0.0, or 1.0.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn native_math_signum_float(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_float_arg(args, 0)?;
+    Ok(Some(Slot::Float(a.signum())))
+}
+
+/// Native: `Math.toRadians(double)` — converts degrees to radians.
+pub(crate) fn native_math_to_radians(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.to_radians())))
+}
+
+/// Native: `Math.toDegrees(double)` — converts radians to degrees.
+pub(crate) fn native_math_to_degrees(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.to_degrees())))
+}
+
+/// Native: `Math.cbrt(double)` — cube root.
+pub(crate) fn native_math_cbrt(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Double(a.cbrt())))
+}
+
+/// Native: `Math.hypot(double, double)` — sqrt(x²+y²) without overflow.
+pub(crate) fn native_math_hypot(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let x = extract_double_arg(args, 0)?;
+    let y = extract_double_arg(args, 1)?;
+    Ok(Some(Slot::Double(x.hypot(y))))
+}
+
+/// Native: `Math.floorDiv(int, int)` — largest int ≤ quotient.
+pub(crate) fn native_math_floor_div_int(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_int_arg(args, 0)?;
+    let b = extract_int_arg(args, 1)?;
+    if b == 0 {
+        return Err(VmError::DivisionByZero);
+    }
+    Ok(Some(Slot::Int(
+        a.div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
+    )))
+}
+
+/// Native: `Math.round(float)` — rounds float to nearest int.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn native_math_round_float(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = extract_float_arg(args, 0)?;
+    Ok(Some(Slot::Int(a.round() as i32)))
+}
+
+// ---- System.arraycopy native ----
+
+/// Native: `System.arraycopy(Object src, int srcPos, Object dst, int dstPos, int length)`.
+/// Copies `length` elements from `src` starting at `srcPos` into `dst` starting at `dstPos`.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_system_arraycopy(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let src_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let src_pos = extract_int_arg(args, 1)?;
+    let dst_ref = match args.get(2) {
+        Some(Slot::Reference(Some(r))) => *r,
+        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        }
+    };
+    let dst_pos = extract_int_arg(args, 3)?;
+    let length = extract_int_arg(args, 4)?;
+    if length < 0 || src_pos < 0 || dst_pos < 0 {
+        return Err(VmError::NegativeArraySize {
+            size: length.min(src_pos).min(dst_pos),
+        });
+    }
+    let src_pos = src_pos as usize;
+    let dst_pos = dst_pos as usize;
+    let length = length as usize;
+    // Copy elements one by one to support src == dst (overlapping ranges handled via clone).
+    let src_len = heap.get(src_ref)?.fields.len();
+    if src_pos + length > src_len {
+        return Err(VmError::ArrayIndexOutOfBounds {
+            index: i32::try_from(src_pos + length - 1).unwrap_or(i32::MAX),
+            length: src_len,
+        });
+    }
+    let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[src_pos..src_pos + length].to_vec();
+    let dst_len = heap.get(dst_ref)?.fields.len();
+    if dst_pos + length > dst_len {
+        return Err(VmError::ArrayIndexOutOfBounds {
+            index: i32::try_from(dst_pos + length - 1).unwrap_or(i32::MAX),
+            length: dst_len,
+        });
+    }
+    let dst_fields = &mut heap.get_mut(dst_ref)?.fields;
+    for (i, slot) in src_elems.into_iter().enumerate() {
+        dst_fields[dst_pos + i] = slot;
+    }
+    Ok(None)
+}
+
+// ---- HashMap / Map$Entry iteration natives ----
+
+/// Native: `Map$Entry.getKey()Object` — returns the key field.
+pub(crate) fn native_map_entry_get_key(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    Ok(Some(key))
+}
+
+/// Native: `Map$Entry.getValue()Object` — returns the value field.
+pub(crate) fn native_map_entry_get_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    Ok(Some(val))
+}
+
+/// Native: `HashMap.keySet()` — returns a new `HashSet` containing all keys.
+pub(crate) fn native_hashmap_key_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+    let mut i = 1usize;
+    while i < fields.len() {
+        let key = fields[i];
+        native_hashset_add(&[Slot::Reference(Some(set_ref)), key], heap, out, control)?;
+        i += 2;
+    }
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+/// Native: `HashMap.values()` — returns a new `ArrayList` containing all values.
+/// `HashMap` fields: `[size, key0, val0, key1, val1, ...]`; values are at even indices 2, 4, 6, ...
+pub(crate) fn native_hashmap_values(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(&[Slot::Reference(Some(list_ref))], heap, out, control)?;
+    // Pairs start at index 1; values are at indices 2, 4, 6, ...
+    let mut i = 2usize;
+    while i < fields.len() {
+        let val = fields[i];
+        native_arraylist_add(&[Slot::Reference(Some(list_ref)), val], heap, out, control)?;
+        i += 2;
+    }
+    Ok(Some(Slot::Reference(Some(list_ref))))
+}
+
+/// Native: `HashMap.entrySet()` — returns a new `HashSet` of `java/util/Map$Entry` objects.
+pub(crate) fn native_hashmap_entry_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+    let mut i = 1usize;
+    while i + 1 < fields.len() {
+        let key = fields[i];
+        let val = fields[i + 1];
+        let entry_ref = heap.allocate("java/util/Map$Entry".to_string(), 2);
+        {
+            let entry_obj = heap.get_mut(entry_ref)?;
+            entry_obj.fields[0] = key;
+            entry_obj.fields[1] = val;
+        }
+        native_hashset_add(
+            &[
+                Slot::Reference(Some(set_ref)),
+                Slot::Reference(Some(entry_ref)),
+            ],
+            heap,
+            out,
+            control,
+        )?;
+        i += 2;
+    }
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
 // ---- Long class natives ----
 
 /// Native: `Long.parseLong(String)` — parses string to long.
@@ -19566,6 +19954,136 @@ mod tests {
         );
     }
 
+    // ---- Phase 28: Extended Math (trig / transcendental) ----
+
+    #[test]
+    fn math_ext_sin() {
+        assert_eq!(run_bootstrap_int("MathExtTest.class", "testSin", "()I"), 1);
+    }
+
+    #[test]
+    fn math_ext_cos() {
+        assert_eq!(run_bootstrap_int("MathExtTest.class", "testCos", "()I"), 1);
+    }
+
+    #[test]
+    fn math_ext_tan() {
+        assert_eq!(run_bootstrap_int("MathExtTest.class", "testTan", "()I"), 1);
+    }
+
+    #[test]
+    fn math_ext_atan2() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testAtan2", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn math_ext_log() {
+        assert_eq!(run_bootstrap_int("MathExtTest.class", "testLog", "()I"), 1);
+    }
+
+    #[test]
+    fn math_ext_log10() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testLog10", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn math_ext_exp() {
+        assert_eq!(run_bootstrap_int("MathExtTest.class", "testExp", "()I"), 1);
+    }
+
+    #[test]
+    fn math_ext_signum_positive() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testSignumPositive", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn math_ext_signum_negative() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testSignumNegative", "()I"),
+            -1
+        );
+    }
+
+    #[test]
+    fn math_ext_to_radians() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testToRadians", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn math_ext_to_degrees() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testToDegrees", "()I"),
+            180
+        );
+    }
+
+    #[test]
+    fn math_ext_cbrt() {
+        assert_eq!(run_bootstrap_int("MathExtTest.class", "testCbrt", "()I"), 3);
+    }
+
+    #[test]
+    fn math_ext_hypot() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testHypot", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn math_ext_round_float() {
+        assert_eq!(
+            run_bootstrap_int("MathExtTest.class", "testRoundFloat", "()I"),
+            3
+        );
+    }
+
+    // ---- Phase 28: System.arraycopy ----
+
+    #[test]
+    fn system_arraycopy_int_full() {
+        assert_eq!(
+            run_bootstrap_int("SystemArraycopyTest.class", "testIntArrayCopy", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn system_arraycopy_partial() {
+        assert_eq!(
+            run_bootstrap_int("SystemArraycopyTest.class", "testPartialCopy", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn system_arraycopy_string_array() {
+        assert_eq!(
+            run_bootstrap_int("SystemArraycopyTest.class", "testStringArrayCopy", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn system_arraycopy_overlap_safe() {
+        assert_eq!(
+            run_bootstrap_int("SystemArraycopyTest.class", "testOverlapSafe", "()I"),
+            4
+        );
+    }
+
     // ---- Phase 23 Task 1: HashMap ----
 
     #[test]
@@ -19832,6 +20350,48 @@ mod tests {
         for ((cls, cp), stat) in &dr.by_site {
             assert!(stat.calls > 0, "site {cls}[cp{cp}] should have calls > 0");
         }
+    }
+
+    // ---- Phase 28: HashMap iteration (keySet / values / entrySet) ----
+
+    #[test]
+    fn hashmap_keyset_size() {
+        assert_eq!(
+            run_bootstrap_int("HashMapIterTest.class", "testKeySet", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn hashmap_keyset_for_each() {
+        assert_eq!(
+            run_bootstrap_int("HashMapIterTest.class", "testKeySetContains", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn hashmap_values_sum() {
+        assert_eq!(
+            run_bootstrap_int("HashMapIterTest.class", "testValues", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn hashmap_entryset_sum_values() {
+        assert_eq!(
+            run_bootstrap_int("HashMapIterTest.class", "testEntrySet", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn hashmap_entryset_getkey() {
+        assert_eq!(
+            run_bootstrap_int("HashMapIterTest.class", "testEntrySetKeys", "()I"),
+            5
+        );
     }
 
     // ---- Phase 24: GC stress tests ----
