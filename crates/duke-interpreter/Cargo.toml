@@ -11,6 +11,7 @@ duke-classfile = { path = "../duke-classfile" }
 duke-gc = { path = "../duke-gc" }
 duke-loader = { path = "../duke-loader" }
 duke-telemetry = { path = "../duke-telemetry", optional = true }
+regex.workspace = true
 
 [features]
 telemetry = ["dep:duke-telemetry", "duke-telemetry/telemetry"]
