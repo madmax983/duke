@@ -148,7 +148,7 @@ impl ZipReader {
         let offset = info.local_header_offset as usize;
 
         // Validate local file header signature.
-        if offset + 30 > self.data.len() {
+        if offset.saturating_add(30) > self.data.len() {
             return Err(LoadError::ZipFormat {
                 msg: format!("local header at offset {offset} is truncated"),
             });
@@ -163,23 +163,23 @@ impl ZipReader {
         // Read local header's own filename_len and extra_len to find data start.
         let filename_len = read_u16_le(&self.data, offset + 26) as usize;
         let extra_len = read_u16_le(&self.data, offset + 28) as usize;
-        let data_start = offset + 30 + filename_len + extra_len;
+        let data_start = offset.saturating_add(30).saturating_add(filename_len).saturating_add(extra_len);
         let compressed_size = info.compressed_size as usize;
 
-        if data_start + compressed_size > self.data.len() {
+        if data_start.saturating_add(compressed_size) > self.data.len() {
             return Err(LoadError::ZipFormat {
                 msg: format!("entry '{}' data extends past end of archive", info.name),
             });
         }
 
-        let compressed = &self.data[data_start..data_start + compressed_size];
+        let compressed = &self.data[data_start..data_start.saturating_add(compressed_size)];
 
         let decompressed = match info.compression_method {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
                 let mut decoder = flate2::read::DeflateDecoder::new(compressed);
                 let cap = info.uncompressed_size as usize;
-                let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32));
+                let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32).min(isize::MAX as usize));
                 decoder
                     .read_to_end(&mut buf)
                     .map_err(|_| LoadError::ZipFormat {
@@ -426,7 +426,7 @@ fn parse_eocd_and_central_directory(
     let cd_size = read_u32_le(data, eocd_pos + 12) as usize;
     let cd_offset = read_u32_le(data, eocd_pos + 16) as usize;
 
-    if cd_offset + cd_size > data.len() {
+    if cd_offset.saturating_add(cd_size) > data.len() {
         return Err(LoadError::ZipFormat {
             msg: "central directory extends past end of file".to_string(),
         });
@@ -448,7 +448,7 @@ fn parse_central_directory(
 
     for _ in 0..expected_count {
         // Each central directory header is at least 46 bytes.
-        if pos + 46 > cd_end {
+        if pos.saturating_add(46) > cd_end {
             return Err(LoadError::ZipFormat {
                 msg: "central directory entry truncated".to_string(),
             });
@@ -471,8 +471,8 @@ fn parse_central_directory(
         let comment_len = read_u16_le(data, pos + 32) as usize;
         let local_header_offset = u64::from(read_u32_le(data, pos + 42));
 
-        let name_start = pos + 46;
-        if name_start + filename_len > cd_end {
+        let name_start = pos.saturating_add(46);
+        if name_start.saturating_add(filename_len) > cd_end {
             return Err(LoadError::ZipFormat {
                 msg: "central directory entry filename truncated".to_string(),
             });
@@ -493,7 +493,7 @@ fn parse_central_directory(
             },
         );
 
-        pos = name_start + filename_len + extra_len + comment_len;
+        pos = name_start.saturating_add(filename_len).saturating_add(extra_len).saturating_add(comment_len);
     }
 
     Ok(index)
@@ -1030,20 +1030,29 @@ mod proptests {
     proptest! {
         #[test]
         fn fuzz_zip_reader_read_entry_info(
-            uncompressed_size in any::<u64>()
+            uncompressed_size in any::<u64>(),
+            compressed_size in any::<usize>(),
+            local_header_offset in any::<usize>(),
+            filename_len in any::<u16>(),
+            extra_len in any::<u16>()
         ) {
             let info = ZipEntryInfo {
                 name: "fuzz.txt".to_string(),
                 compression_method: METHOD_DEFLATED,
                 crc32: 0,
-                compressed_size: 0,
+                compressed_size: compressed_size as u64,
                 uncompressed_size,
-                local_header_offset: 0,
+                local_header_offset: local_header_offset as u64,
             };
 
             // Let's make a mock local header signature + empty filename/extra + empty data
-            let mut data = vec![0; 30];
-            data[0..4].copy_from_slice(&LOCAL_SIGNATURE.to_le_bytes());
+            let mut data = vec![0; 100];
+            let offset = std::cmp::min(local_header_offset, data.len().saturating_sub(30));
+            if offset + 30 <= data.len() {
+                data[offset..offset+4].copy_from_slice(&LOCAL_SIGNATURE.to_le_bytes());
+                data[offset+26..offset+28].copy_from_slice(&filename_len.to_le_bytes());
+                data[offset+28..offset+30].copy_from_slice(&extra_len.to_le_bytes());
+            }
 
             let reader = ZipReader {
                 data,
