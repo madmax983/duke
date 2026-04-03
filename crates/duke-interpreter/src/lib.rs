@@ -7294,6 +7294,24 @@ pub(crate) fn native_arrays_stream_int(
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
 }
 
+/// Native: `Arrays.stream(Object[])Stream` — wraps a reference array as an eager `Stream`.
+pub(crate) fn native_arrays_stream_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let elems: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
+    let n = i32::try_from(elems.len()).unwrap_or(0);
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
+    for elem in elems {
+        heap.get_mut(stream_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
 /// Native: `Comparator.comparing(Function)Comparator` — creates a comparator by key extractor.
 /// Returns a `duke/util/ComparingComparator` with `fields[0]`=fn\_ref.
 #[allow(clippy::unnecessary_wraps)]
@@ -8284,16 +8302,21 @@ pub(crate) fn native_string_split(
         .unwrap_or_default();
     // Use regex split (Java's String.split uses regex); remove trailing empty strings
     // to match Java's default split behaviour.
-    let parts: Vec<String> = regex::Regex::new(&delim).map_or_else(
-        |_| s.split(delim.as_str()).map(str::to_string).collect(),
-        |re| {
-            let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
-            while v.last().is_some_and(String::is_empty) {
-                v.pop();
-            }
-            v
-        },
-    );
+    // Special case: split("") splits into individual chars (Java 21 semantics — no leading "").
+    let parts: Vec<String> = if delim.is_empty() {
+        s.chars().map(|c| c.to_string()).collect()
+    } else {
+        regex::Regex::new(&delim).map_or_else(
+            |_| s.split(delim.as_str()).map(str::to_string).collect(),
+            |re| {
+                let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
+                while v.last().is_some_and(String::is_empty) {
+                    v.pop();
+                }
+                v
+            },
+        )
+    };
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
     for (i, part) in parts.iter().enumerate() {
         let str_ref = heap.allocate_string(part.clone());
@@ -44332,6 +44355,112 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase46Test.class", "testOptionalOfNullableNull", "()I"),
             0,
+        );
+    }
+
+    // ---- Phase 47 ----
+
+    #[test]
+    fn test_list_of_size() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testListOf", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_list_of_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testListOfGet", "()I"),
+            20,
+        );
+    }
+
+    #[test]
+    fn test_set_of_size() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testSetOf", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_set_of_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testSetOfContains", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_map_of_size() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testMapOf", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_map_of_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testMapOfGet", "()I"),
+            42,
+        );
+    }
+
+    #[test]
+    fn test_stream_flat_map_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testStreamFlatMap", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_stream_flat_map_size() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testStreamFlatMapSize", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn test_string_builder_delete() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testStringBuilderDelete", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_builder_insert() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testStringBuilderInsert", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_string_builder_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testStringBuilderReverse", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collections_min() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testCollectionsMin", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collections_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase47Test.class", "testCollectionsMax", "()I"),
+            4,
         );
     }
 }
