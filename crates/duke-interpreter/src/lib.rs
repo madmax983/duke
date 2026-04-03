@@ -1789,6 +1789,442 @@ pub(crate) fn native_hashmap_for_each(
     Ok(None)
 }
 
+// ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by String key) ----
+// Keys are stored sorted in ascending lexicographic order for O(n) insert / O(1) first&last.
+
+/// Native: `TreeMap.<init>()V`
+pub(crate) fn native_treemap_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `TreeMap.put(K,V)V` — inserts in sorted key order.
+pub(crate) fn native_treemap_put(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key_str = match &key {
+        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
+        _ => None,
+    };
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    // Check for existing key — update in place.
+    for i in 0..size {
+        let existing_key = heap.get(this_ref)?.fields[1 + i * 2];
+        let existing_str = match &existing_key {
+            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+            _ => None,
+        };
+        if existing_str == key_str {
+            heap.get_mut(this_ref)?.fields[2 + i * 2] = val;
+            return Ok(Some(Slot::Reference(None)));
+        }
+    }
+    // Find sorted insert position.
+    let insert_pos = {
+        let mut pos = size;
+        for i in 0..size {
+            let ek = heap.get(this_ref)?.fields[1 + i * 2];
+            let ek_str: Option<String> = match &ek {
+                Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+                _ => None,
+            };
+            let cmp = key_str
+                .as_deref()
+                .unwrap_or("")
+                .cmp(ek_str.as_deref().unwrap_or(""));
+            if cmp == std::cmp::Ordering::Less {
+                pos = i;
+                break;
+            }
+        }
+        pos
+    };
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.insert(1 + insert_pos * 2, val);
+    obj.fields.insert(1 + insert_pos * 2, key);
+    obj.fields[0] = Slot::Int(i32::try_from(size + 1).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Reference(None)))
+}
+
+/// Native: `TreeMap.get(K)V`
+pub(crate) fn native_treemap_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key_str = match &key {
+        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
+        _ => None,
+    };
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    for i in 0..size {
+        let ek = heap.get(this_ref)?.fields[1 + i * 2];
+        let ek_str = match &ek {
+            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+            _ => None,
+        };
+        if ek_str == key_str {
+            let v = heap.get(this_ref)?.fields[2 + i * 2];
+            return Ok(Some(v));
+        }
+    }
+    Ok(Some(Slot::Reference(None)))
+}
+
+/// Native: `TreeMap.containsKey(K)Z`
+pub(crate) fn native_treemap_contains_key(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let found = !matches!(
+        native_treemap_get(args, heap, out, control)?,
+        Some(Slot::Reference(None)) | None
+    );
+    Ok(Some(Slot::Int(i32::from(found))))
+}
+
+/// Native: `TreeMap.size()I`
+pub(crate) fn native_treemap_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => Slot::Int(*n),
+        _ => Slot::Int(0),
+    }))
+}
+
+/// Native: `TreeMap.firstKey()K` — returns the smallest key (index 0 in sorted list).
+pub(crate) fn native_treemap_first_key(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    Ok(Some(heap.get(this_ref)?.fields[1]))
+}
+
+/// Native: `TreeMap.lastKey()K` — returns the largest key.
+pub(crate) fn native_treemap_last_key(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    Ok(Some(heap.get(this_ref)?.fields[1 + (size - 1) * 2]))
+}
+
+/// Native: `TreeMap.remove(K)V`
+pub(crate) fn native_treemap_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key_str = match &key {
+        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
+        _ => None,
+    };
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    for i in 0..size {
+        let ek = heap.get(this_ref)?.fields[1 + i * 2];
+        let ek_str = match &ek {
+            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+            _ => None,
+        };
+        if ek_str == key_str {
+            let obj = heap.get_mut(this_ref)?;
+            let v = obj.fields.remove(2 + i * 2);
+            obj.fields.remove(1 + i * 2);
+            obj.fields[0] = Slot::Int(i32::try_from(size - 1).unwrap_or(0));
+            return Ok(Some(v));
+        }
+    }
+    Ok(Some(Slot::Reference(None)))
+}
+
+/// Native: `TreeMap.isEmpty()Z`
+pub(crate) fn native_treemap_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(0)) | None => 1,
+        _ => 0,
+    })))
+}
+
+// ---- Stack natives (LIFO backed by ArrayList: push=add, pop=removeLast, peek=peekLast) ----
+
+/// Native: `Stack.<init>()V`
+pub(crate) fn native_stack_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_init(args, heap, out, control)
+}
+
+/// Native: `Stack.push(E)E` — appends to tail, returns the element.
+pub(crate) fn native_stack_push(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    native_arraylist_add(args, heap, out, control)?;
+    Ok(Some(elem))
+}
+
+/// Native: `Stack.pop()E` — removes and returns the top element.
+pub(crate) fn native_stack_pop(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_linked_list_remove_last(args, heap, out, control)
+}
+
+/// Native: `Stack.peek()E` — returns the top element without removal.
+pub(crate) fn native_stack_peek(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_linked_list_peek_last(args, heap, out, control)
+}
+
+/// Native: `Stack.empty()Z` — returns true if the stack is empty.
+pub(crate) fn native_stack_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_is_empty(args, heap, out, control)
+}
+
+/// Native: `Stack.size()I`
+pub(crate) fn native_stack_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_size(args, heap, out, control)
+}
+
+// ---- Comparator natives ----
+
+/// Native: `Comparator.naturalOrder()Comparator` — returns a singleton synthetic comparator.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_comparator_natural_order(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/NaturalOrderComparator".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Comparator.reverseOrder()Comparator` — returns a singleton reverse comparator.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_comparator_reverse_order(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/ReverseOrderComparator".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `NaturalOrderComparator.compare(O,O)I` — delegates to `o1.compareTo(o2)`.
+pub(crate) fn native_natural_order_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    // args: [this, o1, o2]
+    let o1 = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let o2 = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let o1_class = match &o1 {
+        Slot::Reference(Some(r)) => heap.get(*r)?.class_name.clone(),
+        _ => return Ok(Some(Slot::Int(0))),
+    };
+    let result = ops.invoke(
+        heap,
+        out,
+        &o1_class,
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        vec![o1, o2],
+    )?;
+    let _ = control;
+    Ok(Some(result.unwrap_or(Slot::Int(0))))
+}
+
+/// Native: `ReverseOrderComparator.compare(O,O)I` — negates natural order.
+pub(crate) fn native_reverse_order_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let result = native_natural_order_compare(args, heap, out, control, ops)?;
+    Ok(Some(match result {
+        Some(Slot::Int(v)) => Slot::Int(-v),
+        other => other.unwrap_or(Slot::Int(0)),
+    }))
+}
+
+/// Native: `Comparator.comparingInt(ToIntFunction)Comparator` — wraps key extractor.
+/// Creates a `duke/util/ComparingIntComparator` with `fields[0] = fn_ref`.
+pub(crate) fn native_comparator_comparing_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_ref = extract_ref_arg(args, 0)?;
+    let r = heap.allocate("duke/util/ComparingIntComparator".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Reference(Some(fn_ref));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `ComparingIntComparator.compare(O,O)I` — calls `fn.applyAsInt(o)` for each element.
+pub(crate) fn native_comparing_int_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let ka = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsInt",
+            "(Ljava/lang/Object;)I",
+            vec![Slot::Reference(Some(fn_ref)), a],
+        )?
+        .unwrap_or(Slot::Int(0));
+    let kb = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "applyAsInt",
+            "(Ljava/lang/Object;)I",
+            vec![Slot::Reference(Some(fn_ref)), b],
+        )?
+        .unwrap_or(Slot::Int(0));
+    let result = match (ka, kb) {
+        (Slot::Int(ia), Slot::Int(ib)) => ia.cmp(&ib) as i32,
+        _ => 0,
+    };
+    let _ = control;
+    Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `Collections.sort(List, Comparator)V` — 2-arg sort with explicit comparator.
+pub(crate) fn native_collections_sort_with_comparator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let comparator = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let class_name = heap.get(list_ref)?.class_name.clone();
+    ops.invoke(
+        heap,
+        output,
+        &class_name,
+        "sort",
+        "(Ljava/util/Comparator;)V",
+        vec![Slot::Reference(Some(list_ref)), comparator],
+    )?;
+    Ok(None)
+}
+
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
 /// args: `[this_ref, name_ref, ordinal_int]`
 pub(crate) fn native_enum_init(
@@ -14496,12 +14932,8 @@ pub(crate) fn array_list_sort(
     // args[0] = ArrayList ref, args[1] = Comparator (null = natural ordering)
     let list_ref = extract_ref_arg(args, 0)?;
 
-    // Fix 1: use the correct error variant for unsupported non-null Comparator.
-    if !matches!(args.get(1), Some(Slot::Reference(None)) | None) {
-        return Err(VmError::Unimplemented {
-            mnemonic: "ArrayList.sort(non-null Comparator)",
-        });
-    }
+    // args[1] = optional Comparator ref (null = natural ordering via compareTo)
+    let comparator = args.get(1).copied();
 
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
@@ -14533,15 +14965,31 @@ pub(crate) fn array_list_sort(
         let mut j = i;
         while j > 0 {
             let receiver = elems[j - 1];
-            let class_name = heap.get(receiver)?.class_name.clone();
-            let cmp = ops.invoke(
-                heap,
-                output,
-                &class_name,
-                COMPARE_TO_METHOD,
-                COMPARE_TO_OBJECT_DESC,
-                vec![Slot::Reference(Some(receiver)), Slot::Reference(Some(key))],
-            )?;
+            let cmp = if let Some(Slot::Reference(Some(comp_ref))) = comparator {
+                let comp_class = heap.get(comp_ref)?.class_name.clone();
+                ops.invoke(
+                    heap,
+                    output,
+                    &comp_class,
+                    "compare",
+                    "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                    vec![
+                        Slot::Reference(Some(comp_ref)),
+                        Slot::Reference(Some(receiver)),
+                        Slot::Reference(Some(key)),
+                    ],
+                )?
+            } else {
+                let class_name = heap.get(receiver)?.class_name.clone();
+                ops.invoke(
+                    heap,
+                    output,
+                    &class_name,
+                    COMPARE_TO_METHOD,
+                    COMPARE_TO_OBJECT_DESC,
+                    vec![Slot::Reference(Some(receiver)), Slot::Reference(Some(key))],
+                )?
+            };
 
             // Patch stale young-gen refs if a minor GC fired during the callback.
             // Guarded by `has_pending_forwards` so the common (no-GC) path pays
@@ -37811,6 +38259,101 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("HashMapForEachTest.class", "testForEachSumValues", "()I"),
             30,
+        );
+    }
+
+    // ---- Phase 34: TreeMap, Stack, Comparator ----
+
+    #[test]
+    fn treemap_size() {
+        assert_eq!(run_bootstrap_int("TreeMapTest.class", "testSize", "()I"), 3,);
+    }
+
+    #[test]
+    fn treemap_get() {
+        assert_eq!(run_bootstrap_int("TreeMapTest.class", "testGet", "()I"), 42,);
+    }
+
+    #[test]
+    fn treemap_first_key() {
+        assert_eq!(
+            run_bootstrap_int("TreeMapTest.class", "testFirstKey", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn treemap_last_key() {
+        assert_eq!(
+            run_bootstrap_int("TreeMapTest.class", "testLastKey", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn treemap_contains_key() {
+        assert_eq!(
+            run_bootstrap_int("TreeMapTest.class", "testContainsKey", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn stack_push_pop() {
+        assert_eq!(
+            run_bootstrap_int("StackTest.class", "testPushPop", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn stack_peek() {
+        assert_eq!(run_bootstrap_int("StackTest.class", "testPeek", "()I"), 20,);
+    }
+
+    #[test]
+    fn stack_size() {
+        assert_eq!(run_bootstrap_int("StackTest.class", "testSize", "()I"), 2,);
+    }
+
+    #[test]
+    fn stack_empty() {
+        assert_eq!(run_bootstrap_int("StackTest.class", "testEmpty", "()I"), 1,);
+    }
+
+    #[test]
+    fn stack_not_empty() {
+        assert_eq!(
+            run_bootstrap_int("StackTest.class", "testNotEmpty", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn comparator_natural_order_sort() {
+        assert_eq!(
+            run_bootstrap_int("ComparatorTest.class", "testNaturalOrderSort", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn comparator_reverse_order_sort() {
+        assert_eq!(
+            run_bootstrap_int("ComparatorTest.class", "testReverseOrderSort", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn comparator_comparing_int_sort() {
+        assert_eq!(
+            run_bootstrap_int(
+                "ComparatorTest.class",
+                "testCollectionsSortWithComparator",
+                "()I"
+            ),
+            1,
         );
     }
 }
