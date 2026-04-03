@@ -2729,6 +2729,65 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
         }
         Ok(Some(Slot::Reference(Some(map_ref))))
+    } else if collector_class == "duke/util/PartitioningByCollector" {
+        // Collect into a Map<Boolean, List> partitioned by predicate.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let pred_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(pred_ref)) = pred_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let pred_class = heap.get(pred_ref)?.class_name.clone();
+        // Create two lists and the result map.
+        let true_list = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(true_list)?.fields[0] = Slot::Int(0);
+        let false_list = heap.allocate("java/util/ArrayList".to_string(), 1);
+        heap.get_mut(false_list)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(Ljava/lang/Object;)Z",
+                vec![Slot::Reference(Some(pred_ref)), elem],
+            )?;
+            let is_true = matches!(result, Some(Slot::Int(n)) if n != 0);
+            let target = if is_true { true_list } else { false_list };
+            let cur_size = match heap.get(target)?.fields.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
+            };
+            heap.get_mut(target)?.fields.push(elem);
+            heap.get_mut(target)?.fields[0] = Slot::Int(cur_size + 1);
+        }
+        // Build HashMap: Boolean(1)→trueList, Boolean(0)→falseList
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(2);
+        let bool_true = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_true)?.fields[0] = Slot::Int(1);
+        let bool_false = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_false)?.fields[0] = Slot::Int(0);
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_true)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(true_list)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_false)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(false_list)));
+        Ok(Some(Slot::Reference(Some(map_ref))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -3481,11 +3540,9 @@ pub(crate) fn native_int_stream_to_array(
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
-    let n = i32::try_from(elems.len()).unwrap_or(0);
-    let arr_ref = heap.allocate("[I".to_string(), 0);
-    heap.get_mut(arr_ref)?.fields.push(Slot::Int(n)); // length header
-    for v in elems {
-        heap.get_mut(arr_ref)?.fields.push(Slot::Int(v));
+    let arr_ref = heap.allocate("[I".to_string(), elems.len());
+    for (i, v) in elems.into_iter().enumerate() {
+        heap.get_mut(arr_ref)?.fields[i] = Slot::Int(v);
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
@@ -20546,6 +20603,243 @@ fn patch_forwarded_slots(
             heap.apply_forward(slot);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 45: ArrayList.forEach, Stream.sorted(Comparator), Arrays.toString,
+//           HashMap.replace, Collections.swap/unmodifiableMap,
+//           Collectors.partitioningBy, IntStream.sorted
+// ---------------------------------------------------------------------------
+
+/// Native: `ArrayList.forEach(Consumer)V` — invokes consumer.accept(elem) for each element.
+pub(crate) fn native_arraylist_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(consumer_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(None);
+    };
+    let size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    for elem in elems {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;)V",
+            vec![Slot::Reference(Some(consumer_ref)), elem],
+        )?;
+    }
+    Ok(None)
+}
+
+/// Native: `Stream.sorted(Comparator)Stream` — sorts stream elements using the given comparator.
+pub(crate) fn native_stream_sorted_comparator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    // If no comparator provided, fall back to natural-order sort.
+    let Slot::Reference(Some(comp_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return native_stream_sorted(args, heap, out, control, ops);
+    };
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    // Insertion sort using the provided comparator.
+    for i in 1..elems.len() {
+        let mut j = i;
+        while j > 0 {
+            let comp_class = heap.get(comp_ref)?.class_name.clone();
+            let cmp = ops.invoke(
+                heap,
+                out,
+                &comp_class,
+                "compare",
+                "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                vec![Slot::Reference(Some(comp_ref)), elems[j - 1], elems[j]],
+            )?;
+            if matches!(cmp, Some(Slot::Int(n)) if n > 0) {
+                elems.swap(j - 1, j);
+                j -= 1;
+            } else {
+                break;
+            }
+        }
+    }
+    let new_size = i32::try_from(elems.len()).unwrap_or(0);
+    let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
+    for elem in elems {
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(new_stream))))
+}
+
+/// Native: `Arrays.toString(int[])String` — formats as `[1, 2, 3]`.
+pub(crate) fn native_arrays_to_string_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(arr_ref)?.fields.clone();
+    let parts: Vec<String> = fields
+        .iter()
+        .map(|s| match s {
+            Slot::Int(n) => n.to_string(),
+            _ => "0".to_string(),
+        })
+        .collect();
+    let result = format!("[{}]", parts.join(", "));
+    let r = heap.allocate_string(result);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Arrays.toString(Object[])String` — formats as `[a, b, c]`.
+pub(crate) fn native_arrays_to_string_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(arr_ref)?.fields.clone();
+    let mut parts: Vec<String> = Vec::with_capacity(fields.len());
+    for s in &fields {
+        let part = match s {
+            Slot::Reference(Some(r)) => heap
+                .get(*r)
+                .ok()
+                .and_then(|o| o.string_value.clone())
+                .unwrap_or_else(|| "null".to_string()),
+            Slot::Reference(None) => "null".to_string(),
+            Slot::Int(n) => n.to_string(),
+            _ => "?".to_string(),
+        };
+        parts.push(part);
+    }
+    let result = format!("[{}]", parts.join(", "));
+    let r = heap.allocate_string(result);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `HashMap.replace(Object, Object)Object` — updates value for existing key,
+/// returns the old value or null if key was absent.
+pub(crate) fn native_hashmap_replace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let new_val = extract_slot_arg(args, 2);
+    let fields = heap.get(this_ref)?.fields.clone();
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        let old = fields[i + 1];
+        heap.get_mut(this_ref)?.fields[i + 1] = new_val;
+        Ok(Some(old))
+    } else {
+        Ok(Some(Slot::Reference(None)))
+    }
+}
+
+/// Native: `Collections.swap(List, int, int)V` — swaps elements at indices i and j.
+pub(crate) fn native_collections_swap(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let i = match args.get(1) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => return Ok(None),
+    };
+    let j = match args.get(2) {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => return Ok(None),
+    };
+    // fields[0] = size, elements at fields[1..=size]
+    let fi = i + 1;
+    let fj = j + 1;
+    let fields = heap.get(list_ref)?.fields.clone();
+    let len = fields.len();
+    if fi < len && fj < len {
+        let vi = fields[fi];
+        let vj = fields[fj];
+        heap.get_mut(list_ref)?.fields[fi] = vj;
+        heap.get_mut(list_ref)?.fields[fj] = vi;
+    }
+    Ok(None)
+}
+
+/// Native: `Collections.unmodifiableMap(Map)Map` — identity stub (we have no mutation checks).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collections_unmodifiable_map(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+}
+
+/// Native: `Collectors.partitioningBy(Predicate)Collector` — returns a sentinel collector.
+pub(crate) fn native_collectors_partitioning_by(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let pred = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/PartitioningByCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = pred;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `IntStream.sorted()IntStream` — returns a new sorted `IntStream`.
+pub(crate) fn native_int_stream_sorted(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let mut vals: Vec<i32> = heap.get(stream_ref)?.fields[1..=size]
+        .iter()
+        .filter_map(|s| if let Slot::Int(n) = s { Some(*n) } else { None })
+        .collect();
+    vals.sort_unstable();
+    let new_stream = heap.allocate("duke/util/IntStream".to_string(), 1);
+    heap.get_mut(new_stream)?.fields[0] = Slot::Int(i32::try_from(vals.len()).unwrap_or(0));
+    for v in vals {
+        heap.get_mut(new_stream)?.fields.push(Slot::Int(v));
+    }
+    Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
 // ---------------------------------------------------------------------------
@@ -43735,6 +44029,116 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase44Test.class", "testMapEntrySetStream", "()I"),
             6,
+        );
+    }
+
+    // ---- Phase 45 ----
+
+    #[test]
+    fn test_list_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testListForEach", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn test_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testStreamSortedComparator", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_stream_sorted_comparator_reversed() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase45Test.class",
+                "testStreamSortedComparatorReversed",
+                "()I"
+            ),
+            4,
+        );
+    }
+
+    #[test]
+    fn test_arrays_to_string_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testArraysToStringInt", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_arrays_to_string_object() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testArraysToStringObject", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_map_replace() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testMapReplace", "()I"),
+            42,
+        );
+    }
+
+    #[test]
+    fn test_map_replace_missing() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testMapReplaceMissing", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collections_swap() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testCollectionsSwap", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collectors_partitioning_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testCollectorsPartitioningBy", "()I"),
+            23,
+        );
+    }
+
+    #[test]
+    fn test_int_stream_sorted() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testIntStreamSorted", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn test_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testMapGetOrDefault", "()I"),
+            99,
+        );
+    }
+
+    #[test]
+    fn test_string_format_newline() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testStringFormatNewline", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_collections_unmodifiable_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase45Test.class", "testCollectionsUnmodifiableMap", "()I"),
+            7,
         );
     }
 }
