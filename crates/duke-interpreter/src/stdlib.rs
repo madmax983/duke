@@ -4404,6 +4404,54 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/stream/Stream;",
         native_stream_distinct,
     );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "sorted",
+        "()Ljava/util/stream/Stream;",
+        native_stream_sorted,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "anyMatch",
+        "(Ljava/util/function/Predicate;)Z",
+        native_stream_any_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "allMatch",
+        "(Ljava/util/function/Predicate;)Z",
+        native_stream_all_match,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "noneMatch",
+        "(Ljava/util/function/Predicate;)Z",
+        native_stream_none_match,
+    );
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "findFirst",
+        "()Ljava/util/Optional;",
+        native_stream_find_first,
+    );
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "findAny",
+        "()Ljava/util/Optional;",
+        native_stream_find_first,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "reduce",
+        "(Ljava/util/function/BinaryOperator;)Ljava/util/Optional;",
+        native_stream_reduce,
+    );
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "toList",
+        "()Ljava/util/List;",
+        native_stream_to_list,
+    );
     // ArrayList.stream() — wraps ArrayList elements into a Stream
     registry.natives_mut().register(
         "java/util/ArrayList",
@@ -4445,6 +4493,96 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(to_list_ctx);
+
+    // duke/util/JoiningCollector — joining collector; fields[0]=delimiter ref
+    let joining_ctx = ClassContext {
+        class_name: "duke/util/JoiningCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "delimiter".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(joining_ctx);
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "joining",
+        "(Ljava/lang/CharSequence;)Ljava/util/stream/Collector;",
+        native_collectors_joining,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "joining",
+        "()Ljava/util/stream/Collector;",
+        native_collectors_joining_no_arg,
+    );
+
+    // java/util/PriorityQueue — min-heap; fields[0]=Int(size), fields[1..]=heap array
+    let pq_ctx = ClassContext {
+        class_name: "java/util/PriorityQueue".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(pq_ctx);
+    registry.natives_mut().register(
+        "java/util/PriorityQueue",
+        "<init>",
+        "()V",
+        native_priorityqueue_init,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/PriorityQueue",
+        "offer",
+        "(Ljava/lang/Object;)Z",
+        native_priorityqueue_offer,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/PriorityQueue",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_priorityqueue_add,
+    );
+    registry.natives_mut().register(
+        "java/util/PriorityQueue",
+        "peek",
+        "()Ljava/lang/Object;",
+        native_priorityqueue_peek,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/PriorityQueue",
+        "poll",
+        "()Ljava/lang/Object;",
+        native_priorityqueue_poll,
+    );
+    registry.natives_mut().register(
+        "java/util/PriorityQueue",
+        "size",
+        "()I",
+        native_priorityqueue_size,
+    );
+    registry.natives_mut().register(
+        "java/util/PriorityQueue",
+        "isEmpty",
+        "()Z",
+        native_priorityqueue_is_empty,
+    );
 
     // java/util/ArrayDeque — double-ended queue backed by flat element array
     // fields[0] = Int(size), fields[1..] = elements (front at index 1)
