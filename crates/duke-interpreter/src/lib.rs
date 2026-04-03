@@ -45300,6 +45300,144 @@ mod tests {
             8,
         );
     }
+
+    // ---- Phase 50 ----
+
+    #[test]
+    fn test_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamDistinct", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_stream_distinct_collect() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamDistinctCollect", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_stream_find_first() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamFindFirst", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_stream_find_first_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamFindFirstEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_stream_all_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamAllMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_stream_all_match_fail() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamAllMatchFail", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_stream_any_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamAnyMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_stream_any_match_fail() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamAnyMatchFail", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_stream_none_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamNoneMatch", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_stream_none_match_fail() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testStreamNoneMatchFail", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_collections_empty_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testCollectionsEmptyList", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_collections_empty_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testCollectionsEmptySet", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_collections_empty_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testCollectionsEmptyMap", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_collections_singleton_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testCollectionsSingletonList", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_objects_is_null() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testObjectsIsNull", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_objects_non_null() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testObjectsNonNull", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_objects_require_non_null() {
+        assert_eq!(
+            run_bootstrap_int("Phase50Test.class", "testObjectsRequireNonNull", "()I"),
+            5
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
