@@ -21108,6 +21108,508 @@ pub(crate) fn native_int_stream_sorted(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 49: Comparator.thenComparing, Predicate combinators, Function combinators,
+//           Stream.mapToLong, Stream.mapToDouble
+// ---------------------------------------------------------------------------
+
+/// Native: `Comparator.thenComparing(Comparator)Comparator` — chains two comparators.
+/// Stores primary in `fields[0]`, secondary in `fields[1]`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_comparator_then_comparing(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let primary = args.first().copied().unwrap_or(Slot::Reference(None));
+    let secondary = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ThenComparingComparator".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = primary;
+    heap.get_mut(r)?.fields[1] = secondary;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `ThenComparingComparator.compare(O,O)I` — runs primary then secondary.
+pub(crate) fn native_then_comparing_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let primary = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let secondary = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    // Invoke primary.compare(a, b)
+    let result = invoke_comparator(primary, a, b, heap, out, ops)?;
+    if result != 0 {
+        return Ok(Some(Slot::Int(result)));
+    }
+    // Tie-break with secondary
+    let result2 = invoke_comparator(secondary, a, b, heap, out, ops)?;
+    Ok(Some(Slot::Int(result2)))
+}
+
+/// Helper: dispatch `comparator.compare(a, b)` via ops.invoke.
+fn invoke_comparator(
+    comparator: Slot,
+    a: Slot,
+    b: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<i32> {
+    let Slot::Reference(Some(cmp_ref)) = comparator else {
+        return Ok(0);
+    };
+    let cmp_class = heap.get(cmp_ref)?.class_name.clone();
+    let res = ops
+        .invoke(
+            heap,
+            out,
+            &cmp_class,
+            "compare",
+            "(Ljava/lang/Object;Ljava/lang/Object;)I",
+            vec![comparator, a, b],
+        )?
+        .unwrap_or(Slot::Int(0));
+    Ok(match res {
+        Slot::Int(n) => n,
+        _ => 0,
+    })
+}
+
+/// Native: `Predicate.and(Predicate)Predicate` — logical AND of two predicates.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_predicate_and(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let left = args.first().copied().unwrap_or(Slot::Reference(None));
+    let right = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/AndPredicate".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = left;
+    heap.get_mut(r)?.fields[1] = right;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `AndPredicate.test(O)Z` — both predicates must return true.
+pub(crate) fn native_and_predicate_test(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let left = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let right = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let la = invoke_predicate_test(left, elem, heap, out, ops)?;
+    if !la {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let rb = invoke_predicate_test(right, elem, heap, out, ops)?;
+    Ok(Some(Slot::Int(i32::from(rb))))
+}
+
+/// Native: `Predicate.or(Predicate)Predicate` — logical OR of two predicates.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_predicate_or(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let left = args.first().copied().unwrap_or(Slot::Reference(None));
+    let right = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/OrPredicate".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = left;
+    heap.get_mut(r)?.fields[1] = right;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `OrPredicate.test(O)Z` — either predicate returning true is sufficient.
+pub(crate) fn native_or_predicate_test(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let left = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let right = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let la = invoke_predicate_test(left, elem, heap, out, ops)?;
+    if la {
+        return Ok(Some(Slot::Int(1)));
+    }
+    let rb = invoke_predicate_test(right, elem, heap, out, ops)?;
+    Ok(Some(Slot::Int(i32::from(rb))))
+}
+
+/// Native: `Predicate.negate()Predicate` — logical NOT of a predicate.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_predicate_negate(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let original = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/NegatedPredicate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = original;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `NegatedPredicate.test(O)Z` — inverts the wrapped predicate.
+pub(crate) fn native_negated_predicate_test(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let original = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let result = invoke_predicate_test(original, elem, heap, out, ops)?;
+    Ok(Some(Slot::Int(i32::from(!result))))
+}
+
+/// Helper: dispatch `predicate.test(elem)` via ops.invoke, returns bool.
+fn invoke_predicate_test(
+    predicate: Slot,
+    elem: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<bool> {
+    let Slot::Reference(Some(pred_ref)) = predicate else {
+        return Ok(false);
+    };
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let res = ops
+        .invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(Ljava/lang/Object;)Z",
+            vec![predicate, elem],
+        )?
+        .unwrap_or(Slot::Int(0));
+    Ok(matches!(res, Slot::Int(n) if n != 0))
+}
+
+/// Native: `Function.andThen(Function)Function` — `f.andThen(g)` = `g(f(x))`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_function_and_then(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let first = args.first().copied().unwrap_or(Slot::Reference(None));
+    let second = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/AndThenFunction".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = first;
+    heap.get_mut(r)?.fields[1] = second;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `AndThenFunction.apply(O)O` — applies first then second.
+pub(crate) fn native_and_then_function_apply(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let input = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let first = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let second = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let mid = invoke_function_apply(first, input, heap, out, ops)?;
+    invoke_function_apply(second, mid, heap, out, ops).map(Some)
+}
+
+/// Native: `Function.compose(Function)Function` — `f.compose(g)` = `f(g(x))`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_function_compose(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let outer = args.first().copied().unwrap_or(Slot::Reference(None));
+    let inner = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ComposeFunction".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = outer;
+    heap.get_mut(r)?.fields[1] = inner;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `ComposeFunction.apply(O)O` — applies inner then outer.
+pub(crate) fn native_compose_function_apply(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let input = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let outer = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let inner = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let mid = invoke_function_apply(inner, input, heap, out, ops)?;
+    invoke_function_apply(outer, mid, heap, out, ops).map(Some)
+}
+
+/// Helper: dispatch `function.apply(input)` via ops.invoke.
+fn invoke_function_apply(
+    function: Slot,
+    input: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Slot> {
+    let Slot::Reference(Some(fn_ref)) = function else {
+        return Ok(Slot::Reference(None));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    Ok(ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![function, input],
+        )?
+        .unwrap_or(Slot::Reference(None)))
+}
+
+/// Native: `Stream.mapToLong(ToLongFunction)LongStream` — maps each element via `applyAsLong`.
+pub(crate) fn native_stream_map_to_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut values = Vec::with_capacity(elems.len());
+    for elem in elems {
+        let result = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsLong",
+                "(Ljava/lang/Object;)J",
+                vec![fn_slot, elem],
+            )?
+            .unwrap_or(Slot::Long(0));
+        let v = match result {
+            Slot::Long(n) => n,
+            Slot::Int(n) => i64::from(n),
+            _ => 0,
+        };
+        values.push(v);
+    }
+    Ok(Some(Slot::Reference(Some(make_long_stream(heap, values)))))
+}
+
+/// Allocates a `duke/util/LongStream` with `fields[0]=Int(size), fields[1..n]=Long(value)`.
+fn make_long_stream(heap: &mut duke_gc::Heap, values: Vec<i64>) -> u64 {
+    let r = heap.allocate("duke/util/LongStream".to_string(), 1);
+    if let Ok(obj) = heap.get_mut(r) {
+        obj.fields[0] = Slot::Int(i32::try_from(values.len()).unwrap_or(0));
+        for v in values {
+            obj.fields.push(Slot::Long(v));
+        }
+    }
+    r
+}
+
+/// Native: `LongStream.sum()J` — sums all elements.
+pub(crate) fn native_long_stream_sum(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let sum: i64 = heap.get(stream_ref)?.fields[1..=size]
+        .iter()
+        .map(|s| match s {
+            Slot::Long(n) => *n,
+            Slot::Int(n) => i64::from(*n),
+            _ => 0,
+        })
+        .sum();
+    Ok(Some(Slot::Long(sum)))
+}
+
+/// Native: `Stream.mapToDouble(ToDoubleFunction)DoubleStream` — maps each element via `applyAsDouble`.
+pub(crate) fn native_stream_map_to_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_double_stream(
+            heap,
+            vec![],
+        )))));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut values = Vec::with_capacity(elems.len());
+    for elem in elems {
+        let result = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsDouble",
+                "(Ljava/lang/Object;)D",
+                vec![fn_slot, elem],
+            )?
+            .unwrap_or(Slot::Double(0.0));
+        let v = match result {
+            Slot::Double(d) => d,
+            Slot::Float(f) => f64::from(f),
+            Slot::Int(n) => f64::from(n),
+            _ => 0.0,
+        };
+        values.push(v);
+    }
+    Ok(Some(Slot::Reference(Some(make_double_stream(
+        heap, values,
+    )))))
+}
+
+/// Allocates a `duke/util/DoubleStream` with `fields[0]=Int(size), fields[1..n]=Double(value)`.
+fn make_double_stream(heap: &mut duke_gc::Heap, values: Vec<f64>) -> u64 {
+    let r = heap.allocate("duke/util/DoubleStream".to_string(), 1);
+    if let Ok(obj) = heap.get_mut(r) {
+        obj.fields[0] = Slot::Int(i32::try_from(values.len()).unwrap_or(0));
+        for v in values {
+            obj.fields.push(Slot::Double(v));
+        }
+    }
+    r
+}
+
+/// Native: `DoubleStream.sum()D` — sums all elements.
+pub(crate) fn native_double_stream_sum(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let sum: f64 = heap.get(stream_ref)?.fields[1..=size]
+        .iter()
+        .map(|s| match s {
+            Slot::Double(d) => *d,
+            Slot::Float(f) => f64::from(*f),
+            Slot::Int(n) => f64::from(*n),
+            _ => 0.0,
+        })
+        .sum();
+    Ok(Some(Slot::Double(sum)))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -44706,6 +45208,96 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase48Test.class", "testOptionalOrElseGet", "()I"),
             77,
+        );
+    }
+
+    // ---- Phase 49 ----
+
+    #[test]
+    fn test_comparator_then_comparing() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testComparatorThenComparing", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_predicate_and() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testPredicateAnd", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_predicate_or() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testPredicateOr", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_predicate_negate() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testPredicateNegate", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_function_and_then() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testFunctionAndThen", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn test_function_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testFunctionCompose", "()I"),
+            14,
+        );
+    }
+
+    #[test]
+    fn test_stream_map_to_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testStreamMapToLong", "()I"),
+            14,
+        );
+    }
+
+    #[test]
+    fn test_stream_map_to_double() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testStreamMapToDouble", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn test_collections_sort_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testCollectionsSortComparator", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_integer_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testIntegerSum", "()I"),
+            42,
+        );
+    }
+
+    #[test]
+    fn test_integer_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase49Test.class", "testIntegerMinMax", "()I"),
+            8,
         );
     }
 }

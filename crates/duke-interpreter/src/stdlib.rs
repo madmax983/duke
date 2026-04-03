@@ -6335,4 +6335,372 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()I",
         native_stringjoiner_length,
     );
+
+    // -----------------------------------------------------------------------
+    // Phase 49: Comparator.thenComparing, Predicate combinators,
+    //           Function combinators, Stream.mapToLong/mapToDouble
+    // -----------------------------------------------------------------------
+
+    // Comparator.thenComparing(Comparator) → ThenComparingComparator
+    registry.natives_mut().register(
+        "duke/util/ComparingIntComparator",
+        "thenComparing",
+        "(Ljava/util/Comparator;)Ljava/util/Comparator;",
+        native_comparator_then_comparing,
+    );
+    registry.natives_mut().register(
+        "duke/util/ComparingComparator",
+        "thenComparing",
+        "(Ljava/util/Comparator;)Ljava/util/Comparator;",
+        native_comparator_then_comparing,
+    );
+    registry.natives_mut().register(
+        "duke/util/ReversedComparator",
+        "thenComparing",
+        "(Ljava/util/Comparator;)Ljava/util/Comparator;",
+        native_comparator_then_comparing,
+    );
+    let then_cmp_ctx = ClassContext {
+        class_name: "duke/util/ThenComparingComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "primary".to_string(),
+                descriptor: "Ljava/util/Comparator;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "secondary".to_string(),
+                descriptor: "Ljava/util/Comparator;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(then_cmp_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ThenComparingComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_then_comparing_compare,
+    );
+    registry.natives_mut().register(
+        "duke/util/ThenComparingComparator",
+        "thenComparing",
+        "(Ljava/util/Comparator;)Ljava/util/Comparator;",
+        native_comparator_then_comparing,
+    );
+
+    // Predicate.and / or / negate combinators
+    // Register on lambda class placeholder — actual dispatch via runtime class
+    registry.natives_mut().register(
+        "java/util/function/Predicate",
+        "and",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_and,
+    );
+    registry.natives_mut().register(
+        "java/util/function/Predicate",
+        "or",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_or,
+    );
+    registry.natives_mut().register(
+        "java/util/function/Predicate",
+        "negate",
+        "()Ljava/util/function/Predicate;",
+        native_predicate_negate,
+    );
+    let and_pred_ctx = ClassContext {
+        class_name: "duke/util/AndPredicate".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "left".to_string(),
+                descriptor: "Ljava/util/function/Predicate;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "right".to_string(),
+                descriptor: "Ljava/util/function/Predicate;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/Predicate".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(and_pred_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/AndPredicate",
+        "test",
+        "(Ljava/lang/Object;)Z",
+        native_and_predicate_test,
+    );
+    registry.natives_mut().register(
+        "duke/util/AndPredicate",
+        "and",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_and,
+    );
+    registry.natives_mut().register(
+        "duke/util/AndPredicate",
+        "or",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_or,
+    );
+    registry.natives_mut().register(
+        "duke/util/AndPredicate",
+        "negate",
+        "()Ljava/util/function/Predicate;",
+        native_predicate_negate,
+    );
+    let or_pred_ctx = ClassContext {
+        class_name: "duke/util/OrPredicate".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "left".to_string(),
+                descriptor: "Ljava/util/function/Predicate;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "right".to_string(),
+                descriptor: "Ljava/util/function/Predicate;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/Predicate".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(or_pred_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/OrPredicate",
+        "test",
+        "(Ljava/lang/Object;)Z",
+        native_or_predicate_test,
+    );
+    registry.natives_mut().register(
+        "duke/util/OrPredicate",
+        "and",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_and,
+    );
+    registry.natives_mut().register(
+        "duke/util/OrPredicate",
+        "or",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_or,
+    );
+    registry.natives_mut().register(
+        "duke/util/OrPredicate",
+        "negate",
+        "()Ljava/util/function/Predicate;",
+        native_predicate_negate,
+    );
+    let neg_pred_ctx = ClassContext {
+        class_name: "duke/util/NegatedPredicate".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "original".to_string(),
+            descriptor: "Ljava/util/function/Predicate;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/function/Predicate".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(neg_pred_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/NegatedPredicate",
+        "test",
+        "(Ljava/lang/Object;)Z",
+        native_negated_predicate_test,
+    );
+    registry.natives_mut().register(
+        "duke/util/NegatedPredicate",
+        "and",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_and,
+    );
+    registry.natives_mut().register(
+        "duke/util/NegatedPredicate",
+        "or",
+        "(Ljava/util/function/Predicate;)Ljava/util/function/Predicate;",
+        native_predicate_or,
+    );
+    registry.natives_mut().register(
+        "duke/util/NegatedPredicate",
+        "negate",
+        "()Ljava/util/function/Predicate;",
+        native_predicate_negate,
+    );
+
+    // Function.andThen / compose combinators
+    registry.natives_mut().register(
+        "java/util/function/Function",
+        "andThen",
+        "(Ljava/util/function/Function;)Ljava/util/function/Function;",
+        native_function_and_then,
+    );
+    registry.natives_mut().register(
+        "java/util/function/Function",
+        "compose",
+        "(Ljava/util/function/Function;)Ljava/util/function/Function;",
+        native_function_compose,
+    );
+    let and_then_fn_ctx = ClassContext {
+        class_name: "duke/util/AndThenFunction".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "first".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "second".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/Function".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(and_then_fn_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/AndThenFunction",
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_and_then_function_apply,
+    );
+    registry.natives_mut().register(
+        "duke/util/AndThenFunction",
+        "andThen",
+        "(Ljava/util/function/Function;)Ljava/util/function/Function;",
+        native_function_and_then,
+    );
+    registry.natives_mut().register(
+        "duke/util/AndThenFunction",
+        "compose",
+        "(Ljava/util/function/Function;)Ljava/util/function/Function;",
+        native_function_compose,
+    );
+    let compose_fn_ctx = ClassContext {
+        class_name: "duke/util/ComposeFunction".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "outer".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "inner".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/Function".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(compose_fn_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ComposeFunction",
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_compose_function_apply,
+    );
+    registry.natives_mut().register(
+        "duke/util/ComposeFunction",
+        "andThen",
+        "(Ljava/util/function/Function;)Ljava/util/function/Function;",
+        native_function_and_then,
+    );
+    registry.natives_mut().register(
+        "duke/util/ComposeFunction",
+        "compose",
+        "(Ljava/util/function/Function;)Ljava/util/function/Function;",
+        native_function_compose,
+    );
+
+    // Stream.mapToLong → LongStream
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "mapToLong",
+        "(Ljava/util/function/ToLongFunction;)Ljava/util/stream/LongStream;",
+        native_stream_map_to_long,
+    );
+    let long_stream_ctx = ClassContext {
+        class_name: "duke/util/LongStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/LongStream".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(long_stream_ctx);
+    registry
+        .natives_mut()
+        .register("duke/util/LongStream", "sum", "()J", native_long_stream_sum);
+
+    // Stream.mapToDouble → DoubleStream
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "mapToDouble",
+        "(Ljava/util/function/ToDoubleFunction;)Ljava/util/stream/DoubleStream;",
+        native_stream_map_to_double,
+    );
+    let double_stream_ctx = ClassContext {
+        class_name: "duke/util/DoubleStream".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/DoubleStream".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(double_stream_ctx);
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "sum",
+        "()D",
+        native_double_stream_sum,
+    );
 }
