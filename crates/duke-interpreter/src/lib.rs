@@ -13365,6 +13365,169 @@ pub(crate) fn native_sb_tostring(
     Ok(Some(Slot::Reference(Some(r))))
 }
 
+// ---- StringBuilder extended operations ----
+
+/// Native: `StringBuilder.insert(int, String)StringBuilder` — inserts string at index.
+pub(crate) fn native_sb_insert_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let offset = extract_int_arg(args, 1)?;
+    let s = match args.get(2) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(None)) | None => "null".to_string(),
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "String",
+                got: "other",
+            });
+        }
+    };
+    let buf = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new);
+    let byte_idx = offset
+        .try_into()
+        .ok()
+        .and_then(|i: usize| buf.char_indices().nth(i).map(|(b, _)| b))
+        .unwrap_or(buf.len());
+    buf.insert_str(byte_idx, &s);
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.insert(int, char)StringBuilder` — inserts char at index.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_sb_insert_char(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let offset = extract_int_arg(args, 1)?;
+    let ch = char::from_u32(extract_int_arg(args, 2)? as u32).unwrap_or('\0');
+    let buf = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new);
+    let byte_idx = offset
+        .try_into()
+        .ok()
+        .and_then(|i: usize| buf.char_indices().nth(i).map(|(b, _)| b))
+        .unwrap_or(buf.len());
+    buf.insert(byte_idx, ch);
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.delete(int, int)StringBuilder` — removes chars in [start, end).
+pub(crate) fn native_sb_delete(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let start = extract_int_arg(args, 1)?;
+    let end = extract_int_arg(args, 2)?;
+    let buf = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new);
+    let start_byte = usize::try_from(start)
+        .ok()
+        .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
+        .unwrap_or(buf.len());
+    let end_byte = usize::try_from(end)
+        .ok()
+        .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
+        .unwrap_or(buf.len());
+    buf.drain(start_byte..end_byte);
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.deleteCharAt(int)StringBuilder` — removes single char at index.
+pub(crate) fn native_sb_delete_char_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let index = extract_int_arg(args, 1)?;
+    let buf = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new);
+    if let Some(i) = usize::try_from(index)
+        .ok()
+        .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
+    {
+        buf.remove(i);
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.reverse()StringBuilder` — reverses the character sequence.
+pub(crate) fn native_sb_reverse(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let buf = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new);
+    *buf = buf.chars().rev().collect();
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.charAt(int)C` — returns char at given index.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn native_sb_char_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let index = extract_int_arg(args, 1)?;
+    let ch = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .and_then(|s| usize::try_from(index).ok().and_then(|i| s.chars().nth(i)))
+        .unwrap_or('\0');
+    Ok(Some(Slot::Int(ch as i32)))
+}
+
+/// Native: `StringBuilder.setLength(int)V` — truncates or pads with null chars.
+pub(crate) fn native_sb_set_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let new_len = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(0);
+    let buf = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new);
+    let char_count = buf.chars().count();
+    if new_len <= char_count {
+        *buf = buf.chars().take(new_len).collect();
+    } else {
+        buf.extend(std::iter::repeat_n('\0', new_len - char_count));
+    }
+    Ok(None)
+}
+
 /// Native: `StringBuilder.length()I`
 pub(crate) fn native_sb_length(
     args: &[Slot],
@@ -14281,6 +14444,238 @@ pub(crate) fn native_arrays_sort_int(
         _ => std::cmp::Ordering::Equal,
     });
     Ok(None)
+}
+
+// ---- Arrays.asList ----
+
+/// Native: `Arrays.asList(Object[])List` — wraps a reference array as an `ArrayList`.
+pub(crate) fn native_arrays_as_list(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let arr_len = heap.get(arr_ref)?.fields.len();
+    // Create a new ArrayList (1 field slot for size counter) and populate it.
+    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(&[Slot::Reference(Some(list_ref))], heap, out, control)?;
+    for i in 0..arr_len {
+        let elem = heap
+            .get(arr_ref)?
+            .fields
+            .get(i)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        native_arraylist_add(&[Slot::Reference(Some(list_ref)), elem], heap, out, control)?;
+    }
+    Ok(Some(Slot::Reference(Some(list_ref))))
+}
+
+// ---- String extended operations (Java 11+) ----
+
+/// Native: `String.strip()String` — removes leading and trailing Unicode whitespace.
+pub(crate) fn native_string_strip(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(s.trim().to_owned());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.stripLeading()String` — removes leading Unicode whitespace.
+pub(crate) fn native_string_strip_leading(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(s.trim_start().to_owned());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.stripTrailing()String` — removes trailing Unicode whitespace.
+pub(crate) fn native_string_strip_trailing(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(s.trim_end().to_owned());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.isBlank()Z` — true if empty or all whitespace.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_string_is_blank(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let blank = heap.get(this_ref).map_or(true, |o| {
+        o.string_value
+            .as_deref()
+            .is_none_or(|s| s.chars().all(char::is_whitespace))
+    });
+    Ok(Some(Slot::Int(i32::from(blank))))
+}
+
+/// Native: `String.repeat(int)String` — repeats this string n times.
+pub(crate) fn native_string_repeat(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let n = usize::try_from(extract_int_arg(args, 1)?.max(0)).unwrap_or(0);
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let r = heap.allocate_string(s.repeat(n));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.formatted(Object[])String` — instance alias for `String.format(this, args)`.
+pub(crate) fn native_string_formatted(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // args[0] = this (the format string), args[1] = Object[] varargs
+    let fmt_ref = extract_ref_arg(args, 0)?;
+    let arr_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    native_string_format(
+        &[Slot::Reference(Some(fmt_ref)), arr_slot],
+        heap,
+        out,
+        control,
+    )
+}
+
+/// Native: `String.join(CharSequence, CharSequence[])String` — joins array elements with delimiter.
+pub(crate) fn native_string_join(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let delim_ref = extract_ref_arg(args, 0)?;
+    let delim = heap
+        .get(delim_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    // args[1] can be an Object[] array (varargs) or a single Iterable (ArrayList)
+    let parts: Vec<String> = match args.get(1) {
+        Some(Slot::Reference(Some(arr_ref))) => {
+            let obj = heap.get(*arr_ref)?;
+            if obj.class_name.starts_with('[') {
+                // It's an array — fields are the elements.
+                let len = obj.fields.len();
+                let mut result = Vec::with_capacity(len);
+                let slots: Vec<Slot> = obj.fields.clone();
+                let _ = obj;
+                for slot in slots {
+                    let s = match slot {
+                        Slot::Reference(Some(r)) => heap
+                            .get(r)?
+                            .string_value
+                            .clone()
+                            .unwrap_or_else(|| "null".to_string()),
+                        Slot::Reference(None) => "null".to_string(),
+                        Slot::Int(n) => n.to_string(),
+                        Slot::Long(n) => n.to_string(),
+                        other => format!("{other:?}"),
+                    };
+                    result.push(s);
+                }
+                result
+            } else {
+                // ArrayList or similar — fields[0]=size, fields[1..]=elements
+                let size_val = match obj.fields.first() {
+                    Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                    _ => 0,
+                };
+                let elems: Vec<Slot> =
+                    obj.fields[1..=size_val.min(obj.fields.len().saturating_sub(1))].to_vec();
+                let _ = obj;
+                let mut result = Vec::with_capacity(size_val);
+                for slot in elems {
+                    let s = match slot {
+                        Slot::Reference(Some(r)) => heap
+                            .get(r)?
+                            .string_value
+                            .clone()
+                            .unwrap_or_else(|| "null".to_string()),
+                        Slot::Reference(None) => "null".to_string(),
+                        Slot::Int(n) => n.to_string(),
+                        Slot::Long(n) => n.to_string(),
+                        other => format!("{other:?}"),
+                    };
+                    result.push(s);
+                }
+                result
+            }
+        }
+        _ => Vec::new(),
+    };
+    let joined = parts.join(&delim);
+    let r = heap.allocate_string(joined);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `String.indexOf(int)I` — finds first occurrence of char (as Unicode code point).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn native_string_index_of_char(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let ch = char::from_u32(extract_int_arg(args, 1)? as u32).unwrap_or('\0');
+    let idx = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .and_then(|s| s.char_indices().find(|(_, c)| *c == ch).map(|(i, _)| i))
+        .and_then(|byte_pos| {
+            heap.get(this_ref).ok().and_then(|o| {
+                o.string_value
+                    .as_deref()
+                    .map(|s| s[..byte_pos].chars().count())
+            })
+        });
+    let result = idx.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
+    Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `String.lastIndexOf(String)I` — finds last occurrence of substring.
+pub(crate) fn native_string_last_index_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let sub_ref = extract_ref_arg(args, 1)?;
+    let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
+    let result = this_str
+        .rfind(sub_str.as_str())
+        .and_then(|byte_pos| i32::try_from(this_str[..byte_pos].chars().count()).ok())
+        .unwrap_or(-1);
+    Ok(Some(Slot::Int(result)))
 }
 
 // ---------------------------------------------------------------------------
@@ -21622,6 +22017,176 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("CollectionsUtilTest.class", "testFrequency", "()I"),
             2
+        );
+    }
+
+    // ---- Phase 31: String extensions, StringBuilder extensions, Arrays.asList ----
+
+    #[test]
+    fn string_strip() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testStrip", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn string_strip_leading() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testStripLeading", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn string_strip_trailing() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testStripTrailing", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn string_is_blank_true() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testIsBlankTrue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn string_is_blank_false() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testIsBlankFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn string_repeat() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testRepeat", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn string_repeat_zero() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testRepeatZero", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn string_join() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testJoin", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn string_index_of_char() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testIndexOfChar", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn string_index_of_char_missing() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testIndexOfCharMissing", "()I"),
+            -1
+        );
+    }
+
+    #[test]
+    fn string_last_index_of() {
+        assert_eq!(
+            run_bootstrap_int("StringExtTest.class", "testLastIndexOf", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn sb_insert_string_length() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderExtTest.class", "testInsertString", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn sb_insert_string_value() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderExtTest.class", "testInsertStringValue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn sb_delete() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderExtTest.class", "testDelete", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn sb_delete_char_at() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderExtTest.class", "testDeleteCharAt", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn sb_reverse() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderExtTest.class", "testReverse", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn sb_char_at() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderExtTest.class", "testCharAt", "()I"),
+            101 // 'e'
+        );
+    }
+
+    #[test]
+    fn sb_set_length() {
+        assert_eq!(
+            run_bootstrap_int("StringBuilderExtTest.class", "testSetLength", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn arrays_as_list_size() {
+        assert_eq!(
+            run_bootstrap_int("ArraysAsListTest.class", "testSize", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn arrays_as_list_get() {
+        assert_eq!(
+            run_bootstrap_int("ArraysAsListTest.class", "testGet", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn arrays_as_list_empty() {
+        assert_eq!(
+            run_bootstrap_int("ArraysAsListTest.class", "testEmptyArray", "()I"),
+            0
         );
     }
 

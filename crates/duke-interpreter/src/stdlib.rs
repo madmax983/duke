@@ -2982,6 +2982,57 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;",
         native_string_format,
     );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "strip",
+        "()Ljava/lang/String;",
+        native_string_strip,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "stripLeading",
+        "()Ljava/lang/String;",
+        native_string_strip_leading,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "stripTrailing",
+        "()Ljava/lang/String;",
+        native_string_strip_trailing,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/String", "isBlank", "()Z", native_string_is_blank);
+    registry.natives_mut().register(
+        "java/lang/String",
+        "repeat",
+        "(I)Ljava/lang/String;",
+        native_string_repeat,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "formatted",
+        "([Ljava/lang/Object;)Ljava/lang/String;",
+        native_string_formatted,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "join",
+        "(Ljava/lang/CharSequence;[Ljava/lang/CharSequence;)Ljava/lang/String;",
+        native_string_join,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "indexOf",
+        "(I)I",
+        native_string_index_of_char,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "lastIndexOf",
+        "(Ljava/lang/String;)I",
+        native_string_last_index_of,
+    );
 
     // java/lang/StringBuilder — mutable string buffer
     let sb_ctx = ClassContext {
@@ -3068,6 +3119,48 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/StringBuilder", "length", "()I", native_sb_length);
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "insert",
+        "(ILjava/lang/String;)Ljava/lang/StringBuilder;",
+        native_sb_insert_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "insert",
+        "(IC)Ljava/lang/StringBuilder;",
+        native_sb_insert_char,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "delete",
+        "(II)Ljava/lang/StringBuilder;",
+        native_sb_delete,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "deleteCharAt",
+        "(I)Ljava/lang/StringBuilder;",
+        native_sb_delete_char_at,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "reverse",
+        "()Ljava/lang/StringBuilder;",
+        native_sb_reverse,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "charAt",
+        "(I)C",
+        native_sb_char_at,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "setLength",
+        "(I)V",
+        native_sb_set_length,
+    );
 
     // java/lang/Character — static character utilities + boxed char
     let character_ctx = ClassContext {
@@ -3399,6 +3492,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/util/Arrays", "sort", "([I)V", native_arrays_sort_int);
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "asList",
+        "([Ljava/lang/Object;)Ljava/util/List;",
+        native_arrays_as_list,
+    );
 
     // java/util/HashMap — hash map backed by flat key/value pair list in fields
     // fields[0] = Int(size), fields[1]=key0, fields[2]=val0, fields[3]=key1, ...
