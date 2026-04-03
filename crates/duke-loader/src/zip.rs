@@ -508,6 +508,15 @@ fn parse_central_directory(
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_zip_loader_reader() {
+        let zip_bytes = build_stored_zip("test.txt", b"hello world");
+        let reader = ZipReader::from_bytes(zip_bytes).expect("valid zip");
+        let loader = ZipLoader::from_reader(reader).expect("valid zip");
+        let r = loader.reader();
+        assert_eq!(r.data.len(), 125);
+    }
+
     // ── Helpers: build minimal valid ZIPs in memory ──────────────────────
 
     /// Build a minimal ZIP archive containing one STORED entry.
