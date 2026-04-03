@@ -24040,6 +24040,470 @@ pub(crate) fn native_priorityqueue_for_each(
     native_arraylist_for_each(args, heap, out, control, ops)
 }
 
+// ---------------------------------------------------------------------------
+// Phase 60: IntStream/LongStream/DoubleStream takeWhile/dropWhile,
+//           Integer/Long/Double compare/max/min,
+//           TreeMap.keySet/values/getOrDefault, TreeSet.stream
+// ---------------------------------------------------------------------------
+
+/// Native: `IntStream.takeWhile(IntPredicate)IntStream` — keeps prefix while predicate holds.
+pub(crate) fn native_int_stream_take_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
+    };
+    let elems = int_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let pred_slot = Slot::Reference(Some(pred_ref));
+    let mut kept = Vec::new();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(I)Z",
+            vec![pred_slot, Slot::Int(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            kept.push(v);
+        } else {
+            break;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, kept)))))
+}
+
+/// Native: `IntStream.dropWhile(IntPredicate)IntStream` — drops prefix while predicate holds.
+pub(crate) fn native_int_stream_drop_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
+    };
+    let elems = int_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let pred_slot = Slot::Reference(Some(pred_ref));
+    let mut dropping = true;
+    let mut kept = Vec::new();
+    for v in elems {
+        if dropping {
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(I)Z",
+                vec![pred_slot, Slot::Int(v)],
+            )?;
+            if !matches!(result, Some(Slot::Int(n)) if n != 0) {
+                dropping = false;
+                kept.push(v);
+            }
+        } else {
+            kept.push(v);
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, kept)))))
+}
+
+/// Native: `LongStream.takeWhile(LongPredicate)LongStream` — keeps prefix while predicate holds.
+pub(crate) fn native_long_stream_take_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
+    };
+    let elems = long_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let pred_slot = Slot::Reference(Some(pred_ref));
+    let mut kept = Vec::new();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(J)Z",
+            vec![pred_slot, Slot::Long(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            kept.push(v);
+        } else {
+            break;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_long_stream(heap, kept)))))
+}
+
+/// Native: `LongStream.dropWhile(LongPredicate)LongStream` — drops prefix while predicate holds.
+pub(crate) fn native_long_stream_drop_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
+    };
+    let elems = long_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let pred_slot = Slot::Reference(Some(pred_ref));
+    let mut dropping = true;
+    let mut kept = Vec::new();
+    for v in elems {
+        if dropping {
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(J)Z",
+                vec![pred_slot, Slot::Long(v)],
+            )?;
+            if !matches!(result, Some(Slot::Int(n)) if n != 0) {
+                dropping = false;
+                kept.push(v);
+            }
+        } else {
+            kept.push(v);
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_long_stream(heap, kept)))))
+}
+
+/// Native: `DoubleStream.takeWhile(DoublePredicate)DoubleStream` — keeps prefix while predicate holds.
+pub(crate) fn native_double_stream_take_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(Some(make_double_stream(
+            heap,
+            vec![],
+        )))));
+    };
+    let elems = double_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let pred_slot = Slot::Reference(Some(pred_ref));
+    let mut kept = Vec::new();
+    for v in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(D)Z",
+            vec![pred_slot, Slot::Double(v)],
+        )?;
+        if matches!(result, Some(Slot::Int(n)) if n != 0) {
+            kept.push(v);
+        } else {
+            break;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_double_stream(heap, kept)))))
+}
+
+/// Native: `DoubleStream.dropWhile(DoublePredicate)DoubleStream` — drops prefix while predicate holds.
+pub(crate) fn native_double_stream_drop_while(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    else {
+        return Ok(Some(Slot::Reference(Some(make_double_stream(
+            heap,
+            vec![],
+        )))));
+    };
+    let elems = double_stream_elems(heap, r);
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let pred_slot = Slot::Reference(Some(pred_ref));
+    let mut dropping = true;
+    let mut kept = Vec::new();
+    for v in elems {
+        if dropping {
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(D)Z",
+                vec![pred_slot, Slot::Double(v)],
+            )?;
+            if !matches!(result, Some(Slot::Int(n)) if n != 0) {
+                dropping = false;
+                kept.push(v);
+            }
+        } else {
+            kept.push(v);
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_double_stream(heap, kept)))))
+}
+
+/// Native: `Integer.compare(int,int)int` — returns negative/zero/positive.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_integer_compare(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(a.cmp(&b) as i32)))
+}
+
+/// Native: `Integer.max(int,int)int`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_integer_max(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(a.max(b))))
+}
+
+/// Native: `Integer.min(int,int)int`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_integer_min(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(a.min(b))))
+}
+
+/// Native: `Long.compare(long,long)int`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_long_compare(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        Some(Slot::Int(v)) => i64::from(*v),
+        _ => 0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        Some(Slot::Int(v)) => i64::from(*v),
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(a.cmp(&b) as i32)))
+}
+
+/// Native: `Long.max(long,long)long`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_long_max(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        Some(Slot::Int(v)) => i64::from(*v),
+        _ => 0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        Some(Slot::Int(v)) => i64::from(*v),
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(a.max(b))))
+}
+
+/// Native: `Long.min(long,long)long`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_long_min(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Long(v)) => *v,
+        Some(Slot::Int(v)) => i64::from(*v),
+        _ => 0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Long(v)) => *v,
+        Some(Slot::Int(v)) => i64::from(*v),
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(a.min(b))))
+}
+
+/// Native: `Double.compare(double,double)int`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_double_compare(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        Some(Slot::Float(v)) => f64::from(*v),
+        _ => 0.0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        Some(Slot::Float(v)) => f64::from(*v),
+        _ => 0.0,
+    };
+    Ok(Some(Slot::Int(a.total_cmp(&b) as i32)))
+}
+
+/// Native: `Double.max(double,double)double`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_double_max(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        Some(Slot::Float(v)) => f64::from(*v),
+        _ => 0.0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        Some(Slot::Float(v)) => f64::from(*v),
+        _ => 0.0,
+    };
+    Ok(Some(Slot::Double(a.max(b))))
+}
+
+/// Native: `Double.min(double,double)double`
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_double_min(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a = match args.first() {
+        Some(Slot::Double(v)) => *v,
+        Some(Slot::Float(v)) => f64::from(*v),
+        _ => 0.0,
+    };
+    let b = match args.get(1) {
+        Some(Slot::Double(v)) => *v,
+        Some(Slot::Float(v)) => f64::from(*v),
+        _ => 0.0,
+    };
+    Ok(Some(Slot::Double(a.min(b))))
+}
+
+/// Native: `TreeMap.keySet()Set` — delegates to `HashMap` keySet (same field layout).
+pub(crate) fn native_treemap_key_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_hashmap_key_set(args, heap, out, control)
+}
+
+/// Native: `TreeMap.values()Collection` — delegates to `HashMap` values (same field layout).
+pub(crate) fn native_treemap_values(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_hashmap_values(args, heap, out, control)
+}
+
+/// Native: `TreeMap.getOrDefault(Object,Object)Object` — looks up key; returns default if absent.
+pub(crate) fn native_treemap_get_or_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let default_val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    Ok(Some(
+        find_hashmap_entry_index(&fields, &key, heap).map_or(default_val, |i| fields[i + 1]),
+    ))
+}
+
+/// Native: `TreeSet.stream()Stream` — wraps sorted elements into a `duke/util/Stream`.
+pub(crate) fn native_treeset_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // TreeSet layout: fields[0]=size, fields[1..=size]=elements (same as HashSet)
+    native_hashset_stream(args, heap, out, control)
+}
+
 /// Native: `Optional.or(Supplier<Optional>)Optional` (Java 9) —
 /// returns this Optional if present; otherwise invokes supplier and returns its result.
 pub(crate) fn native_optional_or(
@@ -50418,6 +50882,162 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase59Test.class", "testPriorityQueueForEach", "()I"),
             15
+        );
+    }
+
+    // ---- Phase 60: takeWhile/dropWhile, Integer/Long/Double compare/max/min, TreeMap/Set ----
+
+    #[test]
+    fn test_int_stream_take_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testIntStreamTakeWhile", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_int_stream_drop_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testIntStreamDropWhile", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_long_stream_take_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testLongStreamTakeWhile", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn test_long_stream_drop_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testLongStreamDropWhile", "()I"),
+            70
+        );
+    }
+
+    #[test]
+    fn test_double_stream_take_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testDoubleStreamTakeWhile", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_double_stream_drop_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testDoubleStreamDropWhile", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn test_p60_integer_compare() {
+        let v = run_bootstrap_int("Phase60Test.class", "testIntegerCompare", "()I");
+        assert!(v > 0, "expected positive, got {v}");
+    }
+
+    #[test]
+    fn test_p60_integer_compare_equal() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testIntegerCompareEqual", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p60_integer_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testIntegerMax", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn test_p60_integer_min() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testIntegerMin", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p60_long_compare() {
+        let v = run_bootstrap_int("Phase60Test.class", "testLongCompare", "()I");
+        assert!(v > 0, "expected positive, got {v}");
+    }
+
+    #[test]
+    fn test_p60_long_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testLongMax", "()I"),
+            200
+        );
+    }
+
+    #[test]
+    fn test_p60_long_min() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testLongMin", "()I"),
+            100
+        );
+    }
+
+    #[test]
+    fn test_p60_double_compare() {
+        let v = run_bootstrap_int("Phase60Test.class", "testDoubleCompare", "()I");
+        assert!(v > 0, "expected positive, got {v}");
+    }
+
+    #[test]
+    fn test_p60_double_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testDoubleMax", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p60_double_min() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testDoubleMin", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_treemap_key_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testTreeMapKeySet", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_treemap_values() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testTreeMapValues", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn test_treemap_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testTreeMapGetOrDefault", "()I"),
+            141
+        );
+    }
+
+    #[test]
+    fn test_treeset_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase60Test.class", "testTreeSetStream", "()I"),
+            3
         );
     }
 }

@@ -7880,4 +7880,103 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/function/Consumer;)V",
         native_priorityqueue_for_each,
     );
+
+    // ---- Phase 60: IntStream/LongStream/DoubleStream takeWhile/dropWhile ----
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "takeWhile",
+        "(Ljava/util/function/IntPredicate;)Ljava/util/stream/IntStream;",
+        native_int_stream_take_while,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "dropWhile",
+        "(Ljava/util/function/IntPredicate;)Ljava/util/stream/IntStream;",
+        native_int_stream_drop_while,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "takeWhile",
+        "(Ljava/util/function/LongPredicate;)Ljava/util/stream/LongStream;",
+        native_long_stream_take_while,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "dropWhile",
+        "(Ljava/util/function/LongPredicate;)Ljava/util/stream/LongStream;",
+        native_long_stream_drop_while,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "takeWhile",
+        "(Ljava/util/function/DoublePredicate;)Ljava/util/stream/DoubleStream;",
+        native_double_stream_take_while,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/DoubleStream",
+        "dropWhile",
+        "(Ljava/util/function/DoublePredicate;)Ljava/util/stream/DoubleStream;",
+        native_double_stream_drop_while,
+    );
+
+    // ---- Phase 60: Integer/Long/Double compare/max/min ----
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "compare",
+        "(II)I",
+        native_integer_compare,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Integer", "max", "(II)I", native_integer_max);
+    registry
+        .natives_mut()
+        .register("java/lang/Integer", "min", "(II)I", native_integer_min);
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "compare", "(JJ)I", native_long_compare);
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "max", "(JJ)J", native_long_max);
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "min", "(JJ)J", native_long_min);
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "compare",
+        "(DD)I",
+        native_double_compare,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Double", "max", "(DD)D", native_double_max);
+    registry
+        .natives_mut()
+        .register("java/lang/Double", "min", "(DD)D", native_double_min);
+
+    // ---- Phase 60: TreeMap.keySet/values/getOrDefault, TreeSet.stream ----
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        native_treemap_key_set,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "values",
+        "()Ljava/util/Collection;",
+        native_treemap_values,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "getOrDefault",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_treemap_get_or_default,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeSet",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_treeset_stream,
+    );
 }
