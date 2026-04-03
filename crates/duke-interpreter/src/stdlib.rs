@@ -4000,6 +4000,34 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/List;)V",
         native_collections_shuffle,
     );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "nCopies",
+        "(ILjava/lang/Object;)Ljava/util/List;",
+        native_collections_n_copies,
+    );
+
+    // HashSet.stream() and LinkedList.stream()
+    registry.natives_mut().register(
+        "java/util/HashSet",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_hashset_stream,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_linked_list_stream,
+    );
+
+    // String.chars() → IntStream
+    registry.natives_mut().register(
+        "java/lang/String",
+        "chars",
+        "()Ljava/util/stream/IntStream;",
+        native_string_chars,
+    );
 
     // java/util/TreeMap — sorted map backed by flat sorted key/val pairs
     // fields[0] = Int(size), fields[1,2] = k0/v0, fields[3,4] = k1/v1, ...
