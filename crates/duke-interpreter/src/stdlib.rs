@@ -7141,4 +7141,129 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/stream/Collector;",
         native_collectors_to_unmodifiable_set,
     );
+
+    // ---------------------------------------------------------------------------
+    // Phase 54: IntStream/LongStream/DoubleStream limit/skip,
+    //           IntStream/LongStream flatMap, Collectors.mapping + groupingBy 2-arg
+    // ---------------------------------------------------------------------------
+
+    // IntStream.limit / skip
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "limit",
+        "(J)Ljava/util/stream/IntStream;",
+        native_int_stream_limit,
+    );
+    registry.natives_mut().register(
+        "duke/util/IntStream",
+        "skip",
+        "(J)Ljava/util/stream/IntStream;",
+        native_int_stream_skip,
+    );
+
+    // IntStream.flatMap(IntFunction<IntStream>)IntStream
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "flatMap",
+        "(Ljava/util/function/IntFunction;)Ljava/util/stream/IntStream;",
+        native_int_stream_flat_map,
+    );
+
+    // LongStream.limit / skip
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "limit",
+        "(J)Ljava/util/stream/LongStream;",
+        native_long_stream_limit,
+    );
+    registry.natives_mut().register(
+        "duke/util/LongStream",
+        "skip",
+        "(J)Ljava/util/stream/LongStream;",
+        native_long_stream_skip,
+    );
+
+    // LongStream.flatMap(LongFunction<LongStream>)LongStream
+    registry.natives_mut().register_callback(
+        "duke/util/LongStream",
+        "flatMap",
+        "(Ljava/util/function/LongFunction;)Ljava/util/stream/LongStream;",
+        native_long_stream_flat_map,
+    );
+
+    // DoubleStream.limit / skip
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "limit",
+        "(J)Ljava/util/stream/DoubleStream;",
+        native_double_stream_limit,
+    );
+    registry.natives_mut().register(
+        "duke/util/DoubleStream",
+        "skip",
+        "(J)Ljava/util/stream/DoubleStream;",
+        native_double_stream_skip,
+    );
+
+    // Collectors.mapping(Function, Collector) — MappingCollector sentinel
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "mapping",
+        "(Ljava/util/function/Function;Ljava/util/stream/Collector;)Ljava/util/stream/Collector;",
+        native_collectors_mapping,
+    );
+    let mapping_ctx = ClassContext {
+        class_name: "duke/util/MappingCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "mapper".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "downstream".to_string(),
+                descriptor: "Ljava/util/stream/Collector;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(mapping_ctx);
+
+    // Collectors.groupingBy(Function, Collector) — 2-arg version with downstream
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "groupingBy",
+        "(Ljava/util/function/Function;Ljava/util/stream/Collector;)Ljava/util/stream/Collector;",
+        native_collectors_grouping_by_2,
+    );
+    let grouping2_ctx = ClassContext {
+        class_name: "duke/util/GroupingBy2Collector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "keyFn".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "downstream".to_string(),
+                descriptor: "Ljava/util/stream/Collector;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(grouping2_ctx);
 }
