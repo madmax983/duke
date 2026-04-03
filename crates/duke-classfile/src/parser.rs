@@ -357,9 +357,11 @@ fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<MethodInfo> {
 
 fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<Vec<AttributeInfo>> {
     let count = c.read_u16()?;
-    (0..count)
-        .map(|_| parse_attribute(c, cp_len))
-        .collect::<Result<Vec<_>, _>>()
+    let mut attrs = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        attrs.push(parse_attribute(c, cp_len)?);
+    }
+    Ok(attrs)
 }
 
 fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> ParseResult<AttributeInfo> {
