@@ -3367,6 +3367,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/ArrayList",
+        "<init>",
+        "(Ljava/util/Collection;)V",
+        native_arraylist_init_from_collection,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
         "add",
         "(Ljava/lang/Object;)Z",
         native_arraylist_add,
@@ -3555,7 +3561,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         }],
         static_fields: Vec::new(),
         instance_field_count: 1,
-        interfaces: Vec::new(),
+        interfaces: vec![
+            "java/util/Map".to_string(),
+            "java/util/Collection".to_string(),
+        ],
         bootstrap_methods: Vec::new(),
     };
     registry.register(hashmap_ctx);
@@ -4006,6 +4015,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(ILjava/lang/Object;)Ljava/util/List;",
         native_collections_n_copies,
     );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "unmodifiableList",
+        "(Ljava/util/List;)Ljava/util/List;",
+        native_collections_unmodifiable_list,
+    );
 
     // HashSet.stream() and LinkedList.stream()
     registry.natives_mut().register(
@@ -4028,6 +4043,114 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/stream/IntStream;",
         native_string_chars,
     );
+    // String.join(CharSequence, Iterable) overload
+    registry.natives_mut().register(
+        "java/lang/String",
+        "join",
+        "(Ljava/lang/CharSequence;Ljava/lang/Iterable;)Ljava/lang/String;",
+        native_string_join,
+    );
+
+    // Stream.peek and Stream.toArray
+    registry.natives_mut().register_callback(
+        "duke/util/Stream",
+        "peek",
+        "(Ljava/util/function/Consumer;)Ljava/util/stream/Stream;",
+        native_stream_peek,
+    );
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "toArray",
+        "()[Ljava/lang/Object;",
+        native_stream_to_array,
+    );
+
+    // Arrays.stream(int[]) → IntStream
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "stream",
+        "([I)Ljava/util/stream/IntStream;",
+        native_arrays_stream_int,
+    );
+
+    // Math.random()
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "random", "()D", native_math_random);
+
+    // Comparator.comparing(Function)
+    registry.natives_mut().register(
+        "java/util/Comparator",
+        "comparing",
+        "(Ljava/util/function/Function;)Ljava/util/Comparator;",
+        native_comparator_comparing,
+    );
+    // duke/util/ComparingComparator — compare(OO)I
+    let comparing_comp_ctx = ClassContext {
+        class_name: "duke/util/ComparingComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/Function;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(comparing_comp_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ComparingComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_comparing_comparator_compare,
+    );
+
+    // Collectors.counting() and Collectors.groupingBy()
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "counting",
+        "()Ljava/util/stream/Collector;",
+        native_collectors_counting,
+    );
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "groupingBy",
+        "(Ljava/util/function/Function;)Ljava/util/stream/Collector;",
+        native_collectors_grouping_by,
+    );
+    // duke/util/CountingCollector and GroupingByCollector sentinel classes
+    let counting_ctx = ClassContext {
+        class_name: "duke/util/CountingCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(counting_ctx);
+    let grouping_ctx = ClassContext {
+        class_name: "duke/util/GroupingByCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/Function;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(grouping_ctx);
 
     // java/util/TreeMap — sorted map backed by flat sorted key/val pairs
     // fields[0] = Int(size), fields[1,2] = k0/v0, fields[3,4] = k1/v1, ...
@@ -4444,7 +4567,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/function/Consumer;)V",
         native_stream_for_each,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "duke/util/Stream",
         "collect",
         "(Ljava/util/stream/Collector;)Ljava/lang/Object;",
@@ -4498,7 +4621,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/function/BinaryOperator;)Ljava/util/Optional;",
         native_stream_reduce,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "duke/util/Stream",
         "toList",
         "()Ljava/util/List;",

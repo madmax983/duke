@@ -2523,11 +2523,13 @@ pub(crate) fn native_stream_for_each(
 }
 
 /// Native: `Stream.collect(Collector)Object` — collects to list (only toList collector supported).
+#[allow(clippy::too_many_lines)]
 pub(crate) fn native_stream_collect(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -2544,12 +2546,9 @@ pub(crate) fn native_stream_collect(
     };
 
     if collector_class == "duke/util/JoiningCollector" {
-        // JoiningCollector: join string elements with delimiter stored in fields[0].
         let collector_ref = match args.get(1) {
             Some(Slot::Reference(Some(r))) => *r,
-            _ => {
-                return Err(VmError::NullPointerException);
-            }
+            _ => return Err(VmError::NullPointerException),
         };
         let delim = match heap.get(collector_ref)?.fields.first() {
             Some(Slot::Reference(Some(dr))) => heap
@@ -2569,6 +2568,85 @@ pub(crate) fn native_stream_collect(
         let joined = parts.join(&delim);
         let result_ref = heap.allocate_string(joined);
         Ok(Some(Slot::Reference(Some(result_ref))))
+    } else if collector_class == "duke/util/CountingCollector" {
+        // collect() returns Object; box the Long so bytecode can checkcast/invokevirtual it.
+        let boxed = heap.allocate("java/lang/Long".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Long(i64::from(size));
+        Ok(Some(Slot::Reference(Some(boxed))))
+    } else if collector_class == "duke/util/GroupingByCollector" {
+        // GroupingByCollector: fields[0] = key function slot
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        // Build a HashMap: key → ArrayList of values
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let key = ops
+                .invoke(
+                    heap,
+                    out,
+                    &fn_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![fn_slot, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            // find existing bucket or create new list
+            let fields = heap.get(map_ref)?.fields.clone();
+            let size_n = match fields.first() {
+                Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                _ => 0,
+            };
+            let mut found_ki = None;
+            for i in 0..size_n {
+                let ki = 1 + i * 2;
+                if fields.get(ki).is_some_and(|k| slots_equal(k, &key, heap)) {
+                    found_ki = Some(ki);
+                    break;
+                }
+            }
+            if let Some(ki) = found_ki {
+                // Append elem to existing list
+                let list_slot = heap
+                    .get(map_ref)?
+                    .fields
+                    .get(ki + 1)
+                    .copied()
+                    .unwrap_or(Slot::Reference(None));
+                if let Slot::Reference(Some(list_ref)) = list_slot {
+                    let list_size = match heap.get(list_ref)?.fields.first() {
+                        Some(Slot::Int(n)) => *n,
+                        _ => 0,
+                    };
+                    heap.get_mut(list_ref)?.fields.push(elem);
+                    heap.get_mut(list_ref)?.fields[0] = Slot::Int(list_size + 1);
+                }
+            } else {
+                // New key — create list with one element
+                let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+                heap.get_mut(list_ref)?.fields[0] = Slot::Int(1);
+                heap.get_mut(list_ref)?.fields.push(elem);
+                heap.get_mut(map_ref)?.fields.push(key);
+                heap.get_mut(map_ref)?
+                    .fields
+                    .push(Slot::Reference(Some(list_ref)));
+                heap.get_mut(map_ref)?.fields[0] =
+                    Slot::Int(i32::try_from(size_n + 1).unwrap_or(i32::MAX));
+            }
+        }
+        Ok(Some(Slot::Reference(Some(map_ref))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -2832,8 +2910,9 @@ pub(crate) fn native_stream_to_list(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    native_stream_collect(args, heap, out, control)
+    native_stream_collect(args, heap, out, control, ops)
 }
 
 /// Native: `Collectors.joining(delim)Collector` — returns a joining collector with delimiter.
@@ -2882,6 +2961,92 @@ pub(crate) fn native_collectors_to_list(
 ) -> VmResult<Option<Slot>> {
     let collector_ref = heap.allocate("duke/util/ToListCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(collector_ref))))
+}
+
+/// Native: `Collectors.counting()Collector` — returns a counting collector sentinel.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_counting(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/CountingCollector".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.groupingBy(Function)Collector` — returns a grouping-by collector.
+/// Stores `fn_slot` in `fields[0]`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_grouping_by(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/GroupingByCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Stream.peek(Consumer)Stream` — side-effect each element, returns same stream.
+pub(crate) fn native_stream_peek(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
+        return Ok(Some(Slot::Reference(Some(stream_ref))));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    for elem in &elems {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;)V",
+            vec![consumer_slot, *elem],
+        )?;
+    }
+    // Return a new stream with same elements (consumer may have GC'd things)
+    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(elems.len()).unwrap_or(0));
+    for elem in elems {
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `Stream.toArray()Object[]` — materializes stream into an Object array.
+pub(crate) fn native_stream_to_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    // Arrays use fields directly (no length header); arraylength returns fields.len().
+    let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
+    for elem in elems {
+        heap.get_mut(arr_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(arr_ref))))
 }
 
 // ---------------------------------------------------------------------------
@@ -6856,6 +7021,132 @@ pub(crate) fn native_collections_empty_map(
     let r = heap.allocate("java/util/HashMap".to_string(), 1);
     native_hashmap_init(&[Slot::Reference(Some(r))], heap, out, control)?;
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collections.unmodifiableList(List)List` — returns the same list (no-copy; single-threaded).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collections_unmodifiable_list(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+}
+
+/// Native: `Math.random()D` — returns a pseudo-random double in [0.0, 1.0).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_math_random(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // Use a simple deterministic seed based on stack pointer heuristic
+    // For a JVM interpreter we just use a fixed-seed LCG for reproducibility
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEED: AtomicU64 = AtomicU64::new(12345);
+    let old = SEED.load(Ordering::Relaxed);
+    let new = old.wrapping_mul(25_214_903_917).wrapping_add(11) & 0x0000_FFFF_FFFF_FFFF;
+    SEED.store(new, Ordering::Relaxed);
+    #[allow(clippy::cast_precision_loss)]
+    let v = (new as f64) / (1_u64 << 48) as f64;
+    Ok(Some(Slot::Double(v)))
+}
+
+/// Native: `Arrays.stream(int[])IntStream` — wraps an int array into an `IntStream`.
+pub(crate) fn native_arrays_stream_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    // int[] layout: fields = Int elements directly (no length header); arraylength = fields.len()
+    let arr_obj = heap.get(arr_ref)?;
+    let values: Vec<i32> = arr_obj
+        .fields
+        .iter()
+        .filter_map(|s| if let Slot::Int(n) = s { Some(*n) } else { None })
+        .collect();
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
+/// Native: `Comparator.comparing(Function)Comparator` — creates a comparator by key extractor.
+/// Returns a `duke/util/ComparingComparator` with `fields[0]`=fn\_ref.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_comparator_comparing(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ComparingComparator".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Comparator.comparing compare(Object,Object)I` — compare via key extractor.
+pub(crate) fn native_comparing_comparator_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let ka = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![fn_slot, a],
+        )?
+        .unwrap_or(Slot::Reference(None));
+    let kb = ops
+        .invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![fn_slot, b],
+        )?
+        .unwrap_or(Slot::Reference(None));
+    // Compare extracted keys via compareTo
+    let cmp = match (&ka, &kb) {
+        (Slot::Reference(Some(ra)), Slot::Reference(Some(rb))) => {
+            let sa = heap
+                .get(*ra)
+                .ok()
+                .and_then(|o| o.string_value.clone())
+                .unwrap_or_default();
+            let sb = heap
+                .get(*rb)
+                .ok()
+                .and_then(|o| o.string_value.clone())
+                .unwrap_or_default();
+            sa.cmp(&sb) as i32
+        }
+        (Slot::Int(a), Slot::Int(b)) => a.cmp(b) as i32,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(cmp)))
 }
 
 /// Native: `Collections.singletonList(Object)List` — returns a one-element `ArrayList`.
@@ -16606,6 +16897,35 @@ pub(crate) fn native_arraylist_init(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `ArrayList.<init>(Collection)V` — copies elements from another `ArrayList`/collection.
+pub(crate) fn native_arraylist_init_from_collection(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let Some(Slot::Reference(Some(src_ref))) = args.get(1).copied() else {
+        heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+        return Ok(None);
+    };
+    // Copy size and elements from source collection (ArrayList layout: fields[0]=size, fields[1..]=elems)
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let src_size = match src_fields.first() {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(src_size);
+    for elem in src_fields
+        .into_iter()
+        .skip(1)
+        .take(usize::try_from(src_size).unwrap_or(0))
+    {
+        heap.get_mut(this_ref)?.fields.push(elem);
+    }
     Ok(None)
 }
 
@@ -42310,6 +42630,128 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase41Test.class", "testStringCharsSum", "()I"),
             294,
+        );
+    }
+
+    // ---- Phase 42 tests ----
+
+    #[test]
+    fn test_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testCollectorsCounting", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_grouping_by_size() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testGroupingBySize", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_grouping_by_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testGroupingByCount", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_stream_peek() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testStreamPeek", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn test_stream_to_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testStreamToArray", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn test_arrays_stream_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testArraysStreamInt", "()I"),
+            15,
+        );
+    }
+
+    #[test]
+    fn test_arrays_stream_int_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testArraysStreamIntFilter", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_math_random() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testMathRandom", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_comparator_comparing() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testComparatorComparing", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_hash_map_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testHashMapForEach", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn test_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testStringJoinList", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_unmodifiable_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testUnmodifiableList", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn test_integer_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testIntegerCompare", "()I"),
+            1,
+        );
+    }
+
+    #[test]
+    fn test_integer_compare_equal() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testIntegerCompareEqual", "()I"),
+            0,
+        );
+    }
+
+    #[test]
+    fn test_long_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase42Test.class", "testLongCompare", "()I"),
+            1,
         );
     }
 }
