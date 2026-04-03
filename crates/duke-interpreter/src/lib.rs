@@ -3129,6 +3129,206 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(result_map)?.fields[0] = Slot::Int(cur_result_size + 1);
         }
         Ok(Some(Slot::Reference(Some(result_map))))
+    } else if collector_class == "duke/util/MinByCollector" {
+        // minBy(comparator): fields[0] = comparator
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let cmp_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
+            let r = make_optional(heap, None);
+            return Ok(Some(Slot::Reference(Some(r))));
+        };
+        let cmp_class = heap.get(cmp_ref)?.class_name.clone();
+        let mut min: Option<Slot> = None;
+        for elem in elems {
+            let is_less = if let Some(ref cur) = min {
+                let result = ops
+                    .invoke(
+                        heap,
+                        out,
+                        &cmp_class,
+                        "compare",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                        vec![cmp_slot, elem, *cur],
+                    )?
+                    .unwrap_or(Slot::Int(0));
+                matches!(result, Slot::Int(n) if n < 0)
+            } else {
+                true
+            };
+            if is_less {
+                min = Some(elem);
+            }
+        }
+        let r = make_optional(heap, min);
+        Ok(Some(Slot::Reference(Some(r))))
+    } else if collector_class == "duke/util/MaxByCollector" {
+        // maxBy(comparator): fields[0] = comparator
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let cmp_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
+            let r = make_optional(heap, None);
+            return Ok(Some(Slot::Reference(Some(r))));
+        };
+        let cmp_class = heap.get(cmp_ref)?.class_name.clone();
+        let mut max: Option<Slot> = None;
+        for elem in elems {
+            let is_greater = if let Some(ref cur) = max {
+                let result = ops
+                    .invoke(
+                        heap,
+                        out,
+                        &cmp_class,
+                        "compare",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                        vec![cmp_slot, elem, *cur],
+                    )?
+                    .unwrap_or(Slot::Int(0));
+                matches!(result, Slot::Int(n) if n > 0)
+            } else {
+                true
+            };
+            if is_greater {
+                max = Some(elem);
+            }
+        }
+        let r = make_optional(heap, max);
+        Ok(Some(Slot::Reference(Some(r))))
+    } else if collector_class == "duke/util/SummingDoubleCollector" {
+        // summingDouble: fields[0] = ToDoubleFunction
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0.0_f64;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsDouble",
+                "(Ljava/lang/Object;)D",
+                vec![fn_slot, elem],
+            )?;
+            match result {
+                Some(Slot::Double(d)) => sum += d,
+                Some(Slot::Float(f)) => sum += f64::from(f),
+                Some(Slot::Int(n)) => sum += f64::from(n),
+                _ => {}
+            }
+        }
+        let boxed = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Double(sum);
+        Ok(Some(Slot::Reference(Some(boxed))))
+    } else if collector_class == "duke/util/AveragingLongCollector" {
+        // averagingLong: fields[0] = ToLongFunction
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0_i64;
+        let mut count = 0_usize;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsLong",
+                "(Ljava/lang/Object;)J",
+                vec![fn_slot, elem],
+            )?;
+            match result {
+                Some(Slot::Long(n)) => {
+                    sum = sum.wrapping_add(n);
+                    count += 1;
+                }
+                Some(Slot::Int(n)) => {
+                    sum = sum.wrapping_add(i64::from(n));
+                    count += 1;
+                }
+                _ => {}
+            }
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let avg = if count == 0 {
+            0.0
+        } else {
+            sum as f64 / count as f64
+        };
+        let boxed = heap.allocate("java/lang/Double".to_string(), 1);
+        heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
+        Ok(Some(Slot::Reference(Some(boxed))))
+    } else if collector_class == "duke/util/CollectingAndThenCollector" {
+        // collectingAndThen(downstream, finisher): fields[0]=downstream, fields[1]=finisher
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let downstream_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let finisher_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(finisher_ref)) = finisher_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let finisher_class = heap.get(finisher_ref)?.class_name.clone();
+        // First collect with downstream
+        let tmp_args = vec![Slot::Reference(Some(stream_ref)), downstream_slot];
+        let intermediate = native_stream_collect(&tmp_args, heap, out, control, ops)?
+            .unwrap_or(Slot::Reference(None));
+        // Then apply finisher
+        let result = ops.invoke(
+            heap,
+            out,
+            &finisher_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![finisher_slot, intermediate],
+        )?;
+        Ok(result.or(Some(Slot::Reference(None))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -3808,6 +4008,13 @@ fn make_optional_int(heap: &mut duke_gc::Heap, value: Option<i32>) -> u64 {
     } else {
         heap.get_mut(r).expect("fresh").fields[1] = Slot::Int(0);
     }
+    r
+}
+
+/// Create a `java/util/Optional` heap object. `None` = empty, `Some(slot)` = present.
+fn make_optional(heap: &mut duke_gc::Heap, value: Option<Slot>) -> u64 {
+    let r = heap.allocate("java/util/Optional".to_string(), 1);
+    heap.get_mut(r).expect("fresh").fields[0] = value.unwrap_or(Slot::Reference(None));
     r
 }
 
@@ -23996,6 +24203,100 @@ pub(crate) fn native_collectors_summing_long(
     let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     let r = heap.allocate("duke/util/SummingLongCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 56: Collectors.minBy/maxBy, summingDouble, averagingLong,
+//           toUnmodifiableMap, collectingAndThen
+// ---------------------------------------------------------------------------
+
+/// Native: `Collectors.minBy(Comparator)Collector` — returns a `MinByCollector`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_min_by(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let cmp_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/MinByCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = cmp_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.maxBy(Comparator)Collector` — returns a `MaxByCollector`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_max_by(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let cmp_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/MaxByCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = cmp_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.summingDouble(ToDoubleFunction)Collector` — returns a `SummingDoubleCollector`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_summing_double(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/SummingDoubleCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.averagingLong(ToLongFunction)Collector` — returns an `AveragingLongCollector`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_averaging_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/AveragingLongCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.toUnmodifiableMap(keyFn, valueFn)Collector` — same sentinel as `ToMapCollector`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_to_unmodifiable_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let key_fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let val_fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/ToMapCollector".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = key_fn_slot;
+    heap.get_mut(r)?.fields[1] = val_fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collectors.collectingAndThen(downstream, finisher)Collector` — returns a
+/// `CollectingAndThenCollector` with fields[0]=downstream, fields[1]=finisher.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_collecting_and_then(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let downstream_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let finisher_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/CollectingAndThenCollector".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = downstream_slot;
+    heap.get_mut(r)?.fields[1] = finisher_slot;
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -48650,6 +48951,119 @@ mod tests {
     fn test_collectors_averaging_double() {
         assert_eq!(
             run_bootstrap_int("Phase55Test.class", "testCollectorsAveragingDouble", "()I"),
+            3
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Phase 56: Collectors.minBy/maxBy, summingDouble, averagingLong,
+    //           toUnmodifiableMap, collectingAndThen
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_collectors_min_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase56Test.class", "testCollectorsMinBy", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_collectors_min_by_natural() {
+        assert_eq!(
+            run_bootstrap_int("Phase56Test.class", "testCollectorsMinByNatural", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_collectors_max_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase56Test.class", "testCollectorsMaxBy", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_collectors_max_by_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase56Test.class", "testCollectorsMaxByInt", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_collectors_summing_double() {
+        assert_eq!(
+            run_bootstrap_int("Phase56Test.class", "testCollectorsSummingDouble", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_collectors_averaging_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase56Test.class", "testCollectorsAveragingLong", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_unmodifiable_map() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase56Test.class",
+                "testCollectorsToUnmodifiableMap",
+                "()I"
+            ),
+            5
+        );
+    }
+
+    #[test]
+    fn test_collectors_to_unmodifiable_map_size() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase56Test.class",
+                "testCollectorsToUnmodifiableMapSize",
+                "()I"
+            ),
+            3
+        );
+    }
+
+    #[test]
+    fn test_collectors_collecting_and_then() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase56Test.class",
+                "testCollectorsCollectingAndThen",
+                "()I"
+            ),
+            4
+        );
+    }
+
+    #[test]
+    fn test_collectors_collecting_and_then_join() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase56Test.class",
+                "testCollectorsCollectingAndThenJoin",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn test_collectors_collecting_and_then_count() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase56Test.class",
+                "testCollectorsCollectingAndThenCount",
+                "()I"
+            ),
             3
         );
     }
