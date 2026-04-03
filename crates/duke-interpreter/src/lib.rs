@@ -2349,6 +2349,377 @@ pub(crate) fn native_collections_shuffle(
     Ok(None)
 }
 
+// ---- Stream natives ----
+// duke/util/Stream: fields[0]=Int(size), fields[1..]=element refs
+
+/// Native: `Stream.of(Object[])Stream` — create stream from varargs array.
+pub(crate) fn native_stream_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let elems: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
+    let n = i32::try_from(elems.len()).unwrap_or(0);
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
+    for elem in elems {
+        heap.get_mut(stream_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+/// Native: `ArrayList.stream()` — wrap `ArrayList` elements into a `Stream`.
+pub(crate) fn native_arraylist_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    let elems: Vec<Slot> =
+        heap.get(list_ref)?.fields[1..=usize::try_from(size).unwrap_or(0)].to_vec();
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(size);
+    for elem in elems {
+        heap.get_mut(stream_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+/// Native: `Stream.count()J` — returns the number of elements as a long.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_stream_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let n = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => i64::from(*n),
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(n)))
+}
+
+/// Native: `Stream.filter(Predicate)Stream` — keeps elements where `predicate.test()` returns true.
+pub(crate) fn native_stream_filter(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let pred_slot = args.get(1).copied();
+    let Slot::Reference(Some(pred_ref)) = pred_slot.unwrap_or(Slot::Reference(None)) else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let mut kept: Vec<Slot> = Vec::new();
+    for elem in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &pred_class,
+            "test",
+            "(Ljava/lang/Object;)Z",
+            vec![Slot::Reference(Some(pred_ref)), elem],
+        )?;
+        if matches!(result, Some(Slot::Int(1))) {
+            kept.push(elem);
+        }
+    }
+    let new_size = i32::try_from(kept.len()).unwrap_or(0);
+    let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
+    for elem in kept {
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(new_stream))))
+}
+
+/// Native: `Stream.map(Function)Stream` — transforms each element via `function.apply()`.
+pub(crate) fn native_stream_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied();
+    let Slot::Reference(Some(fn_ref)) = fn_slot.unwrap_or(Slot::Reference(None)) else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut mapped: Vec<Slot> = Vec::with_capacity(elems.len());
+    for elem in elems {
+        let result = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![Slot::Reference(Some(fn_ref)), elem],
+        )?;
+        mapped.push(result.unwrap_or(Slot::Reference(None)));
+    }
+    let new_size = i32::try_from(mapped.len()).unwrap_or(0);
+    let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
+    for elem in mapped {
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(new_stream))))
+}
+
+/// Native: `Stream.forEach(Consumer)V` — calls `consumer.accept()` on each element.
+pub(crate) fn native_stream_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let consumer_slot = args.get(1).copied();
+    let Slot::Reference(Some(consumer_ref)) = consumer_slot.unwrap_or(Slot::Reference(None)) else {
+        return Ok(None);
+    };
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    for elem in elems {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;)V",
+            vec![Slot::Reference(Some(consumer_ref)), elem],
+        )?;
+    }
+    Ok(None)
+}
+
+/// Native: `Stream.collect(Collector)Object` — collects to list (only toList collector supported).
+pub(crate) fn native_stream_collect(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    let elems: Vec<Slot> =
+        heap.get(stream_ref)?.fields[1..=usize::try_from(size).unwrap_or(0)].to_vec();
+    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
+    for elem in elems {
+        heap.get_mut(list_ref)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(list_ref))))
+}
+
+/// Native: `Stream.distinct()Stream` — removes duplicate elements (by `slots_equal`).
+pub(crate) fn native_stream_distinct(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut seen: Vec<Slot> = Vec::new();
+    for elem in elems {
+        if !seen.iter().any(|s| slots_equal(s, &elem, heap)) {
+            seen.push(elem);
+        }
+    }
+    let new_size = i32::try_from(seen.len()).unwrap_or(0);
+    let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
+    for elem in seen {
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    Ok(Some(Slot::Reference(Some(new_stream))))
+}
+
+/// Native: `Collectors.toList()Collector` — returns a sentinel collector object.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collectors_to_list(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let collector_ref = heap.allocate("duke/util/ToListCollector".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(collector_ref))))
+}
+
+// ---- ArrayDeque natives ----
+// fields[0]=Int(size), fields[1..size]=elements (front at index 1)
+
+/// Native: `ArrayDeque.<init>()V` — same layout as `ArrayList`.
+pub(crate) fn native_arraydeque_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_init(args, heap, out, control)
+}
+
+/// Native: `ArrayDeque.push(Object)V` — push to front (stack: LIFO).
+pub(crate) fn native_arraydeque_push(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    heap.get_mut(this_ref)?.fields.insert(1, elem);
+    let new_size = i32::try_from(size + 1).unwrap_or(0);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
+    Ok(None)
+}
+
+/// Native: `ArrayDeque.pop()Object` — pop from front (stack: LIFO).
+pub(crate) fn native_arraydeque_pop(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    let elem = heap.get_mut(this_ref)?.fields.remove(1);
+    let new_size = i32::try_from(size - 1).unwrap_or(0);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
+    Ok(Some(elem))
+}
+
+/// Native: `ArrayDeque.offer(Object)Z` — enqueue at back (queue: FIFO).
+pub(crate) fn native_arraydeque_offer(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)?;
+    Ok(Some(Slot::Int(1))) // always succeeds
+}
+
+/// Native: `ArrayDeque.add(Object)Z` — same as offer (appends to back).
+pub(crate) fn native_arraydeque_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `ArrayDeque.poll()Object` — dequeue from front (queue: FIFO); null if empty.
+pub(crate) fn native_arraydeque_poll(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let elem = heap.get_mut(this_ref)?.fields.remove(1);
+    let new_size = i32::try_from(size - 1).unwrap_or(0);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
+    Ok(Some(elem))
+}
+
+/// Native: `ArrayDeque.peek()Object` — peek at front; null if empty.
+pub(crate) fn native_arraydeque_peek(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    if size == 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    Ok(Some(heap.get(this_ref)?.fields[1]))
+}
+
+/// Native: `ArrayDeque.size()I`
+pub(crate) fn native_arraydeque_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_size(args, heap, out, control)
+}
+
+/// Native: `ArrayDeque.isEmpty()Z`
+pub(crate) fn native_arraydeque_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_arraylist_is_empty(args, heap, out, control)
+}
+
 // ---- Comparator natives ----
 
 /// Native: `Comparator.naturalOrder()Comparator` — returns a singleton synthetic comparator.
@@ -38787,6 +39158,112 @@ mod tests {
     fn string_value_of_char() {
         assert_eq!(
             run_bootstrap_int("StringCharsTest.class", "testValueOfChar", "()I"),
+            1,
+        );
+    }
+
+    // ---- Phase 36: Stream, ArrayDeque ----
+
+    #[test]
+    fn stream_of_count() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testStreamOfCount", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn stream_filter() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testStreamFilter", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn stream_map() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testStreamMap", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn stream_for_each() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testStreamForEach", "()I"),
+            6,
+        );
+    }
+
+    #[test]
+    fn stream_collection_stream() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testCollectionStream", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn stream_to_list() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testStreamToList", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testStreamDistinct", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn stream_map_to_length() {
+        assert_eq!(
+            run_bootstrap_int("StreamTest.class", "testStreamMapToLength", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn arraydeque_push_pop() {
+        assert_eq!(
+            run_bootstrap_int("ArrayDequeTest.class", "testPushPop", "()I"),
+            3,
+        );
+    }
+
+    #[test]
+    fn arraydeque_offer_poll() {
+        assert_eq!(
+            run_bootstrap_int("ArrayDequeTest.class", "testOfferPoll", "()I"),
+            10,
+        );
+    }
+
+    #[test]
+    fn arraydeque_peek() {
+        assert_eq!(
+            run_bootstrap_int("ArrayDequeTest.class", "testPeek", "()I"),
+            5,
+        );
+    }
+
+    #[test]
+    fn arraydeque_size() {
+        assert_eq!(
+            run_bootstrap_int("ArrayDequeTest.class", "testSize", "()I"),
+            2,
+        );
+    }
+
+    #[test]
+    fn arraydeque_is_empty() {
+        assert_eq!(
+            run_bootstrap_int("ArrayDequeTest.class", "testIsEmpty", "()I"),
             1,
         );
     }
