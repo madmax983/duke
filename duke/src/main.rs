@@ -823,6 +823,18 @@ mod cfg_tests {
     }
 
     #[test]
+
+    #[test]
+    fn test_dump_uml() {
+        // Find HelloWorld.class in tests/fixtures
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+
+        // Ensure it doesn't panic on a valid class
+        super::dump_uml(p.to_str().unwrap());
+    }
+
+    #[test]
     fn test_dump_html() {
         // Find HelloWorld.class in tests/fixtures
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
