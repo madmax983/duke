@@ -3148,6 +3148,34 @@ pub(crate) fn native_system_get_property_with_default(
     Ok(Some(result))
 }
 
+/// Native: `System.lineSeparator()String` — returns the platform line separator.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_system_line_separator(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate_string("\n".to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `System.identityHashCode(Object)I` — returns a stable identity hash (heap address low bits).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_system_identity_hash_code(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    #[allow(clippy::cast_possible_truncation)]
+    let hash = match args.first() {
+        Some(Slot::Reference(Some(r))) => (*r & 0x7FFF_FFFF) as i32,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(hash)))
+}
+
 fn system_time_to_epoch_millis(now: std::time::SystemTime) -> i64 {
     now.duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| {
@@ -13394,6 +13422,249 @@ pub(crate) fn native_arraylist_iter_next(
     Ok(Some(element))
 }
 
+// ---- ArrayList extended methods ----
+
+/// Native: `ArrayList.remove(I)Object` — removes element at index, returns it.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_arraylist_remove_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = extract_int_arg(args, 1)?;
+    if idx < 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    let idx = idx as usize;
+    let len = heap.get(this_ref)?.fields.len();
+    // fields[0]=size, elements start at 1; idx is 0-based element index → field index = idx+1
+    if idx + 1 >= len {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    let removed = heap.get(this_ref)?.fields[idx + 1];
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.remove(idx + 1);
+    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+        *sz -= 1;
+    }
+    Ok(Some(removed))
+}
+
+/// Native: `ArrayList.remove(Object)Z` — removes first occurrence, returns true if found.
+pub(crate) fn native_arraylist_remove_obj(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let fields = heap.get(this_ref)?.fields.clone();
+    let found = fields
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, slot)| slots_equal(slot, &target, heap))
+        .map(|(i, _)| i);
+    if let Some(field_idx) = found {
+        let obj = heap.get_mut(this_ref)?;
+        obj.fields.remove(field_idx);
+        if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+            *sz -= 1;
+        }
+        Ok(Some(Slot::Int(1)))
+    } else {
+        Ok(Some(Slot::Int(0)))
+    }
+}
+
+/// Native: `ArrayList.contains(Object)Z` — returns 1 if element is present.
+pub(crate) fn native_arraylist_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let fields = heap.get(this_ref)?.fields.clone();
+    let found = fields
+        .iter()
+        .skip(1)
+        .any(|slot| slots_equal(slot, &target, heap));
+    Ok(Some(Slot::Int(i32::from(found))))
+}
+
+/// Native: `ArrayList.clear()V` — removes all elements.
+pub(crate) fn native_arraylist_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.truncate(1);
+    obj.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `ArrayList.isEmpty()Z` — returns 1 if size is 0.
+pub(crate) fn native_arraylist_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let is_empty = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz == 0,
+        _ => true,
+    };
+    Ok(Some(Slot::Int(i32::from(is_empty))))
+}
+
+/// Native: `ArrayList.set(I,Object)Object` — replaces element at index, returns old value.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_arraylist_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = extract_int_arg(args, 1)?;
+    let value = extract_slot_arg(args, 2);
+    if idx < 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    let field_idx = idx as usize + 1;
+    let old = *heap.get(this_ref)?.fields.get(field_idx).ok_or_else(|| VmError::JavaException {
+        class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+    })?;
+    heap.get_mut(this_ref)?.fields[field_idx] = value;
+    Ok(Some(old))
+}
+
+/// Native: `ArrayList.indexOf(Object)I` — returns first index of element, or -1.
+pub(crate) fn native_arraylist_index_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let fields = heap.get(this_ref)?.fields.clone();
+    let idx = fields
+        .iter()
+        .skip(1)
+        .position(|slot| slots_equal(slot, &target, heap))
+        .map_or(-1, |i| i32::try_from(i).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(idx)))
+}
+
+/// Native: `ArrayList.add(I,Object)V` — inserts element at index, shifting others right.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_arraylist_add_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = extract_int_arg(args, 1)?;
+    let element = extract_slot_arg(args, 2);
+    if idx < 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    let field_idx = idx as usize + 1;
+    let obj = heap.get_mut(this_ref)?;
+    let len = obj.fields.len();
+    if field_idx > len {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    obj.fields.insert(field_idx, element);
+    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+        *sz += 1;
+    }
+    Ok(None)
+}
+
+// ---- HashMap extended methods ----
+
+/// Native: `HashMap.putIfAbsent(K,V)Object` — inserts only if key is absent; returns existing or null.
+pub(crate) fn native_hashmap_put_if_absent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let val = extract_slot_arg(args, 2);
+    let fields = heap.get(this_ref)?.fields.clone();
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        // Key already present — return existing value.
+        return Ok(Some(fields[i + 1]));
+    }
+    // Key absent — insert and return null.
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+        *sz += 1;
+    }
+    obj.fields.push(key);
+    obj.fields.push(val);
+    Ok(Some(Slot::Reference(None)))
+}
+
+/// Native: `HashMap.clear()V` — removes all entries.
+pub(crate) fn native_hashmap_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.truncate(1);
+    obj.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `HashMap.containsValue(Object)Z` — returns 1 if any entry has this value.
+pub(crate) fn native_hashmap_contains_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let fields = heap.get(this_ref)?.fields.clone();
+    // Values are at even indices: 2, 4, 6, ...
+    let mut i = 2usize;
+    while i < fields.len() {
+        if slots_equal(&fields[i], &target, heap) {
+            return Ok(Some(Slot::Int(1)));
+        }
+        i += 2;
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
 // ---- Double.isNaN ----
 
 /// Native: `Double.isNaN(D)Z` — returns 1 if value is NaN.
@@ -20391,6 +20662,180 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("HashMapIterTest.class", "testEntrySetKeys", "()I"),
             5
+        );
+    }
+
+    // ---- Phase 29: ArrayList extended methods ----
+
+    #[test]
+    fn arraylist_remove_at() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testRemoveAt", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn arraylist_remove_at_first() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testRemoveAtFirst", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn arraylist_remove_obj() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testRemoveObj", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn arraylist_contains_true() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testContainsTrue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn arraylist_contains_false() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testContainsFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn arraylist_clear() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testClear", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn arraylist_is_empty() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testIsEmpty", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn arraylist_set() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testSet", "()I"),
+            99
+        );
+    }
+
+    #[test]
+    fn arraylist_index_of() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testIndexOf", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn arraylist_index_of_missing() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testIndexOfMissing", "()I"),
+            -1
+        );
+    }
+
+    #[test]
+    fn arraylist_add_at() {
+        assert_eq!(
+            run_bootstrap_int("ArrayListExtTest.class", "testAddAt", "()I"),
+            2
+        );
+    }
+
+    // ---- Phase 29: HashMap extended methods ----
+
+    #[test]
+    fn hashmap_put_if_absent_new() {
+        assert_eq!(
+            run_bootstrap_int("HashMapExtTest.class", "testPutIfAbsentNew", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn hashmap_put_if_absent_existing() {
+        assert_eq!(
+            run_bootstrap_int("HashMapExtTest.class", "testPutIfAbsentExisting", "()I"),
+            100
+        );
+    }
+
+    #[test]
+    fn hashmap_put_if_absent_no_overwrite() {
+        assert_eq!(
+            run_bootstrap_int("HashMapExtTest.class", "testPutIfAbsentNoOverwrite", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn hashmap_clear() {
+        assert_eq!(
+            run_bootstrap_int("HashMapExtTest.class", "testClear", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn hashmap_contains_value_true() {
+        assert_eq!(
+            run_bootstrap_int("HashMapExtTest.class", "testContainsValueTrue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn hashmap_contains_value_false() {
+        assert_eq!(
+            run_bootstrap_int("HashMapExtTest.class", "testContainsValueFalse", "()I"),
+            0
+        );
+    }
+
+    // ---- Phase 29: System.err + utilities ----
+
+    #[test]
+    fn system_err_println() {
+        assert_eq!(
+            run_bootstrap_int("SystemExtTest.class", "testErr", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn system_line_separator() {
+        assert_eq!(
+            run_bootstrap_int("SystemExtTest.class", "testLineSeparator", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn system_identity_hash_code() {
+        assert_eq!(
+            run_bootstrap_int("SystemExtTest.class", "testIdentityHashCode", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn system_identity_hash_code_null() {
+        assert_eq!(
+            run_bootstrap_int("SystemExtTest.class", "testIdentityHashCodeNull", "()I"),
+            0
         );
     }
 
