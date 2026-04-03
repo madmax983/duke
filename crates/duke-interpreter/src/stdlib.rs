@@ -938,6 +938,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
         native_system_set_property,
     );
+    registry.natives_mut().register(
+        "java/lang/System",
+        "arraycopy",
+        "(Ljava/lang/Object;ILjava/lang/Object;II)V",
+        native_system_arraycopy,
+    );
 
     // Register synthetic exception hierarchy so is_assignable_from can walk it.
     // java/lang/Object (root — no super)
@@ -2719,6 +2725,72 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Math", "min", "(DD)D", native_math_min_double);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "sin", "(D)D", native_math_sin);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "cos", "(D)D", native_math_cos);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "tan", "(D)D", native_math_tan);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "asin", "(D)D", native_math_asin);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "acos", "(D)D", native_math_acos);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "atan", "(D)D", native_math_atan);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "atan2", "(DD)D", native_math_atan2);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "log", "(D)D", native_math_log);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "log10", "(D)D", native_math_log10);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "exp", "(D)D", native_math_exp);
+    registry.natives_mut().register(
+        "java/lang/Math",
+        "signum",
+        "(D)D",
+        native_math_signum_double,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "signum", "(F)F", native_math_signum_float);
+    registry.natives_mut().register(
+        "java/lang/Math",
+        "toRadians",
+        "(D)D",
+        native_math_to_radians,
+    );
+    registry.natives_mut().register(
+        "java/lang/Math",
+        "toDegrees",
+        "(D)D",
+        native_math_to_degrees,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "cbrt", "(D)D", native_math_cbrt);
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "hypot", "(DD)D", native_math_hypot);
+    registry.natives_mut().register(
+        "java/lang/Math",
+        "floorDiv",
+        "(II)I",
+        native_math_floor_div_int,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Math", "round", "(F)I", native_math_round_float);
 
     // String.valueOf overloads (int already registered above)
     registry.natives_mut().register(
@@ -3202,6 +3274,62 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getOrDefault",
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         native_hashmap_get_or_default,
+    );
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        native_hashmap_key_set,
+    );
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "values",
+        "()Ljava/util/Collection;",
+        native_hashmap_values,
+    );
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        native_hashmap_entry_set,
+    );
+
+    // java/util/Map$Entry — key/value pair produced by HashMap.entrySet()
+    // fields[0] = key, fields[1] = value
+    let map_entry_ctx = ClassContext {
+        class_name: "java/util/Map$Entry".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "key".to_string(),
+                descriptor: "Ljava/lang/Object;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "value".to_string(),
+                descriptor: "Ljava/lang/Object;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(map_entry_ctx);
+    registry.natives_mut().register(
+        "java/util/Map$Entry",
+        "getKey",
+        "()Ljava/lang/Object;",
+        native_map_entry_get_key,
+    );
+    registry.natives_mut().register(
+        "java/util/Map$Entry",
+        "getValue",
+        "()Ljava/lang/Object;",
+        native_map_entry_get_value,
     );
 
     // java/util/HashSet — set backed by unique elements in fields
