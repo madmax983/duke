@@ -1833,19 +1833,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/Throwable",
         "<init>",
         "(Ljava/lang/String;)V",
-        native_throwable_init_string,
-    );
-    registry.natives_mut().register(
-        "java/lang/Throwable",
-        "getMessage",
-        "()Ljava/lang/String;",
-        native_throwable_get_message,
-    );
-    registry.natives_mut().register(
-        "java/lang/Throwable",
-        "toString",
-        "()Ljava/lang/String;",
-        native_throwable_tostring,
+        native_object_init,
     );
 
     // java/lang/Exception extends Throwable
@@ -1868,7 +1856,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/Exception",
         "<init>",
         "(Ljava/lang/String;)V",
-        native_throwable_init_string,
+        native_object_init,
     );
 
     // java/lang/RuntimeException extends Exception
@@ -1894,7 +1882,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/RuntimeException",
         "<init>",
         "(Ljava/lang/String;)V",
-        native_throwable_init_string,
+        native_object_init,
     );
 
     let illegal_argument_ctx = ClassContext {
@@ -3891,182 +3879,6 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "hashCode",
         "(Ljava/lang/Object;)I",
         native_objects_hashcode,
-    );
-
-    // java/util/List — static factory `of` methods (0–6 fixed-arity + varargs)
-    let list_ctx = ClassContext {
-        class_name: "java/util/List".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
-        constant_pool: Vec::new(),
-        methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
-        instance_field_count: 0,
-        interfaces: Vec::new(),
-        bootstrap_methods: Vec::new(),
-    };
-    registry.register(list_ctx);
-    for desc in &[
-        "()Ljava/util/List;",
-        "(Ljava/lang/Object;)Ljava/util/List;",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/List;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/List;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/List;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/List;",
-        "([Ljava/lang/Object;)Ljava/util/List;",
-    ] {
-        registry
-            .natives_mut()
-            .register("java/util/List", "of", desc, native_list_of);
-    }
-    registry.natives_mut().register(
-        "java/util/List",
-        "copyOf",
-        "(Ljava/util/Collection;)Ljava/util/List;",
-        native_list_of,
-    );
-
-    // java/util/Set — static factory `of` methods
-    let set_iface_ctx = ClassContext {
-        class_name: "java/util/Set".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
-        constant_pool: Vec::new(),
-        methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
-        instance_field_count: 0,
-        interfaces: Vec::new(),
-        bootstrap_methods: Vec::new(),
-    };
-    registry.register(set_iface_ctx);
-    for desc in &[
-        "()Ljava/util/Set;",
-        "(Ljava/lang/Object;)Ljava/util/Set;",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Set;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Set;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Set;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Set;",
-        "([Ljava/lang/Object;)Ljava/util/Set;",
-    ] {
-        registry
-            .natives_mut()
-            .register("java/util/Set", "of", desc, native_set_of_factory);
-    }
-    registry.natives_mut().register(
-        "java/util/Set",
-        "copyOf",
-        "(Ljava/util/Collection;)Ljava/util/Set;",
-        native_set_of_factory,
-    );
-
-    // java/util/Map — static factory `of` methods (pairs of args)
-    let map_iface_ctx = ClassContext {
-        class_name: "java/util/Map".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
-        constant_pool: Vec::new(),
-        methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
-        instance_field_count: 0,
-        interfaces: Vec::new(),
-        bootstrap_methods: Vec::new(),
-    };
-    registry.register(map_iface_ctx);
-    for desc in &[
-        "()Ljava/util/Map;",
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map;",
-        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map;",
-    ] {
-        registry
-            .natives_mut()
-            .register("java/util/Map", "of", desc, native_map_of);
-    }
-
-    // java/util/Optional — null-safe value container
-    let optional_ctx = ClassContext {
-        class_name: "java/util/Optional".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
-        constant_pool: Vec::new(),
-        methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "value".to_string(),
-            descriptor: "Ljava/lang/Object;".to_string(),
-            is_static: false,
-        }],
-        static_fields: Vec::new(),
-        instance_field_count: 1,
-        interfaces: Vec::new(),
-        bootstrap_methods: Vec::new(),
-    };
-    registry.register(optional_ctx);
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "empty",
-        "()Ljava/util/Optional;",
-        native_optional_empty,
-    );
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "of",
-        "(Ljava/lang/Object;)Ljava/util/Optional;",
-        native_optional_of,
-    );
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "ofNullable",
-        "(Ljava/lang/Object;)Ljava/util/Optional;",
-        native_optional_of_nullable,
-    );
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "get",
-        "()Ljava/lang/Object;",
-        native_optional_get,
-    );
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "isPresent",
-        "()Z",
-        native_optional_is_present,
-    );
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "isEmpty",
-        "()Z",
-        native_optional_is_empty,
-    );
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "orElse",
-        "(Ljava/lang/Object;)Ljava/lang/Object;",
-        native_optional_or_else,
-    );
-    registry.natives_mut().register(
-        "java/util/Optional",
-        "orElseThrow",
-        "()Ljava/lang/Object;",
-        native_optional_or_else_throw,
-    );
-
-    // ArrayList.addAll and HashMap.putAll
-    registry.natives_mut().register(
-        "java/util/ArrayList",
-        "addAll",
-        "(Ljava/util/Collection;)Z",
-        native_arraylist_add_all,
-    );
-    registry.natives_mut().register(
-        "java/util/HashMap",
-        "putAll",
-        "(Ljava/util/Map;)V",
-        native_hashmap_put_all,
-    );
-    registry.natives_mut().register_callback(
-        "java/util/HashMap",
-        "computeIfAbsent",
-        "(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;",
-        native_hashmap_compute_if_absent,
     );
 
     // ── java.util.zip ──────────────────────────────────────────────────
