@@ -845,4 +845,18 @@ mod tests {
         let res_valid = verify(&instructions_wide_valid, 1, 11);
         assert!(res_valid.is_ok());
     }
+
+    #[test]
+    fn should_return_error_when_local_index_is_out_of_bounds() {
+        let instr = Instruction::Iload(5);
+        let result = check_locals(&instr, 0, 4);
+        assert!(matches!(
+            result,
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 5,
+                max_locals: 4
+            })
+        ));
+    }
 }
