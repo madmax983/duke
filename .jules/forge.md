@@ -1,3 +1,3 @@
-**Extract God Function**
-**Learning:** `bootstrap_stdlib` was over 3600 lines long, a classic God Function anti-pattern that cluttered the `lib.rs` file. Moving it to its own file dramatically improved readability.
-**Action:** Always look for massive setup or registration functions and extract them to dedicated modules, using `pub(crate)` to share internal helpers.
+**Extract tests to standalone file**
+**Learning:** Oversized inline test modules (`mod tests { ... }`) in massive files like `lib.rs` cause bloat.
+**Action:** Extract inline test modules into dedicated `tests.rs` files, keeping `use super::*;` at the top and applying `#[cfg(test)] mod tests;` in the parent file.
