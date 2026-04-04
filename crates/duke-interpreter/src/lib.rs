@@ -8,6 +8,7 @@
 pub mod context;
 /// Repositories for loaded classes and registered native methods.
 pub mod registry;
+/// Native implementations of the Java Standard Library.
 pub mod stdlib;
 mod threading;
 

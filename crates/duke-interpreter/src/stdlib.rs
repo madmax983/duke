@@ -1,9 +1,55 @@
+//! Native implementations of the Java Standard Library.
+//!
+//! Because the JVM is not self-hosting, the foundational core of the standard library
+//! (such as `java.lang.Object`, `java.lang.String`, `java.util.HashMap`) cannot be
+//! executed strictly as bytecode from the start. Many of these core classes rely on
+//! "native" methods—functions written in C/C++ (in a real JVM) or Rust (in Duke)—to
+//! interact with the underlying operating system or to perform highly optimized operations
+//! that are difficult to express in pure Java.
+//!
+//! This module serves as Duke's internal "JNI" boundary. It manually registers
+//! `ClassContext` stubs and hooks up Rust functions to fulfill the `native` method
+//! signatures expected by the Java bytecode. Without this bootstrap process,
+//! even basic programs (like `System.out.println`) would fail with `UnsatisfiedLinkError`.
+
 use crate::context::{ClassContext, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 use duke_runtime::Slot;
 
+/// Initializes the Java standard library by registering core classes and their native methods.
+///
+/// # Why is this necessary?
+/// When a Java class calls a `native` method (e.g., `System.arraycopy`), the interpreter
+/// must know which Rust function to execute. This function performs the massive initial
+/// wiring required to bridge the Java world and the Rust world. It manually injects the
+/// necessary `ClassContext` objects into the `ClassRegistry` and registers the Rust
+/// closures into the `NativeRegistry`.
+///
+/// # What is bootstrapped?
+/// - **I/O:** `System.out`, `System.err`, `PrintStream`, `File`, `InputStream`, `OutputStream`
+/// - **Networking:** `ServerSocket`, `Socket`
+/// - **Lang core:** `Object`, `Class`, `String`, `StringBuilder`, `System`, `Thread`, `Throwable`, `Enum`
+/// - **Math & Primitives:** `Math`, boxed primitives (`Integer`, `Double`, etc.)
+/// - **Collections:** `List`, `Set`, `Map`, `ArrayList`, `HashMap`, `LinkedList`, `HashSet`, `TreeMap`
+/// - **Streams:** `Stream`, `IntStream`, `Collectors`, `Optional`
+/// - **Regex & ZIP:** `Pattern`, `Matcher`, `ZipFile`, `JarFile`
+///
+/// # Examples
+/// ```rust
+/// use duke_interpreter::registry::ClassRegistry;
+/// use duke_gc::Heap;
+/// use duke_interpreter::stdlib::bootstrap_stdlib;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // Register all the core Java classes and native hooks!
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // Now `System.out.println()` won't crash when interpreted.
+/// ```
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
