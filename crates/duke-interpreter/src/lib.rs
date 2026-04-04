@@ -17655,7 +17655,7 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
-    let mut types = Vec::new();
+    let mut types = Vec::with_capacity(params.len());
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
@@ -17729,7 +17729,7 @@ fn parse_arg_descriptors(descriptor: &str) -> Vec<String> {
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
-    let mut descriptors = Vec::new();
+    let mut descriptors = Vec::with_capacity(params.len());
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
