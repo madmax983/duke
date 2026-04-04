@@ -1,3 +1,10 @@
+//! Standard library bootstrapping for the Duke JVM interpreter.
+//!
+//! This module provides the synthetic `java/lang/*` and `java/util/*` classes
+//! required for minimal JVM execution. It populates a [`ClassRegistry`] with
+//! native method handlers for essential operations like standard I/O, string
+//! manipulation, math functions, and collection implementations.
+
 use crate::context::{ClassContext, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
@@ -5,6 +12,35 @@ use crate::*;
 use duke_runtime::Slot;
 
 #[allow(clippy::too_many_lines)]
+/// Bootstraps the minimal Java standard library into the execution environment.
+///
+/// This function registers a massive suite of internal Java classes and their corresponding
+/// native method implementations. This includes bootstrapping `java/lang/System`,
+/// `java/io/PrintStream`, and core collection types like `java/util/ArrayList`.
+///
+/// # Why it exists
+///
+/// The interpreter cannot run pure Java bytecode without foundational classes being present.
+/// `bootstrap_stdlib` bridges the gap by injecting Rust-backed native handlers for methods
+/// that would normally depend on underlying OS features (like `println`) or complex JVM
+/// intrinsics.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::registry::ClassRegistry;
+/// use duke_gc::Heap;
+/// use duke_interpreter::stdlib::bootstrap_stdlib;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // Inject all standard library definitions into the registry
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // The registry is now ready for JVM execution
+/// assert!(registry.contains("java/lang/System"));
+/// ```
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
     let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
