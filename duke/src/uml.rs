@@ -163,4 +163,115 @@ mod tests {
         assert!(uml.contains("+myMethod()V"));
         assert!(uml.contains("Runnable <|.. MyClass"));
     }
+
+    #[test]
+    fn test_generate_mermaid_uml_visibilities_and_invalid() {
+        let cf = ClassFile {
+            minor_version: 0,
+            major_version: 52,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Utf8("ValidClass".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(1),
+                }),
+                Some(CpEntry::Utf8("SuperClass".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(3),
+                }),
+                Some(CpEntry::Utf8("protectedField".to_string())),
+                Some(CpEntry::Utf8("protectedMethod".to_string())),
+                Some(CpEntry::Utf8("I".to_string())),
+                Some(CpEntry::Utf8("()V".to_string())),
+                Some(CpEntry::Integer(42)), // Invalid utf8 entry to test error path
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(2),
+            super_class: CpIndex(4), // non-object superclass
+            interfaces: vec![],
+            fields: vec![
+                FieldInfo {
+                    access_flags: FieldAccessFlags::PROTECTED,
+                    name_index: CpIndex(5),
+                    descriptor_index: CpIndex(7),
+                    attributes: vec![],
+                },
+                FieldInfo {
+                    access_flags: FieldAccessFlags::empty(),
+                    name_index: CpIndex(5),
+                    descriptor_index: CpIndex(7),
+                    attributes: vec![],
+                },
+                FieldInfo {
+                    access_flags: FieldAccessFlags::PUBLIC,
+                    name_index: CpIndex(9), // points to Integer to test invalid utf8 fallback
+                    descriptor_index: CpIndex(7),
+                    attributes: vec![],
+                },
+            ],
+            methods: vec![
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PROTECTED,
+                    name_index: CpIndex(6),
+                    descriptor_index: CpIndex(8),
+                    attributes: vec![],
+                },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::empty(),
+                    name_index: CpIndex(6),
+                    descriptor_index: CpIndex(8),
+                    attributes: vec![],
+                },
+                MethodInfo {
+                    access_flags: MethodAccessFlags::PRIVATE,
+                    name_index: CpIndex(9), // points to Integer to test invalid utf8 fallback
+                    descriptor_index: CpIndex(8),
+                    attributes: vec![],
+                },
+            ],
+            attributes: vec![],
+        };
+
+        let uml = generate_mermaid_uml(&cf);
+        assert!(uml.contains("classDiagram"));
+        assert!(uml.contains("class ValidClass {"));
+        assert!(uml.contains("#I protectedField"));
+        assert!(uml.contains("~I protectedField"));
+        assert!(uml.contains("+I <invalid>"));
+        assert!(uml.contains("#protectedMethod()V"));
+        assert!(uml.contains("~protectedMethod()V"));
+        assert!(uml.contains("-<invalid>()V"));
+        assert!(uml.contains("SuperClass <|-- ValidClass"));
+    }
+
+    #[test]
+    fn test_resolve_class_name_invalid_paths() {
+        let cf = ClassFile {
+            minor_version: 0,
+            major_version: 52,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Utf8("ValidClass".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(1),
+                }),
+                Some(CpEntry::Integer(42)),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(3),
+                }),
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(0),       // tests "<none>"
+            super_class: CpIndex(3),      // tests "<not a class ref>" (points to integer)
+            interfaces: vec![CpIndex(4)], // tests "<invalid utf8>" (class points to integer)
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+
+        let uml = generate_mermaid_uml(&cf);
+        assert!(uml.contains("class <none> {"));
+        assert!(uml.contains("<not a class ref> <|-- <none>"));
+        assert!(uml.contains("<invalid utf8> <|.. <none>"));
+    }
 }
