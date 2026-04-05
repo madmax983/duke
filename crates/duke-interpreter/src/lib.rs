@@ -3877,6 +3877,27 @@ pub(crate) fn native_stream_reduce_with_identity(
             )?
             .unwrap_or(Slot::Reference(None));
     }
+    // Autobox: if the identity was a Reference (stream of boxed type) but the accumulator
+    // impl returned a raw primitive (e.g. Integer::sum returns int), re-box the result so
+    // that the caller can apply intValue() / longValue() as expected.
+    let acc = match (identity, acc) {
+        (Slot::Reference(_), Slot::Int(v)) => {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Int(v);
+            Slot::Reference(Some(r))
+        }
+        (Slot::Reference(_), Slot::Long(v)) => {
+            let r = heap.allocate("java/lang/Long".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Long(v);
+            Slot::Reference(Some(r))
+        }
+        (Slot::Reference(_), Slot::Double(v)) => {
+            let r = heap.allocate("java/lang/Double".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Double(v);
+            Slot::Reference(Some(r))
+        }
+        _ => acc,
+    };
     Ok(Some(acc))
 }
 
@@ -12162,7 +12183,7 @@ fn callback_invoke_registered_lambda(
         }
     };
 
-    let impl_args = expand_args_for_desc(&impl_args, &lambda_info.impl_desc);
+    let impl_args = adapt_args_for_impl_desc(&impl_args, &lambda_info.impl_desc, heap);
     Ok(Some(execute_class(
         registry,
         loader,
@@ -17876,6 +17897,61 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
 /// `lload_2` to see `Slot::Int(0)`.
 ///
 /// If the descriptor contains no wide types this is a zero-copy clone.
+/// Adapts `args` to match the parameter types in `descriptor`:
+/// - Inserts a padding `Slot::Int(0)` after each Long/Double slot.
+/// - Unboxes `Slot::Reference(Some(r))` → `Slot::Int/Long/Float/Double` when
+///   the corresponding descriptor param type is `I`, `J`, `F`, or `D`.
+///   This handles method references like `Integer::sum` used as `BinaryOperator<Integer>`.
+fn adapt_args_for_impl_desc(args: &[Slot], descriptor: &str, heap: &duke_gc::Heap) -> Vec<Slot> {
+    let param_types = parse_arg_types(descriptor);
+    if param_types.is_empty() || args.is_empty() {
+        return args.to_vec();
+    }
+    let mut result = Vec::with_capacity(args.len() + 4);
+    for (slot, &type_char) in args.iter().zip(param_types.iter()) {
+        let adapted = match (slot, type_char) {
+            // Unbox Reference → int
+            (Slot::Reference(Some(r)), 'I' | 'B' | 'S' | 'C' | 'Z') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Int(_)))
+                .unwrap_or(*slot),
+            // Unbox Reference → long
+            (Slot::Reference(Some(r)), 'J') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Long(_)))
+                .unwrap_or(*slot),
+            // Unbox Reference → double
+            (Slot::Reference(Some(r)), 'D') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Double(_)))
+                .unwrap_or(*slot),
+            // Unbox Reference → float
+            (Slot::Reference(Some(r)), 'F') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Float(_)))
+                .unwrap_or(*slot),
+            _ => *slot,
+        };
+        result.push(adapted);
+        if type_char == 'J' || type_char == 'D' {
+            result.push(Slot::Int(0)); // wide padding
+        }
+    }
+    // Preserve trailing args beyond descriptor param count (captures).
+    if args.len() > param_types.len() {
+        result.extend_from_slice(&args[param_types.len()..]);
+    }
+    result
+}
+
 fn expand_args_for_desc(args: &[Slot], descriptor: &str) -> Vec<Slot> {
     let param_types = parse_arg_types(descriptor);
     let wide_count = param_types
@@ -53061,6 +53137,45 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase66Test.class", "testIteratorRemoveSum", "()I"),
             12
+        );
+    }
+
+    // Phase 67: method-ref unboxing (adapt_args_for_impl_desc), and modern Java syntax probes
+    #[test]
+    fn test_p67_stream_reduce_method_ref() {
+        // Integer::sum as BinaryOperator<Integer> — requires boxed→unboxed arg adaptation
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testStreamReduce", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p67_record() {
+        assert_eq!(run_bootstrap_int("ProbeRun.class", "testRecord", "()I"), 7);
+    }
+
+    #[test]
+    fn test_p67_pattern_match() {
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testPatternMatch", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p67_text_block() {
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testTextBlock", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p67_switch_expr() {
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testSwitchExpr", "()I"),
+            3
         );
     }
 }
