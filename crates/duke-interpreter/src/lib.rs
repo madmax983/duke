@@ -52808,6 +52808,119 @@ mod tests {
             1
         );
     }
+
+    // Phase 65: Java 11 String methods, Integer radix conversions, HashMap callbacks
+    #[test]
+    fn test_p65_string_strip() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringStrip", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p65_string_strip_leading() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringStripLeading", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p65_string_strip_trailing() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringStripTrailing", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p65_string_repeat() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringRepeat", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn test_p65_string_repeat_zero() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringRepeatZero", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p65_string_is_blank_true() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringIsBlankTrue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p65_string_is_blank_false() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringIsBlankFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_binary_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToBinaryString", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_hex_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToHexString", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_octal_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToOctalString", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_hex_string_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToHexStringValue", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p65_hashmap_compute_if_absent_miss() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testHashMapComputeIfAbsentMiss", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p65_hashmap_compute_if_absent_hit() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testHashMapComputeIfAbsentHit", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn test_p65_hashmap_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testHashMapForEach", "()I"),
+            60
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
