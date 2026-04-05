@@ -1813,9 +1813,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "cause".to_string(),
+            descriptor: "Ljava/lang/Throwable;".to_string(),
+            is_static: false,
+        }],
         static_fields: Vec::new(),
-        instance_field_count: 0,
+        instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
@@ -1840,6 +1844,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getMessage",
         "()Ljava/lang/String;",
         native_throwable_get_message,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "getCause",
+        "()Ljava/lang/Throwable;",
+        native_throwable_get_cause,
     );
     registry.natives_mut().register(
         "java/lang/Throwable",
@@ -1900,7 +1910,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/RuntimeException",
         "<init>",
         "(Ljava/lang/String;Ljava/lang/Throwable;)V",
-        native_throwable_init_string,
+        native_throwable_init_string_cause,
     );
 
     let illegal_argument_ctx = ClassContext {
@@ -4111,6 +4121,45 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/List;)Ljava/util/List;",
         native_collections_unmodifiable_list,
     );
+
+    // java/util/UnmodifiableList — wrapper that throws UnsupportedOperationException on mutation
+    let unmod_list_ctx = ClassContext {
+        class_name: "java/util/UnmodifiableList".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(unmod_list_ctx);
+    // Read operations — reuse ArrayList handlers (same field layout)
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList", "size", "()I", native_arraylist_size);
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList", "get", "(I)Ljava/lang/Object;", native_arraylist_get);
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList", "contains", "(Ljava/lang/Object;)Z", native_arraylist_contains);
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList", "isEmpty", "()Z", native_arraylist_is_empty);
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList", "iterator", "()Ljava/util/Iterator;", native_arraylist_iterator);
+    // Mutation operations — throw UnsupportedOperationException
+    for (method, desc) in [
+        ("add", "(Ljava/lang/Object;)Z"),
+        ("add", "(ILjava/lang/Object;)V"),
+        ("remove", "(I)Ljava/lang/Object;"),
+        ("remove", "(Ljava/lang/Object;)Z"),
+        ("set", "(ILjava/lang/Object;)Ljava/lang/Object;"),
+        ("clear", "()V"),
+    ] {
+        registry.natives_mut().register(
+            "java/util/UnmodifiableList", method, desc,
+            native_unmodifiable_list_mutation,
+        );
+    }
 
     // HashSet.stream() and LinkedList.stream()
     registry.natives_mut().register(
