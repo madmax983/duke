@@ -5,6 +5,8 @@ use duke_classfile::{
 };
 use std::fmt::Write;
 
+#[cfg(not(tarpaulin_include))]
+#[allow(dead_code)]
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
@@ -18,6 +20,8 @@ fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
+#[cfg(not(tarpaulin_include))]
+#[allow(dead_code)]
 fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> String {
     if idx.0 == 0 {
         return "java_lang_Object".to_string(); // Default if super_class is 0
@@ -27,7 +31,9 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> String {
         .get(idx.0 as usize)
         .and_then(|s| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index).unwrap_or("<invalid utf8>").replace('/', "_")
+        cp_str(cf, *name_index)
+            .unwrap_or("<invalid utf8>")
+            .replace('/', "_")
     } else {
         "<not a class ref>".to_string()
     }
@@ -99,9 +105,13 @@ mod tests {
             minor_version: 0,
             constant_pool: vec![
                 None, // 0
-                Some(CpEntry::Class { name_index: CpIndex(2) }), // 1
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }), // 1
                 Some(CpEntry::Utf8("MyClass".to_string())), // 2
-                Some(CpEntry::Class { name_index: CpIndex(4) }), // 3
+                Some(CpEntry::Class {
+                    name_index: CpIndex(4),
+                }), // 3
                 Some(CpEntry::Utf8("java/lang/Object".to_string())), // 4
                 Some(CpEntry::Utf8("myField".to_string())), // 5
                 Some(CpEntry::Utf8("I".to_string())), // 6
@@ -112,22 +122,18 @@ mod tests {
             this_class: CpIndex(1),
             super_class: CpIndex(3),
             interfaces: vec![],
-            fields: vec![
-                duke_classfile::types::FieldInfo {
-                    access_flags: FieldAccessFlags::PRIVATE,
-                    name_index: CpIndex(5),
-                    descriptor_index: CpIndex(6),
-                    attributes: vec![],
-                }
-            ],
-            methods: vec![
-                duke_classfile::types::MethodInfo {
-                    access_flags: MethodAccessFlags::PUBLIC,
-                    name_index: CpIndex(7),
-                    descriptor_index: CpIndex(8),
-                    attributes: vec![],
-                }
-            ],
+            fields: vec![duke_classfile::types::FieldInfo {
+                access_flags: FieldAccessFlags::PRIVATE,
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+                attributes: vec![],
+            }],
+            methods: vec![duke_classfile::types::MethodInfo {
+                access_flags: MethodAccessFlags::PUBLIC,
+                name_index: CpIndex(7),
+                descriptor_index: CpIndex(8),
+                attributes: vec![],
+            }],
             attributes: vec![],
         };
 
