@@ -6739,6 +6739,49 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_predicate_negate,
     );
 
+    // Consumer.andThen combinator
+    registry.natives_mut().register(
+        "java/util/function/Consumer",
+        "andThen",
+        "(Ljava/util/function/Consumer;)Ljava/util/function/Consumer;",
+        native_consumer_and_then,
+    );
+    let and_then_consumer_ctx = ClassContext {
+        class_name: "duke/util/AndThenConsumer".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "first".to_string(),
+                descriptor: "Ljava/util/function/Consumer;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "second".to_string(),
+                descriptor: "Ljava/util/function/Consumer;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/Consumer".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(and_then_consumer_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/AndThenConsumer",
+        "accept",
+        "(Ljava/lang/Object;)V",
+        native_and_then_consumer_accept,
+    );
+    registry.natives_mut().register(
+        "duke/util/AndThenConsumer",
+        "andThen",
+        "(Ljava/util/function/Consumer;)Ljava/util/function/Consumer;",
+        native_consumer_and_then,
+    );
+
     // Function.andThen / compose combinators
     registry.natives_mut().register(
         "java/util/function/Function",
