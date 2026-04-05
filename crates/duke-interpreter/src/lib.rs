@@ -53178,6 +53178,71 @@ mod tests {
             3
         );
     }
+
+    // Phase 68: stream operations — mapToInt method refs, groupingBy, distinct, sorted, limit/skip
+    #[test]
+    fn test_p68_map_to_int_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testMapToIntMethodRef", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p68_map_to_int_lambda() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testMapToIntLambda", "()I"),
+            14
+        );
+    }
+
+    #[test]
+    fn test_p68_collectors_summing_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testCollectorsSummingInt", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p68_map_to_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testMapToLong", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p68_grouping_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testGroupingBy", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p68_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testStreamDistinct", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p68_stream_sorted() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testStreamSorted", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p68_stream_limit_skip() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testStreamLimitSkip", "()I"),
+            12
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
