@@ -16246,6 +16246,38 @@ fn run_execution(
                                     }
                                     None => {}
                                 }
+                            } else if lambda_info.impl_kind == 8 {
+                                // REF_newInvokeSpecial — constructor reference (e.g. ArrayList::new)
+                                // Allocate a new instance, call <init>, push the result.
+                                let field_count = total_instance_field_count(registry, &impl_class_key);
+                                let new_ref = heap.allocate(impl_class_key.clone(), field_count);
+                                init_object_fields(registry, heap, new_ref, &impl_class_key);
+                                let mut init_args = vec![Slot::Reference(Some(new_ref))];
+                                init_args.extend_from_slice(&impl_args);
+                                match execute_class(
+                                    registry,
+                                    loader,
+                                    heap,
+                                    stdout,
+                                    &impl_class_key,
+                                    &lambda_info.impl_method,
+                                    &lambda_info.impl_desc,
+                                    &init_args,
+                                ) {
+                                    Ok(_) => {}
+                                    Err(VmError::JavaException { class_name }) => {
+                                        throw_java!(class_name);
+                                    }
+                                    Err(other) => return Err(other),
+                                }
+                                if gc_allowed && heap.should_gc() {
+                                    let roots = gather_roots(frame, call_stack, registry);
+                                    heap.collect(&roots);
+                                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                                }
+                                frame.push(Slot::Reference(Some(new_ref)))?;
+                                *idx += 1;
+                                continue;
                             }
                             *idx += 1;
                             continue;
@@ -23146,6 +23178,61 @@ pub(crate) fn native_and_then_function_apply(
         .unwrap_or(Slot::Reference(None));
     let mid = invoke_function_apply(first, input, heap, out, ops)?;
     invoke_function_apply(second, mid, heap, out, ops).map(Some)
+}
+
+/// Native: `Consumer.andThen(Consumer)Consumer` — chains two consumers sequentially.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_consumer_and_then(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let first = args.first().copied().unwrap_or(Slot::Reference(None));
+    let second = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/AndThenConsumer".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = first;
+    heap.get_mut(r)?.fields[1] = second;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `AndThenConsumer.accept(O)V` — runs first then second consumer.
+pub(crate) fn native_and_then_consumer_accept(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let arg = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let first = heap.get(this_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
+    let second = heap.get(this_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
+    invoke_consumer_accept(first, arg, heap, out, ops)?;
+    invoke_consumer_accept(second, arg, heap, out, ops)?;
+    Ok(None)
+}
+
+fn invoke_consumer_accept(
+    consumer: Slot,
+    arg: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<()> {
+    let Slot::Reference(Some(c_ref)) = consumer else {
+        return Ok(());
+    };
+    let c_class = heap.get(c_ref)?.class_name.clone();
+    ops.invoke(
+        heap,
+        out,
+        &c_class,
+        "accept",
+        "(Ljava/lang/Object;)V",
+        vec![consumer, arg],
+    )?;
+    Ok(())
 }
 
 /// Native: `Function.compose(Function)Function` — `f.compose(g)` = `f(g(x))`.
@@ -54324,6 +54411,20 @@ mod tests {
     #[test] fn test_p83_record_method() { assert_eq!(run_bootstrap_int("Phase83Test.class","testRecordMethod","()I"), 10); }
     #[test] fn test_p83_pattern_instanceof() { assert_eq!(run_bootstrap_int("Phase83Test.class","testPatternMatchingInstanceof","()I"), 42); }
     #[test] fn test_p83_text_block() { assert_eq!(run_bootstrap_int("Phase83Test.class","testTextBlock","()I"), 11); }
+
+    // =========================================================================
+    // ---- Phase 84: Generics, BiFunction, Predicate, Consumer, Supplier ----
+    // =========================================================================
+
+    #[test] fn test_p84_generic_class() { assert_eq!(run_bootstrap_int("Phase84Test.class","testGenericClass","()I"), 47); }
+    #[test] fn test_p84_generic_method() { assert_eq!(run_bootstrap_int("Phase84Test.class","testGenericMethod","()I"), 35); }
+    #[test] fn test_p84_functional_interface() { assert_eq!(run_bootstrap_int("Phase84Test.class","testFunctionalInterface","()I"), 18); }
+    #[test] fn test_p84_bifunction() { assert_eq!(run_bootstrap_int("Phase84Test.class","testBiFunction","()I"), 42); }
+    #[test] fn test_p84_function_compose() { assert_eq!(run_bootstrap_int("Phase84Test.class","testFunctionCompose","()I"), 14); }
+    #[test] fn test_p84_predicate() { assert_eq!(run_bootstrap_int("Phase84Test.class","testPredicate","()I"), 2); }
+    #[test] fn test_p84_consumer() { assert_eq!(run_bootstrap_int("Phase84Test.class","testConsumer","()I"), 10); }
+    #[test] fn test_p84_supplier() { assert_eq!(run_bootstrap_int("Phase84Test.class","testSupplier","()I"), 42); }
+    #[test] fn test_p84_unary_operator() { assert_eq!(run_bootstrap_int("Phase84Test.class","testUnaryOperator","()I"), 6); }
 }
 #[cfg(test)]
 mod fuzz;
