@@ -1872,8 +1872,57 @@ pub(crate) fn native_hashmap_replace_all(
     Ok(None)
 }
 
-// ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by String key) ----
-// Keys are stored sorted in ascending lexicographic order for O(n) insert / O(1) first&last.
+// ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by key) ----
+// Keys are stored sorted in ascending order for O(n) insert / O(1) first&last.
+
+/// Compare two TreeMap keys by natural ordering, supporting String, Integer, Long, and Double keys.
+fn compare_treemap_keys(a: Slot, b: Slot, heap: &duke_gc::Heap) -> std::cmp::Ordering {
+    let key_ord = |s: Slot| -> Option<KeyOrd> {
+        if let Slot::Reference(Some(r)) = s {
+            if let Ok(obj) = heap.get(r) {
+                if let Some(sv) = &obj.string_value {
+                    return Some(KeyOrd::Str(sv.clone()));
+                }
+                match obj.class_name.as_str() {
+                    "java/lang/Integer" | "java/lang/Short" | "java/lang/Byte" => {
+                        if let Some(Slot::Int(n)) = obj.fields.first() {
+                            return Some(KeyOrd::Int(i64::from(*n)));
+                        }
+                    }
+                    "java/lang/Long" => {
+                        if let Some(Slot::Long(n)) = obj.fields.first() {
+                            return Some(KeyOrd::Int(*n));
+                        }
+                    }
+                    "java/lang/Double" | "java/lang/Float" => {
+                        if let Some(Slot::Double(n)) = obj.fields.first() {
+                            return Some(KeyOrd::Flt(*n));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
+    };
+    match (key_ord(a), key_ord(b)) {
+        (Some(KeyOrd::Int(x)), Some(KeyOrd::Int(y))) => x.cmp(&y),
+        (Some(KeyOrd::Flt(x)), Some(KeyOrd::Flt(y))) => x.total_cmp(&y),
+        (Some(KeyOrd::Str(x)), Some(KeyOrd::Str(y))) => x.cmp(&y),
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+enum KeyOrd {
+    Int(i64),
+    Flt(f64),
+    Str(String),
+}
+
+/// Check if two TreeMap keys are equal (same value semantics as compare_treemap_keys == Equal).
+fn treemap_keys_equal(a: Slot, b: Slot, heap: &duke_gc::Heap) -> bool {
+    compare_treemap_keys(a, b, heap) == std::cmp::Ordering::Equal
+}
 
 /// Native: `TreeMap.<init>()V`
 pub(crate) fn native_treemap_init(
@@ -1897,10 +1946,6 @@ pub(crate) fn native_treemap_put(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let key_str = match &key {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1908,11 +1953,7 @@ pub(crate) fn native_treemap_put(
     // Check for existing key — update in place.
     for i in 0..size {
         let existing_key = heap.get(this_ref)?.fields[1 + i * 2];
-        let existing_str = match &existing_key {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            _ => None,
-        };
-        if existing_str == key_str {
+        if treemap_keys_equal(existing_key, key, heap) {
             heap.get_mut(this_ref)?.fields[2 + i * 2] = val;
             return Ok(Some(Slot::Reference(None)));
         }
@@ -1922,15 +1963,7 @@ pub(crate) fn native_treemap_put(
         let mut pos = size;
         for i in 0..size {
             let ek = heap.get(this_ref)?.fields[1 + i * 2];
-            let ek_str: Option<String> = match &ek {
-                Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-                _ => None,
-            };
-            let cmp = key_str
-                .as_deref()
-                .unwrap_or("")
-                .cmp(ek_str.as_deref().unwrap_or(""));
-            if cmp == std::cmp::Ordering::Less {
+            if compare_treemap_keys(key, ek, heap) == std::cmp::Ordering::Less {
                 pos = i;
                 break;
             }
@@ -1953,21 +1986,13 @@ pub(crate) fn native_treemap_get(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let key_str = match &key {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     for i in 0..size {
         let ek = heap.get(this_ref)?.fields[1 + i * 2];
-        let ek_str = match &ek {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            _ => None,
-        };
-        if ek_str == key_str {
+        if treemap_keys_equal(ek, key, heap) {
             let v = heap.get(this_ref)?.fields[2 + i * 2];
             return Ok(Some(v));
         }
@@ -2052,21 +2077,13 @@ pub(crate) fn native_treemap_remove(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let key_str = match &key {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     for i in 0..size {
         let ek = heap.get(this_ref)?.fields[1 + i * 2];
-        let ek_str = match &ek {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            _ => None,
-        };
-        if ek_str == key_str {
+        if treemap_keys_equal(ek, key, heap) {
             let obj = heap.get_mut(this_ref)?;
             let v = obj.fields.remove(2 + i * 2);
             obj.fields.remove(1 + i * 2);
@@ -2089,6 +2106,64 @@ pub(crate) fn native_treemap_is_empty(
         Some(Slot::Int(0)) | None => 1,
         _ => 0,
     })))
+}
+
+/// Native: `TreeMap.headMap(toKey)SortedMap` — returns a new TreeMap with keys strictly less than toKey.
+pub(crate) fn native_treemap_head_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let to_key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let result = heap.allocate("java/util/TreeMap".to_string(), 1);
+    heap.get_mut(result)?.fields[0] = Slot::Int(0);
+    let mut count = 0usize;
+    for i in 0..size {
+        let k = heap.get(this_ref)?.fields[1 + i * 2];
+        let v = heap.get(this_ref)?.fields[2 + i * 2];
+        if compare_treemap_keys(k, to_key, heap) == std::cmp::Ordering::Less {
+            heap.get_mut(result)?.fields.push(k);
+            heap.get_mut(result)?.fields.push(v);
+            count += 1;
+        }
+    }
+    heap.get_mut(result)?.fields[0] = Slot::Int(i32::try_from(count).unwrap_or(0));
+    Ok(Some(Slot::Reference(Some(result))))
+}
+
+/// Native: `TreeMap.tailMap(fromKey)SortedMap` — returns a new TreeMap with keys >= fromKey.
+pub(crate) fn native_treemap_tail_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let from_key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let result = heap.allocate("java/util/TreeMap".to_string(), 1);
+    heap.get_mut(result)?.fields[0] = Slot::Int(0);
+    let mut count = 0usize;
+    for i in 0..size {
+        let k = heap.get(this_ref)?.fields[1 + i * 2];
+        let v = heap.get(this_ref)?.fields[2 + i * 2];
+        if compare_treemap_keys(k, from_key, heap) != std::cmp::Ordering::Less {
+            heap.get_mut(result)?.fields.push(k);
+            heap.get_mut(result)?.fields.push(v);
+            count += 1;
+        }
+    }
+    heap.get_mut(result)?.fields[0] = Slot::Int(i32::try_from(count).unwrap_or(0));
+    Ok(Some(Slot::Reference(Some(result))))
 }
 
 // ---- Stack natives (LIFO backed by ArrayList: push=add, pop=removeLast, peek=peekLast) ----
@@ -53501,6 +53576,40 @@ mod tests {
     #[test]
     fn test_p73_collectors_to_set() {
         assert_eq!(run_bootstrap_int("Phase73Test.class", "testCollectorsToSet", "()I"), 3);
+    }
+
+    // Phase 74: TreeMap integer keys + headMap/tailMap, Queue/Stack, PriorityQueue, Map.entrySet, Collections.frequency/min/max
+    #[test]
+    fn test_p74_tree_map_ordered() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testTreeMapOrdered", "()I"), 13);
+    }
+    #[test]
+    fn test_p74_tree_map_head_tail() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testTreeMapHeadTail", "()I"), 23);
+    }
+    #[test]
+    fn test_p74_stack() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testStack", "()I"), 32);
+    }
+    #[test]
+    fn test_p74_queue() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testQueue", "()I"), 12);
+    }
+    #[test]
+    fn test_p74_priority_queue() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testPriorityQueue", "()I"), 13);
+    }
+    #[test]
+    fn test_p74_map_entry_set() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testMapEntrySet", "()I"), 6);
+    }
+    #[test]
+    fn test_p74_collections_frequency() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testCollectionsFrequency", "()I"), 3);
+    }
+    #[test]
+    fn test_p74_collections_min_max() {
+        assert_eq!(run_bootstrap_int("Phase74Test.class", "testCollectionsMinMax", "()I"), 18);
     }
 }
 #[cfg(test)]

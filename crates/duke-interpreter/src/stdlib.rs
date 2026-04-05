@@ -3777,6 +3777,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/Iterator;",
         native_linked_list_iterator,
     );
+    // peek() is an alias for peekFirst() in Queue context
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "peek",
+        "()Ljava/lang/Object;",
+        native_linked_list_peek_first,
+    );
 
     // java/util/Map$Entry — key/value pair produced by HashMap.entrySet()
     // fields[0] = key, fields[1] = value
@@ -4558,6 +4565,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "isEmpty",
         "()Z",
         native_treemap_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "headMap",
+        "(Ljava/lang/Object;)Ljava/util/SortedMap;",
+        native_treemap_head_map,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "tailMap",
+        "(Ljava/lang/Object;)Ljava/util/SortedMap;",
+        native_treemap_tail_map,
     );
 
     // java/util/Stack — LIFO stack backed by ArrayList field layout
