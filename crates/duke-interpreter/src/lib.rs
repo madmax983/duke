@@ -83,6 +83,44 @@ fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
     }
 }
 
+/// Box a primitive `Slot` into a heap object so it can be stored as `Object` in collections.
+/// `Slot::Reference` and `Slot::Long` pad pass through unchanged.
+/// `Slot::Int` → `java/lang/Integer`, `Slot::Long` → `java/lang/Long`,
+/// `Slot::Double` → `java/lang/Double`, `Slot::Float` → `java/lang/Float`.
+fn box_primitive_slot(slot: Slot, heap: &mut duke_gc::Heap) -> Slot {
+    match slot {
+        Slot::Int(v) => {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Int(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        Slot::Long(v) => {
+            let r = heap.allocate("java/lang/Long".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Long(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        Slot::Double(v) => {
+            let r = heap.allocate("java/lang/Double".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Double(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        Slot::Float(v) => {
+            let r = heap.allocate("java/lang/Float".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Float(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        other => other, // already a reference
+    }
+}
+
 #[inline]
 fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
     match args.get(idx) {
@@ -2754,7 +2792,7 @@ pub(crate) fn native_stream_collect(
         let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
         heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
         for elem in elems {
-            let k = ops
+            let k_raw = ops
                 .invoke(
                     heap,
                     out,
@@ -2764,7 +2802,7 @@ pub(crate) fn native_stream_collect(
                     vec![key_fn, elem],
                 )?
                 .unwrap_or(Slot::Reference(None));
-            let v = ops
+            let v_raw = ops
                 .invoke(
                     heap,
                     out,
@@ -2774,6 +2812,9 @@ pub(crate) fn native_stream_collect(
                     vec![val_fn, elem],
                 )?
                 .unwrap_or(Slot::Reference(None));
+            // Box primitives so the map stores References (Object contract).
+            let k = box_primitive_slot(k_raw, heap);
+            let v = box_primitive_slot(v_raw, heap);
             let cur_size = match heap.get(map_ref)?.fields.first() {
                 Some(Slot::Int(n)) => *n,
                 _ => 0,
@@ -3160,7 +3201,7 @@ pub(crate) fn native_stream_collect(
         let raw_map = heap.allocate("java/util/HashMap".to_string(), 1);
         heap.get_mut(raw_map)?.fields[0] = Slot::Int(0);
         for elem in elems {
-            let key = ops
+            let key_raw = ops
                 .invoke(
                     heap,
                     out,
@@ -3170,6 +3211,8 @@ pub(crate) fn native_stream_collect(
                     vec![fn_slot, elem],
                 )?
                 .unwrap_or(Slot::Reference(None));
+            // Box primitive keys so HashMap.get(boxed) can match them via slots_equal
+            let key = box_primitive_slot(key_raw, heap);
             let fields = heap.get(raw_map)?.fields.clone();
             let size_n = match fields.first() {
                 Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -4695,6 +4738,54 @@ pub(crate) fn native_optional_int_is_present(
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     Ok(Some(Slot::Int(i32::from(present))))
+}
+
+/// Native: `OptionalInt.orElse(int)I` — returns value if present, else the default.
+pub(crate) fn native_optional_int_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
+    if present {
+        Ok(Some(heap.get(r)?.fields.first().copied().unwrap_or(Slot::Int(0))))
+    } else {
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Int(0))))
+    }
+}
+
+/// Native: `OptionalLong.orElse(long)J`
+pub(crate) fn native_optional_long_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
+    if present {
+        Ok(Some(heap.get(r)?.fields.first().copied().unwrap_or(Slot::Long(0))))
+    } else {
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Long(0))))
+    }
+}
+
+/// Native: `OptionalDouble.orElse(double)D`
+pub(crate) fn native_optional_double_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
+    if present {
+        Ok(Some(heap.get(r)?.fields.first().copied().unwrap_or(Slot::Double(0.0))))
+    } else {
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Double(0.0))))
+    }
 }
 
 /// Native: `OptionalDouble.getAsDouble()D`
@@ -53242,6 +53333,32 @@ mod tests {
             run_bootstrap_int("Phase68Test.class", "testStreamLimitSkip", "()I"),
             12
         );
+    }
+
+    // Phase 69: Collectors.toMap, Stream.flatMap/peek, groupingBy+counting, OptionalInt.orElse, String.chars()
+    #[test]
+    fn test_p69_collectors_to_map() {
+        assert_eq!(run_bootstrap_int("Phase69Test.class", "testCollectorsToMap", "()I"), 17);
+    }
+    #[test]
+    fn test_p69_stream_flat_map() {
+        assert_eq!(run_bootstrap_int("Phase69Test.class", "testStreamFlatMap", "()I"), 15);
+    }
+    #[test]
+    fn test_p69_stream_peek() {
+        assert_eq!(run_bootstrap_int("Phase69Test.class", "testStreamPeek", "()I"), 9);
+    }
+    #[test]
+    fn test_p69_collectors_counting() {
+        assert_eq!(run_bootstrap_int("Phase69Test.class", "testCollectorsCounting", "()I"), 4);
+    }
+    #[test]
+    fn test_p69_optional_int_or_else() {
+        assert_eq!(run_bootstrap_int("Phase69Test.class", "testOptionalInt", "()I"), 10);
+    }
+    #[test]
+    fn test_p69_string_chars_count() {
+        assert_eq!(run_bootstrap_int("Phase69Test.class", "testStringCharsCount", "()I"), 3);
     }
 }
 #[cfg(test)]

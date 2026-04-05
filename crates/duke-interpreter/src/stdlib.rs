@@ -5336,6 +5336,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Z",
         native_optional_int_is_present,
     );
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "orElse",
+        "(I)I",
+        native_optional_int_or_else,
+    );
 
     // duke/util/OptionalDouble
     let opt_dbl_ctx = ClassContext {
@@ -5378,6 +5384,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getAsDouble",
         "()D",
         native_optional_double_get_as_double,
+    );
+    registry.natives_mut().register(
+        "duke/util/OptionalDouble",
+        "orElse",
+        "(D)D",
+        native_optional_double_or_else,
     );
 
     // java/util/PriorityQueue — min-heap; fields[0]=Int(size), fields[1..]=heap array
@@ -6896,6 +6908,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "isPresent",
         "()Z",
         native_optional_long_is_present,
+    );
+    registry.natives_mut().register(
+        "duke/util/OptionalLong",
+        "orElse",
+        "(J)J",
+        native_optional_long_or_else,
     );
 
     // DoubleStream static factory (varargs and single-element forms)
