@@ -2562,7 +2562,9 @@ pub(crate) fn native_stream_map(
             "(Ljava/lang/Object;)Ljava/lang/Object;",
             vec![Slot::Reference(Some(fn_ref)), elem],
         )?;
-        mapped.push(result.unwrap_or(Slot::Reference(None)));
+        // Box primitive results so stream elements are always References (Java type-erasure)
+        let boxed = box_primitive_slot(result.unwrap_or(Slot::Reference(None)), heap);
+        mapped.push(boxed);
     }
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
@@ -53429,6 +53431,40 @@ mod tests {
     #[test]
     fn test_p71_collections_reverse() {
         assert_eq!(run_bootstrap_int("Phase71Test.class", "testCollectionsReverse", "()I"), 41);
+    }
+
+    // Phase 72: Stream.map+collect, filter+collect, IntStream.range/rangeClosed, count, anyMatch, allMatch/noneMatch
+    #[test]
+    fn test_p72_stream_to_list() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamToList", "()I"), 15);
+    }
+    #[test]
+    fn test_p72_stream_filter_collect() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamFilterCollect", "()I"), 5);
+    }
+    #[test]
+    fn test_p72_stream_map_collect() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamMapCollect", "()I"), 13);
+    }
+    #[test]
+    fn test_p72_int_stream_range() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testIntStreamRange", "()I"), 15);
+    }
+    #[test]
+    fn test_p72_int_stream_range_closed() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testIntStreamRangeClosed", "()I"), 15);
+    }
+    #[test]
+    fn test_p72_stream_count() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamCount", "()I"), 2);
+    }
+    #[test]
+    fn test_p72_stream_any_match() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamAnyMatch", "()I"), 3);
+    }
+    #[test]
+    fn test_p72_stream_match_all() {
+        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamMatchAll", "()I"), 3);
     }
 }
 #[cfg(test)]
