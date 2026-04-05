@@ -3253,62 +3253,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(character_ctx);
 
-    // Character.isDigit(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isDigit",
-        "(C)Z",
-        native_char_is_digit,
-    );
-    // Character.isLetter(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isLetter",
-        "(C)Z",
-        native_char_is_letter,
-    );
-    // Character.isWhitespace(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isWhitespace",
-        "(C)Z",
-        native_char_is_whitespace,
-    );
-    // Character.isUpperCase(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isUpperCase",
-        "(C)Z",
-        native_char_is_uppercase,
-    );
-    // Character.isLowerCase(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isLowerCase",
-        "(C)Z",
-        native_char_is_lowercase,
-    );
-    // Character.toUpperCase(C)C
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "toUpperCase",
-        "(C)C",
-        native_char_to_uppercase,
-    );
-    // Character.toLowerCase(C)C
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "toLowerCase",
-        "(C)C",
-        native_char_to_lowercase,
-    );
-    // Character.isLetterOrDigit(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isLetterOrDigit",
-        "(C)Z",
-        native_char_is_letter_or_digit,
-    );
+    // Character.isDigit(C)Z and (I)Z — (I) variant used in IntStream.filter(Character::isDigit)
+    for desc in ["(C)Z", "(I)Z"] {
+        registry.natives_mut().register("java/lang/Character", "isDigit", desc, native_char_is_digit);
+        registry.natives_mut().register("java/lang/Character", "isLetter", desc, native_char_is_letter);
+        registry.natives_mut().register("java/lang/Character", "isWhitespace", desc, native_char_is_whitespace);
+        registry.natives_mut().register("java/lang/Character", "isUpperCase", desc, native_char_is_uppercase);
+        registry.natives_mut().register("java/lang/Character", "isLowerCase", desc, native_char_is_lowercase);
+        registry.natives_mut().register("java/lang/Character", "isLetterOrDigit", desc, native_char_is_letter_or_digit);
+    }
+    // Character.toUpperCase(C)C and (I)I
+    registry.natives_mut().register("java/lang/Character", "toUpperCase", "(C)C", native_char_to_uppercase);
+    registry.natives_mut().register("java/lang/Character", "toUpperCase", "(I)I", native_char_to_uppercase);
+    // Character.toLowerCase(C)C and (I)I
+    registry.natives_mut().register("java/lang/Character", "toLowerCase", "(C)C", native_char_to_lowercase);
+    registry.natives_mut().register("java/lang/Character", "toLowerCase", "(I)I", native_char_to_lowercase);
     // Character.valueOf(C)Ljava/lang/Character;
     registry.natives_mut().register(
         "java/lang/Character",
