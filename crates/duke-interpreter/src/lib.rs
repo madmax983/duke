@@ -1789,6 +1789,51 @@ pub(crate) fn native_hashmap_for_each(
     Ok(None)
 }
 
+/// Native: `HashMap.replaceAll(BiFunction<K,V,V>) -> void`
+/// Replaces each value with the result of applying the function to (key, value).
+pub(crate) fn native_hashmap_replace_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fn_ref = extract_ref_arg(args, 1)?;
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    // Snapshot keys (values will be mutated in place).
+    let keys: Vec<Slot> = (0..size)
+        .map(|i| {
+            heap.get(this_ref)
+                .map(|o| o.fields[1 + i * 2])
+                .unwrap_or(Slot::Reference(None))
+        })
+        .collect();
+    for (i, key) in keys.iter().enumerate() {
+        let old_val = heap
+            .get(this_ref)
+            .map(|o| o.fields[2 + i * 2])
+            .unwrap_or(Slot::Reference(None));
+        let new_val = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![Slot::Reference(Some(fn_ref)), *key, old_val],
+        )?;
+        if let Some(v) = new_val {
+            heap.get_mut(this_ref)?.fields[2 + i * 2] = v;
+        }
+    }
+    let _ = control;
+    Ok(None)
+}
+
 // ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by String key) ----
 // Keys are stored sorted in ascending lexicographic order for O(n) insert / O(1) first&last.
 
@@ -18659,11 +18704,13 @@ pub(crate) fn native_arraylist_iterator(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let iter_ref = heap.allocate("duke/util/ArrayListIterator".to_string(), 2);
+    // fields[0]=list_ref, fields[1]=cursor, fields[2]=last_returned (-1 = none)
+    let iter_ref = heap.allocate("duke/util/ArrayListIterator".to_string(), 3);
     {
         let iter_obj = heap.get_mut(iter_ref)?;
         iter_obj.fields[0] = Slot::Reference(Some(this_ref));
         iter_obj.fields[1] = Slot::Int(0);
+        iter_obj.fields[2] = Slot::Int(-1);
     }
     Ok(Some(Slot::Reference(Some(iter_ref))))
 }
@@ -18969,8 +19016,62 @@ pub(crate) fn native_arraylist_iter_next(
             }
         }
     };
-    heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
+    let iter_obj = heap.get_mut(this_ref)?;
+    iter_obj.fields[1] = Slot::Int(cursor + 1);
+    iter_obj.fields[2] = Slot::Int(cursor); // record last-returned index
     Ok(Some(element))
+}
+
+/// Native: `ArrayListIterator.remove()V` — removes the last element returned by `next()`.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_arraylist_iter_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (list_ref, last, cursor) = {
+        let iter_obj = heap.get(this_ref)?;
+        let lr = match iter_obj.fields.first() {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let last = match iter_obj.fields.get(2) {
+            Some(Slot::Int(i)) => *i,
+            _ => -1,
+        };
+        let cursor = match iter_obj.fields.get(1) {
+            Some(Slot::Int(i)) => *i,
+            _ => 0,
+        };
+        (lr, last, cursor)
+    };
+    if last < 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalStateException".to_string(),
+        });
+    }
+    // Remove from backing list: shift elements left, decrement size.
+    let list_size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz,
+        _ => 0,
+    };
+    let remove_idx = last as usize + 1; // +1 because fields[0] is size
+    let list_obj = heap.get_mut(list_ref)?;
+    let new_size = (list_size - 1) as usize;
+    list_obj.fields[0] = Slot::Int(list_size - 1);
+    list_obj.fields.remove(remove_idx);
+    list_obj.fields.push(Slot::Int(0)); // pad to keep capacity stable
+    // Adjust cursor: removed element was before cursor, so decrement.
+    if last < cursor {
+        let iter_obj = heap.get_mut(this_ref)?;
+        iter_obj.fields[1] = Slot::Int(cursor - 1);
+    }
+    // Reset last-returned sentinel.
+    heap.get_mut(this_ref)?.fields[2] = Slot::Int(-1);
+    let _ = new_size; // used implicitly
+    Ok(None)
 }
 
 // ---- ArrayList extended methods ----
@@ -52919,6 +53020,47 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase65Test.class", "testHashMapForEach", "()I"),
             60
+        );
+    }
+
+    // Phase 66: HashMap.replaceAll, Iterator.remove
+    #[test]
+    fn test_p66_hashmap_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testHashMapReplaceAll", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p66_hashmap_replace_all_length() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testHashMapReplaceAllLength", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p66_iterator_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testIteratorRemove", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p66_iterator_remove_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testIteratorRemoveAll", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p66_iterator_remove_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testIteratorRemoveSum", "()I"),
+            12
         );
     }
 }

@@ -8419,4 +8419,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
         native_hashmap_compute_if_present,
     );
+
+    // Phase 66 additions
+    registry.natives_mut().register_callback(
+        "java/util/HashMap",
+        "replaceAll",
+        "(Ljava/util/function/BiFunction;)V",
+        native_hashmap_replace_all,
+    );
+    registry.natives_mut().register(
+        "duke/util/ArrayListIterator",
+        "remove",
+        "()V",
+        native_arraylist_iter_remove,
+    );
 }
