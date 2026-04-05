@@ -53613,6 +53613,40 @@ mod tests {
     fn test_p74_collections_min_max() {
         assert_eq!(run_bootstrap_int("Phase74Test.class", "testCollectionsMinMax", "()I"), 18);
     }
+
+    // Phase 75: String.chars() filter/sum/distinct, Arrays.stream(int[]), Arrays.asList, Collections.nCopies, forEach
+    #[test]
+    fn test_p75_string_chars_filter() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testStringCharsFilter", "()I"), 2);
+    }
+    #[test]
+    fn test_p75_string_chars_sum() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testStringCharsSum", "()I"), 4);
+    }
+    #[test]
+    fn test_p75_arrays_stream_int() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testArraysStreamInt", "()I"), 23);
+    }
+    #[test]
+    fn test_p75_arrays_stream_filter() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testArraysStreamFilter", "()I"), 3);
+    }
+    #[test]
+    fn test_p75_arrays_as_list() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testArraysAsList", "()I"), 4);
+    }
+    #[test]
+    fn test_p75_collections_n_copies() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testCollectionsNCopies", "()I"), 5);
+    }
+    #[test]
+    fn test_p75_iterable_for_each() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testIterableForEach", "()I"), 6);
+    }
+    #[test]
+    fn test_p75_string_chars_distinct() {
+        assert_eq!(run_bootstrap_int("Phase75Test.class", "testStringCharsDistinct", "()I"), 3);
+    }
 }
 #[cfg(test)]
 mod fuzz;
