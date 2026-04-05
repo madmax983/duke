@@ -12634,6 +12634,9 @@ fn refresh_current_method_name(
 /// All method data is passed pre-resolved so this function performs **zero**
 /// [`ClassRegistry`] lookups — eliminating the registry `HashMap` access from every
 /// method-dispatch hot path.
+/// Maximum Java call stack depth before raising `StackOverflowError`.
+const MAX_CALL_DEPTH: usize = 500;
+
 #[allow(clippy::too_many_arguments)]
 fn activate_method_state(
     frame: &mut Frame,
@@ -12650,7 +12653,12 @@ fn activate_method_state(
     resume_idx: usize,
     #[cfg(feature = "telemetry")] registry: &ClassRegistry,
     #[cfg(feature = "telemetry")] current_method: &mut String,
-) {
+) -> VmResult<()> {
+    if call_stack.len() >= MAX_CALL_DEPTH {
+        return Err(duke_runtime::VmError::JavaException {
+            class_name: "java/lang/StackOverflowError".to_string(),
+        });
+    }
     call_stack.push(CallFrame {
         frame: std::mem::replace(frame, callee_frame),
         method_idx: *method_idx,
@@ -12664,6 +12672,7 @@ fn activate_method_state(
     *instructions = callee_instructions;
     #[cfg(feature = "telemetry")]
     refresh_current_method_name(current_method, registry, current_class, *method_idx);
+    Ok(())
 }
 
 enum ExecutionOutcome {
@@ -13219,6 +13228,15 @@ fn run_execution(
                 continue;
             }};
         }
+        macro_rules! throw_java {
+            ($class_name:expr) => {{
+                let class_name = $class_name.to_string();
+                let exception_ref =
+                    materialize_java_exception_object(registry, loader, heap, &class_name)?;
+                propagate_java_exception!(class_name, exception_ref, pc);
+            }};
+        }
+
 
         // Telemetry: capture opcode name and start time before dispatch.
         // Arms that use `continue` (branches, invokes) will skip the post-match
@@ -13252,7 +13270,7 @@ fn run_execution(
                     }
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
-                    activate_method_state(
+                    match activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
@@ -13269,7 +13287,13 @@ fn run_execution(
                         registry,
                         #[cfg(feature = "telemetry")]
                         current_method,
-                    );
+                    ) {
+                        Ok(()) => {}
+                        Err(VmError::JavaException { class_name }) => {
+                            throw_java!(class_name);
+                        }
+                        Err(other) => return Err(other),
+                    };
                     *idx = 0;
                     continue;
                 }
@@ -13348,7 +13372,7 @@ fn run_execution(
                             let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                             (pci, instrs, f)
                         };
-                        activate_method_state(
+                        match activate_method_state(
                             frame,
                             method_idx,
                             pc_to_idx,
@@ -13365,7 +13389,13 @@ fn run_execution(
                             registry,
                             #[cfg(feature = "telemetry")]
                             current_method,
-                        );
+                        ) {
+                            Ok(()) => {}
+                            Err(VmError::JavaException { class_name }) => {
+                                throw_java!(class_name);
+                            }
+                            Err(other) => return Err(other),
+                        };
                         *idx = 0;
                         continue;
                     }
@@ -13411,7 +13441,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -13461,7 +13513,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -14346,7 +14420,7 @@ fn run_execution(
                     locals_buf[0] = frame.pop()?; // `this`
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
-                    activate_method_state(
+                    match activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
@@ -14363,7 +14437,13 @@ fn run_execution(
                         registry,
                         #[cfg(feature = "telemetry")]
                         current_method,
-                    );
+                    ) {
+                        Ok(()) => {}
+                        Err(VmError::JavaException { class_name }) => {
+                            throw_java!(class_name);
+                        }
+                        Err(other) => return Err(other),
+                    };
                     *idx = 0;
                     continue;
                 }
@@ -14423,7 +14503,7 @@ fn run_execution(
                     locals_buf[0] = frame.pop()?; // `this`
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
-                    activate_method_state(
+                    match activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
@@ -14440,7 +14520,13 @@ fn run_execution(
                         registry,
                         #[cfg(feature = "telemetry")]
                         current_method,
-                    );
+                    ) {
+                        Ok(()) => {}
+                        Err(VmError::JavaException { class_name }) => {
+                            throw_java!(class_name);
+                        }
+                        Err(other) => return Err(other),
+                    };
                     *idx = 0;
                     continue;
                 }
@@ -14559,7 +14645,7 @@ fn run_execution(
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, instrs, f)
                                     };
-                                    activate_method_state(
+                                    match activate_method_state(
                                         frame,
                                         method_idx,
                                         pc_to_idx,
@@ -14576,7 +14662,13 @@ fn run_execution(
                                         registry,
                                         #[cfg(feature = "telemetry")]
                                         current_method,
-                                    );
+                                    ) {
+                                        Ok(()) => {}
+                                        Err(VmError::JavaException { class_name }) => {
+                                            throw_java!(class_name);
+                                        }
+                                        Err(other) => return Err(other),
+                                    };
                                     *idx = 0;
                                     continue;
                                 }
@@ -14688,7 +14780,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -14750,7 +14864,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -14854,7 +14990,7 @@ fn run_execution(
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
                 };
-                activate_method_state(
+                match activate_method_state(
                     frame,
                     method_idx,
                     pc_to_idx,
@@ -14871,7 +15007,13 @@ fn run_execution(
                     registry,
                     #[cfg(feature = "telemetry")]
                     current_method,
-                );
+                ) {
+                    Ok(()) => {}
+                    Err(VmError::JavaException { class_name }) => {
+                        throw_java!(class_name);
+                    }
+                    Err(other) => return Err(other),
+                };
                 *idx = 0;
                 continue;
             }
@@ -14966,10 +15108,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_int()?
                 };
@@ -14982,10 +15121,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -14998,10 +15134,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_long()?
                 };
@@ -15014,10 +15147,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Long(val))?;
@@ -15030,10 +15160,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_float()?
                 };
@@ -15046,10 +15173,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Float(val))?;
@@ -15062,10 +15186,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_double()?
                 };
@@ -15078,10 +15199,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Double(val))?;
@@ -15094,10 +15212,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize]
                 };
@@ -15110,10 +15225,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, val)?;
@@ -15126,10 +15238,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     i32::from(fields[idx_val as usize].as_int()? as i8)
                 };
@@ -15142,10 +15251,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -15158,10 +15264,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     i32::from(fields[idx_val as usize].as_int()? as u16)
                 };
@@ -15174,10 +15277,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -15190,10 +15290,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     i32::from(fields[idx_val as usize].as_int()? as i16)
                 };
@@ -15206,10 +15303,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -15261,10 +15355,7 @@ fn run_execution(
                         ) {
                             frame.push(slot)?;
                         } else {
-                            return Err(VmError::ClassCastException {
-                                from: actual,
-                                to: target,
-                            });
+                            throw_java!("java/lang/ClassCastException");
                         }
                     }
                     _ => {
@@ -15603,7 +15694,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -15662,7 +15775,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -15746,7 +15881,7 @@ fn run_execution(
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, instrs, f)
                                     };
-                                    activate_method_state(
+                                    match activate_method_state(
                                         frame,
                                         method_idx,
                                         pc_to_idx,
@@ -15763,7 +15898,13 @@ fn run_execution(
                                         registry,
                                         #[cfg(feature = "telemetry")]
                                         current_method,
-                                    );
+                                    ) {
+                                        Ok(()) => {}
+                                        Err(VmError::JavaException { class_name }) => {
+                                            throw_java!(class_name);
+                                        }
+                                        Err(other) => return Err(other),
+                                    };
                                     *idx = 0;
                                     continue;
                                 }
@@ -15808,7 +15949,7 @@ fn run_execution(
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, instrs, f)
                                     };
-                                    activate_method_state(
+                                    match activate_method_state(
                                         frame,
                                         method_idx,
                                         pc_to_idx,
@@ -15825,7 +15966,13 @@ fn run_execution(
                                         registry,
                                         #[cfg(feature = "telemetry")]
                                         current_method,
-                                    );
+                                    ) {
+                                        Ok(()) => {}
+                                        Err(VmError::JavaException { class_name }) => {
+                                            throw_java!(class_name);
+                                        }
+                                        Err(other) => return Err(other),
+                                    };
                                     *idx = 0;
                                     continue;
                                 }
@@ -15866,7 +16013,36 @@ fn run_execution(
                                                     pc
                                                 );
                                             }
-                                            Err(err) => return Err(err),
+                                            Err(err) => {
+                                                let class_name = match err {
+                                                    VmError::NullPointerException => {
+                                                        "java/lang/NullPointerException".to_string()
+                                                    }
+                                                    VmError::ClassCastException { .. } => {
+                                                        "java/lang/ClassCastException".to_string()
+                                                    }
+                                                    VmError::ArrayIndexOutOfBounds { .. } => {
+                                                        "java/lang/ArrayIndexOutOfBoundsException"
+                                                            .to_string()
+                                                    }
+                                                    VmError::JavaException { class_name } => {
+                                                        class_name
+                                                    }
+                                                    other => return Err(other),
+                                                };
+                                                let exception_ref =
+                                                    materialize_java_exception_object(
+                                                        registry,
+                                                        loader,
+                                                        heap,
+                                                        &class_name,
+                                                    )?;
+                                                propagate_java_exception!(
+                                                    class_name,
+                                                    exception_ref,
+                                                    pc
+                                                );
+                                            }
                                         };
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
@@ -15916,7 +16092,36 @@ fn run_execution(
                                                     pc
                                                 );
                                             }
-                                            Err(err) => return Err(err),
+                                            Err(err) => {
+                                                let class_name = match err {
+                                                    VmError::NullPointerException => {
+                                                        "java/lang/NullPointerException".to_string()
+                                                    }
+                                                    VmError::ClassCastException { .. } => {
+                                                        "java/lang/ClassCastException".to_string()
+                                                    }
+                                                    VmError::ArrayIndexOutOfBounds { .. } => {
+                                                        "java/lang/ArrayIndexOutOfBoundsException"
+                                                            .to_string()
+                                                    }
+                                                    VmError::JavaException { class_name } => {
+                                                        class_name
+                                                    }
+                                                    other => return Err(other),
+                                                };
+                                                let exception_ref =
+                                                    materialize_java_exception_object(
+                                                        registry,
+                                                        loader,
+                                                        heap,
+                                                        &class_name,
+                                                    )?;
+                                                propagate_java_exception!(
+                                                    class_name,
+                                                    exception_ref,
+                                                    pc
+                                                );
+                                            }
                                         };
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
@@ -15976,7 +16181,7 @@ fn run_execution(
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
                 };
-                activate_method_state(
+                match activate_method_state(
                     frame,
                     method_idx,
                     pc_to_idx,
@@ -15993,7 +16198,13 @@ fn run_execution(
                     registry,
                     #[cfg(feature = "telemetry")]
                     current_method,
-                );
+                ) {
+                    Ok(()) => {}
+                    Err(VmError::JavaException { class_name }) => {
+                        throw_java!(class_name);
+                    }
+                    Err(other) => return Err(other),
+                };
                 *idx = 0;
                 continue;
             }
@@ -36778,7 +36989,10 @@ mod tests {
             &mut out,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -38547,7 +38761,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -38617,7 +38834,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -38637,7 +38857,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ===========================================================================
@@ -41041,7 +41264,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Iastore OOB at length; kills its || → && mutant.
@@ -41068,7 +41294,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Laload: valid idx=0 succeeds (kills < → == at Laload bounds).
@@ -41145,7 +41374,10 @@ mod tests {
             "()J",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Lastore OOB kills || → &&.
@@ -41172,7 +41404,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Faload valid idx=0 and idx=1.
@@ -41222,7 +41457,10 @@ mod tests {
             "()F",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -41248,7 +41486,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -41322,7 +41563,10 @@ mod tests {
             "()D",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -41348,7 +41592,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- run_class_int on Arithmetic.class via execute_class() ----
@@ -41766,7 +42013,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 4, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Laload / Lastore bounds ----
@@ -41822,7 +42072,10 @@ mod tests {
             (6, Instruction::Lreturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -41873,7 +42126,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Faload / Fastore bounds ----
@@ -41929,7 +42185,10 @@ mod tests {
             (6, Instruction::Freturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -41980,7 +42239,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Daload / Dastore bounds ----
@@ -42036,7 +42298,10 @@ mod tests {
             (6, Instruction::Dreturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -42087,7 +42352,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Tableswitch - → + (non-zero low) ----
@@ -42279,7 +42547,10 @@ mod tests {
             &mut out,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- format_arg: Long with %X (uppercase) ----
@@ -42522,7 +42793,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Aastore bounds (line 4680: || → &&, < → ==, < → >, < → <=) ----
@@ -42620,7 +42894,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Baload bounds (line 4697: || → &&, < → ==, < → >, < → <=) ----
@@ -42684,7 +42961,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Bastore bounds (line 4714: || → &&, < → ==, < → >, < → <=) ----
@@ -42758,7 +43038,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Caload bounds (line 4731: || → &&, < → ==, < → >, < → <=) ----
@@ -42822,7 +43105,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Castore bounds (line 4748: || → &&, < → ==, < → >, < → <=) ----
@@ -42896,7 +43182,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Saload bounds (line 4765: || → &&, < → ==, < → >, < → <=) ----
@@ -42960,7 +43249,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Sastore bounds (line 4782: || → &&, < → ==, < → >, < → <=) ----
@@ -43034,7 +43326,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // =====================================================================
@@ -43118,7 +43413,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -43134,7 +43432,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Baload bounds (line 6977: || → &&, < → >, < → ==, < → <=) ----
@@ -43182,7 +43483,10 @@ mod tests {
             (4, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Bastore bounds (line 6993: < → >, || → &&, < → ==, < → <=) ----
@@ -43240,7 +43544,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Caload OOB (line 7009: || → &&) ----
@@ -43256,7 +43563,10 @@ mod tests {
             (4, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Castore bounds (line 7025: || → &&, < → ==, < → >, < → <=) ----
@@ -43314,7 +43624,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Saload bounds (line 7041: || → &&, < → ==, < → <=, < → >) ----
@@ -43362,7 +43675,10 @@ mod tests {
             (4, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Sastore bounds (line 7057: || → &&, < → ==, < → >, < → <=) ----
@@ -43420,7 +43736,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Tableswitch nonzero low (line 7076: - → +) ----
@@ -47893,7 +48212,7 @@ mod tests {
         std::fs::remove_file(&jar_path_two).ok();
 
         assert!(
-            matches!(err, VmError::ClassCastException { .. }),
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ClassCastException"),
             "expected ClassCastException from loader-qualified checkcast, got {err:?}"
         );
     }
@@ -53752,6 +54071,20 @@ mod tests {
     fn test_p77_string_format_padding() {
         assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringFormatPadding", "()I"), 5);
     }
+
+    // Phase 78 probes
+    // ===========================================================================
+    // ---- Phase 78: Exception catching (NPE, AIOOB, CCE, StackOverflow) ----
+    // ===========================================================================
+
+        #[test] fn test_p78_number_format_exception() { assert_eq!(run_bootstrap_int("Phase78Test.class","testNumberFormatException","()I"), 42); }
+    #[test] fn test_p78_array_index_oob() { assert_eq!(run_bootstrap_int("Phase78Test.class","testArrayIndexOutOfBounds","()I"), 99); }
+    #[test] fn test_p78_null_pointer() { assert_eq!(run_bootstrap_int("Phase78Test.class","testNullPointerException","()I"), 7); }
+    #[test] fn test_p78_class_cast() { assert_eq!(run_bootstrap_int("Phase78Test.class","testClassCastException","()I"), 55); }
+    #[test] fn test_p78_stack_overflow() { assert_eq!(run_bootstrap_int("Phase78Test.class","testStackOverflow","()I"), 1); }
+    #[test] fn test_p78_finally_runs() { assert_eq!(run_bootstrap_int("Phase78Test.class","testFinallyRuns","()I"), 111); }
+    #[test] fn test_p78_multi_catch() { assert_eq!(run_bootstrap_int("Phase78Test.class","testMultiCatch","()I"), 3); }
+    #[test] fn test_p78_rethrow() { assert_eq!(run_bootstrap_int("Phase78Test.class","testRethrow","()I"), 5); }
 }
 #[cfg(test)]
 mod fuzz;

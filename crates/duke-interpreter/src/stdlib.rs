@@ -1896,6 +1896,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)V",
         native_throwable_init_string,
     );
+    registry.natives_mut().register(
+        "java/lang/RuntimeException",
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_throwable_init_string,
+    );
 
     let illegal_argument_ctx = ClassContext {
         class_name: "java/lang/IllegalArgumentException".to_string(),
@@ -1909,6 +1915,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(illegal_argument_ctx);
+    registry.natives_mut().register(
+        "java/lang/IllegalArgumentException",
+        "<init>",
+        "()V",
+        native_object_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/IllegalArgumentException",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_throwable_init_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/IllegalArgumentException",
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_throwable_init_string,
+    );
 
     let illegal_thread_state_ctx = ClassContext {
         class_name: "java/lang/IllegalThreadStateException".to_string(),
@@ -2013,6 +2037,82 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(invocation_target_ctx);
+
+    // Common RuntimeException subtypes — needed so materialize_java_exception_object
+    // can allocate and hierarchy-check catches for NPE, CCE, AIOOB, etc.
+    for (name, super_name) in [
+        ("java/lang/NullPointerException", "java/lang/RuntimeException"),
+        ("java/lang/ClassCastException", "java/lang/RuntimeException"),
+        ("java/lang/ArithmeticException", "java/lang/RuntimeException"),
+        ("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException"),
+        (
+            "java/lang/ArrayIndexOutOfBoundsException",
+            "java/lang/IndexOutOfBoundsException",
+        ),
+        (
+            "java/lang/StringIndexOutOfBoundsException",
+            "java/lang/IndexOutOfBoundsException",
+        ),
+        (
+            "java/lang/UnsupportedOperationException",
+            "java/lang/RuntimeException",
+        ),
+        ("java/lang/IllegalStateException", "java/lang/RuntimeException"),
+        ("java/lang/NumberFormatException", "java/lang/IllegalArgumentException"),
+    ] {
+        let ctx = ClassContext {
+            class_name: name.to_string(),
+            super_class: Some(super_name.to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+        };
+        registry.register(ctx);
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_object_init);
+        registry
+            .natives_mut()
+            .register(name, "<init>", "(Ljava/lang/String;)V", native_throwable_init_string);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+            native_throwable_init_string,
+        );
+    }
+
+    // java/lang/Error and StackOverflowError
+    for (name, super_name) in [
+        ("java/lang/Error", "java/lang/Throwable"),
+        ("java/lang/VirtualMachineError", "java/lang/Error"),
+        ("java/lang/StackOverflowError", "java/lang/VirtualMachineError"),
+        ("java/lang/OutOfMemoryError", "java/lang/VirtualMachineError"),
+        ("java/lang/AssertionError", "java/lang/Error"),
+    ] {
+        let ctx = ClassContext {
+            class_name: name.to_string(),
+            super_class: Some(super_name.to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+        };
+        registry.register(ctx);
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_object_init);
+        registry
+            .natives_mut()
+            .register(name, "<init>", "(Ljava/lang/String;)V", native_throwable_init_string);
+    }
 
     // java/lang/AutoCloseable — marker interface for try-with-resources.
     // Registered so is_assignable_from correctly handles queries like
