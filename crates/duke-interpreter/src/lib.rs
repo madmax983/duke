@@ -20905,7 +20905,9 @@ pub(crate) fn native_hashmap_merge(
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
             vec![fn_slot, old_value, new_val_slot],
         )?;
-        let merged_val = merged.unwrap_or(Slot::Reference(None));
+        let merged_raw = merged.unwrap_or(Slot::Reference(None));
+        // Box primitive results so the stored value is always a Reference (matches Java generics)
+        let merged_val = box_primitive_slot(merged_raw, heap);
         heap.get_mut(this_ref)?.fields[ki + 1] = merged_val;
         Ok(Some(merged_val))
     } else {
@@ -53393,6 +53395,40 @@ mod tests {
     #[test]
     fn test_p70_integer_compare() {
         assert_eq!(run_bootstrap_int("Phase70Test.class", "testIntegerCompare", "()I"), 7);
+    }
+
+    // Phase 71: Map.merge/compute/putIfAbsent, LinkedHashMap, List.indexOf/subList, Collections.reverse
+    #[test]
+    fn test_p71_map_get_or_default() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapGetOrDefault", "()I"), 100);
+    }
+    #[test]
+    fn test_p71_map_put_if_absent() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapPutIfAbsent", "()I"), 30);
+    }
+    #[test]
+    fn test_p71_map_merge() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapMerge", "()I"), 15);
+    }
+    #[test]
+    fn test_p71_map_compute() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapCompute", "()I"), 16);
+    }
+    #[test]
+    fn test_p71_linked_hash_map() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testLinkedHashMap", "()I"), 6);
+    }
+    #[test]
+    fn test_p71_list_index_of() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testListIndexOf", "()I"), 1);
+    }
+    #[test]
+    fn test_p71_list_sub_list() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testListSubList", "()I"), 12);
+    }
+    #[test]
+    fn test_p71_collections_reverse() {
+        assert_eq!(run_bootstrap_int("Phase71Test.class", "testCollectionsReverse", "()I"), 41);
     }
 }
 #[cfg(test)]
