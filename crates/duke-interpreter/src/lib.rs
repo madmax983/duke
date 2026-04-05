@@ -54295,6 +54295,21 @@ mod tests {
     #[test] fn test_p81_unsupported_operation() { assert_eq!(run_bootstrap_int("Phase81Test.class","testUnsupportedOperation","()I"), 1); }
     #[test] fn test_p81_illegal_argument() { assert_eq!(run_bootstrap_int("Phase81Test.class","testIllegalArgument","()I"), 7); }
     #[test] fn test_p81_illegal_state() { assert_eq!(run_bootstrap_int("Phase81Test.class","testIllegalState","()I"), 9); }
+
+    // =========================================================================
+    // ---- Phase 82: 2D arrays, user Comparable, string switch, varargs ----
+    // =========================================================================
+
+    #[test] fn test_p82_twodim_array() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTwoDimArray","()I"), 42); }
+    #[test] fn test_p82_twodim_array_sum() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTwoDimArraySum","()I"), 45); }
+    #[test] fn test_p82_twodim_array_length() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTwoDimArrayLength","()I"), 15); }
+    #[test] fn test_p82_user_comparable() { assert_eq!(run_bootstrap_int("Phase82Test.class","testUserComparable","()I"), 13); }
+    #[test] fn test_p82_string_switch() { assert_eq!(run_bootstrap_int("Phase82Test.class","testStringSwitch","()I"), 2); }
+    #[test] fn test_p82_string_switch_default() { assert_eq!(run_bootstrap_int("Phase82Test.class","testStringSwitchDefault","()I"), 99); }
+    #[test] fn test_p82_varargs() { assert_eq!(run_bootstrap_int("Phase82Test.class","testVarargs","()I"), 15); }
+    #[test] fn test_p82_varargs_empty() { assert_eq!(run_bootstrap_int("Phase82Test.class","testVarargsEmpty","()I"), 0); }
+    #[test] fn test_p82_instanceof_chain() { assert_eq!(run_bootstrap_int("Phase82Test.class","testInstanceofChain","()I"), 5); }
+    #[test] fn test_p82_ternary() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTernary","()I"), 10); }
 }
 #[cfg(test)]
 mod fuzz;
