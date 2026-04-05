@@ -53647,6 +53647,40 @@ mod tests {
     fn test_p75_string_chars_distinct() {
         assert_eq!(run_bootstrap_int("Phase75Test.class", "testStringCharsDistinct", "()I"), 3);
     }
+
+    // Phase 76: Comparator.comparing/reversed/naturalOrder/reverseOrder, Stream.sorted(Comparator), Map stream ops, Function.andThen
+    #[test]
+    fn test_p76_comparator_comparing() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorComparing", "()I"), 5);
+    }
+    #[test]
+    fn test_p76_comparator_reversed() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorReversed", "()I"), 6);
+    }
+    #[test]
+    fn test_p76_comparator_natural_order() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorNaturalOrder", "()I"), 15);
+    }
+    #[test]
+    fn test_p76_comparator_reverse_order() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorReverseOrder", "()I"), 51);
+    }
+    #[test]
+    fn test_p76_stream_sorted_comparator() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testStreamSortedComparator", "()I"), 13);
+    }
+    #[test]
+    fn test_p76_map_values_stream() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testMapValuesStream", "()I"), 60);
+    }
+    #[test]
+    fn test_p76_map_key_set_stream() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testMapKeySetStream", "()I"), 10);
+    }
+    #[test]
+    fn test_p76_function_compose() {
+        assert_eq!(run_bootstrap_int("Phase76Test.class", "testFunctionCompose", "()I"), 13);
+    }
 }
 #[cfg(test)]
 mod fuzz;
