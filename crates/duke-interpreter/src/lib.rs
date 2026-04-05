@@ -1789,6 +1789,51 @@ pub(crate) fn native_hashmap_for_each(
     Ok(None)
 }
 
+/// Native: `HashMap.replaceAll(BiFunction<K,V,V>) -> void`
+/// Replaces each value with the result of applying the function to (key, value).
+pub(crate) fn native_hashmap_replace_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fn_ref = extract_ref_arg(args, 1)?;
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    // Snapshot keys (values will be mutated in place).
+    let keys: Vec<Slot> = (0..size)
+        .map(|i| {
+            heap.get(this_ref)
+                .map(|o| o.fields[1 + i * 2])
+                .unwrap_or(Slot::Reference(None))
+        })
+        .collect();
+    for (i, key) in keys.iter().enumerate() {
+        let old_val = heap
+            .get(this_ref)
+            .map(|o| o.fields[2 + i * 2])
+            .unwrap_or(Slot::Reference(None));
+        let new_val = ops.invoke(
+            heap,
+            out,
+            &fn_class,
+            "apply",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![Slot::Reference(Some(fn_ref)), *key, old_val],
+        )?;
+        if let Some(v) = new_val {
+            heap.get_mut(this_ref)?.fields[2 + i * 2] = v;
+        }
+    }
+    let _ = control;
+    Ok(None)
+}
+
 // ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by String key) ----
 // Keys are stored sorted in ascending lexicographic order for O(n) insert / O(1) first&last.
 
@@ -3832,6 +3877,27 @@ pub(crate) fn native_stream_reduce_with_identity(
             )?
             .unwrap_or(Slot::Reference(None));
     }
+    // Autobox: if the identity was a Reference (stream of boxed type) but the accumulator
+    // impl returned a raw primitive (e.g. Integer::sum returns int), re-box the result so
+    // that the caller can apply intValue() / longValue() as expected.
+    let acc = match (identity, acc) {
+        (Slot::Reference(_), Slot::Int(v)) => {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Int(v);
+            Slot::Reference(Some(r))
+        }
+        (Slot::Reference(_), Slot::Long(v)) => {
+            let r = heap.allocate("java/lang/Long".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Long(v);
+            Slot::Reference(Some(r))
+        }
+        (Slot::Reference(_), Slot::Double(v)) => {
+            let r = heap.allocate("java/lang/Double".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Double(v);
+            Slot::Reference(Some(r))
+        }
+        _ => acc,
+    };
     Ok(Some(acc))
 }
 
@@ -11989,6 +12055,26 @@ impl FramePool {
     }
 }
 
+/// Pre-resolved method dispatch entry — cached on first resolution to eliminate
+/// repeated [`ClassRegistry`] `HashMap` lookups on hot call sites.
+///
+/// Stored in the static dispatch cache (`dispatch_cache`) and the virtual
+/// dispatch cache (`vtable_cache`).  All `Arc` fields are cheap to clone
+/// (reference-count bump only).
+///
+/// The caches are keyed as follows:
+/// - `dispatch_cache`: `(caller_class, cp_idx)` for `invokestatic`/`invokespecial`
+/// - `vtable_cache`: `(caller_class, cp_idx, receiver_runtime_class)` for `invokevirtual`
+struct CachedDispatch {
+    class_name: String,
+    method_idx: usize,
+    arg_count: usize,
+    max_locals: usize,
+    max_stack: usize,
+    pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    instructions: std::sync::Arc<[(usize, Instruction)]>,
+}
+
 struct ExecutionState {
     current_class: String,
     method_idx: usize,
@@ -11997,7 +12083,12 @@ struct ExecutionState {
     frame: Frame,
     call_stack: Vec<CallFrame>,
     frame_pool: FramePool,
-    dispatch_cache: HashMap<String, HashMap<u16, (String, usize, usize)>>,
+    /// Static dispatch cache for `invokestatic` and `invokespecial`.
+    /// Key: (`caller_class`, `cp_idx`) → pre-resolved method data.
+    dispatch_cache: HashMap<String, HashMap<u16, CachedDispatch>>,
+    /// Polymorphic inline cache for `invokevirtual`.
+    /// Key: (`caller_class`, `cp_idx`, `receiver_runtime_class`) → pre-resolved method data.
+    vtable_cache: HashMap<String, HashMap<u16, HashMap<String, CachedDispatch>>>,
     idx: usize,
     string_intern: HashMap<usize, u64>,
     #[cfg(feature = "telemetry")]
@@ -12092,7 +12183,7 @@ fn callback_invoke_registered_lambda(
         }
     };
 
-    let impl_args = expand_args_for_desc(&impl_args, &lambda_info.impl_desc);
+    let impl_args = adapt_args_for_impl_desc(&impl_args, &lambda_info.impl_desc, heap);
     Ok(Some(execute_class(
         registry,
         loader,
@@ -12341,6 +12432,7 @@ impl ExecutionState {
             call_stack: Vec::new(),
             frame_pool: FramePool::new(),
             dispatch_cache: HashMap::new(),
+            vtable_cache: HashMap::new(),
             idx: 0,
             string_intern: HashMap::new(),
             #[cfg(feature = "telemetry")]
@@ -12367,6 +12459,11 @@ fn refresh_current_method_name(
         .unwrap_or_default();
 }
 
+/// Swap interpreter state to begin executing a callee method.
+///
+/// All method data is passed pre-resolved so this function performs **zero**
+/// [`ClassRegistry`] lookups — eliminating the registry `HashMap` access from every
+/// method-dispatch hot path.
 #[allow(clippy::too_many_arguments)]
 fn activate_method_state(
     frame: &mut Frame,
@@ -12375,14 +12472,15 @@ fn activate_method_state(
     instructions: &mut std::sync::Arc<[(usize, Instruction)]>,
     current_class: &mut String,
     call_stack: &mut Vec<CallFrame>,
-    registry: &ClassRegistry,
     callee_class: String,
     callee_idx: usize,
     callee_pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
     callee_frame: Frame,
+    callee_instructions: std::sync::Arc<[(usize, Instruction)]>,
     resume_idx: usize,
+    #[cfg(feature = "telemetry")] registry: &ClassRegistry,
     #[cfg(feature = "telemetry")] current_method: &mut String,
-) -> VmResult<()> {
+) {
     call_stack.push(CallFrame {
         frame: std::mem::replace(frame, callee_frame),
         method_idx: *method_idx,
@@ -12393,11 +12491,9 @@ fn activate_method_state(
     *method_idx = callee_idx;
     *pc_to_idx = callee_pc_to_idx;
     *current_class = callee_class;
-    *instructions =
-        std::sync::Arc::clone(&registry.get(current_class)?.methods[*method_idx].instructions);
+    *instructions = callee_instructions;
     #[cfg(feature = "telemetry")]
     refresh_current_method_name(current_method, registry, current_class, *method_idx);
-    Ok(())
 }
 
 enum ExecutionOutcome {
@@ -12744,6 +12840,7 @@ fn run_execution(
         call_stack,
         frame_pool,
         dispatch_cache,
+        vtable_cache,
         idx,
         string_intern,
         #[cfg(feature = "telemetry")]
@@ -12967,32 +13064,24 @@ fn run_execution(
         match &instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
-                if let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
+                if let Some(cached) = dispatch_cache
                     .get(current_class.as_str())
                     .and_then(|m| m.get(&cp_idx.0))
                 {
-                    // Fast path: cache hit — skip CP walk and method search.
-                    let (callee_pc_to_idx, callee_frame) = {
-                        let ctx = registry.get(cached_cls)?;
-                        let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
-                        let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
-                        let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
-                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                        locals_buf.resize(max_locals, Slot::Int(0));
-                        if cached_ac > max_locals {
-                            return Err(VmError::LocalOutOfBounds {
-                                index: cached_ac,
-                                max_locals,
-                            });
-                        }
-                        for i in (0..cached_ac).rev() {
-                            locals_buf[i] = frame.pop()?;
-                        }
-                        let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                        (pci, f)
-                    };
-                    let callee_class = cached_cls.clone();
-                    let callee_idx = cached_idx;
+                    // Fast path: cache hit — zero registry lookups.
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(cached.max_locals, Slot::Int(0));
+                    if cached.arg_count > cached.max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: cached.arg_count,
+                            max_locals: cached.max_locals,
+                        });
+                    }
+                    for i in (0..cached.arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
+                    }
+                    let callee_frame =
+                        Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
                     activate_method_state(
                         frame,
                         method_idx,
@@ -13000,15 +13089,17 @@ fn run_execution(
                         instructions,
                         current_class,
                         call_stack,
-                        registry,
-                        callee_class,
-                        callee_idx,
-                        callee_pc_to_idx,
+                        cached.class_name.clone(),
+                        cached.method_idx,
+                        std::sync::Arc::clone(&cached.pc_to_idx),
                         callee_frame,
+                        std::sync::Arc::clone(&cached.instructions),
                         *idx + 1,
                         #[cfg(feature = "telemetry")]
+                        registry,
+                        #[cfg(feature = "telemetry")]
                         current_method,
-                    )?;
+                    );
                     *idx = 0;
                     continue;
                 }
@@ -13050,15 +13141,29 @@ fn run_execution(
                 match callee_idx {
                     Some(callee_idx) => {
                         let arg_count = parse_arg_count(&callee_desc);
-                        dispatch_cache
-                            .entry(current_class.clone())
-                            .or_default()
-                            .insert(cp_idx.0, (callee_class_key.clone(), callee_idx, arg_count));
-                        let (callee_pc_to_idx, callee_frame) = {
+                        let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                             let ctx = registry.get(&callee_class_key)?;
                             let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                             let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                             let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
+                            let instrs =
+                                std::sync::Arc::clone(&ctx.methods[callee_idx].instructions);
+                            // Populate cache with all pre-resolved data.
+                            dispatch_cache
+                                .entry(current_class.clone())
+                                .or_default()
+                                .insert(
+                                    cp_idx.0,
+                                    CachedDispatch {
+                                        class_name: callee_class_key.clone(),
+                                        method_idx: callee_idx,
+                                        arg_count,
+                                        max_locals,
+                                        max_stack,
+                                        pc_to_idx: std::sync::Arc::clone(&pci),
+                                        instructions: std::sync::Arc::clone(&instrs),
+                                    },
+                                );
                             let (mut locals_buf, stack_buf) = frame_pool.acquire();
                             locals_buf.resize(max_locals, Slot::Int(0));
                             if arg_count > max_locals {
@@ -13071,7 +13176,7 @@ fn run_execution(
                                 locals_buf[i] = frame.pop()?;
                             }
                             let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                            (pci, f)
+                            (pci, instrs, f)
                         };
                         activate_method_state(
                             frame,
@@ -13080,15 +13185,17 @@ fn run_execution(
                             instructions,
                             current_class,
                             call_stack,
-                            registry,
                             callee_class_key,
                             callee_idx,
                             callee_pc_to_idx,
                             callee_frame,
+                            callee_instructions,
                             *idx + 1,
                             #[cfg(feature = "telemetry")]
+                            registry,
+                            #[cfg(feature = "telemetry")]
                             current_method,
-                        )?;
+                        );
                         *idx = 0;
                         continue;
                     }
@@ -14050,32 +14157,25 @@ fn run_execution(
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
                 // Fast path: cache hit for invokespecial (static dispatch — safe to cache).
                 if matches!(instr, Instruction::Invokespecial(_))
-                    && let Some(&(ref cached_cls, cached_idx, cached_ac)) = dispatch_cache
+                    && let Some(cached) = dispatch_cache
                         .get(current_class.as_str())
                         .and_then(|m| m.get(&cp_idx.0))
                 {
-                    let (callee_pc_to_idx, callee_frame) = {
-                        let ctx = registry.get(cached_cls)?;
-                        let max_locals = usize::from(ctx.methods[cached_idx].max_locals);
-                        let max_stack = usize::from(ctx.methods[cached_idx].max_stack);
-                        let pci = std::sync::Arc::clone(&ctx.methods[cached_idx].pc_to_idx);
-                        let (mut locals_buf, stack_buf) = frame_pool.acquire();
-                        locals_buf.resize(max_locals, Slot::Int(0));
-                        if cached_ac + 1 > max_locals {
-                            return Err(VmError::LocalOutOfBounds {
-                                index: cached_ac + 1,
-                                max_locals,
-                            });
-                        }
-                        for i in (1..=cached_ac).rev() {
-                            locals_buf[i] = frame.pop()?;
-                        }
-                        locals_buf[0] = frame.pop()?; // `this`
-                        let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                        (pci, f)
-                    };
-                    let dispatch_class = cached_cls.clone();
-                    let callee_idx = cached_idx;
+                    // Zero registry lookups — all data pre-cached.
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(cached.max_locals, Slot::Int(0));
+                    if cached.arg_count + 1 > cached.max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: cached.arg_count + 1,
+                            max_locals: cached.max_locals,
+                        });
+                    }
+                    for i in (1..=cached.arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
+                    }
+                    locals_buf[0] = frame.pop()?; // `this`
+                    let callee_frame =
+                        Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
                     activate_method_state(
                         frame,
                         method_idx,
@@ -14083,15 +14183,17 @@ fn run_execution(
                         instructions,
                         current_class,
                         call_stack,
-                        registry,
-                        dispatch_class,
-                        callee_idx,
-                        callee_pc_to_idx,
+                        cached.class_name.clone(),
+                        cached.method_idx,
+                        std::sync::Arc::clone(&cached.pc_to_idx),
                         callee_frame,
+                        std::sync::Arc::clone(&cached.instructions),
                         *idx + 1,
                         #[cfg(feature = "telemetry")]
+                        registry,
+                        #[cfg(feature = "telemetry")]
                         current_method,
-                    )?;
+                    );
                     *idx = 0;
                     continue;
                 }
@@ -14129,6 +14231,49 @@ fn run_execution(
                     } else {
                         None
                     };
+                // vtable fast path for invokevirtual — check PIC after receiver type is known.
+                if matches!(instr, Instruction::Invokevirtual(_))
+                    && let Some(ref runtime_class) = virtual_start
+                    && let Some(cached) = vtable_cache
+                        .get(current_class.as_str())
+                        .and_then(|m| m.get(&cp_idx.0))
+                        .and_then(|m| m.get(runtime_class.as_str()))
+                {
+                    let (mut locals_buf, stack_buf) = frame_pool.acquire();
+                    locals_buf.resize(cached.max_locals, Slot::Int(0));
+                    if cached.arg_count + 1 > cached.max_locals {
+                        return Err(VmError::LocalOutOfBounds {
+                            index: cached.arg_count + 1,
+                            max_locals: cached.max_locals,
+                        });
+                    }
+                    for i in (1..=cached.arg_count).rev() {
+                        locals_buf[i] = frame.pop()?;
+                    }
+                    locals_buf[0] = frame.pop()?; // `this`
+                    let callee_frame =
+                        Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
+                    activate_method_state(
+                        frame,
+                        method_idx,
+                        pc_to_idx,
+                        instructions,
+                        current_class,
+                        call_stack,
+                        cached.class_name.clone(),
+                        cached.method_idx,
+                        std::sync::Arc::clone(&cached.pc_to_idx),
+                        callee_frame,
+                        std::sync::Arc::clone(&cached.instructions),
+                        *idx + 1,
+                        #[cfg(feature = "telemetry")]
+                        registry,
+                        #[cfg(feature = "telemetry")]
+                        current_method,
+                    );
+                    *idx = 0;
+                    continue;
+                }
                 let resolved = if let Some(runtime_class) = virtual_start.as_ref() {
                     match resolve_method_in_hierarchy_lookup(
                         registry,
@@ -14217,7 +14362,7 @@ fn run_execution(
                                     &lambda_info.impl_desc,
                                 );
                                 if let Some((dispatch_class, impl_idx)) = resolved {
-                                    let (callee_pc_to_idx, callee_frame) = {
+                                    let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                                         let ctx = registry.get(&dispatch_class)?;
                                         let max_locals =
                                             usize::from(ctx.methods[impl_idx].max_locals);
@@ -14225,6 +14370,9 @@ fn run_execution(
                                             usize::from(ctx.methods[impl_idx].max_stack);
                                         let pci =
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let instrs = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].instructions,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         let expanded_impl_args = expand_args_for_desc(
@@ -14239,7 +14387,7 @@ fn run_execution(
                                         }
                                         let f =
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                                        (pci, f)
+                                        (pci, instrs, f)
                                     };
                                     activate_method_state(
                                         frame,
@@ -14248,15 +14396,17 @@ fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        registry,
                                         dispatch_class,
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
+                                        callee_instructions,
                                         *idx + 1,
                                         #[cfg(feature = "telemetry")]
+                                        registry,
+                                        #[cfg(feature = "telemetry")]
                                         current_method,
-                                    )?;
+                                    );
                                     *idx = 0;
                                     continue;
                                 }
@@ -14466,13 +14616,6 @@ fn run_execution(
                     }
                 };
                 let arg_count = parse_arg_count(&callee_desc);
-                // Populate dispatch cache for invokespecial (static dispatch — result is stable).
-                if matches!(instr, Instruction::Invokespecial(_)) {
-                    dispatch_cache
-                        .entry(current_class.clone())
-                        .or_default()
-                        .insert(cp_idx.0, (dispatch_class.clone(), callee_idx, arg_count));
-                }
                 #[cfg(feature = "telemetry")]
                 if matches!(instr, Instruction::Invokevirtual(_)) {
                     registry.telemetry.dispatch_resolution.record(
@@ -14482,11 +14625,49 @@ fn run_execution(
                         dispatch_class != callee_class_key,
                     );
                 }
-                let (callee_pc_to_idx, callee_frame) = {
+                let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                     let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                     let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
+                    let instrs = std::sync::Arc::clone(&ctx.methods[callee_idx].instructions);
+                    // Populate dispatch cache for invokespecial (static dispatch — stable result).
+                    // Also populate vtable cache for invokevirtual when receiver type is known.
+                    if matches!(instr, Instruction::Invokespecial(_)) {
+                        dispatch_cache
+                            .entry(current_class.clone())
+                            .or_default()
+                            .insert(
+                                cp_idx.0,
+                                CachedDispatch {
+                                    class_name: dispatch_class.clone(),
+                                    method_idx: callee_idx,
+                                    arg_count,
+                                    max_locals,
+                                    max_stack,
+                                    pc_to_idx: std::sync::Arc::clone(&pci),
+                                    instructions: std::sync::Arc::clone(&instrs),
+                                },
+                            );
+                    } else if let Some(ref runtime_class) = virtual_start {
+                        vtable_cache
+                            .entry(current_class.clone())
+                            .or_default()
+                            .entry(cp_idx.0)
+                            .or_default()
+                            .insert(
+                                runtime_class.clone(),
+                                CachedDispatch {
+                                    class_name: dispatch_class.clone(),
+                                    method_idx: callee_idx,
+                                    arg_count,
+                                    max_locals,
+                                    max_stack,
+                                    pc_to_idx: std::sync::Arc::clone(&pci),
+                                    instructions: std::sync::Arc::clone(&instrs),
+                                },
+                            );
+                    }
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
@@ -14501,7 +14682,7 @@ fn run_execution(
                     }
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                    (pci, f)
+                    (pci, instrs, f)
                 };
                 activate_method_state(
                     frame,
@@ -14510,15 +14691,17 @@ fn run_execution(
                     instructions,
                     current_class,
                     call_stack,
-                    registry,
                     dispatch_class,
                     callee_idx,
                     callee_pc_to_idx,
                     callee_frame,
+                    callee_instructions,
                     *idx + 1,
                     #[cfg(feature = "telemetry")]
+                    registry,
+                    #[cfg(feature = "telemetry")]
                     current_method,
-                )?;
+                );
                 *idx = 0;
                 continue;
             }
@@ -15366,7 +15549,7 @@ fn run_execution(
                                     &lambda_info.impl_desc,
                                 );
                                 if let Some((dispatch_class, impl_idx)) = resolved {
-                                    let (callee_pc_to_idx, callee_frame) = {
+                                    let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                                         let ctx = registry.get(&dispatch_class)?;
                                         let max_locals =
                                             usize::from(ctx.methods[impl_idx].max_locals);
@@ -15374,6 +15557,9 @@ fn run_execution(
                                             usize::from(ctx.methods[impl_idx].max_stack);
                                         let pci =
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let instrs = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].instructions,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         let expanded_impl_args = expand_args_for_desc(
@@ -15388,7 +15574,7 @@ fn run_execution(
                                         }
                                         let f =
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                                        (pci, f)
+                                        (pci, instrs, f)
                                     };
                                     activate_method_state(
                                         frame,
@@ -15397,15 +15583,17 @@ fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        registry,
                                         dispatch_class,
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
+                                        callee_instructions,
                                         *idx + 1,
                                         #[cfg(feature = "telemetry")]
+                                        registry,
+                                        #[cfg(feature = "telemetry")]
                                         current_method,
-                                    )?;
+                                    );
                                     *idx = 0;
                                     continue;
                                 }
@@ -15423,7 +15611,7 @@ fn run_execution(
                                     &lambda_info.impl_desc,
                                 );
                                 if let Some((dispatch_class, impl_idx)) = resolved {
-                                    let (callee_pc_to_idx, callee_frame) = {
+                                    let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                                         let ctx = registry.get(&dispatch_class)?;
                                         let max_locals =
                                             usize::from(ctx.methods[impl_idx].max_locals);
@@ -15431,6 +15619,9 @@ fn run_execution(
                                             usize::from(ctx.methods[impl_idx].max_stack);
                                         let pci =
                                             std::sync::Arc::clone(&ctx.methods[impl_idx].pc_to_idx);
+                                        let instrs = std::sync::Arc::clone(
+                                            &ctx.methods[impl_idx].instructions,
+                                        );
                                         let (mut locals_buf, stack_buf) = frame_pool.acquire();
                                         locals_buf.resize(max_locals, Slot::Int(0));
                                         let expanded_impl_args = expand_args_for_desc(
@@ -15445,7 +15636,7 @@ fn run_execution(
                                         }
                                         let f =
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                                        (pci, f)
+                                        (pci, instrs, f)
                                     };
                                     activate_method_state(
                                         frame,
@@ -15454,15 +15645,17 @@ fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        registry,
                                         dispatch_class,
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
+                                        callee_instructions,
                                         *idx + 1,
                                         #[cfg(feature = "telemetry")]
+                                        registry,
+                                        #[cfg(feature = "telemetry")]
                                         current_method,
-                                    )?;
+                                    );
                                     *idx = 0;
                                     continue;
                                 }
@@ -15591,11 +15784,12 @@ fn run_execution(
                     &dispatch_class,
                     dispatch_class != actual_class,
                 );
-                let (callee_pc_to_idx, callee_frame) = {
+                let (callee_pc_to_idx, callee_instructions, callee_frame) = {
                     let ctx = registry.get(&dispatch_class)?;
                     let max_locals = usize::from(ctx.methods[callee_idx].max_locals);
                     let max_stack = usize::from(ctx.methods[callee_idx].max_stack);
                     let pci = std::sync::Arc::clone(&ctx.methods[callee_idx].pc_to_idx);
+                    let instrs = std::sync::Arc::clone(&ctx.methods[callee_idx].instructions);
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
@@ -15610,7 +15804,7 @@ fn run_execution(
                     }
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
-                    (pci, f)
+                    (pci, instrs, f)
                 };
                 activate_method_state(
                     frame,
@@ -15619,15 +15813,17 @@ fn run_execution(
                     instructions,
                     current_class,
                     call_stack,
-                    registry,
                     dispatch_class,
                     callee_idx,
                     callee_pc_to_idx,
                     callee_frame,
+                    callee_instructions,
                     *idx + 1,
                     #[cfg(feature = "telemetry")]
+                    registry,
+                    #[cfg(feature = "telemetry")]
                     current_method,
-                )?;
+                );
                 *idx = 0;
                 continue;
             }
@@ -17701,6 +17897,61 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
 /// `lload_2` to see `Slot::Int(0)`.
 ///
 /// If the descriptor contains no wide types this is a zero-copy clone.
+/// Adapts `args` to match the parameter types in `descriptor`:
+/// - Inserts a padding `Slot::Int(0)` after each Long/Double slot.
+/// - Unboxes `Slot::Reference(Some(r))` → `Slot::Int/Long/Float/Double` when
+///   the corresponding descriptor param type is `I`, `J`, `F`, or `D`.
+///   This handles method references like `Integer::sum` used as `BinaryOperator<Integer>`.
+fn adapt_args_for_impl_desc(args: &[Slot], descriptor: &str, heap: &duke_gc::Heap) -> Vec<Slot> {
+    let param_types = parse_arg_types(descriptor);
+    if param_types.is_empty() || args.is_empty() {
+        return args.to_vec();
+    }
+    let mut result = Vec::with_capacity(args.len() + 4);
+    for (slot, &type_char) in args.iter().zip(param_types.iter()) {
+        let adapted = match (slot, type_char) {
+            // Unbox Reference → int
+            (Slot::Reference(Some(r)), 'I' | 'B' | 'S' | 'C' | 'Z') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Int(_)))
+                .unwrap_or(*slot),
+            // Unbox Reference → long
+            (Slot::Reference(Some(r)), 'J') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Long(_)))
+                .unwrap_or(*slot),
+            // Unbox Reference → double
+            (Slot::Reference(Some(r)), 'D') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Double(_)))
+                .unwrap_or(*slot),
+            // Unbox Reference → float
+            (Slot::Reference(Some(r)), 'F') => heap
+                .get(*r)
+                .ok()
+                .and_then(|obj| obj.fields.first().copied())
+                .filter(|s| matches!(s, Slot::Float(_)))
+                .unwrap_or(*slot),
+            _ => *slot,
+        };
+        result.push(adapted);
+        if type_char == 'J' || type_char == 'D' {
+            result.push(Slot::Int(0)); // wide padding
+        }
+    }
+    // Preserve trailing args beyond descriptor param count (captures).
+    if args.len() > param_types.len() {
+        result.extend_from_slice(&args[param_types.len()..]);
+    }
+    result
+}
+
 fn expand_args_for_desc(args: &[Slot], descriptor: &str) -> Vec<Slot> {
     let param_types = parse_arg_types(descriptor);
     let wide_count = param_types
@@ -18529,11 +18780,13 @@ pub(crate) fn native_arraylist_iterator(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let iter_ref = heap.allocate("duke/util/ArrayListIterator".to_string(), 2);
+    // fields[0]=list_ref, fields[1]=cursor, fields[2]=last_returned (-1 = none)
+    let iter_ref = heap.allocate("duke/util/ArrayListIterator".to_string(), 3);
     {
         let iter_obj = heap.get_mut(iter_ref)?;
         iter_obj.fields[0] = Slot::Reference(Some(this_ref));
         iter_obj.fields[1] = Slot::Int(0);
+        iter_obj.fields[2] = Slot::Int(-1);
     }
     Ok(Some(Slot::Reference(Some(iter_ref))))
 }
@@ -18839,8 +19092,62 @@ pub(crate) fn native_arraylist_iter_next(
             }
         }
     };
-    heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
+    let iter_obj = heap.get_mut(this_ref)?;
+    iter_obj.fields[1] = Slot::Int(cursor + 1);
+    iter_obj.fields[2] = Slot::Int(cursor); // record last-returned index
     Ok(Some(element))
+}
+
+/// Native: `ArrayListIterator.remove()V` — removes the last element returned by `next()`.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_arraylist_iter_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (list_ref, last, cursor) = {
+        let iter_obj = heap.get(this_ref)?;
+        let lr = match iter_obj.fields.first() {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let last = match iter_obj.fields.get(2) {
+            Some(Slot::Int(i)) => *i,
+            _ => -1,
+        };
+        let cursor = match iter_obj.fields.get(1) {
+            Some(Slot::Int(i)) => *i,
+            _ => 0,
+        };
+        (lr, last, cursor)
+    };
+    if last < 0 {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/IllegalStateException".to_string(),
+        });
+    }
+    // Remove from backing list: shift elements left, decrement size.
+    let list_size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz,
+        _ => 0,
+    };
+    let remove_idx = last as usize + 1; // +1 because fields[0] is size
+    let list_obj = heap.get_mut(list_ref)?;
+    let new_size = (list_size - 1) as usize;
+    list_obj.fields[0] = Slot::Int(list_size - 1);
+    list_obj.fields.remove(remove_idx);
+    list_obj.fields.push(Slot::Int(0)); // pad to keep capacity stable
+    // Adjust cursor: removed element was before cursor, so decrement.
+    if last < cursor {
+        let iter_obj = heap.get_mut(this_ref)?;
+        iter_obj.fields[1] = Slot::Int(cursor - 1);
+    }
+    // Reset last-returned sentinel.
+    heap.get_mut(this_ref)?.fields[2] = Slot::Int(-1);
+    let _ = new_size; // used implicitly
+    Ok(None)
 }
 
 // ---- ArrayList extended methods ----
@@ -25730,6 +26037,1315 @@ pub(crate) fn native_arraydeque_clear(
     heap.get_mut(this_ref)?.fields.truncate(1);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
     Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// Phase 62: java.time (LocalDate, LocalDateTime, Instant, Duration, Period)
+// ---------------------------------------------------------------------------
+
+/// Convert (year, month, day) to a proleptic Gregorian epoch day count.
+/// Day 0 = 1970-01-01.  Howard Hinnant's branchless algorithm.
+#[allow(
+    clippy::cast_lossless,         // i32/u32 → i64 widening casts
+    clippy::cast_possible_truncation, // result fits i32 for any valid Gregorian date
+    clippy::missing_const_for_fn   // i64::from not const-stable yet
+)]
+fn ymd_to_epoch_days(year: i32, month: u32, day: u32) -> i32 {
+    let (y, m, d) = (year as i64, month as i64, day as i64);
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400); // year of era [0, 399]
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1; // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // day of era [0, 146096]
+    (era * 146_097 + doe - 719_468) as i32
+}
+
+/// Convert a proleptic Gregorian epoch day to (year, month, day).
+#[allow(
+    clippy::cast_lossless,            // i32 → i64 widening cast
+    clippy::cast_possible_truncation, // y fits i32 for valid dates
+    clippy::cast_sign_loss,           // m/d are [1,12]/[1,31], sign-safe u32
+    clippy::missing_const_for_fn      // i64::from not const-stable yet
+)]
+fn epoch_days_to_ymd(epoch_days: i32) -> (i32, u32, u32) {
+    let z = epoch_days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097); // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
+// ---- LocalDate layout: fields[0] = Slot::Int(epoch_days) ----
+
+/// Native: `LocalDate.of(int, int, int) -> LocalDate`
+#[allow(clippy::cast_sign_loss)] // month/day from Java int are always positive
+pub(crate) fn native_localdate_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let year = extract_int_arg(args, 0)?;
+    let month = extract_int_arg(args, 1)? as u32;
+    let day = extract_int_arg(args, 2)? as u32;
+    let epoch = ymd_to_epoch_days(year, month, day);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.now() -> LocalDate` — returns 1970-01-01 (epoch 0) in this interpreter.
+pub(crate) fn native_localdate_now(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0); // epoch 0 = 1970-01-01
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.getYear() -> int`
+pub(crate) fn native_localdate_get_year(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (year, _, _) = epoch_days_to_ymd(epoch);
+    Ok(Some(Slot::Int(year)))
+}
+
+/// Native: `LocalDate.getMonthValue() -> int`
+pub(crate) fn native_localdate_get_month_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, month, _) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // month is [1,12], fits i32
+    Ok(Some(Slot::Int(month as i32)))
+}
+
+/// Native: `LocalDate.getDayOfMonth() -> int`
+pub(crate) fn native_localdate_get_day_of_month(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, _, day) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // day is [1,31], fits i32
+    Ok(Some(Slot::Int(day as i32)))
+}
+
+/// Native: `LocalDate.plusDays(long) -> LocalDate`
+pub(crate) fn native_localdate_plus_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let days = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    #[allow(clippy::cast_possible_truncation)] // saturating_add handles out-of-range
+    let new_epoch = epoch.saturating_add(days as i32);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.minusDays(long) -> LocalDate`
+pub(crate) fn native_localdate_minus_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let days = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    #[allow(clippy::cast_possible_truncation)] // saturating_sub handles out-of-range
+    let new_epoch = epoch.saturating_sub(days as i32);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.plusMonths(long) -> LocalDate`
+pub(crate) fn native_localdate_plus_months(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let months = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    let total_months = i64::from(y) * 12 + (i64::from(m) - 1) + months;
+    #[allow(clippy::cast_possible_truncation)] // year range is reasonable for Java dates
+    let ny = (total_months / 12) as i32;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // rem is [0,11] so +1 is [1,12], always positive and fits u32
+    let nm = ((total_months % 12) + 1) as u32;
+    // clamp day to valid range for that month
+    let max_day = days_in_month(ny, nm);
+    let nd = d.min(max_day);
+    let new_epoch = ymd_to_epoch_days(ny, nm, nd);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.plusYears(long) -> LocalDate`
+pub(crate) fn native_localdate_plus_years(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let years = extract_long_arg(args, 1)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_truncation)] // year range is reasonable for Java dates
+    let ny = y + years as i32;
+    let max_day = days_in_month(ny, m);
+    let nd = d.min(max_day);
+    let new_epoch = ymd_to_epoch_days(ny, m, nd);
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDate.isBefore(LocalDate) -> boolean`
+pub(crate) fn native_localdate_is_before(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a < b))))
+}
+
+/// Native: `LocalDate.isAfter(LocalDate) -> boolean`
+pub(crate) fn native_localdate_is_after(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a > b))))
+}
+
+/// Native: `LocalDate.isEqual(LocalDate) -> boolean`
+pub(crate) fn native_localdate_is_equal(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a == b))))
+}
+
+/// Native: `LocalDate.toEpochDay() -> long`
+pub(crate) fn native_localdate_to_epoch_day(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(i64::from(epoch))))
+}
+
+/// Native: `LocalDate.toString() -> String`
+pub(crate) fn native_localdate_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    let s = format!("{y:04}-{m:02}-{d:02}");
+    let sr = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(sr))))
+}
+
+/// Helper: days in a given month of a given year (handles leap years).
+const fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        2 => {
+            if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 30, // months 4,6,9,11 + any invalid input
+    }
+}
+
+// ---- Duration layout: fields[0]=Slot::Long(seconds), fields[1]=Slot::Int(nanos_adj) ----
+
+/// Native: `Duration.ofSeconds(long) -> Duration`
+pub(crate) fn native_duration_of_seconds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let secs = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(secs);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.ofMinutes(long) -> Duration`
+pub(crate) fn native_duration_of_minutes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let mins = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(mins * 60);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.ofHours(long) -> Duration`
+pub(crate) fn native_duration_of_hours(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let hrs = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(hrs * 3600);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.ofDays(long) -> Duration`
+pub(crate) fn native_duration_of_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let days = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(days * 86_400);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.getSeconds() -> long`
+pub(crate) fn native_duration_get_seconds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs)))
+}
+
+/// Native: `Duration.toSeconds() -> long`
+pub(crate) fn native_duration_to_seconds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    native_duration_get_seconds(args, heap, out, control)
+}
+
+/// Native: `Duration.toMinutes() -> long`
+pub(crate) fn native_duration_to_minutes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs / 60)))
+}
+
+/// Native: `Duration.toHours() -> long`
+pub(crate) fn native_duration_to_hours(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs / 3600)))
+}
+
+/// Native: `Duration.toDays() -> long`
+pub(crate) fn native_duration_to_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs / 86_400)))
+}
+
+/// Native: `Duration.plus(Duration) -> Duration`
+pub(crate) fn native_duration_plus(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let a_nano = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_secs = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b_nano = match heap.get(other_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let total_nano = i64::from(a_nano) + i64::from(b_nano);
+    let carry = total_nano / 1_000_000_000;
+    #[allow(clippy::cast_possible_truncation)] // rem fits in i32: [0, 999_999_999]
+    let rem_nano = (total_nano % 1_000_000_000) as i32;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(a_secs + b_secs + carry);
+    heap.get_mut(r)?.fields[1] = Slot::Int(rem_nano);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.minus(Duration) -> Duration`
+pub(crate) fn native_duration_minus(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let a_nano = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_secs = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b_nano = match heap.get(other_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let total_nano = i64::from(a_nano) - i64::from(b_nano);
+    let carry = if total_nano < 0 {
+        (total_nano - 999_999_999) / 1_000_000_000
+    } else {
+        total_nano / 1_000_000_000
+    };
+    #[allow(clippy::cast_possible_truncation)] // rem fits in i32: [-(999_999_999), 999_999_999]
+    let rem_nano = (total_nano - carry * 1_000_000_000) as i32;
+    let r = heap.allocate("java/time/Duration".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(a_secs - b_secs + carry);
+    heap.get_mut(r)?.fields[1] = Slot::Int(rem_nano);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Duration.isNegative() -> boolean`
+pub(crate) fn native_duration_is_negative(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(secs < 0))))
+}
+
+/// Native: `Duration.isZero() -> boolean`
+pub(crate) fn native_duration_is_zero(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let nano = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(secs == 0 && nano == 0))))
+}
+
+// ---- Period layout: fields[0]=years(Int), fields[1]=months(Int), fields[2]=days(Int) ----
+
+/// Native: `Period.of(int, int, int) -> Period`
+pub(crate) fn native_period_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let years = extract_int_arg(args, 0)?;
+    let months = extract_int_arg(args, 1)?;
+    let days = extract_int_arg(args, 2)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(years);
+    heap.get_mut(r)?.fields[1] = Slot::Int(months);
+    heap.get_mut(r)?.fields[2] = Slot::Int(days);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.ofDays(int) -> Period`
+pub(crate) fn native_period_of_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let days = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    heap.get_mut(r)?.fields[2] = Slot::Int(days);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.ofMonths(int) -> Period`
+pub(crate) fn native_period_of_months(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let months = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0);
+    heap.get_mut(r)?.fields[1] = Slot::Int(months);
+    heap.get_mut(r)?.fields[2] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.ofYears(int) -> Period`
+pub(crate) fn native_period_of_years(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let years = extract_int_arg(args, 0)?;
+    let r = heap.allocate("java/time/Period".to_string(), 3);
+    heap.get_mut(r)?.fields[0] = Slot::Int(years);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    heap.get_mut(r)?.fields[2] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Period.getYears() -> int`
+pub(crate) fn native_period_get_years(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `Period.getMonths() -> int`
+pub(crate) fn native_period_get_months(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `Period.getDays() -> int`
+pub(crate) fn native_period_get_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `Period.isNegative() -> boolean`
+pub(crate) fn native_period_is_negative(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let f = heap.get(this_ref)?.fields.clone();
+    let neg = f.iter().any(|s| matches!(s, Slot::Int(v) if *v < 0));
+    Ok(Some(Slot::Int(i32::from(neg))))
+}
+
+/// Native: `Period.isZero() -> boolean`
+pub(crate) fn native_period_is_zero(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let f = heap.get(this_ref)?.fields.clone();
+    let zero = f.iter().all(|s| matches!(s, Slot::Int(0)));
+    Ok(Some(Slot::Int(i32::from(zero))))
+}
+
+// ---- Instant layout: fields[0]=Slot::Long(epoch_seconds), fields[1]=Slot::Int(nanos_adj) ----
+
+/// Native: `Instant.ofEpochSecond(long) -> Instant`
+pub(crate) fn native_instant_of_epoch_second(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let secs = extract_long_arg(args, 0)?;
+    let r = heap.allocate("java/time/Instant".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(secs);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Instant.ofEpochMilli(long) -> Instant`
+pub(crate) fn native_instant_of_epoch_milli(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let millis = extract_long_arg(args, 0)?;
+    let secs = millis / 1000;
+    #[allow(clippy::cast_possible_truncation)] // nanos = [0, 999_000_000], fits i32
+    let nanos = ((millis % 1000) * 1_000_000) as i32;
+    let r = heap.allocate("java/time/Instant".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Long(secs);
+    heap.get_mut(r)?.fields[1] = Slot::Int(nanos);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Instant.getEpochSecond() -> long`
+pub(crate) fn native_instant_get_epoch_second(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs)))
+}
+
+/// Native: `Instant.toEpochMilli() -> long`
+pub(crate) fn native_instant_to_epoch_milli(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let secs = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let nanos = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(secs * 1000 + i64::from(nanos) / 1_000_000)))
+}
+
+/// Native: `Instant.isBefore(Instant) -> boolean`
+pub(crate) fn native_instant_is_before(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a < b))))
+}
+
+/// Native: `Instant.isAfter(Instant) -> boolean`
+pub(crate) fn native_instant_is_after(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let b = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(a > b))))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 63: java.time.LocalDateTime
+// Layout: fields[0]=epoch_days(Int), fields[1]=hour(Int),
+//         fields[2]=minute(Int), fields[3]=second(Int), fields[4]=nano(Int)
+// ---------------------------------------------------------------------------
+
+/// Native: `LocalDateTime.of(int,int,int,int,int) -> LocalDateTime`
+#[allow(clippy::cast_sign_loss)] // month/day from Java int are always positive
+pub(crate) fn native_localdatetime_of_ymd_hm(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let year = extract_int_arg(args, 0)?;
+    let month = extract_int_arg(args, 1)? as u32;
+    let day = extract_int_arg(args, 2)? as u32;
+    let hour = extract_int_arg(args, 3)?;
+    let minute = extract_int_arg(args, 4)?;
+    let epoch = ymd_to_epoch_days(year, month, day);
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    heap.get_mut(r)?.fields[2] = Slot::Int(minute);
+    heap.get_mut(r)?.fields[3] = Slot::Int(0);
+    heap.get_mut(r)?.fields[4] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.of(int,int,int,int,int,int) -> LocalDateTime`
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_localdatetime_of_ymd_hms(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let year = extract_int_arg(args, 0)?;
+    let month = extract_int_arg(args, 1)? as u32;
+    let day = extract_int_arg(args, 2)? as u32;
+    let hour = extract_int_arg(args, 3)?;
+    let minute = extract_int_arg(args, 4)?;
+    let second = extract_int_arg(args, 5)?;
+    let epoch = ymd_to_epoch_days(year, month, day);
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    heap.get_mut(r)?.fields[2] = Slot::Int(minute);
+    heap.get_mut(r)?.fields[3] = Slot::Int(second);
+    heap.get_mut(r)?.fields[4] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.of(LocalDate, int, int, int) -> LocalDateTime`
+/// Synthetic overload: accepts `LocalDate` ref + hour/minute/second as ints.
+pub(crate) fn native_localdatetime_of_date_hms(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let date_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(date_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let hour = extract_int_arg(args, 1)?;
+    let minute = extract_int_arg(args, 2)?;
+    let second = extract_int_arg(args, 3)?;
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    heap.get_mut(r)?.fields[2] = Slot::Int(minute);
+    heap.get_mut(r)?.fields[3] = Slot::Int(second);
+    heap.get_mut(r)?.fields[4] = Slot::Int(0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.now() -> LocalDateTime` — returns 1970-01-01T00:00:00 in interpreter.
+pub(crate) fn native_localdatetime_now(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    for i in 0..5 {
+        heap.get_mut(r)?.fields[i] = Slot::Int(0);
+    }
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.getYear() -> int`
+pub(crate) fn native_localdatetime_get_year(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (year, _, _) = epoch_days_to_ymd(epoch);
+    Ok(Some(Slot::Int(year)))
+}
+
+/// Native: `LocalDateTime.getMonthValue() -> int`
+pub(crate) fn native_localdatetime_get_month_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, month, _) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // month is [1,12]
+    Ok(Some(Slot::Int(month as i32)))
+}
+
+/// Native: `LocalDateTime.getDayOfMonth() -> int`
+pub(crate) fn native_localdatetime_get_day_of_month(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (_, _, day) = epoch_days_to_ymd(epoch);
+    #[allow(clippy::cast_possible_wrap)] // day is [1,31]
+    Ok(Some(Slot::Int(day as i32)))
+}
+
+/// Native: `LocalDateTime.getHour() -> int`
+pub(crate) fn native_localdatetime_get_hour(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `LocalDateTime.getMinute() -> int`
+pub(crate) fn native_localdatetime_get_minute(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `LocalDateTime.getSecond() -> int`
+pub(crate) fn native_localdatetime_get_second(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let v = match heap.get(this_ref)?.fields.get(3) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(v)))
+}
+
+/// Native: `LocalDateTime.toLocalDate() -> LocalDate`
+pub(crate) fn native_localdatetime_to_local_date(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let r = heap.allocate("java/time/LocalDate".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = Slot::Int(epoch);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.isBefore(LocalDateTime) -> boolean`
+pub(crate) fn native_localdatetime_is_before(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_epoch = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    if a_epoch != b_epoch {
+        return Ok(Some(Slot::Int(i32::from(a_epoch < b_epoch))));
+    }
+    // same day — compare time fields
+    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
+    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
+    for idx in 1..=3 {
+        let a = match fields_a.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        let b = match fields_b.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        if a != b {
+            return Ok(Some(Slot::Int(i32::from(a < b))));
+        }
+    }
+    Ok(Some(Slot::Int(0))) // equal
+}
+
+/// Native: `LocalDateTime.isAfter(LocalDateTime) -> boolean`
+pub(crate) fn native_localdatetime_is_after(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a_epoch = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let b_epoch = match heap.get(other_ref)?.fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    if a_epoch != b_epoch {
+        return Ok(Some(Slot::Int(i32::from(a_epoch > b_epoch))));
+    }
+    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
+    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
+    for idx in 1..=3 {
+        let a = match fields_a.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        let b = match fields_b.get(idx) {
+            Some(Slot::Int(v)) => *v,
+            _ => 0,
+        };
+        if a != b {
+            return Ok(Some(Slot::Int(i32::from(a > b))));
+        }
+    }
+    Ok(Some(Slot::Int(0))) // equal
+}
+
+/// Native: `LocalDateTime.toString() -> String` — ISO-8601 format
+pub(crate) fn native_localdatetime_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let epoch = match fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let hour = match fields.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let min = match fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let sec = match fields.get(3) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let (y, m, d) = epoch_days_to_ymd(epoch);
+    let s = format!("{y:04}-{m:02}-{d:02}T{hour:02}:{min:02}:{sec:02}");
+    let sr = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(sr))))
+}
+
+/// Native: `LocalDateTime.plusDays(long) -> LocalDateTime`
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn native_localdatetime_plus_days(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let days = extract_long_arg(args, 1)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let epoch = match fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    let new_epoch = epoch.saturating_add(days as i32);
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
+    for i in 1..5 {
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
+    }
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `LocalDateTime.withHour(int) -> LocalDateTime`
+pub(crate) fn native_localdatetime_with_hour(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let hour = extract_int_arg(args, 1)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
+    for i in 0..5 {
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
+    }
+    heap.get_mut(r)?.fields[1] = Slot::Int(hour);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+// ---------------------------------------------------------------------------
+// Phase 64: String.indent, StringBuilder.setCharAt, Collections.disjoint,
+//           HashMap.computeIfPresent
+// ---------------------------------------------------------------------------
+
+/// Native: `String.indent(int) -> String` — prepends `n` spaces to each line.
+/// Negative `n` removes up to `|n|` leading spaces per line (Java 12+ semantics).
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_string_indent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let n = extract_int_arg(args, 1)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let result: String = if n >= 0 {
+        let prefix = " ".repeat(n as usize);
+        s.lines()
+            .map(|line| {
+                let mut out = String::with_capacity(prefix.len() + line.len() + 1);
+                out.push_str(&prefix);
+                out.push_str(line);
+                out.push('\n');
+                out
+            })
+            .collect()
+    } else {
+        let remove = (-n) as usize;
+        s.lines()
+            .map(|line| {
+                let stripped = line.trim_start_matches(' ');
+                let leading = line.len() - stripped.len();
+                let keep = leading.saturating_sub(remove);
+                let spaces = " ".repeat(keep);
+                let mut out = String::with_capacity(keep + stripped.len() + 1);
+                out.push_str(&spaces);
+                out.push_str(stripped);
+                out.push('\n');
+                out
+            })
+            .collect()
+    };
+    let r = heap.allocate_string(result);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `StringBuilder.setCharAt(int, char) -> void`
+pub(crate) fn native_stringbuilder_set_char_at(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(usize::MAX);
+    let ch = match args.get(2) {
+        Some(Slot::Int(v)) => char::from_u32(u32::from_ne_bytes(v.to_ne_bytes())).unwrap_or('\0'),
+        _ => '\0',
+    };
+    let s = heap
+        .get_mut(this_ref)?
+        .string_value
+        .get_or_insert_with(String::new)
+        .clone();
+    let mut chars: Vec<char> = s.chars().collect();
+    if idx < chars.len() {
+        chars[idx] = ch;
+    }
+    let new_s: String = chars.into_iter().collect();
+    heap.get_mut(this_ref)?.string_value = Some(new_s);
+    Ok(None)
+}
+
+/// Native: `Collections.disjoint(Collection, Collection) -> boolean`
+/// Returns true if the two collections have no elements in common.
+pub(crate) fn native_collections_disjoint(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a_ref = extract_ref_arg(args, 0)?;
+    let b_ref = extract_ref_arg(args, 1)?;
+    // Both use ArrayList/HashSet layout: fields[0]=size, fields[1..=size]=elements
+    let a_size = match heap.get(a_ref)?.fields.first() {
+        Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
+        _ => 0,
+    };
+    let b_size = match heap.get(b_ref)?.fields.first() {
+        Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
+        _ => 0,
+    };
+    let a_elems: Vec<Slot> = heap.get(a_ref)?.fields
+        [1..=a_size.min(heap.get(a_ref)?.fields.len().saturating_sub(1))]
+        .to_vec();
+    let b_elems: Vec<Slot> = heap.get(b_ref)?.fields
+        [1..=b_size.min(heap.get(b_ref)?.fields.len().saturating_sub(1))]
+        .to_vec();
+    let disjoint = a_elems
+        .iter()
+        .all(|a| !b_elems.iter().any(|b| slots_equal(a, b, heap)));
+    Ok(Some(Slot::Int(i32::from(disjoint))))
+}
+
+/// Native: `HashMap.computeIfPresent(K, BiFunction<K,V,V>) -> V`
+/// If key is present, applies the function to (key, `old_value`); replaces with result.
+/// If function returns null, removes the key.
+pub(crate) fn native_hashmap_compute_if_present(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    // Look up existing value.
+    let existing = native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+    let old_value = match existing {
+        Some(v) if !matches!(v, Slot::Reference(None)) => v,
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    // Key present — invoke the remapping function.
+    let fn_ref = extract_ref_arg(args, 2)?;
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let new_value = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![Slot::Reference(Some(fn_ref)), key, old_value],
+    )?;
+    match new_value {
+        Some(v) if !matches!(v, Slot::Reference(None)) => {
+            native_hashmap_put(
+                &[Slot::Reference(Some(this_ref)), key, v],
+                heap,
+                out,
+                control,
+            )?;
+            Ok(Some(v))
+        }
+        _ => {
+            // null return → remove key
+            native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+            Ok(Some(Slot::Reference(None)))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -51026,6 +52642,539 @@ mod tests {
     fn test_treeset_stream() {
         assert_eq!(
             run_bootstrap_int("Phase60Test.class", "testTreeSetStream", "()I"),
+            3
+        );
+    }
+
+    // ---- Phase 62: java.time (LocalDate, Duration, Period, Instant) ----
+
+    #[test]
+    fn test_localdate_components() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateComponents", "()I"),
+            20_240_315
+        );
+    }
+
+    #[test]
+    fn test_localdate_plus_days() {
+        // 2024-01-01 + 31 days = 2024-02-01
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDatePlusDays", "()I"),
+            20_240_201
+        );
+    }
+
+    #[test]
+    fn test_localdate_minus_days() {
+        // 2024-03-01 - 1 day = 2024-02-29 (leap year)
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateMinusDays", "()I"),
+            20_240_229
+        );
+    }
+
+    #[test]
+    fn test_localdate_plus_months() {
+        // 2023-11-30 + 3 months = 2024-02-29 (clamped to Feb end in leap year)
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDatePlusMonths", "()I"),
+            20_240_229
+        );
+    }
+
+    #[test]
+    fn test_localdate_plus_years() {
+        // 2020-06-15 + 4 years = 2024-06-15
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDatePlusYears", "()I"),
+            20_240_615
+        );
+    }
+
+    #[test]
+    fn test_localdate_comparisons() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateComparisons", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_localdate_epoch_day() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateEpochDay", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_duration_seconds() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationSeconds", "()I"),
+            3723
+        );
+    }
+
+    #[test]
+    fn test_duration_minutes() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationMinutes", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_duration_arithmetic() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationArithmetic", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_duration_flags() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationFlags", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_period_components() {
+        // Period.of(1, 6, 15): 1*10000 + 6*100 + 15 = 10615
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testPeriodComponents", "()I"),
+            10615
+        );
+    }
+
+    #[test]
+    fn test_period_factories() {
+        // 7 + 300 + 20000 = 20307
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testPeriodFactories", "()I"),
+            20307
+        );
+    }
+
+    #[test]
+    fn test_period_flags() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testPeriodFlags", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_instant_epoch_second() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testInstantEpochSecond", "()I"),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn test_instant_epoch_milli() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testInstantEpochMilli", "()I"),
+            5000
+        );
+    }
+
+    #[test]
+    fn test_instant_comparisons() {
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testInstantComparisons", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_localdate_now() {
+        // interpreter epoch 0 = 1970-01-01, so getYear() = 1970
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateNow", "()I"),
+            1970
+        );
+    }
+
+    #[test]
+    fn test_localdate_to_string() {
+        // "2024-12-31" has length 10
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testLocalDateToString", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_duration_to_seconds() {
+        // 2 minutes = 120 seconds
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDurationToSeconds", "()I"),
+            120
+        );
+    }
+
+    #[test]
+    fn test_dispatch_cache_hot_path() {
+        // exercises invokestatic dispatch cache warm path (5 calls to same method)
+        assert_eq!(
+            run_bootstrap_int("Phase62Test.class", "testDispatchCacheHotPath", "()I"),
+            10
+        );
+    }
+
+    // ---- Phase 63: LocalDateTime ----
+
+    #[test]
+    fn test_localdatetime_components() {
+        // 2024-06-15 → 20_240_615
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeComponents", "()I"),
+            20_240_615
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_time() {
+        // 23:45:59 → 23*10000 + 45*100 + 59 = 234559
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeTime", "()I"),
+            234_559
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_to_local_date() {
+        // 2023-12-25 → 20_231_225
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeToLocalDate", "()I"),
+            20_231_225
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_ordering() {
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeOrdering", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_to_string() {
+        // "2024-03-15T09:05:07" length = 19
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeToString", "()I"),
+            19
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_plus_days() {
+        // 2024-01-30 + 2 days = 2024-02-01
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimePlusDays", "()I"),
+            20_240_201
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_with_hour() {
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeWithHour", "()I"),
+            18
+        );
+    }
+
+    #[test]
+    fn test_localdatetime_now() {
+        assert_eq!(
+            run_bootstrap_int("Phase63Test.class", "testLocalDateTimeNow", "()I"),
+            1970
+        );
+    }
+
+    // Phase 64: String.indent, StringBuilder.setCharAt, Collections.disjoint, HashMap.computeIfPresent
+    #[test]
+    fn test_string_indent_positive() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentPositive", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn test_string_indent_negative() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentNegative", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_string_indent_zero() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentZero", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_string_indent_starts_with() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringIndentStartsWith", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_stringbuilder_set_char_at() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testStringBuilderSetCharAt", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_stringbuilder_set_char_at_value() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase64Test.class",
+                "testStringBuilderSetCharAtValue",
+                "()I"
+            ),
+            7
+        );
+    }
+
+    #[test]
+    fn test_collections_disjoint_true() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testCollectionsDisjointTrue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_collections_disjoint_false() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testCollectionsDisjointFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_hashmap_compute_if_present_hit() {
+        assert_eq!(
+            run_bootstrap_int("Phase64Test.class", "testHashMapComputeIfPresentHit", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_hashmap_compute_if_present_miss() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase64Test.class",
+                "testHashMapComputeIfPresentMiss",
+                "()I"
+            ),
+            1
+        );
+    }
+
+    // Phase 65: Java 11 String methods, Integer radix conversions, HashMap callbacks
+    #[test]
+    fn test_p65_string_strip() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringStrip", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p65_string_strip_leading() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringStripLeading", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p65_string_strip_trailing() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringStripTrailing", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p65_string_repeat() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringRepeat", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn test_p65_string_repeat_zero() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringRepeatZero", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p65_string_is_blank_true() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringIsBlankTrue", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p65_string_is_blank_false() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testStringIsBlankFalse", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_binary_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToBinaryString", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_hex_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToHexString", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_octal_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToOctalString", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p65_integer_to_hex_string_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testIntegerToHexStringValue", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p65_hashmap_compute_if_absent_miss() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testHashMapComputeIfAbsentMiss", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p65_hashmap_compute_if_absent_hit() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testHashMapComputeIfAbsentHit", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn test_p65_hashmap_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase65Test.class", "testHashMapForEach", "()I"),
+            60
+        );
+    }
+
+    // Phase 66: HashMap.replaceAll, Iterator.remove
+    #[test]
+    fn test_p66_hashmap_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testHashMapReplaceAll", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p66_hashmap_replace_all_length() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testHashMapReplaceAllLength", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p66_iterator_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testIteratorRemove", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p66_iterator_remove_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testIteratorRemoveAll", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p66_iterator_remove_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase66Test.class", "testIteratorRemoveSum", "()I"),
+            12
+        );
+    }
+
+    // Phase 67: method-ref unboxing (adapt_args_for_impl_desc), and modern Java syntax probes
+    #[test]
+    fn test_p67_stream_reduce_method_ref() {
+        // Integer::sum as BinaryOperator<Integer> — requires boxed→unboxed arg adaptation
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testStreamReduce", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p67_record() {
+        assert_eq!(run_bootstrap_int("ProbeRun.class", "testRecord", "()I"), 7);
+    }
+
+    #[test]
+    fn test_p67_pattern_match() {
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testPatternMatch", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p67_text_block() {
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testTextBlock", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p67_switch_expr() {
+        assert_eq!(
+            run_bootstrap_int("ProbeRun.class", "testSwitchExpr", "()I"),
             3
         );
     }

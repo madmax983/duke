@@ -181,3 +181,49 @@ Changes:
 - **Remaining bottleneck**: benchFib at 76 ms. Next opportunities: string interning
   (LDC allocates a new HeapObject per load), escape analysis to stack-allocate short-lived
   objects, and threaded dispatch (computed-goto equivalent) to reduce match overhead.
+
+## Phase 61: CachedDispatch + vtable PIC Results (2026-04-03)
+
+Duke version: Phase 61 — CachedDispatch struct + vtable PIC for invokevirtual
+Changes:
+- `CachedDispatch` struct stores `max_locals`, `max_stack`, `pc_to_idx`, `instructions` alongside class/method/arg_count
+- `dispatch_cache` value type changed from `(String, usize, usize)` to `CachedDispatch` — eliminates **both** `registry.get()` calls on `invokestatic`/`invokespecial` fast path (was 2, now 0)
+- `activate_method_state` now takes `callee_instructions: Arc<[..]>` directly — registry no longer needed for non-telemetry builds
+- `vtable_cache: HashMap<caller_class, HashMap<cp_idx, HashMap<runtime_class, CachedDispatch>>>` — new polymorphic inline cache for `invokevirtual`; populated on first hit per (call site, runtime class) pair, skips hierarchy walk + registry lookup on subsequent calls
+
+### Criterion Results (vs Phase 60 baseline)
+
+| Benchmark | Phase 60 (ms) | Phase 61 (ms) | Speedup | p-value |
+|-----------|---------------|---------------|---------|---------|
+| benchFib (fib(25), ~500k calls) | 640 | 535 | **+16.3%** | p < 0.05 ✓ |
+| benchArrayList (5k ArrayList.add) | 28 | 23.5 | **+15.9%** | p < 0.05 ✓ |
+| benchHashMap (200 put + 200 get) | 4.7 | 4.0 | **+13.5%** | p < 0.05 ✓ |
+| benchSum (500k int adds) | 1,118 | 1,122 | ±0.3% | p = 0.79 (noise) |
+| bootstrap_stdlib only | 263 µs | 251 µs | +4.7% | p < 0.05 |
+
+Note: Phase 60 Criterion numbers are significantly higher than Phase 23 numbers because
+`bootstrap_stdlib` grew from ~40µs to ~263µs over phases 24–60 (many more native handlers).
+The benchmarks include `make_env` setup (class parse + bootstrap) in total time.
+
+### Analysis
+
+- **benchFib wins 16.3%**: The `invokestatic` fast path now does **zero** `registry.get()` calls.
+  Previously: 2 HashMap lookups per cached call (one for method frame setup, one inside
+  `activate_method_state` for the instructions Arc). Now: 0 HashMap lookups, just 2 `Arc::clone`
+  (atomic ref-count bumps) and direct field reads from the cached entry.
+
+- **benchArrayList and benchHashMap win ~15% via vtable PIC**: Both benchmarks call
+  `invokevirtual` on ArrayList/HashMap methods. These now hit the vtable cache
+  (keyed on `[BenchmarkSuite, cp_idx, java/util/ArrayList]`) and skip the full
+  `resolve_method_in_hierarchy_lookup` + `registry.get()` on every subsequent call.
+
+- **benchSum sees no gain**: The hot loop is `sum += i` — pure arithmetic opcodes, no
+  method calls. Dispatch optimization only pays where dispatch is the bottleneck.
+
+- **Cumulative gain from Phase 23 baseline** (76 ms dispatch-cache baseline):
+  Phase 60 regressed to ~640 ms due to stdlib growth (bootstrap is now 7× larger).
+  Phase 61 recovered ~105 ms. Further bootstrap amortization is the next leverage point.
+
+- **Remaining bottleneck**: `bootstrap_stdlib` at ~251 µs × iterations dominates all benchmarks.
+  Options: lazy registration (register natives on first use), pre-built registry snapshot,
+  or splitting benchmark setup so only the relevant subset is bootstrapped.

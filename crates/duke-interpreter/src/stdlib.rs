@@ -7979,4 +7979,458 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/stream/Stream;",
         native_treeset_stream,
     );
+
+    // ---- Phase 62: java.time ----
+    let localdate_ctx = ClassContext {
+        class_name: "java/time/LocalDate".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(localdate_ctx);
+
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "of",
+        "(III)Ljava/time/LocalDate;",
+        native_localdate_of,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "now",
+        "()Ljava/time/LocalDate;",
+        native_localdate_now,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "getYear",
+        "()I",
+        native_localdate_get_year,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "getMonthValue",
+        "()I",
+        native_localdate_get_month_value,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "getDayOfMonth",
+        "()I",
+        native_localdate_get_day_of_month,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "plusDays",
+        "(J)Ljava/time/LocalDate;",
+        native_localdate_plus_days,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "minusDays",
+        "(J)Ljava/time/LocalDate;",
+        native_localdate_minus_days,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "plusMonths",
+        "(J)Ljava/time/LocalDate;",
+        native_localdate_plus_months,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "plusYears",
+        "(J)Ljava/time/LocalDate;",
+        native_localdate_plus_years,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "isBefore",
+        "(Ljava/time/chrono/ChronoLocalDate;)Z",
+        native_localdate_is_before,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "isAfter",
+        "(Ljava/time/chrono/ChronoLocalDate;)Z",
+        native_localdate_is_after,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "isEqual",
+        "(Ljava/time/chrono/ChronoLocalDate;)Z",
+        native_localdate_is_equal,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "toEpochDay",
+        "()J",
+        native_localdate_to_epoch_day,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "toString",
+        "()Ljava/lang/String;",
+        native_localdate_to_string,
+    );
+
+    let duration_ctx = ClassContext {
+        class_name: "java/time/Duration".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(duration_ctx);
+
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "ofSeconds",
+        "(J)Ljava/time/Duration;",
+        native_duration_of_seconds,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "ofMinutes",
+        "(J)Ljava/time/Duration;",
+        native_duration_of_minutes,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "ofHours",
+        "(J)Ljava/time/Duration;",
+        native_duration_of_hours,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "ofDays",
+        "(J)Ljava/time/Duration;",
+        native_duration_of_days,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "getSeconds",
+        "()J",
+        native_duration_get_seconds,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "toSeconds",
+        "()J",
+        native_duration_to_seconds,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "toMinutes",
+        "()J",
+        native_duration_to_minutes,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "toHours",
+        "()J",
+        native_duration_to_hours,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "toDays",
+        "()J",
+        native_duration_to_days,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "plus",
+        "(Ljava/time/Duration;)Ljava/time/Duration;",
+        native_duration_plus,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "minus",
+        "(Ljava/time/Duration;)Ljava/time/Duration;",
+        native_duration_minus,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "isNegative",
+        "()Z",
+        native_duration_is_negative,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "isZero",
+        "()Z",
+        native_duration_is_zero,
+    );
+
+    let period_ctx = ClassContext {
+        class_name: "java/time/Period".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(period_ctx);
+
+    registry.natives_mut().register(
+        "java/time/Period",
+        "of",
+        "(III)Ljava/time/Period;",
+        native_period_of,
+    );
+    registry.natives_mut().register(
+        "java/time/Period",
+        "ofDays",
+        "(I)Ljava/time/Period;",
+        native_period_of_days,
+    );
+    registry.natives_mut().register(
+        "java/time/Period",
+        "ofMonths",
+        "(I)Ljava/time/Period;",
+        native_period_of_months,
+    );
+    registry.natives_mut().register(
+        "java/time/Period",
+        "ofYears",
+        "(I)Ljava/time/Period;",
+        native_period_of_years,
+    );
+    registry.natives_mut().register(
+        "java/time/Period",
+        "getYears",
+        "()I",
+        native_period_get_years,
+    );
+    registry.natives_mut().register(
+        "java/time/Period",
+        "getMonths",
+        "()I",
+        native_period_get_months,
+    );
+    registry
+        .natives_mut()
+        .register("java/time/Period", "getDays", "()I", native_period_get_days);
+    registry.natives_mut().register(
+        "java/time/Period",
+        "isNegative",
+        "()Z",
+        native_period_is_negative,
+    );
+    registry
+        .natives_mut()
+        .register("java/time/Period", "isZero", "()Z", native_period_is_zero);
+
+    let instant_ctx = ClassContext {
+        class_name: "java/time/Instant".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(instant_ctx);
+
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "ofEpochSecond",
+        "(J)Ljava/time/Instant;",
+        native_instant_of_epoch_second,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "ofEpochMilli",
+        "(J)Ljava/time/Instant;",
+        native_instant_of_epoch_milli,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "getEpochSecond",
+        "()J",
+        native_instant_get_epoch_second,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "toEpochMilli",
+        "()J",
+        native_instant_to_epoch_milli,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "isBefore",
+        "(Ljava/time/Instant;)Z",
+        native_instant_is_before,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "isAfter",
+        "(Ljava/time/Instant;)Z",
+        native_instant_is_after,
+    );
+
+    // ---- Phase 63: java.time.LocalDateTime ----
+    let localdatetime_ctx = ClassContext {
+        class_name: "java/time/LocalDateTime".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(localdatetime_ctx);
+
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "of",
+        "(IIIII)Ljava/time/LocalDateTime;",
+        native_localdatetime_of_ymd_hm,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "of",
+        "(IIIIII)Ljava/time/LocalDateTime;",
+        native_localdatetime_of_ymd_hms,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "of",
+        "(Ljava/time/LocalDate;III)Ljava/time/LocalDateTime;",
+        native_localdatetime_of_date_hms,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "now",
+        "()Ljava/time/LocalDateTime;",
+        native_localdatetime_now,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getYear",
+        "()I",
+        native_localdatetime_get_year,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getMonthValue",
+        "()I",
+        native_localdatetime_get_month_value,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getDayOfMonth",
+        "()I",
+        native_localdatetime_get_day_of_month,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getHour",
+        "()I",
+        native_localdatetime_get_hour,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getMinute",
+        "()I",
+        native_localdatetime_get_minute,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "getSecond",
+        "()I",
+        native_localdatetime_get_second,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "toLocalDate",
+        "()Ljava/time/LocalDate;",
+        native_localdatetime_to_local_date,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "isBefore",
+        "(Ljava/time/chrono/ChronoLocalDateTime;)Z",
+        native_localdatetime_is_before,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "isAfter",
+        "(Ljava/time/chrono/ChronoLocalDateTime;)Z",
+        native_localdatetime_is_after,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "toString",
+        "()Ljava/lang/String;",
+        native_localdatetime_to_string,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "plusDays",
+        "(J)Ljava/time/LocalDateTime;",
+        native_localdatetime_plus_days,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "withHour",
+        "(I)Ljava/time/LocalDateTime;",
+        native_localdatetime_with_hour,
+    );
+
+    // Phase 64 additions
+    registry.natives_mut().register(
+        "java/lang/String",
+        "indent",
+        "(I)Ljava/lang/String;",
+        native_string_indent,
+    );
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "setCharAt",
+        "(IC)V",
+        native_stringbuilder_set_char_at,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "disjoint",
+        "(Ljava/util/Collection;Ljava/util/Collection;)Z",
+        native_collections_disjoint,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/HashMap",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute_if_present,
+    );
+
+    // Phase 66 additions
+    registry.natives_mut().register_callback(
+        "java/util/HashMap",
+        "replaceAll",
+        "(Ljava/util/function/BiFunction;)V",
+        native_hashmap_replace_all,
+    );
+    registry.natives_mut().register(
+        "duke/util/ArrayListIterator",
+        "remove",
+        "()V",
+        native_arraylist_iter_remove,
+    );
 }
