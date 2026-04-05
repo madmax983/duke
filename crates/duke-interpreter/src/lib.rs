@@ -54188,6 +54188,26 @@ mod tests {
     fn test_p79_singleton_list() {
         assert_eq!(run_bootstrap_int("Phase79Test.class", "testCollectionsSingletonList", "()I"), 5);
     }
+
+    // =========================================================================
+    // ---- Phase 80: Integer/Long bit ops, removeIf, forEach, Collections.swap/min/max ----
+    // =========================================================================
+
+    #[test] fn test_p80_string_valueof_char() { assert_eq!(run_bootstrap_int("Phase80Test.class","testStringValueOfChar","()I"), 1); }
+    #[test] fn test_p80_string_valueof_char_array() { assert_eq!(run_bootstrap_int("Phase80Test.class","testStringValueOfCharArray","()I"), 2); }
+    #[test] fn test_p80_char_arithmetic() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCharArithmetic","()I"), 25); }
+    #[test] fn test_p80_char_boxing() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCharBoxing","()I"), 23); }
+    #[test] fn test_p80_integer_bitcount() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerBitCount","()I"), 8); }
+    #[test] fn test_p80_integer_highest_one_bit() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerHighestOneBit","()I"), 64); }
+    #[test] fn test_p80_integer_lowest_one_bit() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerLowestOneBit","()I"), 4); }
+    #[test] fn test_p80_integer_leading_zeros() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerNumberOfLeadingZeros","()I"), 31); }
+    #[test] fn test_p80_long_bitcount() { assert_eq!(run_bootstrap_int("Phase80Test.class","testLongBitCount","()I"), 8); }
+    #[test] fn test_p80_math_long() { assert_eq!(run_bootstrap_int("Phase80Test.class","testMathLong","()I"), 100); }
+    #[test] fn test_p80_foreach_lambda() { assert_eq!(run_bootstrap_int("Phase80Test.class","testForEachLambda","()I"), 15); }
+    #[test] fn test_p80_remove_if() { assert_eq!(run_bootstrap_int("Phase80Test.class","testRemoveIf","()I"), 3); }
+    #[test] fn test_p80_string_chars_count() { assert_eq!(run_bootstrap_int("Phase80Test.class","testStringCharsCount","()I"), 3); }
+    #[test] fn test_p80_collections_swap() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCollectionsSwap","()I"), 30); }
+    #[test] fn test_p80_collections_min_max() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCollectionsMinMax","()I"), 8); }
 }
 #[cfg(test)]
 mod fuzz;
