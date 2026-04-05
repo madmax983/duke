@@ -5,7 +5,6 @@ use duke_classfile::{
 };
 use std::fmt::Write;
 
-#[cfg(not(tarpaulin_include))]
 #[allow(dead_code)]
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
@@ -20,7 +19,6 @@ fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
-#[cfg(not(tarpaulin_include))]
 #[allow(dead_code)]
 fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> String {
     if idx.0 == 0 {
