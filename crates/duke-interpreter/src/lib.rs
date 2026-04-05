@@ -20562,6 +20562,45 @@ pub(crate) fn native_matcher_group(
     Ok(Some(Slot::Reference(Some(r))))
 }
 
+/// Native: `Matcher.group(int)String` — returns the nth capture group from the last match.
+pub(crate) fn native_matcher_group_n(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let n = match args.get(1).copied() {
+        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    if n == 0 {
+        // group(0) == group() — full match
+        return native_matcher_group(args, heap, _out, _control);
+    }
+    let fields = heap.get(m_ref)?.fields.clone();
+    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let start = match fields.get(3).copied() {
+        Some(Slot::Int(s)) if s >= 0 => usize::try_from(s).unwrap_or(0),
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let input = heap.get(input_ref)?.string_value.clone().unwrap_or_default();
+    let re = compile_java_regex(&pattern_str)?;
+    if let Some(caps) = re.captures_at(&input, start) {
+        if let Some(g) = caps.get(n) {
+            let s = heap.allocate_string(g.as_str().to_string());
+            return Ok(Some(Slot::Reference(Some(s))));
+        }
+    }
+    Ok(Some(Slot::Reference(None)))
+}
+
 /// Native: `Matcher.start()I` — start index of last match.
 pub(crate) fn native_matcher_start(
     args: &[Slot],
@@ -53680,6 +53719,40 @@ mod tests {
     #[test]
     fn test_p76_function_compose() {
         assert_eq!(run_bootstrap_int("Phase76Test.class", "testFunctionCompose", "()I"), 13);
+    }
+
+    // Phase 77: Pattern/Matcher (matches, find, group(n)), String.replaceAll/First, split regex, format padding
+    #[test]
+    fn test_p77_pattern_matches() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testPatternMatches", "()I"), 3);
+    }
+    #[test]
+    fn test_p77_string_matches() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringMatches", "()I"), 3);
+    }
+    #[test]
+    fn test_p77_pattern_matcher() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testPatternMatcher", "()I"), 3);
+    }
+    #[test]
+    fn test_p77_string_replace_all() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringReplaceAll", "()I"), 15);
+    }
+    #[test]
+    fn test_p77_string_replace_first() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringReplaceFirst", "()I"), 11);
+    }
+    #[test]
+    fn test_p77_string_split_regex() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringSplitRegex", "()I"), 3);
+    }
+    #[test]
+    fn test_p77_matcher_group_n() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testMatcherGroup", "()I"), 50);
+    }
+    #[test]
+    fn test_p77_string_format_padding() {
+        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringFormatPadding", "()I"), 5);
     }
 }
 #[cfg(test)]

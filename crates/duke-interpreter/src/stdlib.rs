@@ -5872,6 +5872,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/regex/Matcher",
+        "group",
+        "(I)Ljava/lang/String;",
+        native_matcher_group_n,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
         "start",
         "()I",
         native_matcher_start,
