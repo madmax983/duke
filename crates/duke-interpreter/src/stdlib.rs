@@ -5657,6 +5657,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/Objects",
+        "toString",
+        "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;",
+        native_objects_tostring_default,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
         "hashCode",
         "(Ljava/lang/Object;)I",
         native_objects_hashcode,
