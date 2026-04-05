@@ -1,9 +1,40 @@
+//! Standard library implementation for the JVM interpreter.
+//!
+//! This module provides the simulated environment and native method bindings necessary
+//! to run Java code. It populates the [`ClassRegistry`](crate::registry::ClassRegistry) with implementations for core
+//! classes like `java/lang/System`, `java/lang/Object`, and various `java/time` utilities.
+
 use crate::context::{ClassContext, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 use duke_runtime::Slot;
 
+/// Bootstraps the standard library into the provided registry and heap.
+///
+/// This function is essential because a raw JVM state has no knowledge of core Java classes.
+/// By calling this, you populate the `ClassRegistry` with simulated classes (e.g., `java/lang/System`)
+/// and register native method handlers for things like I/O and time. It also allocates initial
+/// system objects (like the `PrintStream`s for `System.out` and `System.err`) into the heap.
+///
+/// # Examples
+/// ```
+/// use duke_interpreter::registry::ClassRegistry;
+/// use duke_gc::Heap;
+/// use duke_interpreter::stdlib::bootstrap_stdlib;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // The registry doesn't know about java/lang/System yet
+/// assert!(registry.get("java/lang/System").is_err());
+///
+/// // Populate the registry with standard library classes
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // Now java/lang/System is available!
+/// assert!(registry.get("java/lang/System").is_ok());
+/// ```
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
