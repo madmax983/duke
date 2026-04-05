@@ -25739,5 +25739,4 @@ pub(crate) fn native_arraydeque_clear(
 #[cfg(test)]
 mod fuzz;
 #[cfg(test)]
-#[cfg(not(tarpaulin_include))]
 mod tests;
