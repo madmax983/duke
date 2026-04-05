@@ -3885,7 +3885,9 @@ pub(crate) fn native_stream_reduce(
         )?;
         acc = result.unwrap_or(Slot::Reference(None));
     }
-    heap.get_mut(reduce_result_ref)?.fields[0] = acc;
+    // Box primitive accumulator before storing in Optional (Java generics always hold References)
+    let acc_boxed = box_primitive_slot(acc, heap);
+    heap.get_mut(reduce_result_ref)?.fields[0] = acc_boxed;
     Ok(Some(Slot::Reference(Some(reduce_result_ref))))
 }
 
@@ -53465,6 +53467,40 @@ mod tests {
     #[test]
     fn test_p72_stream_match_all() {
         assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamMatchAll", "()I"), 3);
+    }
+
+    // Phase 73: Stream.reduce, min/max, Collectors.joining, findFirst, Optional, toSet
+    #[test]
+    fn test_p73_stream_reduce_identity() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamReduceIdentity", "()I"), 10);
+    }
+    #[test]
+    fn test_p73_stream_reduce_optional() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamReduceOptional", "()I"), 8);
+    }
+    #[test]
+    fn test_p73_stream_min_max() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamMinMax", "()I"), 15);
+    }
+    #[test]
+    fn test_p73_collectors_joining() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testCollectorsJoining", "()I"), 12);
+    }
+    #[test]
+    fn test_p73_collectors_joining_prefix_suffix() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testCollectorsJoiningPrefixSuffix", "()I"), 9);
+    }
+    #[test]
+    fn test_p73_stream_find_first() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamFindFirst", "()I"), 20);
+    }
+    #[test]
+    fn test_p73_optional_operations() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testOptionalOperations", "()I"), 8);
+    }
+    #[test]
+    fn test_p73_collectors_to_set() {
+        assert_eq!(run_bootstrap_int("Phase73Test.class", "testCollectorsToSet", "()I"), 3);
     }
 }
 #[cfg(test)]
