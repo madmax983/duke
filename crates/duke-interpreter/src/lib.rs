@@ -53360,6 +53360,40 @@ mod tests {
     fn test_p69_string_chars_count() {
         assert_eq!(run_bootstrap_int("Phase69Test.class", "testStringCharsCount", "()I"), 3);
     }
+
+    // Phase 70: String.join, Collections.unmodifiableList/singletonList, List.contains, Integer.compare
+    #[test]
+    fn test_p70_string_join() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testStringJoin", "()I"), 7);
+    }
+    #[test]
+    fn test_p70_string_join_list() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testStringJoinList", "()I"), 11);
+    }
+    #[test]
+    fn test_p70_unmodifiable_list() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testUnmodifiableList", "()I"), 3);
+    }
+    #[test]
+    fn test_p70_singleton_list() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testSingletonList", "()I"), 5);
+    }
+    #[test]
+    fn test_p70_list_contains() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testListContains", "()I"), 3);
+    }
+    #[test]
+    fn test_p70_string_format_mixed() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testStringFormatMixed", "()I"), 4);
+    }
+    #[test]
+    fn test_p70_math_max_chain() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testMathMaxChain", "()I"), 4);
+    }
+    #[test]
+    fn test_p70_integer_compare() {
+        assert_eq!(run_bootstrap_int("Phase70Test.class", "testIntegerCompare", "()I"), 7);
+    }
 }
 #[cfg(test)]
 mod fuzz;
