@@ -12,3 +12,6 @@
 **[Split ClassFile types]
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+**Extracting Interpreter Tests**
+**Tangle:** The `crates/duke-interpreter/src/lib.rs` file was a massive "Blob" anti-pattern, bloated by over 25,000 lines of inline tests.
+**Blueprint:** Extracted the `mod tests` block into a dedicated `tests.rs` file and linked it via `mod tests;` to enforce cleaner physical boundaries and improve file navigation.
