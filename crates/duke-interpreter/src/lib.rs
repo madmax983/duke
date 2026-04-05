@@ -54310,6 +54310,20 @@ mod tests {
     #[test] fn test_p82_varargs_empty() { assert_eq!(run_bootstrap_int("Phase82Test.class","testVarargsEmpty","()I"), 0); }
     #[test] fn test_p82_instanceof_chain() { assert_eq!(run_bootstrap_int("Phase82Test.class","testInstanceofChain","()I"), 5); }
     #[test] fn test_p82_ternary() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTernary","()I"), 10); }
+
+    // =========================================================================
+    // ---- Phase 83: interface defaults, switch expr, records, pattern matching ----
+    // =========================================================================
+
+    #[test] fn test_p83_interface_default() { assert_eq!(run_bootstrap_int("Phase83Test.class","testInterfaceDefaultMethod","()I"), 11); }
+    #[test] fn test_p83_static_interface() { assert_eq!(run_bootstrap_int("Phase83Test.class","testStaticInterfaceMethod","()I"), 49); }
+    #[test] fn test_p83_default_interface() { assert_eq!(run_bootstrap_int("Phase83Test.class","testDefaultInterfaceMethod","()I"), 27); }
+    #[test] fn test_p83_switch_expression() { assert_eq!(run_bootstrap_int("Phase83Test.class","testSwitchExpression","()I"), 1); }
+    #[test] fn test_p83_switch_yield() { assert_eq!(run_bootstrap_int("Phase83Test.class","testSwitchExpressionYield","()I"), 25); }
+    #[test] fn test_p83_record() { assert_eq!(run_bootstrap_int("Phase83Test.class","testRecord","()I"), 10); }
+    #[test] fn test_p83_record_method() { assert_eq!(run_bootstrap_int("Phase83Test.class","testRecordMethod","()I"), 10); }
+    #[test] fn test_p83_pattern_instanceof() { assert_eq!(run_bootstrap_int("Phase83Test.class","testPatternMatchingInstanceof","()I"), 42); }
+    #[test] fn test_p83_text_block() { assert_eq!(run_bootstrap_int("Phase83Test.class","testTextBlock","()I"), 11); }
 }
 #[cfg(test)]
 mod fuzz;
