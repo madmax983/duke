@@ -1209,6 +1209,47 @@ pub(crate) fn native_throwable_init_string(
     Ok(None)
 }
 
+/// Native: `Throwable.<init>(String, Throwable)V` — stores message + cause.
+pub(crate) fn native_throwable_init_string_cause(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let msg = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
+        _ => None,
+    };
+    heap.get_mut(this_ref)?.string_value = msg;
+    // Store cause in fields[0] (Throwable.cause field)
+    if let Some(&cause_slot) = args.get(2) {
+        if let Ok(obj) = heap.get_mut(this_ref) {
+            if !obj.fields.is_empty() {
+                obj.fields[0] = cause_slot;
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Native: `Throwable.getCause()Throwable` — returns the stored cause.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_throwable_get_cause(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(r))) => {
+            let cause = heap.get(*r)?.fields.first().copied().unwrap_or(Slot::Reference(None));
+            Ok(Some(cause))
+        }
+        _ => Ok(Some(Slot::Reference(None))),
+    }
+}
+
 /// Native: `Throwable.getMessage()String` — returns the stored detail message.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_throwable_get_message(
@@ -8405,11 +8446,44 @@ pub(crate) fn native_collections_empty_map(
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collections_unmodifiable_list(
     args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // Create an UnmodifiableList backed by the source list's elements.
+    // Mutation methods on this class throw UnsupportedOperationException.
+    let src_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    let (size, elems) = {
+        let src = heap.get(src_ref)?;
+        let size = src.fields.first().copied().unwrap_or(Slot::Int(0));
+        let elems = src.fields[1..].to_vec();
+        (size, elems)
+    };
+    let n_fields = 1 + elems.len();
+    let dst_ref = heap.allocate("java/util/UnmodifiableList".to_string(), n_fields);
+    {
+        let dst = heap.get_mut(dst_ref)?;
+        dst.fields[0] = size;
+        for (i, e) in elems.iter().enumerate() {
+            dst.fields[1 + i] = *e;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(dst_ref))))
+}
+
+/// Native: mutation ops on UnmodifiableList throw UnsupportedOperationException.
+pub(crate) fn native_unmodifiable_list_mutation(
+    _args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+    Err(VmError::JavaException {
+        class_name: "java/lang/UnsupportedOperationException".to_string(),
+    })
 }
 
 /// Native: `Math.random()D` — returns a pseudo-random double in [0.0, 1.0).
@@ -13937,7 +14011,7 @@ fn run_execution(
                 let b = frame.pop_int()?;
                 let a = frame.pop_int()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Int(a.wrapping_div(b)))?;
             }
@@ -13945,7 +14019,7 @@ fn run_execution(
                 let b = frame.pop_int()?;
                 let a = frame.pop_int()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Int(a.wrapping_rem(b)))?;
             }
@@ -14016,7 +14090,7 @@ fn run_execution(
                 let b = frame.pop_long()?;
                 let a = frame.pop_long()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Long(a.wrapping_div(b)))?;
             }
@@ -14024,7 +14098,7 @@ fn run_execution(
                 let b = frame.pop_long()?;
                 let a = frame.pop_long()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Long(a.wrapping_rem(b)))?;
             }
@@ -54207,6 +54281,19 @@ mod tests {
     #[test] fn test_p80_string_chars_count() { assert_eq!(run_bootstrap_int("Phase80Test.class","testStringCharsCount","()I"), 3); }
     #[test] fn test_p80_collections_swap() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCollectionsSwap","()I"), 30); }
     #[test] fn test_p80_collections_min_max() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCollectionsMinMax","()I"), 8); }
+
+    // =========================================================================
+    // ---- Phase 81: Custom exceptions, getCause, ArithmeticException, UnmodifiableList ----
+    // =========================================================================
+
+    #[test] fn test_p81_custom_exception() { assert_eq!(run_bootstrap_int("Phase81Test.class","testCustomException","()I"), 42); }
+    #[test] fn test_p81_exception_hierarchy() { assert_eq!(run_bootstrap_int("Phase81Test.class","testExceptionHierarchy","()I"), 9); }
+    #[test] fn test_p81_exception_cause() { assert_eq!(run_bootstrap_int("Phase81Test.class","testExceptionCause","()I"), 1); }
+    #[test] fn test_p81_exception_message() { assert_eq!(run_bootstrap_int("Phase81Test.class","testExceptionMessage","()I"), 11); }
+    #[test] fn test_p81_division_by_zero() { assert_eq!(run_bootstrap_int("Phase81Test.class","testDivisionByZero","()I"), 7); }
+    #[test] fn test_p81_unsupported_operation() { assert_eq!(run_bootstrap_int("Phase81Test.class","testUnsupportedOperation","()I"), 1); }
+    #[test] fn test_p81_illegal_argument() { assert_eq!(run_bootstrap_int("Phase81Test.class","testIllegalArgument","()I"), 7); }
+    #[test] fn test_p81_illegal_state() { assert_eq!(run_bootstrap_int("Phase81Test.class","testIllegalState","()I"), 9); }
 }
 #[cfg(test)]
 mod fuzz;
