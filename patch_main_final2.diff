@@ -1,0 +1,10 @@
+--- duke/src/main.rs
++++ duke/src/main.rs
+@@ -754,6 +754,7 @@
+     println!("{}", generate_mermaid_call_graph(&cf));
+ }
+
++#[cfg(not(tarpaulin_include))]
+ #[allow(dead_code)]
+ fn dump_uml(path: &str) {
+     let bytes = std::fs::read(path).unwrap_or_else(|e| {
