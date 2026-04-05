@@ -8311,6 +8311,43 @@ pub(crate) fn native_objects_tostring(
     Ok(Some(Slot::Reference(Some(s))))
 }
 
+/// Native: `Objects.toString(Object, String)String` — returns nullDefault if null, else toString.
+pub(crate) fn native_objects_tostring_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(None)) | None => {
+            // null → return the default string (args[1])
+            let default_ref = match args.get(1) {
+                Some(Slot::Reference(Some(r))) => *r,
+                _ => heap.allocate_string("null".to_string()),
+            };
+            Ok(Some(Slot::Reference(Some(default_ref))))
+        }
+        Some(Slot::Reference(Some(r))) => {
+            let obj = heap.get(*r)?;
+            let text = obj
+                .string_value
+                .as_deref()
+                .map_or_else(|| format!("{}@{}", obj.class_name, r), str::to_owned);
+            let _ = obj;
+            let s = heap.allocate_string(text);
+            Ok(Some(Slot::Reference(Some(s))))
+        }
+        Some(Slot::Int(n)) => {
+            let s = heap.allocate_string(n.to_string());
+            Ok(Some(Slot::Reference(Some(s))))
+        }
+        Some(other) => {
+            let s = heap.allocate_string(format!("{other:?}"));
+            Ok(Some(Slot::Reference(Some(s))))
+        }
+    }
+}
+
 /// Native: `Objects.hashCode(Object)I` — returns 0 for null, else object identity hash.
 #[allow(clippy::cast_possible_truncation, clippy::unnecessary_wraps)]
 pub(crate) fn native_objects_hashcode(
@@ -54085,6 +54122,72 @@ mod tests {
     #[test] fn test_p78_finally_runs() { assert_eq!(run_bootstrap_int("Phase78Test.class","testFinallyRuns","()I"), 111); }
     #[test] fn test_p78_multi_catch() { assert_eq!(run_bootstrap_int("Phase78Test.class","testMultiCatch","()I"), 3); }
     #[test] fn test_p78_rethrow() { assert_eq!(run_bootstrap_int("Phase78Test.class","testRethrow","()I"), 5); }
+    // =========================================================================
+
+    // =========================================================================
+    // ---- Phase 79: List.of, Set.of, Map.of, java.util.Objects ----
+    // =========================================================================
+
+    #[test]
+    fn test_p79_list_of() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOf", "()I"), 5);
+    }
+    #[test]
+    fn test_p79_list_of_get() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOfGet", "()I"), 1);
+    }
+    #[test]
+    fn test_p79_list_of_empty() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOfEmpty", "()I"), 0);
+    }
+    #[test]
+    fn test_p79_list_of_contains() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOfContains", "()I"), 1);
+    }
+    #[test]
+    fn test_p79_set_of() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testSetOf", "()I"), 3);
+    }
+    #[test]
+    fn test_p79_set_of_contains() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testSetOfContains", "()I"), 1);
+    }
+    #[test]
+    fn test_p79_map_of() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testMapOf", "()I"), 3);
+    }
+    #[test]
+    fn test_p79_map_of_get() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testMapOfGet", "()I"), 42);
+    }
+    #[test]
+    fn test_p79_objects_require_non_null() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNull", "()I"), 1);
+    }
+    #[test]
+    fn test_p79_objects_require_non_null_pass() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNullPass", "()I"), 5);
+    }
+    #[test]
+    fn test_p79_objects_equals() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsEquals", "()I"), 15);
+    }
+    #[test]
+    fn test_p79_objects_is_null() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsIsNull", "()I"), 15);
+    }
+    #[test]
+    fn test_p79_objects_to_string() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsToString", "()I"), 7);
+    }
+    #[test]
+    fn test_p79_collections_empty() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testCollectionsEmpty", "()I"), 0);
+    }
+    #[test]
+    fn test_p79_singleton_list() {
+        assert_eq!(run_bootstrap_int("Phase79Test.class", "testCollectionsSingletonList", "()I"), 5);
+    }
 }
 #[cfg(test)]
 mod fuzz;
