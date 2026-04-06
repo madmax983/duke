@@ -55728,6 +55728,76 @@ mod tests {
             90
         );
     }
+    #[test]
+    fn test_p92_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testVarargs", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p92_string_format_args() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testStringFormatArgs", "()I"),
+            28
+        );
+    }
+    #[test]
+    fn test_p92_chained_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testChainedStream", "()I"),
+            220
+        );
+    }
+    #[test]
+    fn test_p92_hashmap_values() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testHashMapValues", "()I"),
+            267
+        );
+    }
+    #[test]
+    fn test_p92_string_split_process() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testStringSplitProcess", "()I"),
+            150
+        );
+    }
+    #[test]
+    fn test_p92_do_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testDoWhile", "()I"),
+            120
+        );
+    }
+    #[test]
+    fn test_p92_labeled_break() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testLabeledBreak", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p92_array_of_objects() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testArrayOfObjects", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p92_grouping_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testGroupingBy", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p92_string_format_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testStringFormatChar", "()I"),
+            16
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
