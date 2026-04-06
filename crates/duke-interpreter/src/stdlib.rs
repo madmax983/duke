@@ -7174,6 +7174,47 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_function_compose,
     );
 
+    // BiFunction.andThen combinator
+    let bifunction_ctx = ClassContext {
+        class_name: "java/util/function/BiFunction".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(bifunction_ctx);
+    registry.natives_mut().register(
+        "java/util/function/BiFunction",
+        "andThen",
+        "(Ljava/util/function/Function;)Ljava/util/function/BiFunction;",
+        native_bifunction_and_then,
+    );
+    let bifunction_and_then_ctx = ClassContext {
+        class_name: "duke/util/BiFunctionAndThen".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry { name: "bifunction".to_string(), descriptor: "Ljava/util/function/BiFunction;".to_string(), is_static: false },
+            FieldEntry { name: "after".to_string(), descriptor: "Ljava/util/function/Function;".to_string(), is_static: false },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/BiFunction".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(bifunction_and_then_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/BiFunctionAndThen",
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_bifunction_and_then_apply,
+    );
+
     // Stream.mapToLong → LongStream
     registry.natives_mut().register_callback(
         "duke/util/Stream",

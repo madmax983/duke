@@ -21780,12 +21780,27 @@ pub(crate) fn native_hashmap_compute(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
+    // null return means remove the key
+    let is_null = matches!(new_value, None | Some(Slot::Reference(None)));
     let new_val = new_value.unwrap_or(Slot::Reference(None));
-    // Update or insert
     let fields2 = heap.get(this_ref)?.fields.clone();
     if let Some(ki) = hashmap_find_key(&fields2, key, heap) {
-        heap.get_mut(this_ref)?.fields[ki + 1] = new_val;
-    } else {
+        if is_null {
+            // Remove the key-value pair (swap-remove style)
+            let fields3 = &mut heap.get_mut(this_ref)?.fields;
+            fields3.remove(ki + 1);
+            fields3.remove(ki);
+            let size = match fields3.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
+            };
+            if let Some(first) = fields3.first_mut() {
+                *first = Slot::Int(size - 1);
+            }
+        } else {
+            heap.get_mut(this_ref)?.fields[ki + 1] = new_val;
+        }
+    } else if !is_null {
         let size = match heap.get(this_ref)?.fields.first().copied() {
             Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
             _ => 0,
@@ -23768,6 +23783,51 @@ fn invoke_function_apply(
             vec![function, input],
         )?
         .unwrap_or(Slot::Reference(None)))
+}
+
+/// Native: `BiFunction.andThen(Function)BiFunction` — returns `BiFunctionAndThen` proxy.
+pub(crate) fn native_bifunction_and_then(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let bifunction = args.first().copied().unwrap_or(Slot::Reference(None));
+    let after = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/BiFunctionAndThen".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = bifunction;
+    heap.get_mut(r)?.fields[1] = after;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `BiFunctionAndThen.apply(Object,Object)Object` — calls wrapped bifunction then after.
+pub(crate) fn native_bifunction_and_then_apply(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let bifunction = heap.get(this_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
+    let after = heap.get(this_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(bf_ref)) = bifunction else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let bf_class = heap.get(bf_ref)?.class_name.clone();
+    let mid = ops
+        .invoke(
+            heap,
+            out,
+            &bf_class,
+            "apply",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![bifunction, a, b],
+        )?
+        .unwrap_or(Slot::Reference(None));
+    Ok(Some(invoke_function_apply(after, mid, heap, out, ops)?))
 }
 
 /// Native: `Stream.mapToLong(ToLongFunction)LongStream` — maps each element via `applyAsLong`.
@@ -57198,6 +57258,86 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase107Test.class", "testComparable", "()I"),
             10
+        );
+    }
+
+    #[test]
+    fn test_p108_substring_edge() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testSubstringEdge", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p108_arrays_as_list_mutable() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testArraysAsListMutable", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p108_comparator_comparing_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testComparatorComparingChain", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p108_map_foreach_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testMapForEachSum", "()I"),
+            55
+        );
+    }
+
+    #[test]
+    fn test_p108_stream_reduce_identity() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testStreamReduceIdentity", "()I"),
+            120
+        );
+    }
+
+    #[test]
+    fn test_p108_hashmap_compute_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testHashMapComputeRemove", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p108_string_array_sort() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testStringArraySort", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p108_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testCollectorsCounting", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p108_bifunction_and_then() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testBiFunctionAndThen", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p108_interface_default_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testInterfaceDefaultMethod", "()I"),
+            13
         );
     }
 }
