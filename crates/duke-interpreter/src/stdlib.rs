@@ -4222,6 +4222,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/Collections",
+        "fill",
+        "(Ljava/util/List;Ljava/lang/Object;)V",
+        native_collections_fill,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
         "nCopies",
         "(ILjava/lang/Object;)Ljava/util/List;",
         native_collections_n_copies,
@@ -4242,7 +4248,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
-        interfaces: Vec::new(),
+        interfaces: vec![
+            "java/util/List".to_string(),
+            "java/util/Collection".to_string(),
+        ],
         bootstrap_methods: Vec::new(),
     };
     registry.register(unmod_list_ctx);
@@ -5241,6 +5250,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/stream/Stream;",
         native_arraylist_stream,
     );
+    // UnmodifiableList.stream() — same layout as ArrayList
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_arraylist_stream,
+    );
+    // UnmodifiableList.forEach() — same layout as ArrayList
+    registry.natives_mut().register_callback(
+        "java/util/UnmodifiableList",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_arraylist_for_each,
+    );
 
     // java/util/stream/Collectors — static factory for collectors
     let collectors_ctx = ClassContext {
@@ -5275,6 +5298,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(to_list_ctx);
+
+    // duke/util/ToUnmodifiableListCollector — sentinel for Collectors.toUnmodifiableList()
+    let to_unmod_list_ctx = ClassContext {
+        class_name: "duke/util/ToUnmodifiableListCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(to_unmod_list_ctx);
 
     // duke/util/JoiningCollector — joining collector; fields[0]=delimiter, [1]=prefix, [2]=suffix
     let joining_ctx = ClassContext {
@@ -5611,6 +5648,51 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "duke/util/OptionalInt",
+        "orElse",
+        "(I)I",
+        native_optional_int_or_else,
+    );
+    // OptionalInt.of(int) and OptionalInt.empty() static factories
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "of",
+        "(I)Ljava/util/OptionalInt;",
+        native_optional_int_of,
+    );
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "empty",
+        "()Ljava/util/OptionalInt;",
+        native_optional_int_empty,
+    );
+    // Also on duke/util/OptionalInt
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "of",
+        "(I)Ljava/util/OptionalInt;",
+        native_optional_int_of,
+    );
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "empty",
+        "()Ljava/util/OptionalInt;",
+        native_optional_int_empty,
+    );
+    // mirror getAsInt/isPresent/orElse on java/util/OptionalInt too
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "getAsInt",
+        "()I",
+        native_optional_int_get_as_int,
+    );
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "isPresent",
+        "()Z",
+        native_optional_int_is_present,
+    );
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
         "orElse",
         "(I)I",
         native_optional_int_or_else,
