@@ -4234,6 +4234,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/Collections",
+        "shuffle",
+        "(Ljava/util/List;Ljava/util/Random;)V",
+        native_collections_shuffle_random,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
         "fill",
         "(Ljava/util/List;Ljava/lang/Object;)V",
         native_collections_fill,
