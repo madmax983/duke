@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::large_stack_arrays)]
     use duke_runtime::{Frame, Slot};
     use proptest::prelude::*;
 
