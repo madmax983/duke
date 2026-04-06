@@ -1228,9 +1228,10 @@ pub(crate) fn native_throwable_init_string_cause(
     // Store cause in fields[0] (Throwable.cause field)
     if let Some(&cause_slot) = args.get(2)
         && let Ok(obj) = heap.get_mut(this_ref)
-            && !obj.fields.is_empty() {
-                obj.fields[0] = cause_slot;
-            }
+        && !obj.fields.is_empty()
+    {
+        obj.fields[0] = cause_slot;
+    }
     Ok(None)
 }
 
@@ -1948,29 +1949,30 @@ pub(crate) fn native_hashmap_replace_all(
 fn compare_treemap_keys(a: Slot, b: Slot, heap: &duke_gc::Heap) -> std::cmp::Ordering {
     let key_ord = |s: Slot| -> Option<KeyOrd> {
         if let Slot::Reference(Some(r)) = s
-            && let Ok(obj) = heap.get(r) {
-                if let Some(sv) = &obj.string_value {
-                    return Some(KeyOrd::Str(sv.clone()));
-                }
-                match obj.class_name.as_str() {
-                    "java/lang/Integer" | "java/lang/Short" | "java/lang/Byte" => {
-                        if let Some(Slot::Int(n)) = obj.fields.first() {
-                            return Some(KeyOrd::Int(i64::from(*n)));
-                        }
-                    }
-                    "java/lang/Long" => {
-                        if let Some(Slot::Long(n)) = obj.fields.first() {
-                            return Some(KeyOrd::Int(*n));
-                        }
-                    }
-                    "java/lang/Double" | "java/lang/Float" => {
-                        if let Some(Slot::Double(n)) = obj.fields.first() {
-                            return Some(KeyOrd::Flt(*n));
-                        }
-                    }
-                    _ => {}
-                }
+            && let Ok(obj) = heap.get(r)
+        {
+            if let Some(sv) = &obj.string_value {
+                return Some(KeyOrd::Str(sv.clone()));
             }
+            match obj.class_name.as_str() {
+                "java/lang/Integer" | "java/lang/Short" | "java/lang/Byte" => {
+                    if let Some(Slot::Int(n)) = obj.fields.first() {
+                        return Some(KeyOrd::Int(i64::from(*n)));
+                    }
+                }
+                "java/lang/Long" => {
+                    if let Some(Slot::Long(n)) = obj.fields.first() {
+                        return Some(KeyOrd::Int(*n));
+                    }
+                }
+                "java/lang/Double" | "java/lang/Float" => {
+                    if let Some(Slot::Double(n)) = obj.fields.first() {
+                        return Some(KeyOrd::Flt(*n));
+                    }
+                }
+                _ => {}
+            }
+        }
         None
     };
     match (key_ord(a), key_ord(b)) {
@@ -2389,10 +2391,11 @@ pub(crate) fn native_treeset_add(
             let ex = heap.get(this_ref)?.fields[1 + i];
             let ex_key = treeset_slot_sort_key(ex, heap);
             if let (Some(ek), Some(exk)) = (&elem_key, &ex_key)
-                && ek.less_than(exk) {
-                    pos = i;
-                    break;
-                }
+                && ek.less_than(exk)
+            {
+                pos = i;
+                break;
+            }
         }
         pos
     };
@@ -18602,9 +18605,10 @@ fn is_assignable_from(
     // Lambda proxies implement their SAM interface (and transitively java/lang/Object).
     if from_key.starts_with("$$Lambda$")
         && let Some(lambda_info) = registry.get_lambda(&from_key)
-            && (lambda_info.sam_interface == to_key || lambda_info.sam_interface == to_internal) {
-                return true;
-            }
+        && (lambda_info.sam_interface == to_key || lambda_info.sam_interface == to_internal)
+    {
+        return true;
+    }
     // Arrays implement Cloneable and Serializable; everything else is Object.
     if from_internal.starts_with('[') {
         return matches!(to_internal, "java/lang/Cloneable" | "java/io/Serializable");
@@ -21658,10 +21662,11 @@ pub(crate) fn native_matcher_group_n(
         .unwrap_or_default();
     let re = compile_java_regex(&pattern_str)?;
     if let Some(caps) = re.captures_at(&input, start)
-        && let Some(g) = caps.get(n) {
-            let s = heap.allocate_string(g.as_str().to_string());
-            return Ok(Some(Slot::Reference(Some(s))));
-        }
+        && let Some(g) = caps.get(n)
+    {
+        let s = heap.allocate_string(g.as_str().to_string());
+        return Ok(Some(Slot::Reference(Some(s))));
+    }
     Ok(Some(Slot::Reference(None)))
 }
 
