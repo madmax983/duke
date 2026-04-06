@@ -11117,6 +11117,27 @@ pub(crate) fn native_char_compareto(
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
+/// `Character.digit(char, int)int` — numeric value of char in given radix, or -1.
+pub(crate) fn native_char_digit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let ch = match args.first() {
+        Some(Slot::Int(n)) => *n as u32,
+        _ => return Ok(Some(Slot::Int(-1))),
+    };
+    let radix = match args.get(1) {
+        Some(Slot::Int(n)) => *n as u32,
+        _ => 10,
+    };
+    let result = char::from_u32(ch)
+        .and_then(|c| c.to_digit(radix))
+        .map_or(-1, |d| d as i32);
+    Ok(Some(Slot::Int(result)))
+}
+
 /// Execute a `StringConcatFactory` recipe: walk the recipe string, replacing
 /// `\u{1}` placeholders with stringified dynamic args from the operand stack.
 fn execute_string_concat_recipe(
@@ -56686,6 +56707,83 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase102Test.class", "testArraysSortObjects", "()I"),
             9
+        );
+    }
+
+    #[test]
+    fn test_p103_stack() {
+        assert_eq!(run_bootstrap_int("Phase103Test.class", "testStack", "()I"), 8);
+    }
+
+    #[test]
+    fn test_p103_collections_shuffle() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testCollectionsShuffle", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p103_stream_generate() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testStreamGenerate", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p103_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testStringJoinList", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p103_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testMapGetOrDefault", "()I"),
+            109
+        );
+    }
+
+    #[test]
+    fn test_p103_tree_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testTreeSet", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p103_intstream_range_closed() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testIntStreamRangeClosed", "()I"),
+            55
+        );
+    }
+
+    #[test]
+    fn test_p103_comparator_reversed_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testComparatorReversedOnMethodRef", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p103_iterator_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testIteratorRemove", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p103_character_digit() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testCharacterDigit", "()I"),
+            13
         );
     }
 }
