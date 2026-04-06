@@ -2051,10 +2051,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // Common RuntimeException subtypes — needed so materialize_java_exception_object
     // can allocate and hierarchy-check catches for NPE, CCE, AIOOB, etc.
     for (name, super_name) in [
-        ("java/lang/NullPointerException", "java/lang/RuntimeException"),
+        (
+            "java/lang/NullPointerException",
+            "java/lang/RuntimeException",
+        ),
         ("java/lang/ClassCastException", "java/lang/RuntimeException"),
-        ("java/lang/ArithmeticException", "java/lang/RuntimeException"),
-        ("java/lang/IndexOutOfBoundsException", "java/lang/RuntimeException"),
+        (
+            "java/lang/ArithmeticException",
+            "java/lang/RuntimeException",
+        ),
+        (
+            "java/lang/IndexOutOfBoundsException",
+            "java/lang/RuntimeException",
+        ),
         (
             "java/lang/ArrayIndexOutOfBoundsException",
             "java/lang/IndexOutOfBoundsException",
@@ -2067,8 +2076,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/UnsupportedOperationException",
             "java/lang/RuntimeException",
         ),
-        ("java/lang/IllegalStateException", "java/lang/RuntimeException"),
-        ("java/lang/NumberFormatException", "java/lang/IllegalArgumentException"),
+        (
+            "java/lang/IllegalStateException",
+            "java/lang/RuntimeException",
+        ),
+        (
+            "java/lang/NumberFormatException",
+            "java/lang/IllegalArgumentException",
+        ),
     ] {
         let ctx = ClassContext {
             class_name: name.to_string(),
@@ -2085,9 +2100,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         registry
             .natives_mut()
             .register(name, "<init>", "()V", native_object_init);
-        registry
-            .natives_mut()
-            .register(name, "<init>", "(Ljava/lang/String;)V", native_throwable_init_string);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
         registry.natives_mut().register(
             name,
             "<init>",
@@ -2100,8 +2118,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     for (name, super_name) in [
         ("java/lang/Error", "java/lang/Throwable"),
         ("java/lang/VirtualMachineError", "java/lang/Error"),
-        ("java/lang/StackOverflowError", "java/lang/VirtualMachineError"),
-        ("java/lang/OutOfMemoryError", "java/lang/VirtualMachineError"),
+        (
+            "java/lang/StackOverflowError",
+            "java/lang/VirtualMachineError",
+        ),
+        (
+            "java/lang/OutOfMemoryError",
+            "java/lang/VirtualMachineError",
+        ),
         ("java/lang/AssertionError", "java/lang/Error"),
     ] {
         let ctx = ClassContext {
@@ -2119,9 +2143,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         registry
             .natives_mut()
             .register(name, "<init>", "()V", native_object_init);
-        registry
-            .natives_mut()
-            .register(name, "<init>", "(Ljava/lang/String;)V", native_throwable_init_string);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
     }
 
     // java/lang/AutoCloseable — marker interface for try-with-resources.
@@ -3365,19 +3392,69 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 
     // Character.isDigit(C)Z and (I)Z — (I) variant used in IntStream.filter(Character::isDigit)
     for desc in ["(C)Z", "(I)Z"] {
-        registry.natives_mut().register("java/lang/Character", "isDigit", desc, native_char_is_digit);
-        registry.natives_mut().register("java/lang/Character", "isLetter", desc, native_char_is_letter);
-        registry.natives_mut().register("java/lang/Character", "isWhitespace", desc, native_char_is_whitespace);
-        registry.natives_mut().register("java/lang/Character", "isUpperCase", desc, native_char_is_uppercase);
-        registry.natives_mut().register("java/lang/Character", "isLowerCase", desc, native_char_is_lowercase);
-        registry.natives_mut().register("java/lang/Character", "isLetterOrDigit", desc, native_char_is_letter_or_digit);
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isDigit",
+            desc,
+            native_char_is_digit,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isLetter",
+            desc,
+            native_char_is_letter,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isWhitespace",
+            desc,
+            native_char_is_whitespace,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isUpperCase",
+            desc,
+            native_char_is_uppercase,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isLowerCase",
+            desc,
+            native_char_is_lowercase,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isLetterOrDigit",
+            desc,
+            native_char_is_letter_or_digit,
+        );
     }
     // Character.toUpperCase(C)C and (I)I
-    registry.natives_mut().register("java/lang/Character", "toUpperCase", "(C)C", native_char_to_uppercase);
-    registry.natives_mut().register("java/lang/Character", "toUpperCase", "(I)I", native_char_to_uppercase);
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toUpperCase",
+        "(C)C",
+        native_char_to_uppercase,
+    );
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toUpperCase",
+        "(I)I",
+        native_char_to_uppercase,
+    );
     // Character.toLowerCase(C)C and (I)I
-    registry.natives_mut().register("java/lang/Character", "toLowerCase", "(C)C", native_char_to_lowercase);
-    registry.natives_mut().register("java/lang/Character", "toLowerCase", "(I)I", native_char_to_lowercase);
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toLowerCase",
+        "(C)C",
+        native_char_to_lowercase,
+    );
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toLowerCase",
+        "(I)I",
+        native_char_to_lowercase,
+    );
     // Character.valueOf(C)Ljava/lang/Character;
     registry.natives_mut().register(
         "java/lang/Character",
@@ -4137,15 +4214,35 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry.register(unmod_list_ctx);
     // Read operations — reuse ArrayList handlers (same field layout)
     registry.natives_mut().register(
-        "java/util/UnmodifiableList", "size", "()I", native_arraylist_size);
+        "java/util/UnmodifiableList",
+        "size",
+        "()I",
+        native_arraylist_size,
+    );
     registry.natives_mut().register(
-        "java/util/UnmodifiableList", "get", "(I)Ljava/lang/Object;", native_arraylist_get);
+        "java/util/UnmodifiableList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        native_arraylist_get,
+    );
     registry.natives_mut().register(
-        "java/util/UnmodifiableList", "contains", "(Ljava/lang/Object;)Z", native_arraylist_contains);
+        "java/util/UnmodifiableList",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_arraylist_contains,
+    );
     registry.natives_mut().register(
-        "java/util/UnmodifiableList", "isEmpty", "()Z", native_arraylist_is_empty);
+        "java/util/UnmodifiableList",
+        "isEmpty",
+        "()Z",
+        native_arraylist_is_empty,
+    );
     registry.natives_mut().register(
-        "java/util/UnmodifiableList", "iterator", "()Ljava/util/Iterator;", native_arraylist_iterator);
+        "java/util/UnmodifiableList",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_arraylist_iterator,
+    );
     // Mutation operations — throw UnsupportedOperationException
     for (method, desc) in [
         ("add", "(Ljava/lang/Object;)Z"),
@@ -4156,7 +4253,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ("clear", "()V"),
     ] {
         registry.natives_mut().register(
-            "java/util/UnmodifiableList", method, desc,
+            "java/util/UnmodifiableList",
+            method,
+            desc,
             native_unmodifiable_list_mutation,
         );
     }
@@ -8633,4 +8732,173 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()V",
         native_arraylist_iter_remove,
     );
+
+    // Phase 88 additions
+
+    // java/util/BitSet — bitmask stored as fields[0] = Long(bits)
+    let bitset_ctx = ClassContext {
+        class_name: "java/util/BitSet".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "bits".to_string(),
+            descriptor: "J".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(bitset_ctx);
+    registry.natives_mut().register(
+        "java/util/BitSet",
+        "<init>",
+        "(I)V",
+        native_bitset_init_with_size,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/BitSet", "<init>", "()V", native_bitset_init);
+    registry
+        .natives_mut()
+        .register("java/util/BitSet", "set", "(I)V", native_bitset_set);
+    registry.natives_mut().register(
+        "java/util/BitSet",
+        "cardinality",
+        "()I",
+        native_bitset_cardinality,
+    );
+
+    // java/util/function/Function — synthetic interface (needed so ClassNotFound doesn't fire)
+    let function_iface_ctx = ClassContext {
+        class_name: "java/util/function/Function".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(function_iface_ctx);
+
+    // Function.identity() → returns a duke/util/IdentityFunction proxy
+    let identity_fn_ctx = ClassContext {
+        class_name: "duke/util/IdentityFunction".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/function/Function".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(identity_fn_ctx);
+    registry.natives_mut().register(
+        "java/util/function/Function",
+        "identity",
+        "()Ljava/util/function/Function;",
+        native_function_identity,
+    );
+    registry.natives_mut().register(
+        "duke/util/IdentityFunction",
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_identity_function_apply,
+    );
+}
+
+// ─── Phase 88 natives ────────────────────────────────────────────────────────
+
+/// `BitSet.<init>(int)V` — size hint ignored; initialise bits to 0.
+pub(crate) fn native_bitset_init_with_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(0);
+    Ok(None)
+}
+
+/// `BitSet.<init>()V`
+pub(crate) fn native_bitset_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(0);
+    Ok(None)
+}
+
+/// `BitSet.set(int)V` — set bit at position n.
+pub(crate) fn native_bitset_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let n = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "int",
+                got: "other",
+            });
+        }
+    };
+    let bits = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(b)) => *b,
+        _ => 0i64,
+    };
+    let new_bits = bits | (1i64 << (n.cast_unsigned() & 63));
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(new_bits);
+    Ok(None)
+}
+
+/// `BitSet.cardinality()I` — number of set bits.
+pub(crate) fn native_bitset_cardinality(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let bits = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(b)) => *b,
+        _ => 0i64,
+    };
+    Ok(Some(Slot::Int(bits.count_ones().cast_signed())))
+}
+
+/// `Function.identity()Ljava/util/function/Function;` — returns a `duke/util/IdentityFunction` proxy.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_function_identity(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/IdentityFunction".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `IdentityFunction.apply(Object)Object` — returns its argument unchanged.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_identity_function_apply(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // args[0] = this (the IdentityFunction proxy), args[1] = the element
+    Ok(Some(args.get(1).copied().unwrap_or(Slot::Reference(None))))
 }

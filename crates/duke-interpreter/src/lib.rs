@@ -1243,7 +1243,12 @@ pub(crate) fn native_throwable_get_cause(
 ) -> VmResult<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let cause = heap.get(*r)?.fields.first().copied().unwrap_or(Slot::Reference(None));
+            let cause = heap
+                .get(*r)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Reference(None));
             Ok(Some(cause))
         }
         _ => Ok(Some(Slot::Reference(None))),
@@ -4870,7 +4875,9 @@ pub(crate) fn native_optional_int_or_else(
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if present {
-        Ok(Some(heap.get(r)?.fields.first().copied().unwrap_or(Slot::Int(0))))
+        Ok(Some(
+            heap.get(r)?.fields.first().copied().unwrap_or(Slot::Int(0)),
+        ))
     } else {
         Ok(Some(args.get(1).copied().unwrap_or(Slot::Int(0))))
     }
@@ -4886,7 +4893,13 @@ pub(crate) fn native_optional_long_or_else(
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if present {
-        Ok(Some(heap.get(r)?.fields.first().copied().unwrap_or(Slot::Long(0))))
+        Ok(Some(
+            heap.get(r)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Long(0)),
+        ))
     } else {
         Ok(Some(args.get(1).copied().unwrap_or(Slot::Long(0))))
     }
@@ -4902,7 +4915,13 @@ pub(crate) fn native_optional_double_or_else(
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if present {
-        Ok(Some(heap.get(r)?.fields.first().copied().unwrap_or(Slot::Double(0.0))))
+        Ok(Some(
+            heap.get(r)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Double(0.0)),
+        ))
     } else {
         Ok(Some(args.get(1).copied().unwrap_or(Slot::Double(0.0))))
     }
@@ -13350,7 +13369,6 @@ fn run_execution(
             }};
         }
 
-
         // Telemetry: capture opcode name and start time before dispatch.
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
@@ -13478,7 +13496,12 @@ fn run_execution(
                                     max_locals,
                                 });
                             }
-                            pop_typed_args_into_locals(&parse_arg_types(&callee_desc), frame, &mut locals_buf, 0)?;
+                            pop_typed_args_into_locals(
+                                &parse_arg_types(&callee_desc),
+                                frame,
+                                &mut locals_buf,
+                                0,
+                            )?;
                             let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                             (pci, instrs, f)
                         };
@@ -15091,7 +15114,12 @@ fn run_execution(
                         });
                     }
                     // Pop args with wide-type-aware indexing (doubles/longs occupy 2 local slots).
-                    pop_typed_args_into_locals(&parse_arg_types(&callee_desc), frame, &mut locals_buf, 1)?;
+                    pop_typed_args_into_locals(
+                        &parse_arg_types(&callee_desc),
+                        frame,
+                        &mut locals_buf,
+                        1,
+                    )?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
@@ -16159,7 +16187,12 @@ fn run_execution(
                                                 );
                                             }
                                         };
-                                        let result = autobox_if_needed(result, &lambda_info.impl_desc, &lambda_info.sam_desc, heap)?;
+                                        let result = autobox_if_needed(
+                                            result,
+                                            &lambda_info.impl_desc,
+                                            &lambda_info.sam_desc,
+                                            heap,
+                                        )?;
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
                                             frame,
@@ -16239,7 +16272,12 @@ fn run_execution(
                                                 );
                                             }
                                         };
-                                        let result = autobox_if_needed(result, &lambda_info.impl_desc, &lambda_info.sam_desc, heap)?;
+                                        let result = autobox_if_needed(
+                                            result,
+                                            &lambda_info.impl_desc,
+                                            &lambda_info.sam_desc,
+                                            heap,
+                                        )?;
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
                                             frame,
@@ -16255,7 +16293,8 @@ fn run_execution(
                             } else if lambda_info.impl_kind == 8 {
                                 // REF_newInvokeSpecial — constructor reference (e.g. ArrayList::new)
                                 // Allocate a new instance, call <init>, push the result.
-                                let field_count = total_instance_field_count(registry, &impl_class_key);
+                                let field_count =
+                                    total_instance_field_count(registry, &impl_class_key);
                                 let new_ref = heap.allocate(impl_class_key.clone(), field_count);
                                 init_object_fields(registry, heap, new_ref, &impl_class_key);
                                 let mut init_args = vec![Slot::Reference(Some(new_ref))];
@@ -16323,7 +16362,12 @@ fn run_execution(
                         });
                     }
                     // Pop method args using wide-type-aware indexing (doubles/longs occupy 2 local slots).
-                    pop_typed_args_into_locals(&parse_arg_types(&callee_desc), frame, &mut locals_buf, 1)?;
+                    pop_typed_args_into_locals(
+                        &parse_arg_types(&callee_desc),
+                        frame,
+                        &mut locals_buf,
+                        1,
+                    )?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
@@ -18561,7 +18605,7 @@ fn autobox_if_needed(
     let Some(slot) = result else {
         return Ok(None);
     };
-    if !matches!(desc_return_char(sam_desc), Some('L') | Some('[')) {
+    if !matches!(desc_return_char(sam_desc), Some('L' | '[')) {
         return Ok(Some(slot));
     }
     match (desc_return_char(impl_desc), slot) {
@@ -21037,7 +21081,11 @@ pub(crate) fn native_matcher_group_n(
         _ => return Ok(Some(Slot::Reference(None))),
     };
     let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
-    let input = heap.get(input_ref)?.string_value.clone().unwrap_or_default();
+    let input = heap
+        .get(input_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
     let re = compile_java_regex(&pattern_str)?;
     if let Some(caps) = re.captures_at(&input, start) {
         if let Some(g) = caps.get(n) {
@@ -23301,8 +23349,18 @@ pub(crate) fn native_and_then_consumer_accept(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let arg = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let first = heap.get(this_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
-    let second = heap.get(this_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
+    let first = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let second = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
     invoke_consumer_accept(first, arg, heap, out, ops)?;
     invoke_consumer_accept(second, arg, heap, out, ops)?;
     Ok(None)
@@ -54073,299 +54131,513 @@ mod tests {
     // Phase 69: Collectors.toMap, Stream.flatMap/peek, groupingBy+counting, OptionalInt.orElse, String.chars()
     #[test]
     fn test_p69_collectors_to_map() {
-        assert_eq!(run_bootstrap_int("Phase69Test.class", "testCollectorsToMap", "()I"), 17);
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testCollectorsToMap", "()I"),
+            17
+        );
     }
     #[test]
     fn test_p69_stream_flat_map() {
-        assert_eq!(run_bootstrap_int("Phase69Test.class", "testStreamFlatMap", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testStreamFlatMap", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p69_stream_peek() {
-        assert_eq!(run_bootstrap_int("Phase69Test.class", "testStreamPeek", "()I"), 9);
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testStreamPeek", "()I"),
+            9
+        );
     }
     #[test]
     fn test_p69_collectors_counting() {
-        assert_eq!(run_bootstrap_int("Phase69Test.class", "testCollectorsCounting", "()I"), 4);
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testCollectorsCounting", "()I"),
+            4
+        );
     }
     #[test]
     fn test_p69_optional_int_or_else() {
-        assert_eq!(run_bootstrap_int("Phase69Test.class", "testOptionalInt", "()I"), 10);
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testOptionalInt", "()I"),
+            10
+        );
     }
     #[test]
     fn test_p69_string_chars_count() {
-        assert_eq!(run_bootstrap_int("Phase69Test.class", "testStringCharsCount", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testStringCharsCount", "()I"),
+            3
+        );
     }
 
     // Phase 70: String.join, Collections.unmodifiableList/singletonList, List.contains, Integer.compare
     #[test]
     fn test_p70_string_join() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testStringJoin", "()I"), 7);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testStringJoin", "()I"),
+            7
+        );
     }
     #[test]
     fn test_p70_string_join_list() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testStringJoinList", "()I"), 11);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testStringJoinList", "()I"),
+            11
+        );
     }
     #[test]
     fn test_p70_unmodifiable_list() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testUnmodifiableList", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testUnmodifiableList", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p70_singleton_list() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testSingletonList", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testSingletonList", "()I"),
+            5
+        );
     }
     #[test]
     fn test_p70_list_contains() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testListContains", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testListContains", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p70_string_format_mixed() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testStringFormatMixed", "()I"), 4);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testStringFormatMixed", "()I"),
+            4
+        );
     }
     #[test]
     fn test_p70_math_max_chain() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testMathMaxChain", "()I"), 4);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testMathMaxChain", "()I"),
+            4
+        );
     }
     #[test]
     fn test_p70_integer_compare() {
-        assert_eq!(run_bootstrap_int("Phase70Test.class", "testIntegerCompare", "()I"), 7);
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testIntegerCompare", "()I"),
+            7
+        );
     }
 
     // Phase 71: Map.merge/compute/putIfAbsent, LinkedHashMap, List.indexOf/subList, Collections.reverse
     #[test]
     fn test_p71_map_get_or_default() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapGetOrDefault", "()I"), 100);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapGetOrDefault", "()I"),
+            100
+        );
     }
     #[test]
     fn test_p71_map_put_if_absent() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapPutIfAbsent", "()I"), 30);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapPutIfAbsent", "()I"),
+            30
+        );
     }
     #[test]
     fn test_p71_map_merge() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapMerge", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapMerge", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p71_map_compute() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testMapCompute", "()I"), 16);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapCompute", "()I"),
+            16
+        );
     }
     #[test]
     fn test_p71_linked_hash_map() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testLinkedHashMap", "()I"), 6);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testLinkedHashMap", "()I"),
+            6
+        );
     }
     #[test]
     fn test_p71_list_index_of() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testListIndexOf", "()I"), 1);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testListIndexOf", "()I"),
+            1
+        );
     }
     #[test]
     fn test_p71_list_sub_list() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testListSubList", "()I"), 12);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testListSubList", "()I"),
+            12
+        );
     }
     #[test]
     fn test_p71_collections_reverse() {
-        assert_eq!(run_bootstrap_int("Phase71Test.class", "testCollectionsReverse", "()I"), 41);
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testCollectionsReverse", "()I"),
+            41
+        );
     }
 
     // Phase 72: Stream.map+collect, filter+collect, IntStream.range/rangeClosed, count, anyMatch, allMatch/noneMatch
     #[test]
     fn test_p72_stream_to_list() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamToList", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamToList", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p72_stream_filter_collect() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamFilterCollect", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamFilterCollect", "()I"),
+            5
+        );
     }
     #[test]
     fn test_p72_stream_map_collect() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamMapCollect", "()I"), 13);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamMapCollect", "()I"),
+            13
+        );
     }
     #[test]
     fn test_p72_int_stream_range() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testIntStreamRange", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testIntStreamRange", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p72_int_stream_range_closed() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testIntStreamRangeClosed", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testIntStreamRangeClosed", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p72_stream_count() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamCount", "()I"), 2);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamCount", "()I"),
+            2
+        );
     }
     #[test]
     fn test_p72_stream_any_match() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamAnyMatch", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamAnyMatch", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p72_stream_match_all() {
-        assert_eq!(run_bootstrap_int("Phase72Test.class", "testStreamMatchAll", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamMatchAll", "()I"),
+            3
+        );
     }
 
     // Phase 73: Stream.reduce, min/max, Collectors.joining, findFirst, Optional, toSet
     #[test]
     fn test_p73_stream_reduce_identity() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamReduceIdentity", "()I"), 10);
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamReduceIdentity", "()I"),
+            10
+        );
     }
     #[test]
     fn test_p73_stream_reduce_optional() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamReduceOptional", "()I"), 8);
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamReduceOptional", "()I"),
+            8
+        );
     }
     #[test]
     fn test_p73_stream_min_max() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamMinMax", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamMinMax", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p73_collectors_joining() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testCollectorsJoining", "()I"), 12);
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testCollectorsJoining", "()I"),
+            12
+        );
     }
     #[test]
     fn test_p73_collectors_joining_prefix_suffix() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testCollectorsJoiningPrefixSuffix", "()I"), 9);
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase73Test.class",
+                "testCollectorsJoiningPrefixSuffix",
+                "()I"
+            ),
+            9
+        );
     }
     #[test]
     fn test_p73_stream_find_first() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testStreamFindFirst", "()I"), 20);
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamFindFirst", "()I"),
+            20
+        );
     }
     #[test]
     fn test_p73_optional_operations() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testOptionalOperations", "()I"), 8);
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testOptionalOperations", "()I"),
+            8
+        );
     }
     #[test]
     fn test_p73_collectors_to_set() {
-        assert_eq!(run_bootstrap_int("Phase73Test.class", "testCollectorsToSet", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testCollectorsToSet", "()I"),
+            3
+        );
     }
 
     // Phase 74: TreeMap integer keys + headMap/tailMap, Queue/Stack, PriorityQueue, Map.entrySet, Collections.frequency/min/max
     #[test]
     fn test_p74_tree_map_ordered() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testTreeMapOrdered", "()I"), 13);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testTreeMapOrdered", "()I"),
+            13
+        );
     }
     #[test]
     fn test_p74_tree_map_head_tail() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testTreeMapHeadTail", "()I"), 23);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testTreeMapHeadTail", "()I"),
+            23
+        );
     }
     #[test]
     fn test_p74_stack() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testStack", "()I"), 32);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testStack", "()I"),
+            32
+        );
     }
     #[test]
     fn test_p74_queue() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testQueue", "()I"), 12);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testQueue", "()I"),
+            12
+        );
     }
     #[test]
     fn test_p74_priority_queue() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testPriorityQueue", "()I"), 13);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testPriorityQueue", "()I"),
+            13
+        );
     }
     #[test]
     fn test_p74_map_entry_set() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testMapEntrySet", "()I"), 6);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testMapEntrySet", "()I"),
+            6
+        );
     }
     #[test]
     fn test_p74_collections_frequency() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testCollectionsFrequency", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p74_collections_min_max() {
-        assert_eq!(run_bootstrap_int("Phase74Test.class", "testCollectionsMinMax", "()I"), 18);
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testCollectionsMinMax", "()I"),
+            18
+        );
     }
 
     // Phase 75: String.chars() filter/sum/distinct, Arrays.stream(int[]), Arrays.asList, Collections.nCopies, forEach
     #[test]
     fn test_p75_string_chars_filter() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testStringCharsFilter", "()I"), 2);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testStringCharsFilter", "()I"),
+            2
+        );
     }
     #[test]
     fn test_p75_string_chars_sum() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testStringCharsSum", "()I"), 4);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testStringCharsSum", "()I"),
+            4
+        );
     }
     #[test]
     fn test_p75_arrays_stream_int() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testArraysStreamInt", "()I"), 23);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testArraysStreamInt", "()I"),
+            23
+        );
     }
     #[test]
     fn test_p75_arrays_stream_filter() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testArraysStreamFilter", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testArraysStreamFilter", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p75_arrays_as_list() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testArraysAsList", "()I"), 4);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testArraysAsList", "()I"),
+            4
+        );
     }
     #[test]
     fn test_p75_collections_n_copies() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testCollectionsNCopies", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testCollectionsNCopies", "()I"),
+            5
+        );
     }
     #[test]
     fn test_p75_iterable_for_each() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testIterableForEach", "()I"), 6);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testIterableForEach", "()I"),
+            6
+        );
     }
     #[test]
     fn test_p75_string_chars_distinct() {
-        assert_eq!(run_bootstrap_int("Phase75Test.class", "testStringCharsDistinct", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testStringCharsDistinct", "()I"),
+            3
+        );
     }
 
     // Phase 76: Comparator.comparing/reversed/naturalOrder/reverseOrder, Stream.sorted(Comparator), Map stream ops, Function.andThen
     #[test]
     fn test_p76_comparator_comparing() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorComparing", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorComparing", "()I"),
+            5
+        );
     }
     #[test]
     fn test_p76_comparator_reversed() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorReversed", "()I"), 6);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorReversed", "()I"),
+            6
+        );
     }
     #[test]
     fn test_p76_comparator_natural_order() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorNaturalOrder", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorNaturalOrder", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p76_comparator_reverse_order() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testComparatorReverseOrder", "()I"), 51);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorReverseOrder", "()I"),
+            51
+        );
     }
     #[test]
     fn test_p76_stream_sorted_comparator() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testStreamSortedComparator", "()I"), 13);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testStreamSortedComparator", "()I"),
+            13
+        );
     }
     #[test]
     fn test_p76_map_values_stream() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testMapValuesStream", "()I"), 60);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testMapValuesStream", "()I"),
+            60
+        );
     }
     #[test]
     fn test_p76_map_key_set_stream() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testMapKeySetStream", "()I"), 10);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testMapKeySetStream", "()I"),
+            10
+        );
     }
     #[test]
     fn test_p76_function_compose() {
-        assert_eq!(run_bootstrap_int("Phase76Test.class", "testFunctionCompose", "()I"), 13);
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testFunctionCompose", "()I"),
+            13
+        );
     }
 
     // Phase 77: Pattern/Matcher (matches, find, group(n)), String.replaceAll/First, split regex, format padding
     #[test]
     fn test_p77_pattern_matches() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testPatternMatches", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testPatternMatches", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p77_string_matches() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringMatches", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringMatches", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p77_pattern_matcher() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testPatternMatcher", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testPatternMatcher", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p77_string_replace_all() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringReplaceAll", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringReplaceAll", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p77_string_replace_first() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringReplaceFirst", "()I"), 11);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringReplaceFirst", "()I"),
+            11
+        );
     }
     #[test]
     fn test_p77_string_split_regex() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringSplitRegex", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringSplitRegex", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p77_matcher_group_n() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testMatcherGroup", "()I"), 50);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testMatcherGroup", "()I"),
+            50
+        );
     }
     #[test]
     fn test_p77_string_format_padding() {
-        assert_eq!(run_bootstrap_int("Phase77Test.class", "testStringFormatPadding", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringFormatPadding", "()I"),
+            5
+        );
     }
 
     // Phase 78 probes
@@ -54373,14 +54645,62 @@ mod tests {
     // ---- Phase 78: Exception catching (NPE, AIOOB, CCE, StackOverflow) ----
     // ===========================================================================
 
-        #[test] fn test_p78_number_format_exception() { assert_eq!(run_bootstrap_int("Phase78Test.class","testNumberFormatException","()I"), 42); }
-    #[test] fn test_p78_array_index_oob() { assert_eq!(run_bootstrap_int("Phase78Test.class","testArrayIndexOutOfBounds","()I"), 99); }
-    #[test] fn test_p78_null_pointer() { assert_eq!(run_bootstrap_int("Phase78Test.class","testNullPointerException","()I"), 7); }
-    #[test] fn test_p78_class_cast() { assert_eq!(run_bootstrap_int("Phase78Test.class","testClassCastException","()I"), 55); }
-    #[test] fn test_p78_stack_overflow() { assert_eq!(run_bootstrap_int("Phase78Test.class","testStackOverflow","()I"), 1); }
-    #[test] fn test_p78_finally_runs() { assert_eq!(run_bootstrap_int("Phase78Test.class","testFinallyRuns","()I"), 111); }
-    #[test] fn test_p78_multi_catch() { assert_eq!(run_bootstrap_int("Phase78Test.class","testMultiCatch","()I"), 3); }
-    #[test] fn test_p78_rethrow() { assert_eq!(run_bootstrap_int("Phase78Test.class","testRethrow","()I"), 5); }
+    #[test]
+    fn test_p78_number_format_exception() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testNumberFormatException", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p78_array_index_oob() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testArrayIndexOutOfBounds", "()I"),
+            99
+        );
+    }
+    #[test]
+    fn test_p78_null_pointer() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testNullPointerException", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p78_class_cast() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testClassCastException", "()I"),
+            55
+        );
+    }
+    #[test]
+    fn test_p78_stack_overflow() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testStackOverflow", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p78_finally_runs() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testFinallyRuns", "()I"),
+            111
+        );
+    }
+    #[test]
+    fn test_p78_multi_catch() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testMultiCatch", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p78_rethrow() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testRethrow", "()I"),
+            5
+        );
+    }
     // =========================================================================
 
     // =========================================================================
@@ -54389,179 +54709,786 @@ mod tests {
 
     #[test]
     fn test_p79_list_of() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOf", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOf", "()I"),
+            5
+        );
     }
     #[test]
     fn test_p79_list_of_get() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOfGet", "()I"), 1);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOfGet", "()I"),
+            1
+        );
     }
     #[test]
     fn test_p79_list_of_empty() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOfEmpty", "()I"), 0);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOfEmpty", "()I"),
+            0
+        );
     }
     #[test]
     fn test_p79_list_of_contains() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testListOfContains", "()I"), 1);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOfContains", "()I"),
+            1
+        );
     }
     #[test]
     fn test_p79_set_of() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testSetOf", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testSetOf", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p79_set_of_contains() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testSetOfContains", "()I"), 1);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testSetOfContains", "()I"),
+            1
+        );
     }
     #[test]
     fn test_p79_map_of() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testMapOf", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testMapOf", "()I"),
+            3
+        );
     }
     #[test]
     fn test_p79_map_of_get() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testMapOfGet", "()I"), 42);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testMapOfGet", "()I"),
+            42
+        );
     }
     #[test]
     fn test_p79_objects_require_non_null() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNull", "()I"), 1);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNull", "()I"),
+            1
+        );
     }
     #[test]
     fn test_p79_objects_require_non_null_pass() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNullPass", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNullPass", "()I"),
+            5
+        );
     }
     #[test]
     fn test_p79_objects_equals() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsEquals", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsEquals", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p79_objects_is_null() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsIsNull", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsIsNull", "()I"),
+            15
+        );
     }
     #[test]
     fn test_p79_objects_to_string() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testObjectsToString", "()I"), 7);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsToString", "()I"),
+            7
+        );
     }
     #[test]
     fn test_p79_collections_empty() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testCollectionsEmpty", "()I"), 0);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testCollectionsEmpty", "()I"),
+            0
+        );
     }
     #[test]
     fn test_p79_singleton_list() {
-        assert_eq!(run_bootstrap_int("Phase79Test.class", "testCollectionsSingletonList", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testCollectionsSingletonList", "()I"),
+            5
+        );
     }
 
     // =========================================================================
     // ---- Phase 80: Integer/Long bit ops, removeIf, forEach, Collections.swap/min/max ----
     // =========================================================================
 
-    #[test] fn test_p80_string_valueof_char() { assert_eq!(run_bootstrap_int("Phase80Test.class","testStringValueOfChar","()I"), 1); }
-    #[test] fn test_p80_string_valueof_char_array() { assert_eq!(run_bootstrap_int("Phase80Test.class","testStringValueOfCharArray","()I"), 2); }
-    #[test] fn test_p80_char_arithmetic() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCharArithmetic","()I"), 25); }
-    #[test] fn test_p80_char_boxing() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCharBoxing","()I"), 23); }
-    #[test] fn test_p80_integer_bitcount() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerBitCount","()I"), 8); }
-    #[test] fn test_p80_integer_highest_one_bit() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerHighestOneBit","()I"), 64); }
-    #[test] fn test_p80_integer_lowest_one_bit() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerLowestOneBit","()I"), 4); }
-    #[test] fn test_p80_integer_leading_zeros() { assert_eq!(run_bootstrap_int("Phase80Test.class","testIntegerNumberOfLeadingZeros","()I"), 31); }
-    #[test] fn test_p80_long_bitcount() { assert_eq!(run_bootstrap_int("Phase80Test.class","testLongBitCount","()I"), 8); }
-    #[test] fn test_p80_math_long() { assert_eq!(run_bootstrap_int("Phase80Test.class","testMathLong","()I"), 100); }
-    #[test] fn test_p80_foreach_lambda() { assert_eq!(run_bootstrap_int("Phase80Test.class","testForEachLambda","()I"), 15); }
-    #[test] fn test_p80_remove_if() { assert_eq!(run_bootstrap_int("Phase80Test.class","testRemoveIf","()I"), 3); }
-    #[test] fn test_p80_string_chars_count() { assert_eq!(run_bootstrap_int("Phase80Test.class","testStringCharsCount","()I"), 3); }
-    #[test] fn test_p80_collections_swap() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCollectionsSwap","()I"), 30); }
-    #[test] fn test_p80_collections_min_max() { assert_eq!(run_bootstrap_int("Phase80Test.class","testCollectionsMinMax","()I"), 8); }
+    #[test]
+    fn test_p80_string_valueof_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testStringValueOfChar", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p80_string_valueof_char_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testStringValueOfCharArray", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p80_char_arithmetic() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCharArithmetic", "()I"),
+            25
+        );
+    }
+    #[test]
+    fn test_p80_char_boxing() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCharBoxing", "()I"),
+            23
+        );
+    }
+    #[test]
+    fn test_p80_integer_bitcount() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testIntegerBitCount", "()I"),
+            8
+        );
+    }
+    #[test]
+    fn test_p80_integer_highest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testIntegerHighestOneBit", "()I"),
+            64
+        );
+    }
+    #[test]
+    fn test_p80_integer_lowest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testIntegerLowestOneBit", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p80_integer_leading_zeros() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase80Test.class",
+                "testIntegerNumberOfLeadingZeros",
+                "()I"
+            ),
+            31
+        );
+    }
+    #[test]
+    fn test_p80_long_bitcount() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testLongBitCount", "()I"),
+            8
+        );
+    }
+    #[test]
+    fn test_p80_math_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testMathLong", "()I"),
+            100
+        );
+    }
+    #[test]
+    fn test_p80_foreach_lambda() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testForEachLambda", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p80_remove_if() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testRemoveIf", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p80_string_chars_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testStringCharsCount", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p80_collections_swap() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCollectionsSwap", "()I"),
+            30
+        );
+    }
+    #[test]
+    fn test_p80_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCollectionsMinMax", "()I"),
+            8
+        );
+    }
 
     // =========================================================================
     // ---- Phase 81: Custom exceptions, getCause, ArithmeticException, UnmodifiableList ----
     // =========================================================================
 
-    #[test] fn test_p81_custom_exception() { assert_eq!(run_bootstrap_int("Phase81Test.class","testCustomException","()I"), 42); }
-    #[test] fn test_p81_exception_hierarchy() { assert_eq!(run_bootstrap_int("Phase81Test.class","testExceptionHierarchy","()I"), 9); }
-    #[test] fn test_p81_exception_cause() { assert_eq!(run_bootstrap_int("Phase81Test.class","testExceptionCause","()I"), 1); }
-    #[test] fn test_p81_exception_message() { assert_eq!(run_bootstrap_int("Phase81Test.class","testExceptionMessage","()I"), 11); }
-    #[test] fn test_p81_division_by_zero() { assert_eq!(run_bootstrap_int("Phase81Test.class","testDivisionByZero","()I"), 7); }
-    #[test] fn test_p81_unsupported_operation() { assert_eq!(run_bootstrap_int("Phase81Test.class","testUnsupportedOperation","()I"), 1); }
-    #[test] fn test_p81_illegal_argument() { assert_eq!(run_bootstrap_int("Phase81Test.class","testIllegalArgument","()I"), 7); }
-    #[test] fn test_p81_illegal_state() { assert_eq!(run_bootstrap_int("Phase81Test.class","testIllegalState","()I"), 9); }
+    #[test]
+    fn test_p81_custom_exception() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testCustomException", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p81_exception_hierarchy() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testExceptionHierarchy", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p81_exception_cause() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testExceptionCause", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p81_exception_message() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testExceptionMessage", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p81_division_by_zero() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testDivisionByZero", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p81_unsupported_operation() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testUnsupportedOperation", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p81_illegal_argument() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testIllegalArgument", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p81_illegal_state() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testIllegalState", "()I"),
+            9
+        );
+    }
 
     // =========================================================================
     // ---- Phase 82: 2D arrays, user Comparable, string switch, varargs ----
     // =========================================================================
 
-    #[test] fn test_p82_twodim_array() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTwoDimArray","()I"), 42); }
-    #[test] fn test_p82_twodim_array_sum() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTwoDimArraySum","()I"), 45); }
-    #[test] fn test_p82_twodim_array_length() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTwoDimArrayLength","()I"), 15); }
-    #[test] fn test_p82_user_comparable() { assert_eq!(run_bootstrap_int("Phase82Test.class","testUserComparable","()I"), 13); }
-    #[test] fn test_p82_string_switch() { assert_eq!(run_bootstrap_int("Phase82Test.class","testStringSwitch","()I"), 2); }
-    #[test] fn test_p82_string_switch_default() { assert_eq!(run_bootstrap_int("Phase82Test.class","testStringSwitchDefault","()I"), 99); }
-    #[test] fn test_p82_varargs() { assert_eq!(run_bootstrap_int("Phase82Test.class","testVarargs","()I"), 15); }
-    #[test] fn test_p82_varargs_empty() { assert_eq!(run_bootstrap_int("Phase82Test.class","testVarargsEmpty","()I"), 0); }
-    #[test] fn test_p82_instanceof_chain() { assert_eq!(run_bootstrap_int("Phase82Test.class","testInstanceofChain","()I"), 5); }
-    #[test] fn test_p82_ternary() { assert_eq!(run_bootstrap_int("Phase82Test.class","testTernary","()I"), 10); }
+    #[test]
+    fn test_p82_twodim_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTwoDimArray", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p82_twodim_array_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTwoDimArraySum", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p82_twodim_array_length() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTwoDimArrayLength", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p82_user_comparable() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testUserComparable", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p82_string_switch() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testStringSwitch", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p82_string_switch_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testStringSwitchDefault", "()I"),
+            99
+        );
+    }
+    #[test]
+    fn test_p82_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testVarargs", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p82_varargs_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testVarargsEmpty", "()I"),
+            0
+        );
+    }
+    #[test]
+    fn test_p82_instanceof_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testInstanceofChain", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p82_ternary() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTernary", "()I"),
+            10
+        );
+    }
 
     // =========================================================================
     // ---- Phase 83: interface defaults, switch expr, records, pattern matching ----
     // =========================================================================
 
-    #[test] fn test_p83_interface_default() { assert_eq!(run_bootstrap_int("Phase83Test.class","testInterfaceDefaultMethod","()I"), 11); }
-    #[test] fn test_p83_static_interface() { assert_eq!(run_bootstrap_int("Phase83Test.class","testStaticInterfaceMethod","()I"), 49); }
-    #[test] fn test_p83_default_interface() { assert_eq!(run_bootstrap_int("Phase83Test.class","testDefaultInterfaceMethod","()I"), 27); }
-    #[test] fn test_p83_switch_expression() { assert_eq!(run_bootstrap_int("Phase83Test.class","testSwitchExpression","()I"), 1); }
-    #[test] fn test_p83_switch_yield() { assert_eq!(run_bootstrap_int("Phase83Test.class","testSwitchExpressionYield","()I"), 25); }
-    #[test] fn test_p83_record() { assert_eq!(run_bootstrap_int("Phase83Test.class","testRecord","()I"), 10); }
-    #[test] fn test_p83_record_method() { assert_eq!(run_bootstrap_int("Phase83Test.class","testRecordMethod","()I"), 10); }
-    #[test] fn test_p83_pattern_instanceof() { assert_eq!(run_bootstrap_int("Phase83Test.class","testPatternMatchingInstanceof","()I"), 42); }
-    #[test] fn test_p83_text_block() { assert_eq!(run_bootstrap_int("Phase83Test.class","testTextBlock","()I"), 11); }
+    #[test]
+    fn test_p83_interface_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testInterfaceDefaultMethod", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p83_static_interface() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testStaticInterfaceMethod", "()I"),
+            49
+        );
+    }
+    #[test]
+    fn test_p83_default_interface() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testDefaultInterfaceMethod", "()I"),
+            27
+        );
+    }
+    #[test]
+    fn test_p83_switch_expression() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testSwitchExpression", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p83_switch_yield() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testSwitchExpressionYield", "()I"),
+            25
+        );
+    }
+    #[test]
+    fn test_p83_record() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testRecord", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p83_record_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testRecordMethod", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p83_pattern_instanceof() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testPatternMatchingInstanceof", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p83_text_block() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testTextBlock", "()I"),
+            11
+        );
+    }
 
     // =========================================================================
     // ---- Phase 84: Generics, BiFunction, Predicate, Consumer, Supplier ----
     // =========================================================================
 
-    #[test] fn test_p84_generic_class() { assert_eq!(run_bootstrap_int("Phase84Test.class","testGenericClass","()I"), 47); }
-    #[test] fn test_p84_generic_method() { assert_eq!(run_bootstrap_int("Phase84Test.class","testGenericMethod","()I"), 35); }
-    #[test] fn test_p84_functional_interface() { assert_eq!(run_bootstrap_int("Phase84Test.class","testFunctionalInterface","()I"), 18); }
-    #[test] fn test_p84_bifunction() { assert_eq!(run_bootstrap_int("Phase84Test.class","testBiFunction","()I"), 42); }
-    #[test] fn test_p84_function_compose() { assert_eq!(run_bootstrap_int("Phase84Test.class","testFunctionCompose","()I"), 14); }
-    #[test] fn test_p84_predicate() { assert_eq!(run_bootstrap_int("Phase84Test.class","testPredicate","()I"), 2); }
-    #[test] fn test_p84_consumer() { assert_eq!(run_bootstrap_int("Phase84Test.class","testConsumer","()I"), 10); }
-    #[test] fn test_p84_supplier() { assert_eq!(run_bootstrap_int("Phase84Test.class","testSupplier","()I"), 42); }
-    #[test] fn test_p84_unary_operator() { assert_eq!(run_bootstrap_int("Phase84Test.class","testUnaryOperator","()I"), 6); }
+    #[test]
+    fn test_p84_generic_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testGenericClass", "()I"),
+            47
+        );
+    }
+    #[test]
+    fn test_p84_generic_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testGenericMethod", "()I"),
+            35
+        );
+    }
+    #[test]
+    fn test_p84_functional_interface() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testFunctionalInterface", "()I"),
+            18
+        );
+    }
+    #[test]
+    fn test_p84_bifunction() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testBiFunction", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p84_function_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testFunctionCompose", "()I"),
+            14
+        );
+    }
+    #[test]
+    fn test_p84_predicate() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testPredicate", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p84_consumer() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testConsumer", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p84_supplier() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testSupplier", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p84_unary_operator() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testUnaryOperator", "()I"),
+            6
+        );
+    }
 
     // =========================================================================
     // ---- Phase 85: method refs, Stream.toList, abstract class, enum fields ----
     // =========================================================================
 
-    #[test] fn test_p85_bound_method_ref() { assert_eq!(run_bootstrap_int("Phase85Test.class","testBoundMethodRef","()I"), 11); }
-    #[test] fn test_p85_bound_method_ref_on_arg() { assert_eq!(run_bootstrap_int("Phase85Test.class","testBoundMethodRefOnArg","()I"), 1); }
-    #[test] fn test_p85_static_method_ref() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStaticMethodRef","()I"), 14); }
-    #[test] fn test_p85_unbound_method_ref() { assert_eq!(run_bootstrap_int("Phase85Test.class","testUnboundMethodRef","()I"), 10); }
-    #[test] fn test_p85_stream_to_list() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStreamToList","()I"), 2); }
-    #[test] fn test_p85_nested_lambda() { assert_eq!(run_bootstrap_int("Phase85Test.class","testNestedLambda","()I"), 42); }
-    #[test] fn test_p85_abstract_class() { assert_eq!(run_bootstrap_int("Phase85Test.class","testAbstractClass","()I"), 74); }
-    #[test] fn test_p85_enum_with_fields() { assert_eq!(run_bootstrap_int("Phase85Test.class","testEnumWithFields","()I"), 9); }
-    #[test] fn test_p85_static_initializer() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStaticInitializer","()I"), 100); }
-    #[test] fn test_p85_string_formatted() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStringFormatted","()I"), 9); }
+    #[test]
+    fn test_p85_bound_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testBoundMethodRef", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p85_bound_method_ref_on_arg() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testBoundMethodRefOnArg", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p85_static_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStaticMethodRef", "()I"),
+            14
+        );
+    }
+    #[test]
+    fn test_p85_unbound_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testUnboundMethodRef", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p85_stream_to_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStreamToList", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p85_nested_lambda() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testNestedLambda", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p85_abstract_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testAbstractClass", "()I"),
+            74
+        );
+    }
+    #[test]
+    fn test_p85_enum_with_fields() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testEnumWithFields", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p85_static_initializer() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStaticInitializer", "()I"),
+            100
+        );
+    }
+    #[test]
+    fn test_p85_string_formatted() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStringFormatted", "()I"),
+            9
+        );
+    }
 
     // ---- Phase 86 probes ----
-    #[test] fn test_p86_varargs() { assert_eq!(run_bootstrap_int("Phase86Test.class","testVarargs","()I"), 15); }
-    #[test] fn test_p86_comparable() { assert_eq!(run_bootstrap_int("Phase86Test.class","testComparable","()I"), 1); }
-    #[test] fn test_p86_string_join() { assert_eq!(run_bootstrap_int("Phase86Test.class","testStringJoin","()I"), 15); }
-    #[test] fn test_p86_optional() { assert_eq!(run_bootstrap_int("Phase86Test.class","testOptional","()I"), 5); }
-    #[test] fn test_p86_optional_empty() { assert_eq!(run_bootstrap_int("Phase86Test.class","testOptionalEmpty","()I"), 0); }
-    #[test] fn test_p86_custom_iterable() { assert_eq!(run_bootstrap_int("Phase86Test.class","testCustomIterable","()I"), 15); }
-    #[test] fn test_p86_string_chars() { assert_eq!(run_bootstrap_int("Phase86Test.class","testStringChars","()I"), 2); }
-    #[test] fn test_p86_collections_frequency() { assert_eq!(run_bootstrap_int("Phase86Test.class","testCollectionsFrequency","()I"), 3); }
-    #[test] fn test_p86_treemap() { assert_eq!(run_bootstrap_int("Phase86Test.class","testTreeMap","()I"), 1); }
-    #[test] fn test_p86_linked_list_deque() { assert_eq!(run_bootstrap_int("Phase86Test.class","testLinkedListDeque","()I"), 4); }
+    #[test]
+    fn test_p86_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testVarargs", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p86_comparable() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testComparable", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p86_string_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testStringJoin", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p86_optional() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testOptional", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p86_optional_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testOptionalEmpty", "()I"),
+            0
+        );
+    }
+    #[test]
+    fn test_p86_custom_iterable() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testCustomIterable", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p86_string_chars() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testStringChars", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p86_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p86_treemap() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testTreeMap", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p86_linked_list_deque() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testLinkedListDeque", "()I"),
+            4
+        );
+    }
 
     // ---- Phase 87 probes ----
-    #[test] fn test_p87_stream_joining() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamJoining","()I"), 7); }
-    #[test] fn test_p87_stream_flatmap() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamFlatMap","()I"), 15); }
-    #[test] fn test_p87_stream_reduce() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamReduce","()I"), 15); }
-    #[test] fn test_p87_stream_sorted_comparator() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamSortedWithComparator","()I"), 5); }
-    #[test] fn test_p87_map_entry_sum() { assert_eq!(run_bootstrap_int("Phase87Test.class","testMapEntrySum","()I"), 60); }
-    #[test] fn test_p87_instanceof_pattern() { assert_eq!(run_bootstrap_int("Phase87Test.class","testInstanceof","()I"), 5); }
-    #[test] fn test_p87_switch_expression() { assert_eq!(run_bootstrap_int("Phase87Test.class","testSwitchExpression","()I"), 9); }
-    #[test] fn test_p87_text_block() { assert_eq!(run_bootstrap_int("Phase87Test.class","testTextBlock","()I"), 16); }
-    #[test] fn test_p87_multi_dim_array() { assert_eq!(run_bootstrap_int("Phase87Test.class","testMultiDimArray","()I"), 45); }
-    #[test] fn test_p87_string_format_multi() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStringFormatMulti","()I"), 21); }
+    #[test]
+    fn test_p87_stream_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamJoining", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p87_stream_flatmap() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamFlatMap", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p87_stream_reduce() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamReduce", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p87_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamSortedWithComparator", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p87_map_entry_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testMapEntrySum", "()I"),
+            60
+        );
+    }
+    #[test]
+    fn test_p87_instanceof_pattern() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testInstanceof", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p87_switch_expression() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testSwitchExpression", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p87_text_block() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testTextBlock", "()I"),
+            16
+        );
+    }
+    #[test]
+    fn test_p87_multi_dim_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testMultiDimArray", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p87_string_format_multi() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStringFormatMulti", "()I"),
+            21
+        );
+    }
+
+    // ---- Phase 88 probes ----
+    #[test]
+    fn test_p88_generic_pair() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testGenericPair", "()I"),
+            47
+        );
+    }
+    #[test]
+    fn test_p88_stack_deque() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStackDeque", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p88_bitset() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testBitSet", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p88_math_functions() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testMathFunctions", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p88_character_methods() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testCharacterMethods", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p88_string_split_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStringSplitJoin", "()I"),
+            18
+        );
+    }
+    #[test]
+    fn test_p88_interface_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testInterfaceDefault", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p88_static_interface_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStaticInterfaceMethod", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p88_stream_collect_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStreamCollectToMap", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p88_exception_message() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testExceptionMessage", "()I"),
+            9
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
