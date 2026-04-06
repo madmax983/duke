@@ -2553,6 +2553,25 @@ pub(crate) fn native_collections_shuffle(
     Ok(None)
 }
 
+/// Native: `Collections.fill(List, Object)V` — set every element to value.
+pub(crate) fn native_collections_fill(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let value = extract_slot_arg(args, 1);
+    let size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    for i in 1..=size {
+        heap.get_mut(list_ref)?.fields[i] = value;
+    }
+    Ok(None)
+}
+
 // ---- Stream natives ----
 // duke/util/Stream: fields[0]=Int(size), fields[1..]=element refs
 
@@ -3800,6 +3819,14 @@ pub(crate) fn native_stream_collect(
             vec![finisher_slot, intermediate],
         )?;
         Ok(result.or(Some(Slot::Reference(None))))
+    } else if collector_class == "duke/util/ToUnmodifiableListCollector" {
+        // toUnmodifiableList(): collect into UnmodifiableList (mutations throw).
+        let list_ref = heap.allocate("java/util/UnmodifiableList".to_string(), 1);
+        heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
+        for elem in elems {
+            heap.get_mut(list_ref)?.fields.push(elem);
+        }
+        Ok(Some(Slot::Reference(Some(list_ref))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -4998,6 +5025,34 @@ pub(crate) fn native_optional_int_or_else(
     } else {
         Ok(Some(args.get(1).copied().unwrap_or(Slot::Int(0))))
     }
+}
+
+/// Native: `OptionalInt.of(int)OptionalInt` — creates a present OptionalInt.
+pub(crate) fn native_optional_int_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let value = args.first().copied().unwrap_or(Slot::Int(0));
+    let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = value;
+    heap.get_mut(r)?.fields[1] = Slot::Int(1); // present = true
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `OptionalInt.empty()OptionalInt` — creates an empty OptionalInt.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_optional_int_empty(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0); // present = false
+    Ok(Some(Slot::Reference(Some(r))))
 }
 
 /// Native: `OptionalLong.orElse(long)J`
@@ -25894,7 +25949,7 @@ pub(crate) fn native_collectors_to_unmodifiable_list(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let r = heap.allocate("duke/util/ToListCollector".to_string(), 0);
+    let r = heap.allocate("duke/util/ToUnmodifiableListCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -56872,6 +56927,83 @@ mod tests {
     fn test_p104_arrays_equals() {
         assert_eq!(
             run_bootstrap_int("Phase104Test.class", "testArraysEquals", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p105_varargs() {
+        assert_eq!(run_bootstrap_int("Phase105Test.class", "testVarargs", "()I"), 15);
+    }
+
+    #[test]
+    fn test_p105_string_chars_map_to_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testStringCharsMapToObj", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p105_collectors_to_unmodifiable_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testCollectorsToUnmodifiableList", "()I"),
+            25
+        );
+    }
+
+    #[test]
+    fn test_p105_map_compute_new() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testMapComputeNew", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p105_integer_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testIntegerCompare", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p105_string_format_multiple_args() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testStringFormatMultipleArgs", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p105_collect_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testCollectToMap", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p105_optional_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testOptionalInt", "()I"),
+            50
+        );
+    }
+
+    #[test]
+    fn test_p105_longstream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testLongStreamRange", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p105_collections_fill() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testCollectionsFill", "()I"),
             1
         );
     }
