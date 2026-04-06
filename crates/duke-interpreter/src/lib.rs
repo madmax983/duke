@@ -3,6 +3,9 @@
 //! Executes decoded instruction streams for methods containing integer, long,
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
+// proptest! macro expands to a large runner struct with no source span —
+// suppress for test builds only so CI doesn't error on an un-attributable lint.
+#![cfg_attr(test, allow(clippy::large_stack_arrays))]
 
 /// Core execution context types for methods and classes.
 pub mod context;
@@ -1223,13 +1226,11 @@ pub(crate) fn native_throwable_init_string_cause(
     };
     heap.get_mut(this_ref)?.string_value = msg;
     // Store cause in fields[0] (Throwable.cause field)
-    if let Some(&cause_slot) = args.get(2) {
-        if let Ok(obj) = heap.get_mut(this_ref) {
-            if !obj.fields.is_empty() {
+    if let Some(&cause_slot) = args.get(2)
+        && let Ok(obj) = heap.get_mut(this_ref)
+            && !obj.fields.is_empty() {
                 obj.fields[0] = cause_slot;
             }
-        }
-    }
     Ok(None)
 }
 
@@ -1943,11 +1944,11 @@ pub(crate) fn native_hashmap_replace_all(
 // ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by key) ----
 // Keys are stored sorted in ascending order for O(n) insert / O(1) first&last.
 
-/// Compare two TreeMap keys by natural ordering, supporting String, Integer, Long, and Double keys.
+/// Compare two `TreeMap` keys by natural ordering, supporting String, Integer, Long, and Double keys.
 fn compare_treemap_keys(a: Slot, b: Slot, heap: &duke_gc::Heap) -> std::cmp::Ordering {
     let key_ord = |s: Slot| -> Option<KeyOrd> {
-        if let Slot::Reference(Some(r)) = s {
-            if let Ok(obj) = heap.get(r) {
+        if let Slot::Reference(Some(r)) = s
+            && let Ok(obj) = heap.get(r) {
                 if let Some(sv) = &obj.string_value {
                     return Some(KeyOrd::Str(sv.clone()));
                 }
@@ -1970,7 +1971,6 @@ fn compare_treemap_keys(a: Slot, b: Slot, heap: &duke_gc::Heap) -> std::cmp::Ord
                     _ => {}
                 }
             }
-        }
         None
     };
     match (key_ord(a), key_ord(b)) {
@@ -1987,7 +1987,7 @@ enum KeyOrd {
     Str(String),
 }
 
-/// Check if two TreeMap keys are equal (same value semantics as compare_treemap_keys == Equal).
+/// Check if two `TreeMap` keys are equal (same value semantics as `compare_treemap_keys` == Equal).
 fn treemap_keys_equal(a: Slot, b: Slot, heap: &duke_gc::Heap) -> bool {
     compare_treemap_keys(a, b, heap) == std::cmp::Ordering::Equal
 }
@@ -2176,7 +2176,7 @@ pub(crate) fn native_treemap_is_empty(
     })))
 }
 
-/// Native: `TreeMap.headMap(toKey)SortedMap` — returns a new TreeMap with keys strictly less than toKey.
+/// Native: `TreeMap.headMap(toKey)SortedMap` — returns a new `TreeMap` with keys strictly less than toKey.
 pub(crate) fn native_treemap_head_map(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2205,7 +2205,7 @@ pub(crate) fn native_treemap_head_map(
     Ok(Some(Slot::Reference(Some(result))))
 }
 
-/// Native: `TreeMap.tailMap(fromKey)SortedMap` — returns a new TreeMap with keys >= fromKey.
+/// Native: `TreeMap.tailMap(fromKey)SortedMap` — returns a new `TreeMap` with keys >= fromKey.
 pub(crate) fn native_treemap_tail_map(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2314,8 +2314,9 @@ pub(crate) fn native_treeset_init(
 }
 
 /// Native: `TreeSet.add(E)Z` — inserts in sorted order; returns false if already present.
-/// Extract a sortable key from a Slot for TreeSet ordering.
+/// Extract a sortable key from a Slot for `TreeSet` ordering.
 /// Returns an `Ordering`-compatible f64 for numeric types, lexicographic for strings.
+#[allow(clippy::cast_precision_loss)] // intentional: i64→f64 for sort ordering; precision loss acceptable
 fn treeset_slot_sort_key(slot: Slot, heap: &duke_gc::Heap) -> Option<TreeSortKey> {
     match slot {
         Slot::Int(n) => Some(TreeSortKey::Num(f64::from(n))),
@@ -2337,7 +2338,6 @@ fn treeset_slot_sort_key(slot: Slot, heap: &duke_gc::Heap) -> Option<TreeSortKey
                     Some(Slot::Float(f)) => Some(TreeSortKey::Num(f64::from(*f))),
                     _ => None,
                 },
-                "java/lang/String" => obj.string_value.clone().map(TreeSortKey::Str),
                 _ => obj.string_value.clone().map(TreeSortKey::Str),
             }
         }
@@ -2388,12 +2388,11 @@ pub(crate) fn native_treeset_add(
         for i in 0..size {
             let ex = heap.get(this_ref)?.fields[1 + i];
             let ex_key = treeset_slot_sort_key(ex, heap);
-            if let (Some(ek), Some(exk)) = (&elem_key, &ex_key) {
-                if ek.less_than(exk) {
+            if let (Some(ek), Some(exk)) = (&elem_key, &ex_key)
+                && ek.less_than(exk) {
                     pos = i;
                     break;
                 }
-            }
         }
         pos
     };
@@ -2613,6 +2612,7 @@ pub(crate) fn native_collections_shuffle(
 }
 
 /// Native: `Collections.shuffle(List, Random)V` — shuffle with provided RNG (no-op for correctness since test only checks sum).
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collections_shuffle_random(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -3290,12 +3290,16 @@ pub(crate) fn native_stream_collect(
             };
             if downstream_class == "duke/util/CountingCollector" {
                 let boxed = heap.allocate("java/lang/Long".to_string(), 1);
-                heap.get_mut(boxed)?.fields[0] = Slot::Long(n as i64);
+                #[allow(clippy::cast_possible_wrap)] // n is a collection count; fits i64
+                let count_long = Slot::Long(n as i64);
+                heap.get_mut(boxed)?.fields[0] = count_long;
                 return Ok(Some(Slot::Reference(Some(boxed))));
             }
             // Generic: build a mini stream and collect into a list.
             let stream_ref = heap.allocate("duke/util/Stream".to_string(), n);
-            heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n as i32);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            let n_i32 = n as i32;
+            heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n_i32);
             for (i, e) in elems_sub.into_iter().enumerate() {
                 heap.get_mut(stream_ref)?.fields[1 + i] = e;
             }
@@ -4850,6 +4854,7 @@ pub(crate) fn native_int_stream_iterate(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
+    const MAX: usize = 4096;
     let seed = match args.first().copied() {
         Some(Slot::Int(n)) => n,
         _ => 0,
@@ -4862,7 +4867,6 @@ pub(crate) fn native_int_stream_iterate(
         )))));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    const MAX: usize = 4096;
     let mut values = Vec::with_capacity(MAX);
     let mut cur = seed;
     for _ in 0..MAX {
@@ -5254,7 +5258,7 @@ pub(crate) fn native_optional_int_or_else(
     }
 }
 
-/// Native: `OptionalInt.of(int)OptionalInt` — creates a present OptionalInt.
+/// Native: `OptionalInt.of(int)OptionalInt` — creates a present `OptionalInt`.
 pub(crate) fn native_optional_int_of(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -5268,7 +5272,7 @@ pub(crate) fn native_optional_int_of(
     Ok(Some(Slot::Reference(Some(r))))
 }
 
-/// Native: `OptionalInt.empty()OptionalInt` — creates an empty OptionalInt.
+/// Native: `OptionalInt.empty()OptionalInt` — creates an empty `OptionalInt`.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_optional_int_empty(
     _args: &[Slot],
@@ -8077,6 +8081,7 @@ pub(crate) fn native_string_indexof_from(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target_ref = extract_ref_arg(args, 1)?;
+    #[allow(clippy::cast_sign_loss)] // .max(0) guarantees non-negative
     let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
     let this_obj = heap.get(this_ref)?;
     let target_obj = heap.get(target_ref)?;
@@ -8097,6 +8102,7 @@ pub(crate) fn native_string_last_indexof_from(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let sub_ref = extract_ref_arg(args, 1)?;
+    #[allow(clippy::cast_sign_loss)] // .max(0) guarantees non-negative
     let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
     let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
@@ -8935,7 +8941,7 @@ pub(crate) fn native_collections_unmodifiable_list(
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
 
-/// Native: mutation ops on UnmodifiableList throw UnsupportedOperationException.
+/// Native: mutation ops on `UnmodifiableList` throw `UnsupportedOperationException`.
 pub(crate) fn native_unmodifiable_list_mutation(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -10055,6 +10061,7 @@ pub(crate) fn native_string_split_limit(
         Some(Slot::Int(n)) => *n,
         _ => 0,
     };
+    #[allow(clippy::cast_sign_loss)] // limit is validated > 0 before the cast
     let parts: Vec<String> = if delim.is_empty() {
         let chars: Vec<String> = s.chars().map(|c| c.to_string()).collect();
         if limit > 0 && (limit as usize) < chars.len() {
@@ -10788,6 +10795,7 @@ pub(crate) fn native_long_intvalue(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = match heap.get(this_ref)?.fields.first() {
+        #[allow(clippy::cast_possible_truncation)] // enum ordinals fit i32
         Some(Slot::Long(v)) => *v as i32,
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -11452,6 +11460,7 @@ pub(crate) fn native_char_compareto(
 }
 
 /// `Character.digit(char, int)int` — numeric value of char in given radix, or -1.
+#[allow(clippy::unnecessary_wraps)] // signature must match NativeHandler
 pub(crate) fn native_char_digit(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -11459,16 +11468,16 @@ pub(crate) fn native_char_digit(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let ch = match args.first() {
-        Some(Slot::Int(n)) => *n as u32,
+        Some(Slot::Int(n)) => (*n).cast_unsigned(),
         _ => return Ok(Some(Slot::Int(-1))),
     };
     let radix = match args.get(1) {
-        Some(Slot::Int(n)) => *n as u32,
+        Some(Slot::Int(n)) => (*n).cast_unsigned(),
         _ => 10,
     };
     let result = char::from_u32(ch)
         .and_then(|c| c.to_digit(radix))
-        .map_or(-1, |d| d as i32);
+        .map_or(-1, u32::cast_signed);
     Ok(Some(Slot::Int(result)))
 }
 
@@ -13948,7 +13957,7 @@ fn run_execution(
                             throw_java!(class_name);
                         }
                         Err(other) => return Err(other),
-                    };
+                    }
                     *idx = 0;
                     continue;
                 }
@@ -14054,7 +14063,7 @@ fn run_execution(
                                 throw_java!(class_name);
                             }
                             Err(other) => return Err(other),
-                        };
+                        }
                         *idx = 0;
                         continue;
                     }
@@ -15100,7 +15109,7 @@ fn run_execution(
                             throw_java!(class_name);
                         }
                         Err(other) => return Err(other),
-                    };
+                    }
                     *idx = 0;
                     continue;
                 }
@@ -15181,7 +15190,7 @@ fn run_execution(
                             throw_java!(class_name);
                         }
                         Err(other) => return Err(other),
-                    };
+                    }
                     *idx = 0;
                     continue;
                 }
@@ -15323,7 +15332,7 @@ fn run_execution(
                                             throw_java!(class_name);
                                         }
                                         Err(other) => return Err(other),
-                                    };
+                                    }
                                     *idx = 0;
                                     continue;
                                 }
@@ -15673,7 +15682,7 @@ fn run_execution(
                         throw_java!(class_name);
                     }
                     Err(other) => return Err(other),
-                };
+                }
                 *idx = 0;
                 continue;
             }
@@ -16573,7 +16582,7 @@ fn run_execution(
                                             throw_java!(class_name);
                                         }
                                         Err(other) => return Err(other),
-                                    };
+                                    }
                                     *idx = 0;
                                     continue;
                                 }
@@ -16641,7 +16650,7 @@ fn run_execution(
                                             throw_java!(class_name);
                                         }
                                         Err(other) => return Err(other),
-                                    };
+                                    }
                                     *idx = 0;
                                     continue;
                                 }
@@ -16921,7 +16930,7 @@ fn run_execution(
                         throw_java!(class_name);
                     }
                     Err(other) => return Err(other),
-                };
+                }
                 *idx = 0;
                 continue;
             }
@@ -18591,13 +18600,11 @@ fn is_assignable_from(
         return true;
     }
     // Lambda proxies implement their SAM interface (and transitively java/lang/Object).
-    if from_key.starts_with("$$Lambda$") {
-        if let Some(lambda_info) = registry.get_lambda(&from_key) {
-            if lambda_info.sam_interface == to_key || lambda_info.sam_interface == to_internal {
+    if from_key.starts_with("$$Lambda$")
+        && let Some(lambda_info) = registry.get_lambda(&from_key)
+            && (lambda_info.sam_interface == to_key || lambda_info.sam_interface == to_internal) {
                 return true;
             }
-        }
-    }
     // Arrays implement Cloneable and Serializable; everything else is Object.
     if from_internal.starts_with('[') {
         return matches!(to_internal, "java/lang/Cloneable" | "java/io/Serializable");
@@ -19092,7 +19099,7 @@ fn expand_args_for_desc(args: &[Slot], descriptor: &str) -> Vec<Slot> {
 fn pop_typed_args_into_locals(
     param_types: &[char],
     frame: &mut Frame,
-    locals: &mut Vec<Slot>,
+    locals: &mut [Slot],
     start_idx: usize,
 ) -> VmResult<()> {
     let count = param_types.len();
@@ -21620,8 +21627,8 @@ pub(crate) fn native_matcher_group(
 pub(crate) fn native_matcher_group_n(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
@@ -21630,7 +21637,7 @@ pub(crate) fn native_matcher_group_n(
     };
     if n == 0 {
         // group(0) == group() — full match
-        return native_matcher_group(args, heap, _out, _control);
+        return native_matcher_group(args, heap, out, control);
     }
     let fields = heap.get(m_ref)?.fields.clone();
     let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
@@ -21650,12 +21657,11 @@ pub(crate) fn native_matcher_group_n(
         .clone()
         .unwrap_or_default();
     let re = compile_java_regex(&pattern_str)?;
-    if let Some(caps) = re.captures_at(&input, start) {
-        if let Some(g) = caps.get(n) {
+    if let Some(caps) = re.captures_at(&input, start)
+        && let Some(g) = caps.get(n) {
             let s = heap.allocate_string(g.as_str().to_string());
             return Ok(Some(Slot::Reference(Some(s))));
         }
-    }
     Ok(Some(Slot::Reference(None)))
 }
 

@@ -9356,7 +9356,7 @@ pub(crate) fn native_collectors_summarizing_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.get(0).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     let r = heap.allocate("duke/util/SummarizingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
