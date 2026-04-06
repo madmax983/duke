@@ -3497,6 +3497,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_char_compareto,
     );
 
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "digit",
+        "(CI)I",
+        native_char_digit,
+    );
+
     let collection_ctx = ClassContext {
         class_name: "java/util/Collection".to_string(),
         super_class: Some("java/lang/Object".to_string()),
