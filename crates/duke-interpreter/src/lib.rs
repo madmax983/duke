@@ -4726,6 +4726,33 @@ pub(crate) fn native_int_stream_filter(
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, kept)))))
 }
 
+/// Native: `IntStream.peek(IntConsumer)IntStream` — calls consumer for each element, returns same stream.
+pub(crate) fn native_int_stream_peek(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elems = int_stream_elems(heap, r);
+    if let Slot::Reference(Some(fn_ref)) = fn_slot {
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        for &v in &elems {
+            ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "accept",
+                "(I)V",
+                vec![fn_slot, Slot::Int(v)],
+            )?;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, elems)))))
+}
+
 /// Native: `IntStream.map(IntUnaryOperator)IntStream`
 pub(crate) fn native_int_stream_map(
     args: &[Slot],
@@ -55796,6 +55823,76 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase92Test.class", "testStringFormatChar", "()I"),
             16
+        );
+    }
+    #[test]
+    fn test_p93_deque_as_stack() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testDequeAsStack", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p93_deque_as_queue() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testDequeAsQueue", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p93_stream_peek() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testStreamPeek", "()I"),
+            20
+        );
+    }
+    #[test]
+    fn test_p93_collectors_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testCollectorsJoining", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p93_compute_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testComputeIfAbsent", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p93_instanceof() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testInstanceOf", "()I"),
+            111
+        );
+    }
+    #[test]
+    fn test_p93_conditional_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testConditionalChain", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p93_array_sort_search() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testArraySortSearch", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p93_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testStringJoinList", "()I"),
+            16
+        );
+    }
+    #[test]
+    fn test_p93_multiple_returns() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testMultipleReturns", "()I"),
+            5
         );
     }
 }

@@ -5501,6 +5501,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/function/IntConsumer;)V",
         native_int_stream_for_each,
     );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "peek",
+        "(Ljava/util/function/IntConsumer;)Ljava/util/stream/IntStream;",
+        native_int_stream_peek,
+    );
     registry.natives_mut().register(
         "duke/util/IntStream",
         "boxed",
