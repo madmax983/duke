@@ -749,6 +749,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/String",
+        "indexOf",
+        "(Ljava/lang/String;I)I",
+        native_string_indexof_from,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "lastIndexOf",
+        "(Ljava/lang/String;I)I",
+        native_string_last_indexof_from,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
         "contains",
         "(Ljava/lang/CharSequence;)Z",
         native_string_contains,
@@ -2487,6 +2499,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Long", "longValue", "()J", native_long_longvalue);
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "intValue", "()I", native_long_intvalue);
     registry.natives_mut().register(
         "java/lang/Long",
         "toString",
