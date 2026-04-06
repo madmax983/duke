@@ -6,6 +6,7 @@
 use std::process;
 
 mod analyze;
+mod deps_graph;
 mod html;
 mod uml;
 
@@ -202,6 +203,7 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     result
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);
@@ -213,6 +215,7 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke html <classfile.class> [output.html]");
+        eprintln!("       duke deps-graph <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke cg <classfile.class>");
@@ -274,6 +277,14 @@ fn main() {
     // Dispatch `analyze`: run static analysis on the class.
     if args.len() >= 3 && args[1] == "analyze" {
         dump_analyze(&args[2]);
+        return;
+    }
+
+    if args.len() >= 3 && args[1] == "deps-graph" {
+        let bytes = std::fs::read(&args[2]).expect("failed to read class file");
+        let cf = parse(&bytes).expect("failed to parse class file");
+        let graph = deps_graph::generate_deps_graph(&cf);
+        println!("{graph}");
         return;
     }
 
