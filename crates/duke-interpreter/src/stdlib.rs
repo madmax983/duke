@@ -8763,6 +8763,78 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 
     // Phase 88 additions
 
+    // Phase 100: Collectors.summarizingInt → IntSummaryStatistics
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "summarizingInt",
+        "(Ljava/util/function/ToIntFunction;)Ljava/util/stream/Collector;",
+        native_collectors_summarizing_int,
+    );
+    let summarizing_ctx = ClassContext {
+        class_name: "duke/util/SummarizingIntCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToIntFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(summarizing_ctx);
+    // IntSummaryStatistics — fields: [0]=count(J) [1]=sum(J) [2]=min(I) [3]=max(I)
+    let iss_ctx = ClassContext {
+        class_name: "java/util/IntSummaryStatistics".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry { name: "count".to_string(), descriptor: "J".to_string(), is_static: false },
+            FieldEntry { name: "sum".to_string(), descriptor: "J".to_string(), is_static: false },
+            FieldEntry { name: "min".to_string(), descriptor: "I".to_string(), is_static: false },
+            FieldEntry { name: "max".to_string(), descriptor: "I".to_string(), is_static: false },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(iss_ctx);
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getCount",
+        "()J",
+        native_int_summary_stats_get_count,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getSum",
+        "()J",
+        native_int_summary_stats_get_sum,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getMin",
+        "()I",
+        native_int_summary_stats_get_min,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getMax",
+        "()I",
+        native_int_summary_stats_get_max,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getAverage",
+        "()D",
+        native_int_summary_stats_get_average,
+    );
+
     // java/util/BitSet — bitmask stored as fields[0] = Long(bits)
     let bitset_ctx = ClassContext {
         class_name: "java/util/BitSet".to_string(),
@@ -8929,4 +9001,100 @@ pub(crate) fn native_identity_function_apply(
 ) -> VmResult<Option<Slot>> {
     // args[0] = this (the IdentityFunction proxy), args[1] = the element
     Ok(Some(args.get(1).copied().unwrap_or(Slot::Reference(None))))
+}
+
+// ─── Phase 100 natives ───────────────────────────────────────────────────────
+
+/// `Collectors.summarizingInt(ToIntFunction)Collector` — returns a `SummarizingIntCollector`.
+pub(crate) fn native_collectors_summarizing_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_slot = args.get(0).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/SummarizingIntCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `IntSummaryStatistics.getCount()J`
+pub(crate) fn native_int_summary_stats_get_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let count = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(count)))
+}
+
+/// `IntSummaryStatistics.getSum()J`
+pub(crate) fn native_int_summary_stats_get_sum(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let sum = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(sum)))
+}
+
+/// `IntSummaryStatistics.getMin()I`
+pub(crate) fn native_int_summary_stats_get_min(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let min = match heap.get(this_ref)?.fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(min)))
+}
+
+/// `IntSummaryStatistics.getMax()I`
+pub(crate) fn native_int_summary_stats_get_max(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let max = match heap.get(this_ref)?.fields.get(3) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(max)))
+}
+
+/// `IntSummaryStatistics.getAverage()D`
+pub(crate) fn native_int_summary_stats_get_average(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let count = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let sum = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let avg = if count == 0 { 0.0 } else { sum as f64 / count as f64 };
+    Ok(Some(Slot::Double(avg)))
 }

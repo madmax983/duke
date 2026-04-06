@@ -3167,6 +3167,53 @@ pub(crate) fn native_stream_collect(
         let boxed = heap.allocate("java/lang/Double".to_string(), 1);
         heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
         Ok(Some(Slot::Reference(Some(boxed))))
+    } else if collector_class == "duke/util/SummarizingIntCollector" {
+        // IntSummaryStatistics via applyAsInt(elem) for each element.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0_i64;
+        let mut min = i32::MAX;
+        let mut max = i32::MIN;
+        let mut count = 0_i64;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(Ljava/lang/Object;)I",
+                vec![fn_slot, elem],
+            )?;
+            if let Some(Slot::Int(n)) = result {
+                sum += i64::from(n);
+                if n < min { min = n; }
+                if n > max { max = n; }
+                count += 1;
+            }
+        }
+        if count == 0 {
+            min = 0;
+            max = 0;
+        }
+        // fields: [0]=count(J) [1]=sum(J) [2]=min(I) [3]=max(I)
+        let stats = heap.allocate("java/util/IntSummaryStatistics".to_string(), 4);
+        heap.get_mut(stats)?.fields[0] = Slot::Long(count);
+        heap.get_mut(stats)?.fields[1] = Slot::Long(sum);
+        heap.get_mut(stats)?.fields[2] = Slot::Int(min);
+        heap.get_mut(stats)?.fields[3] = Slot::Int(max);
+        Ok(Some(Slot::Reference(Some(stats))))
     } else if collector_class == "duke/util/SummingLongCollector" {
         // Sum via applyAsLong(elem) for each element.
         let collector_ref = match args.get(1) {
@@ -56380,6 +56427,86 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase99Test.class", "testIntegerRadixStrings", "()I"),
             6
+        );
+    }
+
+    #[test]
+    fn test_p100_function_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testFunctionCompose", "()I"),
+            29
+        );
+    }
+
+    #[test]
+    fn test_p100_predicate_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testPredicateCompose", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p100_consumer_and_then() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testConsumerAndThen", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p100_supplier_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testSupplierGet", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p100_bifunction() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testBiFunction", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p100_map_foreach_biconsumer() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testMapForEachBiConsumer", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn test_p100_collectors_summarizing_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testCollectorsSummarizingInt", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p100_stream_map_to_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testStreamMapToLong", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p100_unmodifiable_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testUnmodifiableList", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p100_intstream_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testIntStreamMethodRef", "()I"),
+            21
         );
     }
 }
