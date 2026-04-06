@@ -9830,6 +9830,53 @@ pub(crate) fn native_string_split(
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
 
+/// Native: `String.split(String, int)` — split with a limit parameter.
+pub(crate) fn native_string_split_limit(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let delim_ref = extract_ref_arg(args, 1)?;
+    let delim = heap.get(delim_ref)?.string_value.clone().unwrap_or_default();
+    let limit = match args.get(2) {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    let parts: Vec<String> = if delim.is_empty() {
+        let chars: Vec<String> = s.chars().map(|c| c.to_string()).collect();
+        if limit > 0 && (limit as usize) < chars.len() {
+            let mut v = chars[..limit as usize - 1].to_vec();
+            v.push(chars[limit as usize - 1..].join(""));
+            v
+        } else {
+            chars
+        }
+    } else {
+        let re = regex::Regex::new(&delim)
+            .unwrap_or_else(|_| regex::Regex::new(&regex::escape(&delim)).unwrap());
+        if limit > 0 {
+            re.splitn(&s, limit as usize).map(str::to_string).collect()
+        } else {
+            let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
+            if limit == 0 {
+                while v.last().is_some_and(String::is_empty) {
+                    v.pop();
+                }
+            }
+            v
+        }
+    };
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
+    for (i, part) in parts.iter().enumerate() {
+        let str_ref = heap.allocate_string(part.clone());
+        heap.get_mut(arr_ref)?.fields[i] = Slot::Reference(Some(str_ref));
+    }
+    Ok(Some(Slot::Reference(Some(arr_ref))))
+}
+
 /// Native: `String.hashCode()` — Java's hash algorithm: `s[0]*31^(n-1) + s[1]*31^(n-2) + ... + s[n-1]`.
 #[allow(clippy::cast_possible_wrap)]
 pub(crate) fn native_string_hashcode(
@@ -57338,6 +57385,86 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase108Test.class", "testInterfaceDefaultMethod", "()I"),
             13
+        );
+    }
+
+    #[test]
+    fn test_p109_string_split_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testStringSplitLimit", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn test_p109_abstract_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testAbstractClass", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p109_map_put_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testMapPutAll", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p109_grouping_by_simple() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testGroupingBySimple", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p109_integer_parse_int_radix() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testIntegerParseIntRadix", "()I"),
+            245
+        );
+    }
+
+    #[test]
+    fn test_p109_string_format_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testStringFormatChar", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p109_list_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testListContains", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p109_stream_peek() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testStreamPeek", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn test_p109_nested_static_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testNestedStaticClass", "()I"),
+            50
+        );
+    }
+
+    #[test]
+    fn test_p109_collections_disjoint() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testCollectionsDisjoint", "()I"),
+            2
         );
     }
 }

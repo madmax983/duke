@@ -836,6 +836,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/String",
+        "split",
+        "(Ljava/lang/String;I)[Ljava/lang/String;",
+        native_string_split_limit,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
         "hashCode",
         "()I",
         native_string_hashcode,
