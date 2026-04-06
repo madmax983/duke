@@ -56105,6 +56105,76 @@ mod tests {
             5
         );
     }
+    #[test]
+    fn test_p97_record_shapes() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testRecordShapes", "()I"),
+            33
+        );
+    }
+    #[test]
+    fn test_p97_map_compute() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testMapCompute", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p97_stream_take_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStreamTakeWhile", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p97_stream_drop_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStreamDropWhile", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p97_n_copies() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testNCopies", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p97_string_case() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStringCase", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p97_intstream_average() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testIntStreamAverage", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p97_treemap_ordering() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testTreeMapOrdering", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p97_long_stream_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testLongStreamOps", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p97_string_repeat() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStringRepeat", "()I"),
+            8
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
