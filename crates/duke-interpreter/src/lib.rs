@@ -1633,6 +1633,28 @@ pub(crate) fn native_linked_list_init(
     native_arraylist_init(args, heap, out, control)
 }
 
+/// Native: `LinkedList.<init>(Collection)V` — copies all elements from source collection.
+pub(crate) fn native_linked_list_init_collection(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let src_ref = extract_ref_arg(args, 1)?;
+    let src_size = match heap.get(src_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[1..=src_size].to_vec();
+    let n = i32::try_from(src_elems.len()).unwrap_or(0);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(n);
+    for elem in src_elems {
+        heap.get_mut(this_ref)?.fields.push(elem);
+    }
+    Ok(None)
+}
+
 /// Native: `LinkedList.size()I`
 pub(crate) fn native_linked_list_size(
     args: &[Slot],
@@ -23283,11 +23305,22 @@ pub(crate) fn native_collections_swap(
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collections_unmodifiable_map(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+    let src_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let src_class = heap.get(src_ref)?.class_name.clone();
+    // Copy data into an UnmodifiableMap wrapper (same layout as HashMap)
+    let r = heap.allocate("java/util/UnmodifiableMap".to_string(), src_fields.len());
+    let r_fields = &mut heap.get_mut(r)?.fields;
+    *r_fields = src_fields;
+    drop(src_class);
+    Ok(Some(Slot::Reference(Some(r))))
 }
 
 /// Native: `Collectors.partitioningBy(Predicate)Collector` — returns a sentinel collector.
@@ -57005,6 +57038,86 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase105Test.class", "testCollectionsFill", "()I"),
             1
+        );
+    }
+
+    #[test]
+    fn test_p106_nested_collections() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testNestedCollections", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p106_stream_flat_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStreamFlatMap", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p106_linked_list_iterator() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testLinkedListIterator", "()I"),
+            150
+        );
+    }
+
+    #[test]
+    fn test_p106_unmodifiable_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testUnmodifiableMap", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p106_string_matches() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStringMatches", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p106_stream_match_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStreamMatchOps", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p106_integer_static_methods() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testIntegerStaticMethods", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn test_p106_string_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStringReplaceAll", "()I"),
+            19
+        );
+    }
+
+    #[test]
+    fn test_p106_collectors_joining_full() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testCollectorsJoiningFull", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p106_map_keyset() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testMapKeySet", "()I"),
+            3
         );
     }
 }
