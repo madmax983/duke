@@ -57627,6 +57627,86 @@ mod tests {
             13
         );
     }
+
+    #[test]
+    fn test_p112_map_contains_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testMapContainsValue", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p112_list_sub_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testListSubList", "()I"),
+            90
+        );
+    }
+
+    #[test]
+    fn test_p112_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testCollectionsFrequency", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p112_collect_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testCollectToMap", "()I"),
+            17
+        );
+    }
+
+    #[test]
+    fn test_p112_integer_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testIntegerCompare", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p112_string_chars_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testStringCharsStream", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p112_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testCollectorsCounting", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p112_array_deque_as_stack() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testArrayDequeAsStack", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p112_map_key_set_iteration() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testMapKeySetIteration", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p112_stream_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testStreamLimit", "()I"),
+            15
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
