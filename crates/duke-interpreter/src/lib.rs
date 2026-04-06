@@ -54550,6 +54550,18 @@ mod tests {
     #[test] fn test_p86_collections_frequency() { assert_eq!(run_bootstrap_int("Phase86Test.class","testCollectionsFrequency","()I"), 3); }
     #[test] fn test_p86_treemap() { assert_eq!(run_bootstrap_int("Phase86Test.class","testTreeMap","()I"), 1); }
     #[test] fn test_p86_linked_list_deque() { assert_eq!(run_bootstrap_int("Phase86Test.class","testLinkedListDeque","()I"), 4); }
+
+    // ---- Phase 87 probes ----
+    #[test] fn test_p87_stream_joining() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamJoining","()I"), 7); }
+    #[test] fn test_p87_stream_flatmap() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamFlatMap","()I"), 15); }
+    #[test] fn test_p87_stream_reduce() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamReduce","()I"), 15); }
+    #[test] fn test_p87_stream_sorted_comparator() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStreamSortedWithComparator","()I"), 5); }
+    #[test] fn test_p87_map_entry_sum() { assert_eq!(run_bootstrap_int("Phase87Test.class","testMapEntrySum","()I"), 60); }
+    #[test] fn test_p87_instanceof_pattern() { assert_eq!(run_bootstrap_int("Phase87Test.class","testInstanceof","()I"), 5); }
+    #[test] fn test_p87_switch_expression() { assert_eq!(run_bootstrap_int("Phase87Test.class","testSwitchExpression","()I"), 9); }
+    #[test] fn test_p87_text_block() { assert_eq!(run_bootstrap_int("Phase87Test.class","testTextBlock","()I"), 16); }
+    #[test] fn test_p87_multi_dim_array() { assert_eq!(run_bootstrap_int("Phase87Test.class","testMultiDimArray","()I"), 45); }
+    #[test] fn test_p87_string_format_multi() { assert_eq!(run_bootstrap_int("Phase87Test.class","testStringFormatMulti","()I"), 21); }
 }
 #[cfg(test)]
 mod fuzz;
