@@ -99,7 +99,7 @@ impl ThreadRuntime {
     #[must_use]
     pub const fn allocate_thread_id(&mut self) -> i32 {
         let id = self.next_thread_id;
-        self.next_thread_id += 1;
+        self.next_thread_id = self.next_thread_id.wrapping_add(1);
         id
     }
 
@@ -172,5 +172,20 @@ mod tests {
         assert_eq!(runtime.live_workers(), 0);
         assert!(!runtime.mark_finished_by_java_ref(77));
         assert!(!runtime.mark_finished_by_java_ref(999));
+    }
+}
+
+#[cfg(test)]
+mod havoc_proptest {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_allocate_thread_id_overflow(start in i32::MAX - 10..=i32::MAX) {
+            let mut runtime = ThreadRuntime { next_thread_id: start, records: vec![] };
+            let _ = runtime.allocate_thread_id();
+            let _ = runtime.allocate_thread_id();
+        }
     }
 }
