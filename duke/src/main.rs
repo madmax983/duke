@@ -204,6 +204,7 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
 }
 
 #[allow(clippy::too_many_lines)]
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);

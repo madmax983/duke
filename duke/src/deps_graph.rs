@@ -60,6 +60,64 @@ mod tests {
     use super::*;
     use duke_classfile::access_flags::ClassAccessFlags;
 
+
+    #[test]
+    fn test_cp_str_none() {
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![None, Some(CpEntry::Integer(42))],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+        assert_eq!(super::cp_str(&cf, CpIndex(1)), None);
+        assert_eq!(super::cp_str(&cf, CpIndex(0)), None);
+    }
+
+    #[test]
+    fn test_resolve_class_name_invalid_index() {
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![None], // Missing class entry
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1), // Points to out-of-bounds or non-class
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+        assert_eq!(super::resolve_class_name(&cf, CpIndex(1)), "<not a class ref>");
+        assert_eq!(super::resolve_class_name(&cf, CpIndex(0)), "<none>");
+    }
+
+    #[test]
+    fn test_resolve_class_name_invalid_utf8() {
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Class { name_index: CpIndex(2) }),
+                Some(CpEntry::Integer(42)),
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+        assert_eq!(super::resolve_class_name(&cf, CpIndex(1)), "<invalid utf8>");
+    }
+
     #[test]
     fn test_generate_deps_graph() {
         let cf = ClassFile {
