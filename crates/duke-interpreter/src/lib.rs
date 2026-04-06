@@ -57547,6 +57547,86 @@ mod tests {
             129
         );
     }
+
+    #[test]
+    fn test_p111_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testMapPutIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p111_collections_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testCollectionsReverse", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p111_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStreamSortedComparator", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p111_int_stream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testIntStreamRange", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p111_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testCollectionsMinMax", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p111_string_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStringContains", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p111_collectors_to_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testCollectorsToSet", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p111_stream_matchers() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStreamMatchers", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p111_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testVarargs", "()I"),
+            36
+        );
+    }
+
+    #[test]
+    fn test_p111_string_builder_chaining() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStringBuilderChaining", "()I"),
+            13
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
