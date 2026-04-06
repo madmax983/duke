@@ -8828,6 +8828,14 @@ pub(crate) fn native_stream_map_to_int(
             .unwrap_or(Slot::Int(0));
         match result {
             Slot::Int(n) => values.push(n),
+            Slot::Reference(Some(r)) => {
+                // Unbox Integer/Short/Byte if the function returned a boxed type.
+                let n = match heap.get(r)?.fields.first() {
+                    Some(Slot::Int(v)) => *v,
+                    _ => 0,
+                };
+                values.push(n);
+            }
             _ => values.push(0),
         }
     }
@@ -56302,6 +56310,76 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase98Test.class", "testMapValuesStream", "()I"),
             2
+        );
+    }
+    #[test]
+    fn test_p99_priority_queue() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testPriorityQueue", "()I"),
+            35
+        );
+    }
+    #[test]
+    fn test_p99_string_format_padding() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testStringFormatPadding", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p99_method_chaining() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testMethodChaining", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p99_iterable_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testIterableForEach", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p99_map_entryset_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testMapEntrySetStream", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p99_arrays_copy_of_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testArraysCopyOfRange", "()I"),
+            90
+        );
+    }
+    #[test]
+    fn test_p99_partitioning_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testPartitioningBy", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p99_char_array_conversion() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testCharArrayConversion", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p99_stream_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testStreamMinMax", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p99_integer_radix_strings() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testIntegerRadixStrings", "()I"),
+            6
         );
     }
 }
