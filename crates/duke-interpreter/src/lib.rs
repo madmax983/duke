@@ -2998,6 +2998,31 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
         }
         Ok(Some(Slot::Reference(Some(map_ref))))
+    } else if collector_class == "duke/util/ToUnmodifiableMapCollector" {
+        // Same as ToMapCollector but produces an UnmodifiableMap.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let key_fn = heap.get(collector_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
+        let val_fn = heap.get(collector_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(key_ref)) = key_fn else { return Err(VmError::NullPointerException); };
+        let Slot::Reference(Some(val_ref)) = val_fn else { return Err(VmError::NullPointerException); };
+        let key_class = heap.get(key_ref)?.class_name.clone();
+        let val_class = heap.get(val_ref)?.class_name.clone();
+        let map_ref = heap.allocate("java/util/UnmodifiableMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let k_raw = ops.invoke(heap, out, &key_class, "apply", "(Ljava/lang/Object;)Ljava/lang/Object;", vec![key_fn, elem])?.unwrap_or(Slot::Reference(None));
+            let v_raw = ops.invoke(heap, out, &val_class, "apply", "(Ljava/lang/Object;)Ljava/lang/Object;", vec![val_fn, elem])?.unwrap_or(Slot::Reference(None));
+            let k = box_primitive_slot(k_raw, heap);
+            let v = box_primitive_slot(v_raw, heap);
+            let cur_size = match heap.get(map_ref)?.fields.first() { Some(Slot::Int(n)) => *n, _ => 0 };
+            heap.get_mut(map_ref)?.fields.push(k);
+            heap.get_mut(map_ref)?.fields.push(v);
+            heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
+        }
+        Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/ToMapMergeCollector" {
         // Collect into HashMap with merge function for duplicate keys.
         let collector_ref = match args.get(1) {
@@ -26881,7 +26906,7 @@ pub(crate) fn native_collectors_to_unmodifiable_map(
 ) -> VmResult<Option<Slot>> {
     let key_fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     let val_fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let r = heap.allocate("duke/util/ToMapCollector".to_string(), 2);
+    let r = heap.allocate("duke/util/ToUnmodifiableMapCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = key_fn_slot;
     heap.get_mut(r)?.fields[1] = val_fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -57875,6 +57900,86 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase114Test.class", "testIntegerMaxMin", "()I"),
             30
+        );
+    }
+
+    #[test]
+    fn test_p115_string_chars_to_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testStringCharsToList", "()I"),
+            196
+        );
+    }
+
+    #[test]
+    fn test_p115_optional_if_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testOptionalIfPresent", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn test_p115_singleton_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testSingletonList", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p115_stream_reduce_identity() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testStreamReduceIdentity", "()I"),
+            120
+        );
+    }
+
+    #[test]
+    fn test_p115_map_entry_set_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testMapEntrySetForEach", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p115_integer_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testIntegerReverse", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p115_collectors_to_unmodifiable_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testCollectorsToUnmodifiableMap", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p115_long_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testLongCompare", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p115_arrays_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testArraysStream", "()I"),
+            50
+        );
+    }
+
+    #[test]
+    fn test_p115_nested_generics() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testNestedGenerics", "()I"),
+            21
         );
     }
 }
