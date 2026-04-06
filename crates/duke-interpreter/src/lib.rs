@@ -57708,6 +57708,86 @@ mod tests {
             15
         );
     }
+
+    #[test]
+    fn test_p113_linked_hash_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testLinkedHashMap", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p113_collections_swap() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testCollectionsSwap", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p113_stream_generate() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testStreamGenerate", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p113_collectors_averaging_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testCollectorsAveragingInt", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p113_map_compute_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testMapComputeIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p113_integer_bit_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testIntegerBitCount", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p113_string_format_multiple() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testStringFormatMultiple", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p113_stream_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testStreamEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p113_list_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testListSet", "()I"),
+            111
+        );
+    }
+
+    #[test]
+    fn test_p113_grouping_by_downstream() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testGroupingByDownstream", "()I"),
+            6
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
