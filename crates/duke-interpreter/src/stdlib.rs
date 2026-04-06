@@ -5,6 +5,24 @@ use crate::*;
 use duke_runtime::Slot;
 
 #[allow(clippy::too_many_lines)]
+/// Bootstraps the JVM standard library into the provided registry.
+///
+/// This registers essential classes like `java/lang/System`, `java/io/PrintStream`,
+/// and sets up the initial heap state for `System.out` and `System.err`.
+///
+/// # Examples
+/// ```
+/// use duke_interpreter::{ClassRegistry, bootstrap_stdlib};
+/// use duke_gc::Heap;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// assert!(registry.contains("java/lang/System"));
+/// assert!(registry.contains("java/io/PrintStream"));
+/// ```
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
     let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
