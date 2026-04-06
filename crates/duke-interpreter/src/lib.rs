@@ -55896,6 +55896,76 @@ mod tests {
             5
         );
     }
+    #[test]
+    fn test_p94_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testCollectorsCounting", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p94_intstream_map_to_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testIntStreamMapToObj", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p94_comparable_impl() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testComparableImpl", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p94_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testMapGetOrDefault", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p94_string_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testStringContains", "()I"),
+            101
+        );
+    }
+    #[test]
+    fn test_p94_2d_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "test2DArray", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p94_enum_ordinal() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testEnumOrdinal", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p94_while_complex() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testWhileComplex", "()I"),
+            25
+        );
+    }
+    #[test]
+    fn test_p94_map_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testMapRemove", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p94_stream_boxed_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testStreamBoxedSum", "()I"),
+            24
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
