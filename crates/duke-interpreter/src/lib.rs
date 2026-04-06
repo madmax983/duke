@@ -54538,6 +54538,18 @@ mod tests {
     #[test] fn test_p85_enum_with_fields() { assert_eq!(run_bootstrap_int("Phase85Test.class","testEnumWithFields","()I"), 9); }
     #[test] fn test_p85_static_initializer() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStaticInitializer","()I"), 100); }
     #[test] fn test_p85_string_formatted() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStringFormatted","()I"), 9); }
+
+    // ---- Phase 86 probes ----
+    #[test] fn test_p86_varargs() { assert_eq!(run_bootstrap_int("Phase86Test.class","testVarargs","()I"), 15); }
+    #[test] fn test_p86_comparable() { assert_eq!(run_bootstrap_int("Phase86Test.class","testComparable","()I"), 1); }
+    #[test] fn test_p86_string_join() { assert_eq!(run_bootstrap_int("Phase86Test.class","testStringJoin","()I"), 15); }
+    #[test] fn test_p86_optional() { assert_eq!(run_bootstrap_int("Phase86Test.class","testOptional","()I"), 5); }
+    #[test] fn test_p86_optional_empty() { assert_eq!(run_bootstrap_int("Phase86Test.class","testOptionalEmpty","()I"), 0); }
+    #[test] fn test_p86_custom_iterable() { assert_eq!(run_bootstrap_int("Phase86Test.class","testCustomIterable","()I"), 15); }
+    #[test] fn test_p86_string_chars() { assert_eq!(run_bootstrap_int("Phase86Test.class","testStringChars","()I"), 2); }
+    #[test] fn test_p86_collections_frequency() { assert_eq!(run_bootstrap_int("Phase86Test.class","testCollectionsFrequency","()I"), 3); }
+    #[test] fn test_p86_treemap() { assert_eq!(run_bootstrap_int("Phase86Test.class","testTreeMap","()I"), 1); }
+    #[test] fn test_p86_linked_list_deque() { assert_eq!(run_bootstrap_int("Phase86Test.class","testLinkedListDeque","()I"), 4); }
 }
 #[cfg(test)]
 mod fuzz;
