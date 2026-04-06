@@ -2110,7 +2110,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             name,
             "<init>",
             "(Ljava/lang/String;Ljava/lang/Throwable;)V",
-            native_throwable_init_string,
+            native_throwable_init_string_cause,
         );
     }
 
