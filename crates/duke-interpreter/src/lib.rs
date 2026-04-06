@@ -2332,13 +2332,11 @@ fn treeset_slot_sort_key(slot: Slot, heap: &duke_gc::Heap) -> Option<TreeSortKey
                         _ => None,
                     }
                 }
-                "java/lang/Double" | "java/lang/Float" => {
-                    match obj.fields.first() {
-                        Some(Slot::Double(d)) => Some(TreeSortKey::Num(*d)),
-                        Some(Slot::Float(f)) => Some(TreeSortKey::Num(f64::from(*f))),
-                        _ => None,
-                    }
-                }
+                "java/lang/Double" | "java/lang/Float" => match obj.fields.first() {
+                    Some(Slot::Double(d)) => Some(TreeSortKey::Num(*d)),
+                    Some(Slot::Float(f)) => Some(TreeSortKey::Num(f64::from(*f))),
+                    _ => None,
+                },
                 "java/lang/String" => obj.string_value.clone().map(TreeSortKey::Str),
                 _ => obj.string_value.clone().map(TreeSortKey::Str),
             }
@@ -3043,20 +3041,55 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let key_fn = heap.get(collector_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
-        let val_fn = heap.get(collector_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
-        let Slot::Reference(Some(key_ref)) = key_fn else { return Err(VmError::NullPointerException); };
-        let Slot::Reference(Some(val_ref)) = val_fn else { return Err(VmError::NullPointerException); };
+        let key_fn = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let val_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(key_ref)) = key_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(val_ref)) = val_fn else {
+            return Err(VmError::NullPointerException);
+        };
         let key_class = heap.get(key_ref)?.class_name.clone();
         let val_class = heap.get(val_ref)?.class_name.clone();
         let map_ref = heap.allocate("java/util/UnmodifiableMap".to_string(), 1);
         heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
         for elem in elems {
-            let k_raw = ops.invoke(heap, out, &key_class, "apply", "(Ljava/lang/Object;)Ljava/lang/Object;", vec![key_fn, elem])?.unwrap_or(Slot::Reference(None));
-            let v_raw = ops.invoke(heap, out, &val_class, "apply", "(Ljava/lang/Object;)Ljava/lang/Object;", vec![val_fn, elem])?.unwrap_or(Slot::Reference(None));
+            let k_raw = ops
+                .invoke(
+                    heap,
+                    out,
+                    &key_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![key_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let v_raw = ops
+                .invoke(
+                    heap,
+                    out,
+                    &val_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![val_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
             let k = box_primitive_slot(k_raw, heap);
             let v = box_primitive_slot(v_raw, heap);
-            let cur_size = match heap.get(map_ref)?.fields.first() { Some(Slot::Int(n)) => *n, _ => 0 };
+            let cur_size = match heap.get(map_ref)?.fields.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
+            };
             heap.get_mut(map_ref)?.fields.push(k);
             heap.get_mut(map_ref)?.fields.push(v);
             heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
@@ -3212,14 +3245,33 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let pred_slot = heap.get(collector_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
-        let downstream_slot = heap.get(collector_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
-        let Slot::Reference(Some(pred_ref)) = pred_slot else { return Err(VmError::NullPointerException); };
+        let pred_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let downstream_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(pred_ref)) = pred_slot else {
+            return Err(VmError::NullPointerException);
+        };
         let pred_class = heap.get(pred_ref)?.class_name.clone();
         let mut true_elems: Vec<Slot> = Vec::new();
         let mut false_elems: Vec<Slot> = Vec::new();
         for elem in elems {
-            let result = ops.invoke(heap, out, &pred_class, "test", "(Ljava/lang/Object;)Z", vec![Slot::Reference(Some(pred_ref)), elem])?;
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(Ljava/lang/Object;)Z",
+                vec![Slot::Reference(Some(pred_ref)), elem],
+            )?;
             if matches!(result, Some(Slot::Int(n)) if n != 0) {
                 true_elems.push(elem);
             } else {
@@ -3227,7 +3279,10 @@ pub(crate) fn native_stream_collect(
             }
         }
         // Apply downstream collector to each partition by building a mini stream.
-        let apply_downstream = |elems_sub: Vec<Slot>, heap: &mut duke_gc::Heap, downstream: Slot| -> VmResult<Option<Slot>> {
+        let apply_downstream = |elems_sub: Vec<Slot>,
+                                heap: &mut duke_gc::Heap,
+                                downstream: Slot|
+         -> VmResult<Option<Slot>> {
             let n = elems_sub.len();
             let downstream_class = match downstream {
                 Slot::Reference(Some(r)) => heap.get(r)?.class_name.clone(),
@@ -3248,7 +3303,10 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(list_ref)?.fields[0] = Slot::Int(0);
             for i in 1..=n {
                 let e = heap.get(stream_ref)?.fields[i];
-                let cur = match heap.get(list_ref)?.fields.first() { Some(Slot::Int(x)) => *x, _ => 0 };
+                let cur = match heap.get(list_ref)?.fields.first() {
+                    Some(Slot::Int(x)) => *x,
+                    _ => 0,
+                };
                 heap.get_mut(list_ref)?.fields.push(e);
                 heap.get_mut(list_ref)?.fields[0] = Slot::Int(cur + 1);
             }
@@ -3262,10 +3320,18 @@ pub(crate) fn native_stream_collect(
         heap.get_mut(bool_true)?.fields[0] = Slot::Int(1);
         let bool_false = heap.allocate("java/lang/Boolean".to_string(), 1);
         heap.get_mut(bool_false)?.fields[0] = Slot::Int(0);
-        heap.get_mut(map_ref)?.fields.push(Slot::Reference(Some(bool_true)));
-        heap.get_mut(map_ref)?.fields.push(true_result.unwrap_or(Slot::Reference(None)));
-        heap.get_mut(map_ref)?.fields.push(Slot::Reference(Some(bool_false)));
-        heap.get_mut(map_ref)?.fields.push(false_result.unwrap_or(Slot::Reference(None)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_true)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(true_result.unwrap_or(Slot::Reference(None)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_false)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(false_result.unwrap_or(Slot::Reference(None)));
         Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/SummingIntCollector" {
         // Sum via applyAsInt(elem) for each element.
@@ -3374,8 +3440,12 @@ pub(crate) fn native_stream_collect(
             )?;
             if let Some(Slot::Int(n)) = result {
                 sum += i64::from(n);
-                if n < min { min = n; }
-                if n > max { max = n; }
+                if n < min {
+                    min = n;
+                }
+                if n > max {
+                    max = n;
+                }
                 count += 1;
             }
         }
@@ -8803,7 +8873,8 @@ pub(crate) fn native_collections_empty_list(
     out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let r = heap.allocate("java/util/ArrayList".to_string(), 1);
+    // Return an immutable empty UnmodifiableList (same field layout as ArrayList)
+    let r = heap.allocate("java/util/UnmodifiableList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(r))], heap, out, control)?;
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -9975,7 +10046,11 @@ pub(crate) fn native_string_split_limit(
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let delim_ref = extract_ref_arg(args, 1)?;
-    let delim = heap.get(delim_ref)?.string_value.clone().unwrap_or_default();
+    let delim = heap
+        .get(delim_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
     let limit = match args.get(2) {
         Some(Slot::Int(n)) => *n,
         _ => 0,
@@ -24009,8 +24084,18 @@ pub(crate) fn native_bifunction_and_then_apply(
     let this_ref = extract_ref_arg(args, 0)?;
     let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let bifunction = heap.get(this_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
-    let after = heap.get(this_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
+    let bifunction = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let after = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
     let Slot::Reference(Some(bf_ref)) = bifunction else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -25449,13 +25534,22 @@ pub(crate) fn native_collections_singleton_set(
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collections_unmodifiable_set(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    // Our sets are already value objects; just return the same reference.
-    let set_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    Ok(Some(set_slot))
+    // Wrap the source set in a UnmodifiableSet (same field layout as HashSet).
+    let src_ref = extract_ref_arg(args, 0)?;
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let class_name = heap.get(src_ref)?.class_name.clone();
+    let n = src_fields.len();
+    let wrapper_ref = heap.allocate("java/util/UnmodifiableSet".to_string(), n);
+    // Copy field layout from source set
+    let _ = class_name;
+    for (i, f) in src_fields.into_iter().enumerate() {
+        heap.get_mut(wrapper_ref)?.fields[i] = f;
+    }
+    Ok(Some(Slot::Reference(Some(wrapper_ref))))
 }
 
 // ---------------------------------------------------------------------------
@@ -28693,6 +28787,34 @@ pub(crate) fn native_hashmap_compute_if_present(
             Ok(Some(Slot::Reference(None)))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 117: Map.remove(k,v), Collections.emptyList (immutable), Stream.concat,
+//            Map.replace, Integer.sum, IntStream.mapToObj, Optional.map,
+//            UnmodifiableSet
+// ---------------------------------------------------------------------------
+
+/// Native: `HashMap.remove(Object, Object) -> boolean`
+/// Conditional remove: only removes if key is present AND value equals the provided value.
+pub(crate) fn native_hashmap_remove_key_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let expected_val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        let actual_val = fields[i + 1];
+        if slots_equal(&actual_val, &expected_val, heap) {
+            native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
 }
 
 // ---------------------------------------------------------------------------
@@ -57076,7 +57198,10 @@ mod tests {
 
     #[test]
     fn test_p103_stack() {
-        assert_eq!(run_bootstrap_int("Phase103Test.class", "testStack", "()I"), 8);
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testStack", "()I"),
+            8
+        );
     }
 
     #[test]
@@ -57130,7 +57255,11 @@ mod tests {
     #[test]
     fn test_p103_comparator_reversed_method_ref() {
         assert_eq!(
-            run_bootstrap_int("Phase103Test.class", "testComparatorReversedOnMethodRef", "()I"),
+            run_bootstrap_int(
+                "Phase103Test.class",
+                "testComparatorReversedOnMethodRef",
+                "()I"
+            ),
             6
         );
     }
@@ -57177,17 +57306,26 @@ mod tests {
 
     #[test]
     fn test_p104_list_of() {
-        assert_eq!(run_bootstrap_int("Phase104Test.class", "testListOf", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testListOf", "()I"),
+            15
+        );
     }
 
     #[test]
     fn test_p104_map_of() {
-        assert_eq!(run_bootstrap_int("Phase104Test.class", "testMapOf", "()I"), 60);
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testMapOf", "()I"),
+            60
+        );
     }
 
     #[test]
     fn test_p104_set_of() {
-        assert_eq!(run_bootstrap_int("Phase104Test.class", "testSetOf", "()I"), 5);
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testSetOf", "()I"),
+            5
+        );
     }
 
     #[test]
@@ -57224,7 +57362,10 @@ mod tests {
 
     #[test]
     fn test_p105_varargs() {
-        assert_eq!(run_bootstrap_int("Phase105Test.class", "testVarargs", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testVarargs", "()I"),
+            15
+        );
     }
 
     #[test]
@@ -57238,7 +57379,11 @@ mod tests {
     #[test]
     fn test_p105_collectors_to_unmodifiable_list() {
         assert_eq!(
-            run_bootstrap_int("Phase105Test.class", "testCollectorsToUnmodifiableList", "()I"),
+            run_bootstrap_int(
+                "Phase105Test.class",
+                "testCollectorsToUnmodifiableList",
+                "()I"
+            ),
             25
         );
     }
@@ -58070,7 +58215,11 @@ mod tests {
     #[test]
     fn test_p115_collectors_to_unmodifiable_map() {
         assert_eq!(
-            run_bootstrap_int("Phase115Test.class", "testCollectorsToUnmodifiableMap", "()I"),
+            run_bootstrap_int(
+                "Phase115Test.class",
+                "testCollectorsToUnmodifiableMap",
+                "()I"
+            ),
             16
         );
     }
@@ -58101,52 +58250,156 @@ mod tests {
 
     #[test]
     fn test_p116_tree_set() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testTreeSet", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testTreeSet", "()I"),
+            15
+        );
     }
 
     #[test]
     fn test_p116_stream_to_array() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testStreamToArray", "()I"), 3);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testStreamToArray", "()I"),
+            3
+        );
     }
 
     #[test]
     fn test_p116_deque_as_queue() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testDequeAsQueue", "()I"), 6);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testDequeAsQueue", "()I"),
+            6
+        );
     }
 
     #[test]
     fn test_p116_map_for_each_accumulate() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testMapForEachAccumulate", "()I"), 24);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testMapForEachAccumulate", "()I"),
+            24
+        );
     }
 
     #[test]
     fn test_p116_string_value_of() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testStringValueOf", "()I"), 10);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testStringValueOf", "()I"),
+            10
+        );
     }
 
     #[test]
     fn test_p116_int_stream_range_closed() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testIntStreamRangeClosed", "()I"), 15);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testIntStreamRangeClosed", "()I"),
+            15
+        );
     }
 
     #[test]
     fn test_p116_partitioning_by_downstream() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testPartitioningByDownstream", "()I"), 6);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testPartitioningByDownstream", "()I"),
+            6
+        );
     }
 
     #[test]
     fn test_p116_optional_or_else_get() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testOptionalOrElseGet", "()I"), 52);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testOptionalOrElseGet", "()I"),
+            52
+        );
     }
 
     #[test]
     fn test_p116_stream_peek_count() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testStreamPeekCount", "()I"), 17);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testStreamPeekCount", "()I"),
+            17
+        );
     }
 
     #[test]
     fn test_p116_comparable() {
-        assert_eq!(run_bootstrap_int("Phase116Test.class", "testComparable", "()I"), 140);
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testComparable", "()I"),
+            140
+        );
+    }
+
+    // Phase 117: Map.remove(k,v), Collections.emptyList, Stream.concat, Set.forEach,
+    //            Map.replace, Integer.sum, IntStream.mapToObj, Collections.unmodifiableSet,
+    //            Optional.map, 2D arrays
+    #[test]
+    fn test_p117_map_remove_key_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testMapRemoveKeyValue", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p117_collections_empty_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testCollectionsEmptyList", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p117_stream_concat() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testStreamConcat", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p117_set_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testSetForEach", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p117_map_replace() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testMapReplace", "()I"),
+            100
+        );
+    }
+    #[test]
+    fn test_p117_integer_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testIntegerSum", "()I"),
+            300
+        );
+    }
+    #[test]
+    fn test_p117_int_stream_map_to_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testIntStreamMapToObj", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p117_unmodifiable_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testUnmodifiableSet", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p117_optional_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testOptionalMap", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p117_array_of_arrays() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testArrayOfArrays", "()I"),
+            45
+        );
     }
 }
 #[cfg(test)]

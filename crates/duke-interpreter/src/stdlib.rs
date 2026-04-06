@@ -3503,12 +3503,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_char_compareto,
     );
 
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "digit",
-        "(CI)I",
-        native_char_digit,
-    );
+    registry
+        .natives_mut()
+        .register("java/lang/Character", "digit", "(CI)I", native_char_digit);
 
     let collection_ctx = ClassContext {
         class_name: "java/util/Collection".to_string(),
@@ -4732,7 +4729,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     // Mutation ops throw UnsupportedOperationException
     for (method, desc) in [
-        ("put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"),
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        ),
         ("remove", "(Ljava/lang/Object;)Ljava/lang/Object;"),
         ("clear", "()V"),
     ] {
@@ -7217,8 +7217,16 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            FieldEntry { name: "bifunction".to_string(), descriptor: "Ljava/util/function/BiFunction;".to_string(), is_static: false },
-            FieldEntry { name: "after".to_string(), descriptor: "Ljava/util/function/Function;".to_string(), is_static: false },
+            FieldEntry {
+                name: "bifunction".to_string(),
+                descriptor: "Ljava/util/function/BiFunction;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "after".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
@@ -9021,10 +9029,26 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            FieldEntry { name: "count".to_string(), descriptor: "J".to_string(), is_static: false },
-            FieldEntry { name: "sum".to_string(), descriptor: "J".to_string(), is_static: false },
-            FieldEntry { name: "min".to_string(), descriptor: "I".to_string(), is_static: false },
-            FieldEntry { name: "max".to_string(), descriptor: "I".to_string(), is_static: false },
+            FieldEntry {
+                name: "count".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "sum".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "min".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "max".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
         instance_field_count: 4,
@@ -9138,6 +9162,98 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Object;)Ljava/lang/Object;",
         native_identity_function_apply,
     );
+
+    // ---- Phase 117 ----
+
+    // HashMap.remove(Object, Object) -> boolean — conditional remove
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "remove",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+        native_hashmap_remove_key_value,
+    );
+
+    // HashMap.replace(Object, Object) -> Object — replace value if key present
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "replace",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_replace,
+    );
+
+    // Integer.sum(int, int) -> int — static utility
+    registry
+        .natives_mut()
+        .register("java/lang/Integer", "sum", "(II)I", native_integer_sum);
+
+    // Stream.concat(Stream, Stream) -> Stream — static method
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "concat",
+        "(Ljava/util/stream/Stream;Ljava/util/stream/Stream;)Ljava/util/stream/Stream;",
+        native_stream_concat,
+    );
+
+    // IntStream.mapToObj(IntFunction) -> Stream
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "mapToObj",
+        "(Ljava/util/function/IntFunction;)Ljava/util/stream/Stream;",
+        native_int_stream_map_to_obj,
+    );
+
+    // Optional.map(Function) -> Optional
+    registry.natives_mut().register_callback(
+        "duke/util/Optional",
+        "map",
+        "(Ljava/util/function/Function;)Ljava/util/Optional;",
+        native_optional_map,
+    );
+
+    // java/util/UnmodifiableSet — read ops reuse HashSet handlers; writes throw
+    let unmod_set_ctx = ClassContext {
+        class_name: "java/util/UnmodifiableSet".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec![
+            "java/util/Set".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(unmod_set_ctx);
+    // Read operations — reuse HashSet handlers (same field layout)
+    for (method, desc, handler) in [
+        ("size", "()I", native_hashset_size as NativeHandler),
+        ("contains", "(Ljava/lang/Object;)Z", native_hashset_contains),
+        ("isEmpty", "()Z", native_hashset_is_empty),
+        (
+            "iterator",
+            "()Ljava/util/Iterator;",
+            native_hashset_iterator,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/UnmodifiableSet", method, desc, handler);
+    }
+    // Mutation operations — throw UnsupportedOperationException
+    for (method, desc) in [
+        ("add", "(Ljava/lang/Object;)Z"),
+        ("remove", "(Ljava/lang/Object;)Z"),
+        ("clear", "()V"),
+    ] {
+        registry.natives_mut().register(
+            "java/util/UnmodifiableSet",
+            method,
+            desc,
+            native_unmodifiable_list_mutation,
+        );
+    }
 }
 
 // ─── Phase 88 natives ────────────────────────────────────────────────────────
@@ -9323,6 +9439,10 @@ pub(crate) fn native_int_summary_stats_get_average(
         _ => 0,
     };
     #[allow(clippy::cast_precision_loss)]
-    let avg = if count == 0 { 0.0 } else { sum as f64 / count as f64 };
+    let avg = if count == 0 {
+        0.0
+    } else {
+        sum as f64 / count as f64
+    };
     Ok(Some(Slot::Double(avg)))
 }
