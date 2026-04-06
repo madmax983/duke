@@ -7739,6 +7739,48 @@ pub(crate) fn native_string_indexof(
     Ok(Some(Slot::Int(result)))
 }
 
+/// Native: `String.indexOf(String, int)I` — first occurrence at or after fromIndex.
+pub(crate) fn native_string_indexof_from(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target_ref = extract_ref_arg(args, 1)?;
+    let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
+    let this_obj = heap.get(this_ref)?;
+    let target_obj = heap.get(target_ref)?;
+    let s = this_obj.string_value.as_deref().unwrap_or_default();
+    let target = target_obj.string_value.as_deref().unwrap_or_default();
+    let search_in = if from < s.len() { &s[from..] } else { "" };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let result = search_in.find(target).map_or(-1, |i| (from + i) as i32);
+    Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `String.lastIndexOf(String, int)I` — last occurrence at or before fromIndex.
+pub(crate) fn native_string_last_indexof_from(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let sub_ref = extract_ref_arg(args, 1)?;
+    let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
+    let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
+    let search_in = if from + sub_str.len() < this_str.len() {
+        &this_str[..from + sub_str.len()]
+    } else {
+        &this_str
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let result = search_in.rfind(sub_str.as_str()).map_or(-1, |i| i as i32);
+    Ok(Some(Slot::Int(result)))
+}
+
 /// Native: `String.contains(CharSequence)` — check if string contains target.
 pub(crate) fn native_string_contains(
     args: &[Slot],
@@ -10345,6 +10387,23 @@ pub(crate) fn native_long_longvalue(
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
+}
+
+/// Native: `Long.intValue()I` — returns the long value narrowed to int.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_long_intvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v as i32,
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(val)))
 }
 
 /// Native: `Long.toString(long)` — static, converts long to String.
@@ -56173,6 +56232,76 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase97Test.class", "testStringRepeat", "()I"),
             8
+        );
+    }
+    #[test]
+    fn test_p98_double_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testDoubleStream", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p98_map_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testMapReplaceAll", "()I"),
+            60
+        );
+    }
+    #[test]
+    fn test_p98_grouping_by_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testGroupingByCount", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p98_stream_flat_map_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testStreamFlatMapInt", "()I"),
+            324
+        );
+    }
+    #[test]
+    fn test_p98_comparator_reversed() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testComparatorReversed", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p98_multiple_interfaces() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testMultipleInterfaces", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p98_string_index_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testStringIndexOf", "()I"),
+            24
+        );
+    }
+    #[test]
+    fn test_p98_exception_hierarchy() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testExceptionHierarchy", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p98_nested_lambda_capture() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testNestedLambdaCapture", "()I"),
+            108
+        );
+    }
+    #[test]
+    fn test_p98_map_values_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testMapValuesStream", "()I"),
+            2
         );
     }
 }
