@@ -56510,6 +56510,86 @@ mod tests {
             21
         );
     }
+
+    #[test]
+    fn test_p101_comparator_then_comparing() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testComparatorThenComparing", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p101_list_sublist() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testListSubList", "()I"),
+            90
+        );
+    }
+
+    #[test]
+    fn test_p101_collections_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testCollectionsReverse", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p101_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p101_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testMapMerge", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p101_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testStreamDistinct", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p101_optional_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testOptionalFilter", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p101_string_chars_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testStringCharsStream", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p101_arrays_stream_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testArraysStreamInt", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p101_linked_list_deque() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testLinkedListDeque", "()I"),
+            5
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
