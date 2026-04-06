@@ -20138,6 +20138,24 @@ pub(crate) fn native_arraylist_index_of(
     Ok(Some(Slot::Int(idx)))
 }
 
+/// Native: `ArrayList.lastIndexOf(Object)I` — last occurrence, or -1.
+pub(crate) fn native_arraylist_last_index_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let fields = heap.get(this_ref)?.fields.clone();
+    let idx = fields
+        .iter()
+        .skip(1)
+        .rposition(|slot| slots_equal(slot, &target, heap))
+        .map_or(-1, |i| i32::try_from(i).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(idx)))
+}
+
 /// Native: `ArrayList.add(I,Object)V` — inserts element at index, shifting others right.
 #[allow(clippy::cast_sign_loss)]
 pub(crate) fn native_arraylist_add_at(
@@ -56588,6 +56606,86 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase101Test.class", "testLinkedListDeque", "()I"),
             5
+        );
+    }
+
+    #[test]
+    fn test_p102_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testMapPutIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p102_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStreamSortedComparator", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p102_intstream_range_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testIntStreamRangeSum", "()I"),
+            55
+        );
+    }
+
+    #[test]
+    fn test_p102_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testCollectionsMinMax", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p102_list_index_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testListIndexOf", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p102_stringbuilder_insert() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStringBuilderInsert", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p102_string_formatted() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStringFormatted", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p102_map_contains_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testMapContainsValue", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p102_stream_none_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStreamNoneMatch", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p102_arrays_sort_objects() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testArraysSortObjects", "()I"),
+            9
         );
     }
 }
