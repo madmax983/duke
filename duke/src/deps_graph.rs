@@ -60,7 +60,6 @@ mod tests {
     use super::*;
     use duke_classfile::access_flags::ClassAccessFlags;
 
-
     #[test]
     fn test_cp_str_none() {
         let cf = ClassFile {
@@ -93,7 +92,10 @@ mod tests {
             methods: vec![],
             attributes: vec![],
         };
-        assert_eq!(super::resolve_class_name(&cf, CpIndex(1)), "<not a class ref>");
+        assert_eq!(
+            super::resolve_class_name(&cf, CpIndex(1)),
+            "<not a class ref>"
+        );
         assert_eq!(super::resolve_class_name(&cf, CpIndex(0)), "<none>");
     }
 
@@ -104,7 +106,9 @@ mod tests {
             minor_version: 0,
             constant_pool: vec![
                 None,
-                Some(CpEntry::Class { name_index: CpIndex(2) }),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }),
                 Some(CpEntry::Integer(42)),
             ],
             access_flags: ClassAccessFlags::PUBLIC,
