@@ -57121,6 +57121,86 @@ mod tests {
             3
         );
     }
+
+    #[test]
+    fn test_p107_enum_with_methods() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testEnumWithMethods", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p107_instanceof() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testInstanceof", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p107_ternary_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testTernaryChain", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p107_static_initializer() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStaticInitializer", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p107_string_chars_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStringCharsDistinct", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p107_map_compute_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testMapComputeIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p107_singleton_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testSingletonList", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p107_stream_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStreamCount", "()I"),
+            47
+        );
+    }
+
+    #[test]
+    fn test_p107_stringbuilder_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStringBuilderChain", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p107_comparable() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testComparable", "()I"),
+            10
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
