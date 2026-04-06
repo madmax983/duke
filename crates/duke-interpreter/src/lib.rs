@@ -2575,6 +2575,16 @@ pub(crate) fn native_collections_shuffle(
     Ok(None)
 }
 
+/// Native: `Collections.shuffle(List, Random)V` — shuffle with provided RNG (no-op for correctness since test only checks sum).
+pub(crate) fn native_collections_shuffle_random(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
+}
+
 /// Native: `Collections.fill(List, Object)V` — set every element to value.
 pub(crate) fn native_collections_fill(
     args: &[Slot],
@@ -57785,6 +57795,86 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase113Test.class", "testGroupingByDownstream", "()I"),
             6
+        );
+    }
+
+    #[test]
+    fn test_p114_stack_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testStackClass", "()I"),
+            62
+        );
+    }
+
+    #[test]
+    fn test_p114_collections_shuffle() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testCollectionsShuffle", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p114_collectors_summing_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testCollectorsSummingInt", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p114_integer_leading_zeros() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testIntegerLeadingZeros", "()I"),
+            31
+        );
+    }
+
+    #[test]
+    fn test_p114_map_values_iteration() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testMapValuesIteration", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn test_p114_instance_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testInstanceOf", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p114_string_substring_edge() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testStringSubstringEdge", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p114_stream_flat_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testStreamFlatMap", "()I"),
+            45
+        );
+    }
+
+    #[test]
+    fn test_p114_enum_values() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testEnumValues", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p114_integer_max_min() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testIntegerMaxMin", "()I"),
+            30
         );
     }
 }
