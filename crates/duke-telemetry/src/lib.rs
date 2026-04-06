@@ -1051,3 +1051,98 @@ mod tests {
         assert!(md.contains("```"));
     }
 }
+
+#[cfg(all(test, feature = "telemetry"))]
+mod ser_tests {
+    use super::*;
+    use serde::Serialize;
+    use std::collections::{HashMap, HashSet};
+
+    #[derive(Serialize)]
+    struct DummyStat {
+        calls: u32,
+    }
+
+    #[test]
+    fn test_ser_helpers_site3() {
+        #[derive(Serialize)]
+        struct Wrapper {
+            #[serde(serialize_with = "super::ser_helpers::site3")]
+            map: HashMap<(String, String, usize), DummyStat>,
+        }
+
+        let mut map = HashMap::new();
+        map.insert(
+            ("com/Main".to_string(), "run".to_string(), 42),
+            DummyStat { calls: 1 },
+        );
+
+        let w = Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains(r#""com/Main::run@42":{"calls":1}"#));
+    }
+
+    #[test]
+    fn test_ser_helpers_site2_u16() {
+        #[derive(Serialize)]
+        struct Wrapper {
+            #[serde(serialize_with = "super::ser_helpers::site2_u16")]
+            map: HashMap<(String, u16), DummyStat>,
+        }
+
+        let mut map = HashMap::new();
+        map.insert(("com/Main".to_string(), 10u16), DummyStat { calls: 2 });
+
+        let w = Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains(r#""com/Main@10":{"calls":2}"#));
+    }
+
+    #[test]
+    fn test_ser_helpers_pair_str() {
+        #[derive(Serialize)]
+        struct Wrapper {
+            #[serde(serialize_with = "super::ser_helpers::pair_str")]
+            map: HashMap<(String, String), DummyStat>,
+        }
+
+        let mut map = HashMap::new();
+        map.insert(
+            ("com/Main".to_string(), "run".to_string()),
+            DummyStat { calls: 3 },
+        );
+
+        let w = Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains(r#""com/Main::run":{"calls":3}"#));
+    }
+
+    #[test]
+    fn test_ser_helpers_sorted_set() {
+        #[derive(Serialize)]
+        struct Wrapper {
+            #[serde(serialize_with = "super::ser_helpers::sorted_set")]
+            set: HashSet<String>,
+        }
+
+        let mut set = HashSet::new();
+        set.insert("B".to_string());
+        set.insert("A".to_string());
+        set.insert("C".to_string());
+
+        let w = Wrapper { set };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"set":["A","B","C"]}"#);
+    }
+
+    #[test]
+    fn test_to_json() {
+        let mut store = TelemetryStore::default();
+        store
+            .object_lineage
+            .record("com/example/Main", "run", 42, "java/lang/String");
+        let json = store.to_json();
+        assert!(json.contains("com/example/Main::run@42"));
+        assert!(json.contains("java/lang/String"));
+    }
+}
