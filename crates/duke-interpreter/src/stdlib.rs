@@ -1,9 +1,33 @@
+//! Synthetic Java Standard Library Bootstrapping.
+//!
+//! This module provides the essential standard library classes (e.g., `java/lang/Object`, `java/lang/System`, `java/io/PrintStream`) required for the JVM interpreter to function. It registers native methods and allocates initial class contexts into the `ClassRegistry`.
 use crate::context::{ClassContext, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 use duke_runtime::Slot;
 
+/// Bootstraps the synthetic JDK standard library.
+///
+/// This function populates the given [`ClassRegistry`] and [`duke_gc::Heap`] with essential
+/// Java classes and native method handlers required for execution.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::registry::ClassRegistry;
+/// use duke_gc::Heap;
+/// use duke_interpreter::bootstrap_stdlib;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // Bootstrap the standard library
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // The registry should now contain essential classes
+/// assert!(registry.contains("java/lang/Object"));
+/// ```
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
