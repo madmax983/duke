@@ -57468,6 +57468,86 @@ mod tests {
             2
         );
     }
+
+    #[test]
+    fn test_p110_string_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testStringJoin", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p110_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testStringJoinList", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p110_collectors_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testCollectorsJoining", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p110_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testMapGetOrDefault", "()I"),
+            141
+        );
+    }
+
+    #[test]
+    fn test_p110_optional_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testOptionalFilter", "()I"),
+            19
+        );
+    }
+
+    #[test]
+    fn test_p110_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testStreamDistinct", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p110_collections_sort_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testCollectionsSortComparator", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p110_iterator_pattern() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testIteratorPattern", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p110_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testMapMerge", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p110_ternary_in_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testTernaryInStream", "()I"),
+            129
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
