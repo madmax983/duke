@@ -25,6 +25,8 @@ use duke_runtime::Slot;
 ///     descriptor: "(II)I".to_string(),
 ///     is_public: true,
 ///     is_static: true,
+///     is_native: false,
+///     is_abstract: false,
 ///     instructions: Arc::new([]),
 ///     max_stack: 2,
 ///     max_locals: 2,
@@ -33,6 +35,7 @@ use duke_runtime::Slot;
 /// };
 /// assert_eq!(method.max_stack, 2);
 /// ```
+#[allow(clippy::struct_excessive_bools)] // JVM access flags are genuinely independent booleans
 pub struct MethodEntry {
     /// The identifier used for method resolution (e.g. `"main"` or `"<init>"`).
     pub name: String,
@@ -42,6 +45,13 @@ pub struct MethodEntry {
     pub is_public: bool,
     /// Whether the method is static and therefore takes no implicit `this`.
     pub is_static: bool,
+    /// Whether the method is declared `native` in the classfile (`ACC_NATIVE`).
+    /// Native methods have no Code attribute — dispatch must go through
+    /// the `NativeRegistry` instead of the instruction stream.
+    pub is_native: bool,
+    /// Whether the method is declared `abstract` in the classfile (`ACC_ABSTRACT`).
+    /// Abstract methods have no Code attribute — a concrete subclass must override.
+    pub is_abstract: bool,
     /// The linear sequence of executable instructions, paired with their original byte offset
     /// in the `.class` file to allow for accurate branch resolution and stack trace generation.
     pub instructions: std::sync::Arc<[(usize, Instruction)]>,
@@ -122,6 +132,17 @@ pub struct ExceptionEntry {
     pub catch_type: Option<String>,
 }
 
+/// Tracks how a class was loaded, enabling future `JImage` fallback logic to
+/// distinguish pre-registered synthetic stubs from real classfile-loaded classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassLoadSource {
+    /// Registered by `bootstrap_stdlib()` — all methods dispatch through
+    /// the `NativeRegistry`; the `ClassContext` has no real bytecode.
+    Synthetic,
+    /// Loaded and parsed from a `.class` file (`JImage`, directory, or JAR).
+    Classfile,
+}
+
 /// A parsed class with all methods decoded — the unit of execution for Phase 5+.
 ///
 /// This struct takes the raw data from a `.class` file and fully realizes it into
@@ -130,7 +151,7 @@ pub struct ExceptionEntry {
 /// # Examples
 ///
 /// ```
-/// use duke_interpreter::context::ClassContext;
+/// use duke_interpreter::context::{ClassContext, ClassLoadSource};
 ///
 /// let context = ClassContext {
 ///     class_name: "java/lang/Object".to_string(),
@@ -142,6 +163,7 @@ pub struct ExceptionEntry {
 ///     static_fields: vec![],
 ///     instance_field_count: 0,
 ///     bootstrap_methods: vec![],
+///     load_source: ClassLoadSource::Classfile,
 /// };
 /// assert_eq!(context.class_name, "java/lang/Object");
 /// ```
@@ -166,6 +188,9 @@ pub struct ClassContext {
     pub instance_field_count: usize,
     /// `BootstrapMethods` entries from the class attribute (needed for invokedynamic).
     pub bootstrap_methods: Vec<duke_classfile::types::BootstrapMethodEntry>,
+    /// How this class was loaded — `Synthetic` for `bootstrap_stdlib()` stubs,
+    /// `Classfile` for real `.class` files parsed from JImage/directory/JAR.
+    pub load_source: ClassLoadSource,
 }
 
 #[cfg(test)]
