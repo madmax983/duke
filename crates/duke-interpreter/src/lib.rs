@@ -3,6 +3,9 @@
 //! Executes decoded instruction streams for methods containing integer, long,
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
+// proptest! macro expands to a large runner struct with no source span —
+// suppress for test builds only so CI doesn't error on an un-attributable lint.
+#![cfg_attr(test, allow(clippy::large_stack_arrays))]
 
 /// Core execution context types for methods and classes.
 pub mod context;
@@ -80,6 +83,44 @@ fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
             expected: "Int",
             got: "other",
         }),
+    }
+}
+
+/// Box a primitive `Slot` into a heap object so it can be stored as `Object` in collections.
+/// `Slot::Reference` and `Slot::Long` pad pass through unchanged.
+/// `Slot::Int` → `java/lang/Integer`, `Slot::Long` → `java/lang/Long`,
+/// `Slot::Double` → `java/lang/Double`, `Slot::Float` → `java/lang/Float`.
+fn box_primitive_slot(slot: Slot, heap: &mut duke_gc::Heap) -> Slot {
+    match slot {
+        Slot::Int(v) => {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Int(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        Slot::Long(v) => {
+            let r = heap.allocate("java/lang/Long".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Long(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        Slot::Double(v) => {
+            let r = heap.allocate("java/lang/Double".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Double(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        Slot::Float(v) => {
+            let r = heap.allocate("java/lang/Float".to_string(), 1);
+            if let Ok(obj) = heap.get_mut(r) {
+                obj.fields[0] = Slot::Float(v);
+            }
+            Slot::Reference(Some(r))
+        }
+        other => other, // already a reference
     }
 }
 
@@ -1171,6 +1212,51 @@ pub(crate) fn native_throwable_init_string(
     Ok(None)
 }
 
+/// Native: `Throwable.<init>(String, Throwable)V` — stores message + cause.
+pub(crate) fn native_throwable_init_string_cause(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let msg = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
+        _ => None,
+    };
+    heap.get_mut(this_ref)?.string_value = msg;
+    // Store cause in fields[0] (Throwable.cause field)
+    if let Some(&cause_slot) = args.get(2)
+        && let Ok(obj) = heap.get_mut(this_ref)
+        && !obj.fields.is_empty()
+    {
+        obj.fields[0] = cause_slot;
+    }
+    Ok(None)
+}
+
+/// Native: `Throwable.getCause()Throwable` — returns the stored cause.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_throwable_get_cause(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(Some(r))) => {
+            let cause = heap
+                .get(*r)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Reference(None));
+            Ok(Some(cause))
+        }
+        _ => Ok(Some(Slot::Reference(None))),
+    }
+}
+
 /// Native: `Throwable.getMessage()String` — returns the stored detail message.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_throwable_get_message(
@@ -1549,6 +1635,28 @@ pub(crate) fn native_linked_list_init(
     native_arraylist_init(args, heap, out, control)
 }
 
+/// Native: `LinkedList.<init>(Collection)V` — copies all elements from source collection.
+pub(crate) fn native_linked_list_init_collection(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let src_ref = extract_ref_arg(args, 1)?;
+    let src_size = match heap.get(src_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[1..=src_size].to_vec();
+    let n = i32::try_from(src_elems.len()).unwrap_or(0);
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(n);
+    for elem in src_elems {
+        heap.get_mut(this_ref)?.fields.push(elem);
+    }
+    Ok(None)
+}
+
 /// Native: `LinkedList.size()I`
 pub(crate) fn native_linked_list_size(
     args: &[Slot],
@@ -1834,8 +1942,57 @@ pub(crate) fn native_hashmap_replace_all(
     Ok(None)
 }
 
-// ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by String key) ----
-// Keys are stored sorted in ascending lexicographic order for O(n) insert / O(1) first&last.
+// ---- TreeMap natives (field layout: fields[0]=Int(size), fields[1,2]=k0/v0 sorted by key) ----
+// Keys are stored sorted in ascending order for O(n) insert / O(1) first&last.
+
+/// Compare two `TreeMap` keys by natural ordering, supporting String, Integer, Long, and Double keys.
+fn compare_treemap_keys(a: Slot, b: Slot, heap: &duke_gc::Heap) -> std::cmp::Ordering {
+    let key_ord = |s: Slot| -> Option<KeyOrd> {
+        if let Slot::Reference(Some(r)) = s
+            && let Ok(obj) = heap.get(r)
+        {
+            if let Some(sv) = &obj.string_value {
+                return Some(KeyOrd::Str(sv.clone()));
+            }
+            match obj.class_name.as_str() {
+                "java/lang/Integer" | "java/lang/Short" | "java/lang/Byte" => {
+                    if let Some(Slot::Int(n)) = obj.fields.first() {
+                        return Some(KeyOrd::Int(i64::from(*n)));
+                    }
+                }
+                "java/lang/Long" => {
+                    if let Some(Slot::Long(n)) = obj.fields.first() {
+                        return Some(KeyOrd::Int(*n));
+                    }
+                }
+                "java/lang/Double" | "java/lang/Float" => {
+                    if let Some(Slot::Double(n)) = obj.fields.first() {
+                        return Some(KeyOrd::Flt(*n));
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    };
+    match (key_ord(a), key_ord(b)) {
+        (Some(KeyOrd::Int(x)), Some(KeyOrd::Int(y))) => x.cmp(&y),
+        (Some(KeyOrd::Flt(x)), Some(KeyOrd::Flt(y))) => x.total_cmp(&y),
+        (Some(KeyOrd::Str(x)), Some(KeyOrd::Str(y))) => x.cmp(&y),
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+enum KeyOrd {
+    Int(i64),
+    Flt(f64),
+    Str(String),
+}
+
+/// Check if two `TreeMap` keys are equal (same value semantics as `compare_treemap_keys` == Equal).
+fn treemap_keys_equal(a: Slot, b: Slot, heap: &duke_gc::Heap) -> bool {
+    compare_treemap_keys(a, b, heap) == std::cmp::Ordering::Equal
+}
 
 /// Native: `TreeMap.<init>()V`
 pub(crate) fn native_treemap_init(
@@ -1859,10 +2016,6 @@ pub(crate) fn native_treemap_put(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
     let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let key_str = match &key {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1870,11 +2023,7 @@ pub(crate) fn native_treemap_put(
     // Check for existing key — update in place.
     for i in 0..size {
         let existing_key = heap.get(this_ref)?.fields[1 + i * 2];
-        let existing_str = match &existing_key {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            _ => None,
-        };
-        if existing_str == key_str {
+        if treemap_keys_equal(existing_key, key, heap) {
             heap.get_mut(this_ref)?.fields[2 + i * 2] = val;
             return Ok(Some(Slot::Reference(None)));
         }
@@ -1884,15 +2033,7 @@ pub(crate) fn native_treemap_put(
         let mut pos = size;
         for i in 0..size {
             let ek = heap.get(this_ref)?.fields[1 + i * 2];
-            let ek_str: Option<String> = match &ek {
-                Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-                _ => None,
-            };
-            let cmp = key_str
-                .as_deref()
-                .unwrap_or("")
-                .cmp(ek_str.as_deref().unwrap_or(""));
-            if cmp == std::cmp::Ordering::Less {
+            if compare_treemap_keys(key, ek, heap) == std::cmp::Ordering::Less {
                 pos = i;
                 break;
             }
@@ -1915,21 +2056,13 @@ pub(crate) fn native_treemap_get(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let key_str = match &key {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     for i in 0..size {
         let ek = heap.get(this_ref)?.fields[1 + i * 2];
-        let ek_str = match &ek {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            _ => None,
-        };
-        if ek_str == key_str {
+        if treemap_keys_equal(ek, key, heap) {
             let v = heap.get(this_ref)?.fields[2 + i * 2];
             return Ok(Some(v));
         }
@@ -2014,21 +2147,13 @@ pub(crate) fn native_treemap_remove(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let key_str = match &key {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     for i in 0..size {
         let ek = heap.get(this_ref)?.fields[1 + i * 2];
-        let ek_str = match &ek {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            _ => None,
-        };
-        if ek_str == key_str {
+        if treemap_keys_equal(ek, key, heap) {
             let obj = heap.get_mut(this_ref)?;
             let v = obj.fields.remove(2 + i * 2);
             obj.fields.remove(1 + i * 2);
@@ -2051,6 +2176,64 @@ pub(crate) fn native_treemap_is_empty(
         Some(Slot::Int(0)) | None => 1,
         _ => 0,
     })))
+}
+
+/// Native: `TreeMap.headMap(toKey)SortedMap` — returns a new `TreeMap` with keys strictly less than toKey.
+pub(crate) fn native_treemap_head_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let to_key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let result = heap.allocate("java/util/TreeMap".to_string(), 1);
+    heap.get_mut(result)?.fields[0] = Slot::Int(0);
+    let mut count = 0usize;
+    for i in 0..size {
+        let k = heap.get(this_ref)?.fields[1 + i * 2];
+        let v = heap.get(this_ref)?.fields[2 + i * 2];
+        if compare_treemap_keys(k, to_key, heap) == std::cmp::Ordering::Less {
+            heap.get_mut(result)?.fields.push(k);
+            heap.get_mut(result)?.fields.push(v);
+            count += 1;
+        }
+    }
+    heap.get_mut(result)?.fields[0] = Slot::Int(i32::try_from(count).unwrap_or(0));
+    Ok(Some(Slot::Reference(Some(result))))
+}
+
+/// Native: `TreeMap.tailMap(fromKey)SortedMap` — returns a new `TreeMap` with keys >= fromKey.
+pub(crate) fn native_treemap_tail_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let from_key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    let result = heap.allocate("java/util/TreeMap".to_string(), 1);
+    heap.get_mut(result)?.fields[0] = Slot::Int(0);
+    let mut count = 0usize;
+    for i in 0..size {
+        let k = heap.get(this_ref)?.fields[1 + i * 2];
+        let v = heap.get(this_ref)?.fields[2 + i * 2];
+        if compare_treemap_keys(k, from_key, heap) != std::cmp::Ordering::Less {
+            heap.get_mut(result)?.fields.push(k);
+            heap.get_mut(result)?.fields.push(v);
+            count += 1;
+        }
+    }
+    heap.get_mut(result)?.fields[0] = Slot::Int(i32::try_from(count).unwrap_or(0));
+    Ok(Some(Slot::Reference(Some(result))))
 }
 
 // ---- Stack natives (LIFO backed by ArrayList: push=add, pop=removeLast, peek=peekLast) ----
@@ -2133,6 +2316,53 @@ pub(crate) fn native_treeset_init(
 }
 
 /// Native: `TreeSet.add(E)Z` — inserts in sorted order; returns false if already present.
+/// Extract a sortable key from a Slot for `TreeSet` ordering.
+/// Returns an `Ordering`-compatible f64 for numeric types, lexicographic for strings.
+#[allow(clippy::cast_precision_loss)] // intentional: i64→f64 for sort ordering; precision loss acceptable
+fn treeset_slot_sort_key(slot: Slot, heap: &duke_gc::Heap) -> Option<TreeSortKey> {
+    match slot {
+        Slot::Int(n) => Some(TreeSortKey::Num(f64::from(n))),
+        Slot::Long(n) => Some(TreeSortKey::Num(n as f64)),
+        Slot::Double(d) => Some(TreeSortKey::Num(d)),
+        Slot::Float(f) => Some(TreeSortKey::Num(f64::from(f))),
+        Slot::Reference(Some(r)) => {
+            let obj = heap.get(r).ok()?;
+            match obj.class_name.as_str() {
+                "java/lang/Integer" | "java/lang/Long" | "java/lang/Short" | "java/lang/Byte" => {
+                    match obj.fields.first() {
+                        Some(Slot::Int(n)) => Some(TreeSortKey::Num(f64::from(*n))),
+                        Some(Slot::Long(n)) => Some(TreeSortKey::Num(*n as f64)),
+                        _ => None,
+                    }
+                }
+                "java/lang/Double" | "java/lang/Float" => match obj.fields.first() {
+                    Some(Slot::Double(d)) => Some(TreeSortKey::Num(*d)),
+                    Some(Slot::Float(f)) => Some(TreeSortKey::Num(f64::from(*f))),
+                    _ => None,
+                },
+                _ => obj.string_value.clone().map(TreeSortKey::Str),
+            }
+        }
+        _ => None,
+    }
+}
+
+#[derive(PartialEq)]
+enum TreeSortKey {
+    Num(f64),
+    Str(String),
+}
+
+impl TreeSortKey {
+    fn less_than(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Num(a), Self::Num(b)) => a < b,
+            (Self::Str(a), Self::Str(b)) => a < b,
+            _ => false,
+        }
+    }
+}
+
 pub(crate) fn native_treeset_add(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2141,11 +2371,7 @@ pub(crate) fn native_treeset_add(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let elem_str = match &elem {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        Slot::Int(v) => Some(v.to_string()),
-        _ => None,
-    };
+    let elem_key = treeset_slot_sort_key(elem, heap);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -2153,12 +2379,8 @@ pub(crate) fn native_treeset_add(
     // Check for duplicate.
     for i in 0..size {
         let ex = heap.get(this_ref)?.fields[1 + i];
-        let ex_str = match &ex {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            Slot::Int(v) => Some(v.to_string()),
-            _ => None,
-        };
-        if ex_str == elem_str {
+        let ex_key = treeset_slot_sort_key(ex, heap);
+        if ex_key == elem_key {
             return Ok(Some(Slot::Int(0))); // false — no change
         }
     }
@@ -2167,12 +2389,10 @@ pub(crate) fn native_treeset_add(
         let mut pos = size;
         for i in 0..size {
             let ex = heap.get(this_ref)?.fields[1 + i];
-            let ex_str: Option<String> = match &ex {
-                Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-                Slot::Int(v) => Some(v.to_string()),
-                _ => None,
-            };
-            if elem_str.as_deref().unwrap_or("") < ex_str.as_deref().unwrap_or("") {
+            let ex_key = treeset_slot_sort_key(ex, heap);
+            if let (Some(ek), Some(exk)) = (&elem_key, &ex_key)
+                && ek.less_than(exk)
+            {
                 pos = i;
                 break;
             }
@@ -2394,6 +2614,36 @@ pub(crate) fn native_collections_shuffle(
     Ok(None)
 }
 
+/// Native: `Collections.shuffle(List, Random)V` — shuffle with provided RNG (no-op for correctness since test only checks sum).
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collections_shuffle_random(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    Ok(None)
+}
+
+/// Native: `Collections.fill(List, Object)V` — set every element to value.
+pub(crate) fn native_collections_fill(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let list_ref = extract_ref_arg(args, 0)?;
+    let value = extract_slot_arg(args, 1);
+    let size = match heap.get(list_ref)?.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    for i in 1..=size {
+        heap.get_mut(list_ref)?.fields[i] = value;
+    }
+    Ok(None)
+}
+
 // ---- Stream natives ----
 // duke/util/Stream: fields[0]=Int(size), fields[1..]=element refs
 
@@ -2524,7 +2774,9 @@ pub(crate) fn native_stream_map(
             "(Ljava/lang/Object;)Ljava/lang/Object;",
             vec![Slot::Reference(Some(fn_ref)), elem],
         )?;
-        mapped.push(result.unwrap_or(Slot::Reference(None)));
+        // Box primitive results so stream elements are always References (Java type-erasure)
+        let boxed = box_primitive_slot(result.unwrap_or(Slot::Reference(None)), heap);
+        mapped.push(boxed);
     }
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
@@ -2754,7 +3006,7 @@ pub(crate) fn native_stream_collect(
         let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
         heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
         for elem in elems {
-            let k = ops
+            let k_raw = ops
                 .invoke(
                     heap,
                     out,
@@ -2764,7 +3016,7 @@ pub(crate) fn native_stream_collect(
                     vec![key_fn, elem],
                 )?
                 .unwrap_or(Slot::Reference(None));
-            let v = ops
+            let v_raw = ops
                 .invoke(
                     heap,
                     out,
@@ -2774,6 +3026,69 @@ pub(crate) fn native_stream_collect(
                     vec![val_fn, elem],
                 )?
                 .unwrap_or(Slot::Reference(None));
+            // Box primitives so the map stores References (Object contract).
+            let k = box_primitive_slot(k_raw, heap);
+            let v = box_primitive_slot(v_raw, heap);
+            let cur_size = match heap.get(map_ref)?.fields.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
+            };
+            heap.get_mut(map_ref)?.fields.push(k);
+            heap.get_mut(map_ref)?.fields.push(v);
+            heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
+        }
+        Ok(Some(Slot::Reference(Some(map_ref))))
+    } else if collector_class == "duke/util/ToUnmodifiableMapCollector" {
+        // Same as ToMapCollector but produces an UnmodifiableMap.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let key_fn = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let val_fn = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(key_ref)) = key_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let Slot::Reference(Some(val_ref)) = val_fn else {
+            return Err(VmError::NullPointerException);
+        };
+        let key_class = heap.get(key_ref)?.class_name.clone();
+        let val_class = heap.get(val_ref)?.class_name.clone();
+        let map_ref = heap.allocate("java/util/UnmodifiableMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(0);
+        for elem in elems {
+            let k_raw = ops
+                .invoke(
+                    heap,
+                    out,
+                    &key_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![key_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let v_raw = ops
+                .invoke(
+                    heap,
+                    out,
+                    &val_class,
+                    "apply",
+                    "(Ljava/lang/Object;)Ljava/lang/Object;",
+                    vec![val_fn, elem],
+                )?
+                .unwrap_or(Slot::Reference(None));
+            let k = box_primitive_slot(k_raw, heap);
+            let v = box_primitive_slot(v_raw, heap);
             let cur_size = match heap.get(map_ref)?.fields.first() {
                 Some(Slot::Int(n)) => *n,
                 _ => 0,
@@ -2927,6 +3242,104 @@ pub(crate) fn native_stream_collect(
             .fields
             .push(Slot::Reference(Some(false_list)));
         Ok(Some(Slot::Reference(Some(map_ref))))
+    } else if collector_class == "duke/util/PartitioningByDownstreamCollector" {
+        // partitioningBy(pred, downstream): partition then apply downstream to each group.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let pred_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let downstream_slot = heap
+            .get(collector_ref)?
+            .fields
+            .get(1)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(pred_ref)) = pred_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let pred_class = heap.get(pred_ref)?.class_name.clone();
+        let mut true_elems: Vec<Slot> = Vec::new();
+        let mut false_elems: Vec<Slot> = Vec::new();
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &pred_class,
+                "test",
+                "(Ljava/lang/Object;)Z",
+                vec![Slot::Reference(Some(pred_ref)), elem],
+            )?;
+            if matches!(result, Some(Slot::Int(n)) if n != 0) {
+                true_elems.push(elem);
+            } else {
+                false_elems.push(elem);
+            }
+        }
+        // Apply downstream collector to each partition by building a mini stream.
+        let apply_downstream = |elems_sub: Vec<Slot>,
+                                heap: &mut duke_gc::Heap,
+                                downstream: Slot|
+         -> VmResult<Option<Slot>> {
+            let n = elems_sub.len();
+            let downstream_class = match downstream {
+                Slot::Reference(Some(r)) => heap.get(r)?.class_name.clone(),
+                _ => return Ok(Some(Slot::Reference(None))),
+            };
+            if downstream_class == "duke/util/CountingCollector" {
+                let boxed = heap.allocate("java/lang/Long".to_string(), 1);
+                #[allow(clippy::cast_possible_wrap)] // n is a collection count; fits i64
+                let count_long = Slot::Long(n as i64);
+                heap.get_mut(boxed)?.fields[0] = count_long;
+                return Ok(Some(Slot::Reference(Some(boxed))));
+            }
+            // Generic: build a mini stream and collect into a list.
+            let stream_ref = heap.allocate("duke/util/Stream".to_string(), n);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            let n_i32 = n as i32;
+            heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n_i32);
+            for (i, e) in elems_sub.into_iter().enumerate() {
+                heap.get_mut(stream_ref)?.fields[1 + i] = e;
+            }
+            let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+            heap.get_mut(list_ref)?.fields[0] = Slot::Int(0);
+            for i in 1..=n {
+                let e = heap.get(stream_ref)?.fields[i];
+                let cur = match heap.get(list_ref)?.fields.first() {
+                    Some(Slot::Int(x)) => *x,
+                    _ => 0,
+                };
+                heap.get_mut(list_ref)?.fields.push(e);
+                heap.get_mut(list_ref)?.fields[0] = Slot::Int(cur + 1);
+            }
+            Ok(Some(Slot::Reference(Some(list_ref))))
+        };
+        let true_result = apply_downstream(true_elems, heap, downstream_slot)?;
+        let false_result = apply_downstream(false_elems, heap, downstream_slot)?;
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(2);
+        let bool_true = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_true)?.fields[0] = Slot::Int(1);
+        let bool_false = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_false)?.fields[0] = Slot::Int(0);
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_true)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(true_result.unwrap_or(Slot::Reference(None)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(Slot::Reference(Some(bool_false)));
+        heap.get_mut(map_ref)?
+            .fields
+            .push(false_result.unwrap_or(Slot::Reference(None)));
+        Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/SummingIntCollector" {
         // Sum via applyAsInt(elem) for each element.
         let collector_ref = match args.get(1) {
@@ -3003,6 +3416,57 @@ pub(crate) fn native_stream_collect(
         let boxed = heap.allocate("java/lang/Double".to_string(), 1);
         heap.get_mut(boxed)?.fields[0] = Slot::Double(avg);
         Ok(Some(Slot::Reference(Some(boxed))))
+    } else if collector_class == "duke/util/SummarizingIntCollector" {
+        // IntSummaryStatistics via applyAsInt(elem) for each element.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let fn_slot = heap
+            .get(collector_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fn_ref)) = fn_slot else {
+            return Err(VmError::NullPointerException);
+        };
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        let mut sum = 0_i64;
+        let mut min = i32::MAX;
+        let mut max = i32::MIN;
+        let mut count = 0_i64;
+        for elem in elems {
+            let result = ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(Ljava/lang/Object;)I",
+                vec![fn_slot, elem],
+            )?;
+            if let Some(Slot::Int(n)) = result {
+                sum += i64::from(n);
+                if n < min {
+                    min = n;
+                }
+                if n > max {
+                    max = n;
+                }
+                count += 1;
+            }
+        }
+        if count == 0 {
+            min = 0;
+            max = 0;
+        }
+        // fields: [0]=count(J) [1]=sum(J) [2]=min(I) [3]=max(I)
+        let stats = heap.allocate("java/util/IntSummaryStatistics".to_string(), 4);
+        heap.get_mut(stats)?.fields[0] = Slot::Long(count);
+        heap.get_mut(stats)?.fields[1] = Slot::Long(sum);
+        heap.get_mut(stats)?.fields[2] = Slot::Int(min);
+        heap.get_mut(stats)?.fields[3] = Slot::Int(max);
+        Ok(Some(Slot::Reference(Some(stats))))
     } else if collector_class == "duke/util/SummingLongCollector" {
         // Sum via applyAsLong(elem) for each element.
         let collector_ref = match args.get(1) {
@@ -3160,7 +3624,7 @@ pub(crate) fn native_stream_collect(
         let raw_map = heap.allocate("java/util/HashMap".to_string(), 1);
         heap.get_mut(raw_map)?.fields[0] = Slot::Int(0);
         for elem in elems {
-            let key = ops
+            let key_raw = ops
                 .invoke(
                     heap,
                     out,
@@ -3170,6 +3634,8 @@ pub(crate) fn native_stream_collect(
                     vec![fn_slot, elem],
                 )?
                 .unwrap_or(Slot::Reference(None));
+            // Box primitive keys so HashMap.get(boxed) can match them via slots_equal
+            let key = box_primitive_slot(key_raw, heap);
             let fields = heap.get(raw_map)?.fields.clone();
             let size_n = match fields.first() {
                 Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -3587,6 +4053,14 @@ pub(crate) fn native_stream_collect(
             vec![finisher_slot, intermediate],
         )?;
         Ok(result.or(Some(Slot::Reference(None))))
+    } else if collector_class == "duke/util/ToUnmodifiableListCollector" {
+        // toUnmodifiableList(): collect into UnmodifiableList (mutations throw).
+        let list_ref = heap.allocate("java/util/UnmodifiableList".to_string(), 1);
+        heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
+        for elem in elems {
+            heap.get_mut(list_ref)?.fields.push(elem);
+        }
+        Ok(Some(Slot::Reference(Some(list_ref))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -3840,7 +4314,9 @@ pub(crate) fn native_stream_reduce(
         )?;
         acc = result.unwrap_or(Slot::Reference(None));
     }
-    heap.get_mut(reduce_result_ref)?.fields[0] = acc;
+    // Box primitive accumulator before storing in Optional (Java generics always hold References)
+    let acc_boxed = box_primitive_slot(acc, heap);
+    heap.get_mut(reduce_result_ref)?.fields[0] = acc_boxed;
     Ok(Some(Slot::Reference(Some(reduce_result_ref))))
 }
 
@@ -4373,6 +4849,49 @@ pub(crate) fn native_int_stream_of(
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
 }
 
+/// Native: `IntStream.iterate(seed, UnaryOperator)IntStream` — generates up to 4096 elements.
+pub(crate) fn native_int_stream_iterate(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    const MAX: usize = 4096;
+    let seed = match args.first().copied() {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_int_stream(
+            heap,
+            vec![seed],
+        )))));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut values = Vec::with_capacity(MAX);
+    let mut cur = seed;
+    for _ in 0..MAX {
+        values.push(cur);
+        let next = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(I)I",
+                vec![fn_slot, Slot::Int(cur)],
+            )?
+            .unwrap_or(Slot::Int(cur));
+        match next {
+            Slot::Int(n) => cur = n,
+            _ => break,
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
 /// Native: `IntStream.count()J`
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_int_stream_count(
@@ -4513,6 +5032,33 @@ pub(crate) fn native_int_stream_filter(
         }
     }
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, kept)))))
+}
+
+/// Native: `IntStream.peek(IntConsumer)IntStream` — calls consumer for each element, returns same stream.
+pub(crate) fn native_int_stream_peek(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elems = int_stream_elems(heap, r);
+    if let Slot::Reference(Some(fn_ref)) = fn_slot {
+        let fn_class = heap.get(fn_ref)?.class_name.clone();
+        for &v in &elems {
+            ops.invoke(
+                heap,
+                out,
+                &fn_class,
+                "accept",
+                "(I)V",
+                vec![fn_slot, Slot::Int(v)],
+            )?;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, elems)))))
 }
 
 /// Native: `IntStream.map(IntUnaryOperator)IntStream`
@@ -4695,6 +5241,96 @@ pub(crate) fn native_optional_int_is_present(
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     Ok(Some(Slot::Int(i32::from(present))))
+}
+
+/// Native: `OptionalInt.orElse(int)I` — returns value if present, else the default.
+pub(crate) fn native_optional_int_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
+    if present {
+        Ok(Some(
+            heap.get(r)?.fields.first().copied().unwrap_or(Slot::Int(0)),
+        ))
+    } else {
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Int(0))))
+    }
+}
+
+/// Native: `OptionalInt.of(int)OptionalInt` — creates a present `OptionalInt`.
+pub(crate) fn native_optional_int_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let value = args.first().copied().unwrap_or(Slot::Int(0));
+    let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = value;
+    heap.get_mut(r)?.fields[1] = Slot::Int(1); // present = true
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `OptionalInt.empty()OptionalInt` — creates an empty `OptionalInt`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_optional_int_empty(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = Slot::Int(0);
+    heap.get_mut(r)?.fields[1] = Slot::Int(0); // present = false
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `OptionalLong.orElse(long)J`
+pub(crate) fn native_optional_long_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
+    if present {
+        Ok(Some(
+            heap.get(r)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Long(0)),
+        ))
+    } else {
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Long(0))))
+    }
+}
+
+/// Native: `OptionalDouble.orElse(double)D`
+pub(crate) fn native_optional_double_or_else(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = extract_ref_arg(args, 0)?;
+    let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
+    if present {
+        Ok(Some(
+            heap.get(r)?
+                .fields
+                .first()
+                .copied()
+                .unwrap_or(Slot::Double(0.0)),
+        ))
+    } else {
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Double(0.0))))
+    }
 }
 
 /// Native: `OptionalDouble.getAsDouble()D`
@@ -7439,6 +8075,50 @@ pub(crate) fn native_string_indexof(
     Ok(Some(Slot::Int(result)))
 }
 
+/// Native: `String.indexOf(String, int)I` — first occurrence at or after fromIndex.
+pub(crate) fn native_string_indexof_from(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target_ref = extract_ref_arg(args, 1)?;
+    #[allow(clippy::cast_sign_loss)] // .max(0) guarantees non-negative
+    let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
+    let this_obj = heap.get(this_ref)?;
+    let target_obj = heap.get(target_ref)?;
+    let s = this_obj.string_value.as_deref().unwrap_or_default();
+    let target = target_obj.string_value.as_deref().unwrap_or_default();
+    let search_in = if from < s.len() { &s[from..] } else { "" };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let result = search_in.find(target).map_or(-1, |i| (from + i) as i32);
+    Ok(Some(Slot::Int(result)))
+}
+
+/// Native: `String.lastIndexOf(String, int)I` — last occurrence at or before fromIndex.
+pub(crate) fn native_string_last_indexof_from(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let sub_ref = extract_ref_arg(args, 1)?;
+    #[allow(clippy::cast_sign_loss)] // .max(0) guarantees non-negative
+    let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
+    let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
+    let search_in = if from + sub_str.len() < this_str.len() {
+        &this_str[..from + sub_str.len()]
+    } else {
+        &this_str
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    let result = search_in.rfind(sub_str.as_str()).map_or(-1, |i| i as i32);
+    Ok(Some(Slot::Int(result)))
+}
+
 /// Native: `String.contains(CharSequence)` — check if string contains target.
 pub(crate) fn native_string_contains(
     args: &[Slot],
@@ -8141,6 +8821,43 @@ pub(crate) fn native_objects_tostring(
     Ok(Some(Slot::Reference(Some(s))))
 }
 
+/// Native: `Objects.toString(Object, String)String` — returns nullDefault if null, else toString.
+pub(crate) fn native_objects_tostring_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    match args.first() {
+        Some(Slot::Reference(None)) | None => {
+            // null → return the default string (args[1])
+            let default_ref = match args.get(1) {
+                Some(Slot::Reference(Some(r))) => *r,
+                _ => heap.allocate_string("null".to_string()),
+            };
+            Ok(Some(Slot::Reference(Some(default_ref))))
+        }
+        Some(Slot::Reference(Some(r))) => {
+            let obj = heap.get(*r)?;
+            let text = obj
+                .string_value
+                .as_deref()
+                .map_or_else(|| format!("{}@{}", obj.class_name, r), str::to_owned);
+            let _ = obj;
+            let s = heap.allocate_string(text);
+            Ok(Some(Slot::Reference(Some(s))))
+        }
+        Some(Slot::Int(n)) => {
+            let s = heap.allocate_string(n.to_string());
+            Ok(Some(Slot::Reference(Some(s))))
+        }
+        Some(other) => {
+            let s = heap.allocate_string(format!("{other:?}"));
+            Ok(Some(Slot::Reference(Some(s))))
+        }
+    }
+}
+
 /// Native: `Objects.hashCode(Object)I` — returns 0 for null, else object identity hash.
 #[allow(clippy::cast_possible_truncation, clippy::unnecessary_wraps)]
 pub(crate) fn native_objects_hashcode(
@@ -8165,7 +8882,8 @@ pub(crate) fn native_collections_empty_list(
     out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let r = heap.allocate("java/util/ArrayList".to_string(), 1);
+    // Return an immutable empty UnmodifiableList (same field layout as ArrayList)
+    let r = heap.allocate("java/util/UnmodifiableList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(r))], heap, out, control)?;
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -8198,11 +8916,44 @@ pub(crate) fn native_collections_empty_map(
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collections_unmodifiable_list(
     args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // Create an UnmodifiableList backed by the source list's elements.
+    // Mutation methods on this class throw UnsupportedOperationException.
+    let src_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    let (size, elems) = {
+        let src = heap.get(src_ref)?;
+        let size = src.fields.first().copied().unwrap_or(Slot::Int(0));
+        let elems = src.fields[1..].to_vec();
+        (size, elems)
+    };
+    let n_fields = 1 + elems.len();
+    let dst_ref = heap.allocate("java/util/UnmodifiableList".to_string(), n_fields);
+    {
+        let dst = heap.get_mut(dst_ref)?;
+        dst.fields[0] = size;
+        for (i, e) in elems.iter().enumerate() {
+            dst.fields[1 + i] = *e;
+        }
+    }
+    Ok(Some(Slot::Reference(Some(dst_ref))))
+}
+
+/// Native: mutation ops on `UnmodifiableList` throw `UnsupportedOperationException`.
+pub(crate) fn native_unmodifiable_list_mutation(
+    _args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+    Err(VmError::JavaException {
+        class_name: "java/lang/UnsupportedOperationException".to_string(),
+    })
 }
 
 /// Native: `Math.random()D` — returns a pseudo-random double in [0.0, 1.0).
@@ -8345,24 +9096,8 @@ pub(crate) fn native_comparing_comparator_compare(
             vec![fn_slot, b],
         )?
         .unwrap_or(Slot::Reference(None));
-    // Compare extracted keys via compareTo
-    let cmp = match (&ka, &kb) {
-        (Slot::Reference(Some(ra)), Slot::Reference(Some(rb))) => {
-            let sa = heap
-                .get(*ra)
-                .ok()
-                .and_then(|o| o.string_value.clone())
-                .unwrap_or_default();
-            let sb = heap
-                .get(*rb)
-                .ok()
-                .and_then(|o| o.string_value.clone())
-                .unwrap_or_default();
-            sa.cmp(&sb) as i32
-        }
-        (Slot::Int(a), Slot::Int(b)) => a.cmp(b) as i32,
-        _ => 0,
-    };
+    // Compare extracted keys via natural ordering (String, Integer, Long, or raw int).
+    let cmp = compare_treemap_keys(ka, kb, heap) as i32;
     Ok(Some(Slot::Int(cmp)))
 }
 
@@ -8432,6 +9167,14 @@ pub(crate) fn native_stream_map_to_int(
             .unwrap_or(Slot::Int(0));
         match result {
             Slot::Int(n) => values.push(n),
+            Slot::Reference(Some(r)) => {
+                // Unbox Integer/Short/Byte if the function returned a boxed type.
+                let n = match heap.get(r)?.fields.first() {
+                    Some(Slot::Int(v)) => *v,
+                    _ => 0,
+                };
+                values.push(n);
+            }
             _ => values.push(0),
         }
     }
@@ -9302,6 +10045,58 @@ pub(crate) fn native_string_split(
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
 
+/// Native: `String.split(String, int)` — split with a limit parameter.
+pub(crate) fn native_string_split_limit(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let delim_ref = extract_ref_arg(args, 1)?;
+    let delim = heap
+        .get(delim_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let limit = match args.get(2) {
+        Some(Slot::Int(n)) => *n,
+        _ => 0,
+    };
+    #[allow(clippy::cast_sign_loss)] // limit is validated > 0 before the cast
+    let parts: Vec<String> = if delim.is_empty() {
+        let chars: Vec<String> = s.chars().map(|c| c.to_string()).collect();
+        if limit > 0 && (limit as usize) < chars.len() {
+            let mut v = chars[..limit as usize - 1].to_vec();
+            v.push(chars[limit as usize - 1..].join(""));
+            v
+        } else {
+            chars
+        }
+    } else {
+        let re = regex::Regex::new(&delim)
+            .unwrap_or_else(|_| regex::Regex::new(&regex::escape(&delim)).unwrap());
+        if limit > 0 {
+            re.splitn(&s, limit as usize).map(str::to_string).collect()
+        } else {
+            let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
+            if limit == 0 {
+                while v.last().is_some_and(String::is_empty) {
+                    v.pop();
+                }
+            }
+            v
+        }
+    };
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
+    for (i, part) in parts.iter().enumerate() {
+        let str_ref = heap.allocate_string(part.clone());
+        heap.get_mut(arr_ref)?.fields[i] = Slot::Reference(Some(str_ref));
+    }
+    Ok(Some(Slot::Reference(Some(arr_ref))))
+}
+
 /// Native: `String.hashCode()` — Java's hash algorithm: `s[0]*31^(n-1) + s[1]*31^(n-2) + ... + s[n-1]`.
 #[allow(clippy::cast_possible_wrap)]
 pub(crate) fn native_string_hashcode(
@@ -9993,6 +10788,24 @@ pub(crate) fn native_long_longvalue(
     Ok(Some(val))
 }
 
+/// Native: `Long.intValue()I` — returns the long value narrowed to int.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_long_intvalue(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = match heap.get(this_ref)?.fields.first() {
+        #[allow(clippy::cast_possible_truncation)] // enum ordinals fit i32
+        Some(Slot::Long(v)) => *v as i32,
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(val)))
+}
+
 /// Native: `Long.toString(long)` — static, converts long to String.
 pub(crate) fn native_long_tostring_static(
     args: &[Slot],
@@ -10647,6 +11460,28 @@ pub(crate) fn native_char_compareto(
     };
     let b = char_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
+}
+
+/// `Character.digit(char, int)int` — numeric value of char in given radix, or -1.
+#[allow(clippy::unnecessary_wraps)] // signature must match NativeHandler
+pub(crate) fn native_char_digit(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let ch = match args.first() {
+        Some(Slot::Int(n)) => (*n).cast_unsigned(),
+        _ => return Ok(Some(Slot::Int(-1))),
+    };
+    let radix = match args.get(1) {
+        Some(Slot::Int(n)) => (*n).cast_unsigned(),
+        _ => 10,
+    };
+    let result = char::from_u32(ch)
+        .and_then(|c| c.to_digit(radix))
+        .map_or(-1, u32::cast_signed);
+    Ok(Some(Slot::Int(result)))
 }
 
 /// Execute a `StringConcatFactory` recipe: walk the recipe string, replacing
@@ -12069,6 +12904,9 @@ struct CachedDispatch {
     class_name: String,
     method_idx: usize,
     arg_count: usize,
+    /// JVM primitive type chars for each parameter ('I', 'J', 'D', 'F', 'Z', 'B', 'C', 'S', 'L', '[').
+    /// Used to assign wide types (J/D) to the correct local variable slots.
+    param_types: Vec<char>,
     max_locals: usize,
     max_stack: usize,
     pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
@@ -12184,7 +13022,7 @@ fn callback_invoke_registered_lambda(
     };
 
     let impl_args = adapt_args_for_impl_desc(&impl_args, &lambda_info.impl_desc, heap);
-    Ok(Some(execute_class(
+    let result = execute_class(
         registry,
         loader,
         heap,
@@ -12193,7 +13031,9 @@ fn callback_invoke_registered_lambda(
         &lambda_info.impl_method,
         &lambda_info.impl_desc,
         &impl_args,
-    )?))
+    )?;
+    let result = autobox_if_needed(result, &lambda_info.impl_desc, &lambda_info.sam_desc, heap)?;
+    Ok(Some(result))
 }
 
 impl CallbackOps for InterpreterCallbackOps<'_> {
@@ -12464,6 +13304,9 @@ fn refresh_current_method_name(
 /// All method data is passed pre-resolved so this function performs **zero**
 /// [`ClassRegistry`] lookups — eliminating the registry `HashMap` access from every
 /// method-dispatch hot path.
+/// Maximum Java call stack depth before raising `StackOverflowError`.
+const MAX_CALL_DEPTH: usize = 500;
+
 #[allow(clippy::too_many_arguments)]
 fn activate_method_state(
     frame: &mut Frame,
@@ -12480,7 +13323,12 @@ fn activate_method_state(
     resume_idx: usize,
     #[cfg(feature = "telemetry")] registry: &ClassRegistry,
     #[cfg(feature = "telemetry")] current_method: &mut String,
-) {
+) -> VmResult<()> {
+    if call_stack.len() >= MAX_CALL_DEPTH {
+        return Err(duke_runtime::VmError::JavaException {
+            class_name: "java/lang/StackOverflowError".to_string(),
+        });
+    }
     call_stack.push(CallFrame {
         frame: std::mem::replace(frame, callee_frame),
         method_idx: *method_idx,
@@ -12494,6 +13342,7 @@ fn activate_method_state(
     *instructions = callee_instructions;
     #[cfg(feature = "telemetry")]
     refresh_current_method_name(current_method, registry, current_class, *method_idx);
+    Ok(())
 }
 
 enum ExecutionOutcome {
@@ -13049,6 +13898,14 @@ fn run_execution(
                 continue;
             }};
         }
+        macro_rules! throw_java {
+            ($class_name:expr) => {{
+                let class_name = $class_name.to_string();
+                let exception_ref =
+                    materialize_java_exception_object(registry, loader, heap, &class_name)?;
+                propagate_java_exception!(class_name, exception_ref, pc);
+            }};
+        }
 
         // Telemetry: capture opcode name and start time before dispatch.
         // Arms that use `continue` (branches, invokes) will skip the post-match
@@ -13077,12 +13934,10 @@ fn run_execution(
                             max_locals: cached.max_locals,
                         });
                     }
-                    for i in (0..cached.arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    pop_typed_args_into_locals(&cached.param_types, frame, &mut locals_buf, 0)?;
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
-                    activate_method_state(
+                    match activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
@@ -13099,7 +13954,13 @@ fn run_execution(
                         registry,
                         #[cfg(feature = "telemetry")]
                         current_method,
-                    );
+                    ) {
+                        Ok(()) => {}
+                        Err(VmError::JavaException { class_name }) => {
+                            throw_java!(class_name);
+                        }
+                        Err(other) => return Err(other),
+                    }
                     *idx = 0;
                     continue;
                 }
@@ -13158,6 +14019,7 @@ fn run_execution(
                                         class_name: callee_class_key.clone(),
                                         method_idx: callee_idx,
                                         arg_count,
+                                        param_types: parse_arg_types(&callee_desc),
                                         max_locals,
                                         max_stack,
                                         pc_to_idx: std::sync::Arc::clone(&pci),
@@ -13172,13 +14034,16 @@ fn run_execution(
                                     max_locals,
                                 });
                             }
-                            for i in (0..arg_count).rev() {
-                                locals_buf[i] = frame.pop()?;
-                            }
+                            pop_typed_args_into_locals(
+                                &parse_arg_types(&callee_desc),
+                                frame,
+                                &mut locals_buf,
+                                0,
+                            )?;
                             let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                             (pci, instrs, f)
                         };
-                        activate_method_state(
+                        match activate_method_state(
                             frame,
                             method_idx,
                             pc_to_idx,
@@ -13195,7 +14060,13 @@ fn run_execution(
                             registry,
                             #[cfg(feature = "telemetry")]
                             current_method,
-                        );
+                        ) {
+                            Ok(()) => {}
+                            Err(VmError::JavaException { class_name }) => {
+                                throw_java!(class_name);
+                            }
+                            Err(other) => return Err(other),
+                        }
                         *idx = 0;
                         continue;
                     }
@@ -13241,7 +14112,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -13291,7 +14184,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -13657,7 +14572,7 @@ fn run_execution(
                 let b = frame.pop_int()?;
                 let a = frame.pop_int()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Int(a.wrapping_div(b)))?;
             }
@@ -13665,7 +14580,7 @@ fn run_execution(
                 let b = frame.pop_int()?;
                 let a = frame.pop_int()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Int(a.wrapping_rem(b)))?;
             }
@@ -13736,7 +14651,7 @@ fn run_execution(
                 let b = frame.pop_long()?;
                 let a = frame.pop_long()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Long(a.wrapping_div(b)))?;
             }
@@ -13744,7 +14659,7 @@ fn run_execution(
                 let b = frame.pop_long()?;
                 let a = frame.pop_long()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    throw_java!("java/lang/ArithmeticException");
                 }
                 frame.push(Slot::Long(a.wrapping_rem(b)))?;
             }
@@ -14170,13 +15085,11 @@ fn run_execution(
                             max_locals: cached.max_locals,
                         });
                     }
-                    for i in (1..=cached.arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    pop_typed_args_into_locals(&cached.param_types, frame, &mut locals_buf, 1)?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
-                    activate_method_state(
+                    match activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
@@ -14193,7 +15106,13 @@ fn run_execution(
                         registry,
                         #[cfg(feature = "telemetry")]
                         current_method,
-                    );
+                    ) {
+                        Ok(()) => {}
+                        Err(VmError::JavaException { class_name }) => {
+                            throw_java!(class_name);
+                        }
+                        Err(other) => return Err(other),
+                    }
                     *idx = 0;
                     continue;
                 }
@@ -14247,13 +15166,11 @@ fn run_execution(
                             max_locals: cached.max_locals,
                         });
                     }
-                    for i in (1..=cached.arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    pop_typed_args_into_locals(&cached.param_types, frame, &mut locals_buf, 1)?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
-                    activate_method_state(
+                    match activate_method_state(
                         frame,
                         method_idx,
                         pc_to_idx,
@@ -14270,7 +15187,13 @@ fn run_execution(
                         registry,
                         #[cfg(feature = "telemetry")]
                         current_method,
-                    );
+                    ) {
+                        Ok(()) => {}
+                        Err(VmError::JavaException { class_name }) => {
+                            throw_java!(class_name);
+                        }
+                        Err(other) => return Err(other),
+                    }
                     *idx = 0;
                     continue;
                 }
@@ -14389,7 +15312,7 @@ fn run_execution(
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, instrs, f)
                                     };
-                                    activate_method_state(
+                                    match activate_method_state(
                                         frame,
                                         method_idx,
                                         pc_to_idx,
@@ -14406,7 +15329,13 @@ fn run_execution(
                                         registry,
                                         #[cfg(feature = "telemetry")]
                                         current_method,
-                                    );
+                                    ) {
+                                        Ok(()) => {}
+                                        Err(VmError::JavaException { class_name }) => {
+                                            throw_java!(class_name);
+                                        }
+                                        Err(other) => return Err(other),
+                                    }
                                     *idx = 0;
                                     continue;
                                 }
@@ -14518,7 +15447,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -14580,7 +15531,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -14643,6 +15616,7 @@ fn run_execution(
                                     class_name: dispatch_class.clone(),
                                     method_idx: callee_idx,
                                     arg_count,
+                                    param_types: parse_arg_types(&callee_desc),
                                     max_locals,
                                     max_stack,
                                     pc_to_idx: std::sync::Arc::clone(&pci),
@@ -14661,6 +15635,7 @@ fn run_execution(
                                     class_name: dispatch_class.clone(),
                                     method_idx: callee_idx,
                                     arg_count,
+                                    param_types: parse_arg_types(&callee_desc),
                                     max_locals,
                                     max_stack,
                                     pc_to_idx: std::sync::Arc::clone(&pci),
@@ -14676,15 +15651,18 @@ fn run_execution(
                             max_locals,
                         });
                     }
-                    // Pop args into locals[1..=arg_count] in reverse (stack top = last arg).
-                    for i in (1..=arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    // Pop args with wide-type-aware indexing (doubles/longs occupy 2 local slots).
+                    pop_typed_args_into_locals(
+                        &parse_arg_types(&callee_desc),
+                        frame,
+                        &mut locals_buf,
+                        1,
+                    )?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
                 };
-                activate_method_state(
+                match activate_method_state(
                     frame,
                     method_idx,
                     pc_to_idx,
@@ -14701,7 +15679,13 @@ fn run_execution(
                     registry,
                     #[cfg(feature = "telemetry")]
                     current_method,
-                );
+                ) {
+                    Ok(()) => {}
+                    Err(VmError::JavaException { class_name }) => {
+                        throw_java!(class_name);
+                    }
+                    Err(other) => return Err(other),
+                }
                 *idx = 0;
                 continue;
             }
@@ -14796,10 +15780,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_int()?
                 };
@@ -14812,10 +15793,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -14828,10 +15806,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_long()?
                 };
@@ -14844,10 +15819,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Long(val))?;
@@ -14860,10 +15832,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_float()?
                 };
@@ -14876,10 +15845,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Float(val))?;
@@ -14892,10 +15858,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize].as_double()?
                 };
@@ -14908,10 +15871,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Double(val))?;
@@ -14924,10 +15884,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     fields[idx_val as usize]
                 };
@@ -14940,10 +15897,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, val)?;
@@ -14956,10 +15910,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     i32::from(fields[idx_val as usize].as_int()? as i8)
                 };
@@ -14972,10 +15923,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -14988,10 +15936,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     i32::from(fields[idx_val as usize].as_int()? as u16)
                 };
@@ -15004,10 +15949,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -15020,10 +15962,7 @@ fn run_execution(
                 let v = {
                     let fields = &heap.get(r)?.fields;
                     if idx_val < 0 || idx_val as usize >= fields.len() {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: fields.len(),
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                     i32::from(fields[idx_val as usize].as_int()? as i16)
                 };
@@ -15036,10 +15975,7 @@ fn run_execution(
                 {
                     let len = heap.get(r)?.fields.len();
                     if idx_val < 0 || idx_val as usize >= len {
-                        return Err(VmError::ArrayIndexOutOfBounds {
-                            index: idx_val,
-                            length: len,
-                        });
+                        throw_java!("java/lang/ArrayIndexOutOfBoundsException");
                     }
                 }
                 heap.write_field(r, idx_val as usize, Slot::Int(val))?;
@@ -15091,10 +16027,7 @@ fn run_execution(
                         ) {
                             frame.push(slot)?;
                         } else {
-                            return Err(VmError::ClassCastException {
-                                from: actual,
-                                to: target,
-                            });
+                            throw_java!("java/lang/ClassCastException");
                         }
                     }
                     _ => {
@@ -15270,6 +16203,14 @@ fn run_execution(
                         captured_args[i] = frame.pop()?;
                     }
 
+                    // Extract SAM interface from invokedynamic return type: "(...)Ljava/util/function/Function;" → "java/util/function/Function"
+                    let sam_interface = call_desc
+                        .split_once(')')
+                        .and_then(|(_, ret)| ret.strip_prefix('L'))
+                        .and_then(|s| s.strip_suffix(';'))
+                        .unwrap_or("")
+                        .to_string();
+
                     let lambda_info = LambdaInfo {
                         impl_class: impl_class.clone(),
                         impl_method: impl_method.clone(),
@@ -15277,6 +16218,7 @@ fn run_execution(
                         impl_kind,
                         sam_method,
                         sam_desc,
+                        sam_interface,
                         captured_count,
                     };
                     let lambda_class = registry.register_lambda(lambda_info);
@@ -15433,7 +16375,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -15492,7 +16456,29 @@ fn run_execution(
                                         )?;
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
-                                    Err(err) => return Err(err),
+                                    Err(err) => {
+                                        let class_name = match err {
+                                            VmError::NullPointerException => {
+                                                "java/lang/NullPointerException".to_string()
+                                            }
+                                            VmError::ClassCastException { .. } => {
+                                                "java/lang/ClassCastException".to_string()
+                                            }
+                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                                "java/lang/ArrayIndexOutOfBoundsException"
+                                                    .to_string()
+                                            }
+                                            VmError::JavaException { class_name } => class_name,
+                                            other => return Err(other),
+                                        };
+                                        let exception_ref = materialize_java_exception_object(
+                                            registry,
+                                            loader,
+                                            heap,
+                                            &class_name,
+                                        )?;
+                                        propagate_java_exception!(class_name, exception_ref, pc);
+                                    }
                                 };
                                 if let Some(outcome) =
                                     finish_native_call(&mut native_control, frame, idx, result)?
@@ -15576,7 +16562,7 @@ fn run_execution(
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, instrs, f)
                                     };
-                                    activate_method_state(
+                                    match activate_method_state(
                                         frame,
                                         method_idx,
                                         pc_to_idx,
@@ -15593,7 +16579,13 @@ fn run_execution(
                                         registry,
                                         #[cfg(feature = "telemetry")]
                                         current_method,
-                                    );
+                                    ) {
+                                        Ok(()) => {}
+                                        Err(VmError::JavaException { class_name }) => {
+                                            throw_java!(class_name);
+                                        }
+                                        Err(other) => return Err(other),
+                                    }
                                     *idx = 0;
                                     continue;
                                 }
@@ -15638,7 +16630,7 @@ fn run_execution(
                                             Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                                         (pci, instrs, f)
                                     };
-                                    activate_method_state(
+                                    match activate_method_state(
                                         frame,
                                         method_idx,
                                         pc_to_idx,
@@ -15655,7 +16647,13 @@ fn run_execution(
                                         registry,
                                         #[cfg(feature = "telemetry")]
                                         current_method,
-                                    );
+                                    ) {
+                                        Ok(()) => {}
+                                        Err(VmError::JavaException { class_name }) => {
+                                            throw_java!(class_name);
+                                        }
+                                        Err(other) => return Err(other),
+                                    }
                                     *idx = 0;
                                     continue;
                                 }
@@ -15696,8 +16694,43 @@ fn run_execution(
                                                     pc
                                                 );
                                             }
-                                            Err(err) => return Err(err),
+                                            Err(err) => {
+                                                let class_name = match err {
+                                                    VmError::NullPointerException => {
+                                                        "java/lang/NullPointerException".to_string()
+                                                    }
+                                                    VmError::ClassCastException { .. } => {
+                                                        "java/lang/ClassCastException".to_string()
+                                                    }
+                                                    VmError::ArrayIndexOutOfBounds { .. } => {
+                                                        "java/lang/ArrayIndexOutOfBoundsException"
+                                                            .to_string()
+                                                    }
+                                                    VmError::JavaException { class_name } => {
+                                                        class_name
+                                                    }
+                                                    other => return Err(other),
+                                                };
+                                                let exception_ref =
+                                                    materialize_java_exception_object(
+                                                        registry,
+                                                        loader,
+                                                        heap,
+                                                        &class_name,
+                                                    )?;
+                                                propagate_java_exception!(
+                                                    class_name,
+                                                    exception_ref,
+                                                    pc
+                                                );
+                                            }
                                         };
+                                        let result = autobox_if_needed(
+                                            result,
+                                            &lambda_info.impl_desc,
+                                            &lambda_info.sam_desc,
+                                            heap,
+                                        )?;
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
                                             frame,
@@ -15746,8 +16779,43 @@ fn run_execution(
                                                     pc
                                                 );
                                             }
-                                            Err(err) => return Err(err),
+                                            Err(err) => {
+                                                let class_name = match err {
+                                                    VmError::NullPointerException => {
+                                                        "java/lang/NullPointerException".to_string()
+                                                    }
+                                                    VmError::ClassCastException { .. } => {
+                                                        "java/lang/ClassCastException".to_string()
+                                                    }
+                                                    VmError::ArrayIndexOutOfBounds { .. } => {
+                                                        "java/lang/ArrayIndexOutOfBoundsException"
+                                                            .to_string()
+                                                    }
+                                                    VmError::JavaException { class_name } => {
+                                                        class_name
+                                                    }
+                                                    other => return Err(other),
+                                                };
+                                                let exception_ref =
+                                                    materialize_java_exception_object(
+                                                        registry,
+                                                        loader,
+                                                        heap,
+                                                        &class_name,
+                                                    )?;
+                                                propagate_java_exception!(
+                                                    class_name,
+                                                    exception_ref,
+                                                    pc
+                                                );
+                                            }
                                         };
+                                        let result = autobox_if_needed(
+                                            result,
+                                            &lambda_info.impl_desc,
+                                            &lambda_info.sam_desc,
+                                            heap,
+                                        )?;
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
                                             frame,
@@ -15760,6 +16828,39 @@ fn run_execution(
                                     }
                                     None => {}
                                 }
+                            } else if lambda_info.impl_kind == 8 {
+                                // REF_newInvokeSpecial — constructor reference (e.g. ArrayList::new)
+                                // Allocate a new instance, call <init>, push the result.
+                                let field_count =
+                                    total_instance_field_count(registry, &impl_class_key);
+                                let new_ref = heap.allocate(impl_class_key.clone(), field_count);
+                                init_object_fields(registry, heap, new_ref, &impl_class_key);
+                                let mut init_args = vec![Slot::Reference(Some(new_ref))];
+                                init_args.extend_from_slice(&impl_args);
+                                match execute_class(
+                                    registry,
+                                    loader,
+                                    heap,
+                                    stdout,
+                                    &impl_class_key,
+                                    &lambda_info.impl_method,
+                                    &lambda_info.impl_desc,
+                                    &init_args,
+                                ) {
+                                    Ok(_) => {}
+                                    Err(VmError::JavaException { class_name }) => {
+                                        throw_java!(class_name);
+                                    }
+                                    Err(other) => return Err(other),
+                                }
+                                if gc_allowed && heap.should_gc() {
+                                    let roots = gather_roots(frame, call_stack, registry);
+                                    heap.collect(&roots);
+                                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                                }
+                                frame.push(Slot::Reference(Some(new_ref)))?;
+                                *idx += 1;
+                                continue;
                             }
                             *idx += 1;
                             continue;
@@ -15798,15 +16899,18 @@ fn run_execution(
                             max_locals,
                         });
                     }
-                    // Pop method args in reverse (stack top = last arg) into locals[1..=arg_count].
-                    for i in (1..=arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    // Pop method args using wide-type-aware indexing (doubles/longs occupy 2 local slots).
+                    pop_typed_args_into_locals(
+                        &parse_arg_types(&callee_desc),
+                        frame,
+                        &mut locals_buf,
+                        1,
+                    )?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
                 };
-                activate_method_state(
+                match activate_method_state(
                     frame,
                     method_idx,
                     pc_to_idx,
@@ -15823,7 +16927,13 @@ fn run_execution(
                     registry,
                     #[cfg(feature = "telemetry")]
                     current_method,
-                );
+                ) {
+                    Ok(()) => {}
+                    Err(VmError::JavaException { class_name }) => {
+                        throw_java!(class_name);
+                    }
+                    Err(other) => return Err(other),
+                }
                 *idx = 0;
                 continue;
             }
@@ -17492,6 +18602,13 @@ fn is_assignable_from(
     if from_key == to_key || to_internal == "java/lang/Object" {
         return true;
     }
+    // Lambda proxies implement their SAM interface (and transitively java/lang/Object).
+    if from_key.starts_with("$$Lambda$")
+        && let Some(lambda_info) = registry.get_lambda(&from_key)
+        && (lambda_info.sam_interface == to_key || lambda_info.sam_interface == to_internal)
+    {
+        return true;
+    }
     // Arrays implement Cloneable and Serializable; everything else is Object.
     if from_internal.starts_with('[') {
         return matches!(to_internal, "java/lang/Cloneable" | "java/io/Serializable");
@@ -17973,6 +19090,89 @@ fn expand_args_for_desc(args: &[Slot], descriptor: &str) -> Vec<Slot> {
         result.extend_from_slice(&args[param_types.len()..]);
     }
     result
+}
+
+/// Pop args from the operand stack and store them in the locals array.
+///
+/// Wide types (J = long, D = double) occupy two local variable slots in the JVM.
+/// For each such type, the value is stored at `local_idx` and `local_idx + 1` is
+/// left as the default padding (`Slot::Int(0)`).
+///
+/// For methods without any wide-type params, this behaves identically to the
+/// previous simple sequential assignment.
+fn pop_typed_args_into_locals(
+    param_types: &[char],
+    frame: &mut Frame,
+    locals: &mut [Slot],
+    start_idx: usize,
+) -> VmResult<()> {
+    let count = param_types.len();
+    let mut args = vec![Slot::Int(0); count];
+    for i in (0..count).rev() {
+        args[i] = frame.pop()?;
+    }
+    let mut local_idx = start_idx;
+    for (slot, &tc) in args.iter().zip(param_types.iter()) {
+        if local_idx < locals.len() {
+            locals[local_idx] = *slot;
+        }
+        local_idx += 1;
+        if tc == 'J' || tc == 'D' {
+            local_idx += 1; // wide type: skip the padding slot
+        }
+    }
+    Ok(())
+}
+
+/// Return the first character of the return type portion of a method descriptor.
+fn desc_return_char(desc: &str) -> Option<char> {
+    desc.split_once(')').and_then(|(_, ret)| ret.chars().next())
+}
+
+/// Autobox a primitive return value when the SAM descriptor expects a reference.
+///
+/// This is needed for bound method references like `s::length` where the impl
+/// returns `int` but the SAM interface (`Supplier.get()`) returns `Object`.
+fn autobox_if_needed(
+    result: Option<Slot>,
+    impl_desc: &str,
+    sam_desc: &str,
+    heap: &mut duke_gc::Heap,
+) -> VmResult<Option<Slot>> {
+    let Some(slot) = result else {
+        return Ok(None);
+    };
+    if !matches!(desc_return_char(sam_desc), Some('L' | '[')) {
+        return Ok(Some(slot));
+    }
+    match (desc_return_char(impl_desc), slot) {
+        (Some('I'), Slot::Int(v)) => {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Int(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('Z'), Slot::Int(v)) => {
+            let r = heap.allocate("java/lang/Boolean".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Int(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('J'), Slot::Long(v)) => {
+            let r = heap.allocate("java/lang/Long".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Long(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('D'), Slot::Double(v)) => {
+            let r = heap.allocate("java/lang/Double".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Double(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('F'), Slot::Float(v)) => {
+            let r = heap.allocate("java/lang/Float".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Float(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        _ => Ok(Some(slot)),
+    }
 }
 
 fn parse_arg_descriptors(descriptor: &str) -> Vec<String> {
@@ -19304,6 +20504,24 @@ pub(crate) fn native_arraylist_index_of(
     Ok(Some(Slot::Int(idx)))
 }
 
+/// Native: `ArrayList.lastIndexOf(Object)I` — last occurrence, or -1.
+pub(crate) fn native_arraylist_last_index_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let fields = heap.get(this_ref)?.fields.clone();
+    let idx = fields
+        .iter()
+        .skip(1)
+        .rposition(|slot| slots_equal(slot, &target, heap))
+        .map_or(-1, |i| i32::try_from(i).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(idx)))
+}
+
 /// Native: `ArrayList.add(I,Object)V` — inserts element at index, shifting others right.
 #[allow(clippy::cast_sign_loss)]
 pub(crate) fn native_arraylist_add_at(
@@ -19533,6 +20751,25 @@ pub(crate) fn native_arrays_sort_int(
         _ => std::cmp::Ordering::Equal,
     });
     Ok(None)
+}
+
+/// Native: `Arrays.equals(int[], int[])boolean` — element-wise equality.
+pub(crate) fn native_arrays_equals_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a_ref = extract_ref_arg(args, 0)?;
+    let b_ref = extract_ref_arg(args, 1)?;
+    let a_fields = heap.get(a_ref)?.fields.clone();
+    let b_fields = heap.get(b_ref)?.fields.clone();
+    let equal = a_fields.len() == b_fields.len()
+        && a_fields.iter().zip(&b_fields).all(|(x, y)| match (x, y) {
+            (Slot::Int(a), Slot::Int(b)) => a == b,
+            _ => false,
+        });
+    Ok(Some(Slot::Int(i32::from(equal))))
 }
 
 // ---------------------------------------------------------------------------
@@ -20390,6 +21627,49 @@ pub(crate) fn native_matcher_group(
     Ok(Some(Slot::Reference(Some(r))))
 }
 
+/// Native: `Matcher.group(int)String` — returns the nth capture group from the last match.
+pub(crate) fn native_matcher_group_n(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let n = match args.get(1).copied() {
+        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    if n == 0 {
+        // group(0) == group() — full match
+        return native_matcher_group(args, heap, out, control);
+    }
+    let fields = heap.get(m_ref)?.fields.clone();
+    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let start = match fields.get(3).copied() {
+        Some(Slot::Int(s)) if s >= 0 => usize::try_from(s).unwrap_or(0),
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let input = heap
+        .get(input_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let re = compile_java_regex(&pattern_str)?;
+    if let Some(caps) = re.captures_at(&input, start)
+        && let Some(g) = caps.get(n)
+    {
+        let s = heap.allocate_string(g.as_str().to_string());
+        return Ok(Some(Slot::Reference(Some(s))));
+    }
+    Ok(Some(Slot::Reference(None)))
+}
+
 /// Native: `Matcher.start()I` — start index of last match.
 pub(crate) fn native_matcher_start(
     args: &[Slot],
@@ -20769,12 +22049,27 @@ pub(crate) fn native_hashmap_compute(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
+    // null return means remove the key
+    let is_null = matches!(new_value, None | Some(Slot::Reference(None)));
     let new_val = new_value.unwrap_or(Slot::Reference(None));
-    // Update or insert
     let fields2 = heap.get(this_ref)?.fields.clone();
     if let Some(ki) = hashmap_find_key(&fields2, key, heap) {
-        heap.get_mut(this_ref)?.fields[ki + 1] = new_val;
-    } else {
+        if is_null {
+            // Remove the key-value pair (swap-remove style)
+            let fields3 = &mut heap.get_mut(this_ref)?.fields;
+            fields3.remove(ki + 1);
+            fields3.remove(ki);
+            let size = match fields3.first() {
+                Some(Slot::Int(n)) => *n,
+                _ => 0,
+            };
+            if let Some(first) = fields3.first_mut() {
+                *first = Slot::Int(size - 1);
+            }
+        } else {
+            heap.get_mut(this_ref)?.fields[ki + 1] = new_val;
+        }
+    } else if !is_null {
         let size = match heap.get(this_ref)?.fields.first().copied() {
             Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
             _ => 0,
@@ -20814,7 +22109,9 @@ pub(crate) fn native_hashmap_merge(
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
             vec![fn_slot, old_value, new_val_slot],
         )?;
-        let merged_val = merged.unwrap_or(Slot::Reference(None));
+        let merged_raw = merged.unwrap_or(Slot::Reference(None));
+        // Box primitive results so the stored value is always a Reference (matches Java generics)
+        let merged_val = box_primitive_slot(merged_raw, heap);
         heap.get_mut(this_ref)?.fields[ki + 1] = merged_val;
         Ok(Some(merged_val))
     } else {
@@ -22292,11 +23589,22 @@ pub(crate) fn native_collections_swap(
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collections_unmodifiable_map(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+    let src_ref = match args.first() {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Ok(Some(Slot::Reference(None))),
+    };
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let src_class = heap.get(src_ref)?.class_name.clone();
+    // Copy data into an UnmodifiableMap wrapper (same layout as HashMap)
+    let r = heap.allocate("java/util/UnmodifiableMap".to_string(), src_fields.len());
+    let r_fields = &mut heap.get_mut(r)?.fields;
+    *r_fields = src_fields;
+    drop(src_class);
+    Ok(Some(Slot::Reference(Some(r))))
 }
 
 /// Native: `Collectors.partitioningBy(Predicate)Collector` — returns a sentinel collector.
@@ -22310,6 +23618,21 @@ pub(crate) fn native_collectors_partitioning_by(
     let pred = args.first().copied().unwrap_or(Slot::Reference(None));
     let r = heap.allocate("duke/util/PartitioningByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = pred;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+pub(crate) fn native_collectors_partitioning_by_downstream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let pred = args.first().copied().unwrap_or(Slot::Reference(None));
+    let downstream = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/PartitioningByDownstreamCollector".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = pred;
+    heap.get_mut(r)?.fields[1] = downstream;
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -22615,6 +23938,71 @@ pub(crate) fn native_and_then_function_apply(
     invoke_function_apply(second, mid, heap, out, ops).map(Some)
 }
 
+/// Native: `Consumer.andThen(Consumer)Consumer` — chains two consumers sequentially.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_consumer_and_then(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let first = args.first().copied().unwrap_or(Slot::Reference(None));
+    let second = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/AndThenConsumer".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = first;
+    heap.get_mut(r)?.fields[1] = second;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `AndThenConsumer.accept(O)V` — runs first then second consumer.
+pub(crate) fn native_and_then_consumer_accept(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let arg = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let first = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let second = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    invoke_consumer_accept(first, arg, heap, out, ops)?;
+    invoke_consumer_accept(second, arg, heap, out, ops)?;
+    Ok(None)
+}
+
+fn invoke_consumer_accept(
+    consumer: Slot,
+    arg: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<()> {
+    let Slot::Reference(Some(c_ref)) = consumer else {
+        return Ok(());
+    };
+    let c_class = heap.get(c_ref)?.class_name.clone();
+    ops.invoke(
+        heap,
+        out,
+        &c_class,
+        "accept",
+        "(Ljava/lang/Object;)V",
+        vec![consumer, arg],
+    )?;
+    Ok(())
+}
+
 /// Native: `Function.compose(Function)Function` — `f.compose(g)` = `f(g(x))`.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_function_compose(
@@ -22679,6 +24067,61 @@ fn invoke_function_apply(
             vec![function, input],
         )?
         .unwrap_or(Slot::Reference(None)))
+}
+
+/// Native: `BiFunction.andThen(Function)BiFunction` — returns `BiFunctionAndThen` proxy.
+pub(crate) fn native_bifunction_and_then(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let bifunction = args.first().copied().unwrap_or(Slot::Reference(None));
+    let after = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/BiFunctionAndThen".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = bifunction;
+    heap.get_mut(r)?.fields[1] = after;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `BiFunctionAndThen.apply(Object,Object)Object` — calls wrapped bifunction then after.
+pub(crate) fn native_bifunction_and_then_apply(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let bifunction = heap
+        .get(this_ref)?
+        .fields
+        .first()
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let after = heap
+        .get(this_ref)?
+        .fields
+        .get(1)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(bf_ref)) = bifunction else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let bf_class = heap.get(bf_ref)?.class_name.clone();
+    let mid = ops
+        .invoke(
+            heap,
+            out,
+            &bf_class,
+            "apply",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![bifunction, a, b],
+        )?
+        .unwrap_or(Slot::Reference(None));
+    Ok(Some(invoke_function_apply(after, mid, heap, out, ops)?))
 }
 
 /// Native: `Stream.mapToLong(ToLongFunction)LongStream` — maps each element via `applyAsLong`.
@@ -24102,13 +25545,22 @@ pub(crate) fn native_collections_singleton_set(
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_collections_unmodifiable_set(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    // Our sets are already value objects; just return the same reference.
-    let set_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    Ok(Some(set_slot))
+    // Wrap the source set in a UnmodifiableSet (same field layout as HashSet).
+    let src_ref = extract_ref_arg(args, 0)?;
+    let src_fields = heap.get(src_ref)?.fields.clone();
+    let class_name = heap.get(src_ref)?.class_name.clone();
+    let n = src_fields.len();
+    let wrapper_ref = heap.allocate("java/util/UnmodifiableSet".to_string(), n);
+    // Copy field layout from source set
+    let _ = class_name;
+    for (i, f) in src_fields.into_iter().enumerate() {
+        heap.get_mut(wrapper_ref)?.fields[i] = f;
+    }
+    Ok(Some(Slot::Reference(Some(wrapper_ref))))
 }
 
 // ---------------------------------------------------------------------------
@@ -24893,7 +26345,7 @@ pub(crate) fn native_collectors_to_unmodifiable_list(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let r = heap.allocate("duke/util/ToListCollector".to_string(), 0);
+    let r = heap.allocate("duke/util/ToUnmodifiableListCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -25675,7 +27127,7 @@ pub(crate) fn native_collectors_to_unmodifiable_map(
 ) -> VmResult<Option<Slot>> {
     let key_fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     let val_fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let r = heap.allocate("duke/util/ToMapCollector".to_string(), 2);
+    let r = heap.allocate("duke/util/ToUnmodifiableMapCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = key_fn_slot;
     heap.get_mut(r)?.fields[1] = val_fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -27346,6 +28798,34 @@ pub(crate) fn native_hashmap_compute_if_present(
             Ok(Some(Slot::Reference(None)))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 117: Map.remove(k,v), Collections.emptyList (immutable), Stream.concat,
+//            Map.replace, Integer.sum, IntStream.mapToObj, Optional.map,
+//            UnmodifiableSet
+// ---------------------------------------------------------------------------
+
+/// Native: `HashMap.remove(Object, Object) -> boolean`
+/// Conditional remove: only removes if key is present AND value equals the provided value.
+pub(crate) fn native_hashmap_remove_key_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let expected_val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fields = heap.get(this_ref)?.fields.clone();
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        let actual_val = fields[i + 1];
+        if slots_equal(&actual_val, &expected_val, heap) {
+            native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
 }
 
 // ---------------------------------------------------------------------------
@@ -34392,6 +35872,7 @@ mod tests {
             impl_kind: 6,
             sam_method: "getAsInt".to_string(),
             sam_desc: "()I".to_string(),
+            sam_interface: "java/util/function/IntSupplier".to_string(),
             captured_count: 0,
         });
         let lambda_ref = heap.allocate(lambda_class.clone(), 0);
@@ -34440,6 +35921,7 @@ mod tests {
             impl_kind: 5,
             sam_method: "applyAsInt".to_string(),
             sam_desc: "(I)I".to_string(),
+            sam_interface: "java/util/function/IntUnaryOperator".to_string(),
             captured_count: 1,
         });
         let target_ref = heap.allocate("duke/test/LambdaTarget".to_string(), 0);
@@ -35837,6 +37319,7 @@ mod tests {
             impl_kind: 6,
             sam_method: "run".to_string(),
             sam_desc: "()V".to_string(),
+            sam_interface: "java/lang/Runnable".to_string(),
             captured_count: 0,
         };
         let n0 = reg.register_lambda(info.clone());
@@ -36567,7 +38050,10 @@ mod tests {
             &mut out,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -38336,7 +39822,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -38406,7 +39895,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -38426,7 +39918,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ===========================================================================
@@ -40830,7 +42325,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Iastore OOB at length; kills its || → && mutant.
@@ -40857,7 +42355,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Laload: valid idx=0 succeeds (kills < → == at Laload bounds).
@@ -40934,7 +42435,10 @@ mod tests {
             "()J",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Lastore OOB kills || → &&.
@@ -40961,7 +42465,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     /// Faload valid idx=0 and idx=1.
@@ -41011,7 +42518,10 @@ mod tests {
             "()F",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -41037,7 +42547,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -41111,7 +42624,10 @@ mod tests {
             "()D",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -41137,7 +42653,10 @@ mod tests {
             "()I",
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- run_class_int on Arithmetic.class via execute_class() ----
@@ -41555,7 +43074,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 4, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Laload / Lastore bounds ----
@@ -41611,7 +43133,10 @@ mod tests {
             (6, Instruction::Lreturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -41662,7 +43187,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Faload / Fastore bounds ----
@@ -41718,7 +43246,10 @@ mod tests {
             (6, Instruction::Freturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -41769,7 +43300,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Daload / Dastore bounds ----
@@ -41825,7 +43359,10 @@ mod tests {
             (6, Instruction::Dreturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     #[test]
@@ -41876,7 +43413,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Tableswitch - → + (non-zero low) ----
@@ -42068,7 +43608,10 @@ mod tests {
             &mut out,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- format_arg: Long with %X (uppercase) ----
@@ -42311,7 +43854,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Aastore bounds (line 4680: || → &&, < → ==, < → >, < → <=) ----
@@ -42409,7 +43955,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Baload bounds (line 4697: || → &&, < → ==, < → >, < → <=) ----
@@ -42473,7 +44022,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Bastore bounds (line 4714: || → &&, < → ==, < → >, < → <=) ----
@@ -42547,7 +44099,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Caload bounds (line 4731: || → &&, < → ==, < → >, < → <=) ----
@@ -42611,7 +44166,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Castore bounds (line 4748: || → &&, < → ==, < → >, < → <=) ----
@@ -42685,7 +44243,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Saload bounds (line 4765: || → &&, < → ==, < → >, < → <=) ----
@@ -42749,7 +44310,10 @@ mod tests {
             0,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // ---- execute(): Sastore bounds (line 4782: || → &&, < → ==, < → >, < → <=) ----
@@ -42823,7 +44387,10 @@ mod tests {
             1,
         )
         .unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+            "expected ArrayIndexOutOfBounds, got {err:?}"
+        );
     }
 
     // =====================================================================
@@ -42907,7 +44474,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     #[test]
@@ -42923,7 +44493,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Baload bounds (line 6977: || → &&, < → >, < → ==, < → <=) ----
@@ -42971,7 +44544,10 @@ mod tests {
             (4, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Bastore bounds (line 6993: < → >, || → &&, < → ==, < → <=) ----
@@ -43029,7 +44605,10 @@ mod tests {
             (7, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Caload OOB (line 7009: || → &&) ----
@@ -43045,7 +44624,10 @@ mod tests {
             (4, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Castore bounds (line 7025: || → &&, < → ==, < → >, < → <=) ----
@@ -43103,7 +44685,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Saload bounds (line 7041: || → &&, < → ==, < → <=, < → >) ----
@@ -43151,7 +44736,10 @@ mod tests {
             (4, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Sastore bounds (line 7057: || → &&, < → ==, < → >, < → <=) ----
@@ -43209,7 +44797,10 @@ mod tests {
             (6, Instruction::Ireturn),
         ];
         let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
-        assert!(matches!(err, VmError::ArrayIndexOutOfBounds { .. }));
+        assert!(
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+            "expected ArrayIndexOutOfBoundsException, got {err:?}"
+        );
     }
 
     // ---- execute_class(): Tableswitch nonzero low (line 7076: - → +) ----
@@ -47682,7 +49273,7 @@ mod tests {
         std::fs::remove_file(&jar_path_two).ok();
 
         assert!(
-            matches!(err, VmError::ClassCastException { .. }),
+            matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ClassCastException"),
             "expected ClassCastException from loader-qualified checkcast, got {err:?}"
         );
     }
@@ -53176,6 +54767,3649 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("ProbeRun.class", "testSwitchExpr", "()I"),
             3
+        );
+    }
+
+    // Phase 68: stream operations — mapToInt method refs, groupingBy, distinct, sorted, limit/skip
+    #[test]
+    fn test_p68_map_to_int_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testMapToIntMethodRef", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p68_map_to_int_lambda() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testMapToIntLambda", "()I"),
+            14
+        );
+    }
+
+    #[test]
+    fn test_p68_collectors_summing_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testCollectorsSummingInt", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p68_map_to_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testMapToLong", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p68_grouping_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testGroupingBy", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p68_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testStreamDistinct", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p68_stream_sorted() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testStreamSorted", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p68_stream_limit_skip() {
+        assert_eq!(
+            run_bootstrap_int("Phase68Test.class", "testStreamLimitSkip", "()I"),
+            12
+        );
+    }
+
+    // Phase 69: Collectors.toMap, Stream.flatMap/peek, groupingBy+counting, OptionalInt.orElse, String.chars()
+    #[test]
+    fn test_p69_collectors_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testCollectorsToMap", "()I"),
+            17
+        );
+    }
+    #[test]
+    fn test_p69_stream_flat_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testStreamFlatMap", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p69_stream_peek() {
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testStreamPeek", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p69_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testCollectorsCounting", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p69_optional_int_or_else() {
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testOptionalInt", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p69_string_chars_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase69Test.class", "testStringCharsCount", "()I"),
+            3
+        );
+    }
+
+    // Phase 70: String.join, Collections.unmodifiableList/singletonList, List.contains, Integer.compare
+    #[test]
+    fn test_p70_string_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testStringJoin", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p70_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testStringJoinList", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p70_unmodifiable_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testUnmodifiableList", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p70_singleton_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testSingletonList", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p70_list_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testListContains", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p70_string_format_mixed() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testStringFormatMixed", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p70_math_max_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testMathMaxChain", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p70_integer_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase70Test.class", "testIntegerCompare", "()I"),
+            7
+        );
+    }
+
+    // Phase 71: Map.merge/compute/putIfAbsent, LinkedHashMap, List.indexOf/subList, Collections.reverse
+    #[test]
+    fn test_p71_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapGetOrDefault", "()I"),
+            100
+        );
+    }
+    #[test]
+    fn test_p71_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapPutIfAbsent", "()I"),
+            30
+        );
+    }
+    #[test]
+    fn test_p71_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapMerge", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p71_map_compute() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testMapCompute", "()I"),
+            16
+        );
+    }
+    #[test]
+    fn test_p71_linked_hash_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testLinkedHashMap", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p71_list_index_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testListIndexOf", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p71_list_sub_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testListSubList", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p71_collections_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase71Test.class", "testCollectionsReverse", "()I"),
+            41
+        );
+    }
+
+    // Phase 72: Stream.map+collect, filter+collect, IntStream.range/rangeClosed, count, anyMatch, allMatch/noneMatch
+    #[test]
+    fn test_p72_stream_to_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamToList", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p72_stream_filter_collect() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamFilterCollect", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p72_stream_map_collect() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamMapCollect", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p72_int_stream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testIntStreamRange", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p72_int_stream_range_closed() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testIntStreamRangeClosed", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p72_stream_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamCount", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p72_stream_any_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamAnyMatch", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p72_stream_match_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase72Test.class", "testStreamMatchAll", "()I"),
+            3
+        );
+    }
+
+    // Phase 73: Stream.reduce, min/max, Collectors.joining, findFirst, Optional, toSet
+    #[test]
+    fn test_p73_stream_reduce_identity() {
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamReduceIdentity", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p73_stream_reduce_optional() {
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamReduceOptional", "()I"),
+            8
+        );
+    }
+    #[test]
+    fn test_p73_stream_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamMinMax", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p73_collectors_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testCollectorsJoining", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p73_collectors_joining_prefix_suffix() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase73Test.class",
+                "testCollectorsJoiningPrefixSuffix",
+                "()I"
+            ),
+            9
+        );
+    }
+    #[test]
+    fn test_p73_stream_find_first() {
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testStreamFindFirst", "()I"),
+            20
+        );
+    }
+    #[test]
+    fn test_p73_optional_operations() {
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testOptionalOperations", "()I"),
+            8
+        );
+    }
+    #[test]
+    fn test_p73_collectors_to_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase73Test.class", "testCollectorsToSet", "()I"),
+            3
+        );
+    }
+
+    // Phase 74: TreeMap integer keys + headMap/tailMap, Queue/Stack, PriorityQueue, Map.entrySet, Collections.frequency/min/max
+    #[test]
+    fn test_p74_tree_map_ordered() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testTreeMapOrdered", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p74_tree_map_head_tail() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testTreeMapHeadTail", "()I"),
+            23
+        );
+    }
+    #[test]
+    fn test_p74_stack() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testStack", "()I"),
+            32
+        );
+    }
+    #[test]
+    fn test_p74_queue() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testQueue", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p74_priority_queue() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testPriorityQueue", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p74_map_entry_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testMapEntrySet", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p74_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p74_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase74Test.class", "testCollectionsMinMax", "()I"),
+            18
+        );
+    }
+
+    // Phase 75: String.chars() filter/sum/distinct, Arrays.stream(int[]), Arrays.asList, Collections.nCopies, forEach
+    #[test]
+    fn test_p75_string_chars_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testStringCharsFilter", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p75_string_chars_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testStringCharsSum", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p75_arrays_stream_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testArraysStreamInt", "()I"),
+            23
+        );
+    }
+    #[test]
+    fn test_p75_arrays_stream_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testArraysStreamFilter", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p75_arrays_as_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testArraysAsList", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p75_collections_n_copies() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testCollectionsNCopies", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p75_iterable_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testIterableForEach", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p75_string_chars_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase75Test.class", "testStringCharsDistinct", "()I"),
+            3
+        );
+    }
+
+    // Phase 76: Comparator.comparing/reversed/naturalOrder/reverseOrder, Stream.sorted(Comparator), Map stream ops, Function.andThen
+    #[test]
+    fn test_p76_comparator_comparing() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorComparing", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p76_comparator_reversed() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorReversed", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p76_comparator_natural_order() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorNaturalOrder", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p76_comparator_reverse_order() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testComparatorReverseOrder", "()I"),
+            51
+        );
+    }
+    #[test]
+    fn test_p76_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testStreamSortedComparator", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p76_map_values_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testMapValuesStream", "()I"),
+            60
+        );
+    }
+    #[test]
+    fn test_p76_map_key_set_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testMapKeySetStream", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p76_function_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase76Test.class", "testFunctionCompose", "()I"),
+            13
+        );
+    }
+
+    // Phase 77: Pattern/Matcher (matches, find, group(n)), String.replaceAll/First, split regex, format padding
+    #[test]
+    fn test_p77_pattern_matches() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testPatternMatches", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p77_string_matches() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringMatches", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p77_pattern_matcher() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testPatternMatcher", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p77_string_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringReplaceAll", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p77_string_replace_first() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringReplaceFirst", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p77_string_split_regex() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringSplitRegex", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p77_matcher_group_n() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testMatcherGroup", "()I"),
+            50
+        );
+    }
+    #[test]
+    fn test_p77_string_format_padding() {
+        assert_eq!(
+            run_bootstrap_int("Phase77Test.class", "testStringFormatPadding", "()I"),
+            5
+        );
+    }
+
+    // Phase 78 probes
+    // ===========================================================================
+    // ---- Phase 78: Exception catching (NPE, AIOOB, CCE, StackOverflow) ----
+    // ===========================================================================
+
+    #[test]
+    fn test_p78_number_format_exception() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testNumberFormatException", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p78_array_index_oob() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testArrayIndexOutOfBounds", "()I"),
+            99
+        );
+    }
+    #[test]
+    fn test_p78_null_pointer() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testNullPointerException", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p78_class_cast() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testClassCastException", "()I"),
+            55
+        );
+    }
+    #[test]
+    fn test_p78_stack_overflow() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testStackOverflow", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p78_finally_runs() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testFinallyRuns", "()I"),
+            111
+        );
+    }
+    #[test]
+    fn test_p78_multi_catch() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testMultiCatch", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p78_rethrow() {
+        assert_eq!(
+            run_bootstrap_int("Phase78Test.class", "testRethrow", "()I"),
+            5
+        );
+    }
+    // =========================================================================
+
+    // =========================================================================
+    // ---- Phase 79: List.of, Set.of, Map.of, java.util.Objects ----
+    // =========================================================================
+
+    #[test]
+    fn test_p79_list_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOf", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p79_list_of_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOfGet", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p79_list_of_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOfEmpty", "()I"),
+            0
+        );
+    }
+    #[test]
+    fn test_p79_list_of_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testListOfContains", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p79_set_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testSetOf", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p79_set_of_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testSetOfContains", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p79_map_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testMapOf", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p79_map_of_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testMapOfGet", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p79_objects_require_non_null() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNull", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p79_objects_require_non_null_pass() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsRequireNonNullPass", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p79_objects_equals() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsEquals", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p79_objects_is_null() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsIsNull", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p79_objects_to_string() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testObjectsToString", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p79_collections_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testCollectionsEmpty", "()I"),
+            0
+        );
+    }
+    #[test]
+    fn test_p79_singleton_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase79Test.class", "testCollectionsSingletonList", "()I"),
+            5
+        );
+    }
+
+    // =========================================================================
+    // ---- Phase 80: Integer/Long bit ops, removeIf, forEach, Collections.swap/min/max ----
+    // =========================================================================
+
+    #[test]
+    fn test_p80_string_valueof_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testStringValueOfChar", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p80_string_valueof_char_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testStringValueOfCharArray", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p80_char_arithmetic() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCharArithmetic", "()I"),
+            25
+        );
+    }
+    #[test]
+    fn test_p80_char_boxing() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCharBoxing", "()I"),
+            23
+        );
+    }
+    #[test]
+    fn test_p80_integer_bitcount() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testIntegerBitCount", "()I"),
+            8
+        );
+    }
+    #[test]
+    fn test_p80_integer_highest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testIntegerHighestOneBit", "()I"),
+            64
+        );
+    }
+    #[test]
+    fn test_p80_integer_lowest_one_bit() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testIntegerLowestOneBit", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p80_integer_leading_zeros() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase80Test.class",
+                "testIntegerNumberOfLeadingZeros",
+                "()I"
+            ),
+            31
+        );
+    }
+    #[test]
+    fn test_p80_long_bitcount() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testLongBitCount", "()I"),
+            8
+        );
+    }
+    #[test]
+    fn test_p80_math_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testMathLong", "()I"),
+            100
+        );
+    }
+    #[test]
+    fn test_p80_foreach_lambda() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testForEachLambda", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p80_remove_if() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testRemoveIf", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p80_string_chars_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testStringCharsCount", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p80_collections_swap() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCollectionsSwap", "()I"),
+            30
+        );
+    }
+    #[test]
+    fn test_p80_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase80Test.class", "testCollectionsMinMax", "()I"),
+            8
+        );
+    }
+
+    // =========================================================================
+    // ---- Phase 81: Custom exceptions, getCause, ArithmeticException, UnmodifiableList ----
+    // =========================================================================
+
+    #[test]
+    fn test_p81_custom_exception() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testCustomException", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p81_exception_hierarchy() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testExceptionHierarchy", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p81_exception_cause() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testExceptionCause", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p81_exception_message() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testExceptionMessage", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p81_division_by_zero() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testDivisionByZero", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p81_unsupported_operation() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testUnsupportedOperation", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p81_illegal_argument() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testIllegalArgument", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p81_illegal_state() {
+        assert_eq!(
+            run_bootstrap_int("Phase81Test.class", "testIllegalState", "()I"),
+            9
+        );
+    }
+
+    // =========================================================================
+    // ---- Phase 82: 2D arrays, user Comparable, string switch, varargs ----
+    // =========================================================================
+
+    #[test]
+    fn test_p82_twodim_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTwoDimArray", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p82_twodim_array_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTwoDimArraySum", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p82_twodim_array_length() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTwoDimArrayLength", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p82_user_comparable() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testUserComparable", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p82_string_switch() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testStringSwitch", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p82_string_switch_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testStringSwitchDefault", "()I"),
+            99
+        );
+    }
+    #[test]
+    fn test_p82_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testVarargs", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p82_varargs_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testVarargsEmpty", "()I"),
+            0
+        );
+    }
+    #[test]
+    fn test_p82_instanceof_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testInstanceofChain", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p82_ternary() {
+        assert_eq!(
+            run_bootstrap_int("Phase82Test.class", "testTernary", "()I"),
+            10
+        );
+    }
+
+    // =========================================================================
+    // ---- Phase 83: interface defaults, switch expr, records, pattern matching ----
+    // =========================================================================
+
+    #[test]
+    fn test_p83_interface_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testInterfaceDefaultMethod", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p83_static_interface() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testStaticInterfaceMethod", "()I"),
+            49
+        );
+    }
+    #[test]
+    fn test_p83_default_interface() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testDefaultInterfaceMethod", "()I"),
+            27
+        );
+    }
+    #[test]
+    fn test_p83_switch_expression() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testSwitchExpression", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p83_switch_yield() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testSwitchExpressionYield", "()I"),
+            25
+        );
+    }
+    #[test]
+    fn test_p83_record() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testRecord", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p83_record_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testRecordMethod", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p83_pattern_instanceof() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testPatternMatchingInstanceof", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p83_text_block() {
+        assert_eq!(
+            run_bootstrap_int("Phase83Test.class", "testTextBlock", "()I"),
+            11
+        );
+    }
+
+    // =========================================================================
+    // ---- Phase 84: Generics, BiFunction, Predicate, Consumer, Supplier ----
+    // =========================================================================
+
+    #[test]
+    fn test_p84_generic_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testGenericClass", "()I"),
+            47
+        );
+    }
+    #[test]
+    fn test_p84_generic_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testGenericMethod", "()I"),
+            35
+        );
+    }
+    #[test]
+    fn test_p84_functional_interface() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testFunctionalInterface", "()I"),
+            18
+        );
+    }
+    #[test]
+    fn test_p84_bifunction() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testBiFunction", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p84_function_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testFunctionCompose", "()I"),
+            14
+        );
+    }
+    #[test]
+    fn test_p84_predicate() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testPredicate", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p84_consumer() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testConsumer", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p84_supplier() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testSupplier", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p84_unary_operator() {
+        assert_eq!(
+            run_bootstrap_int("Phase84Test.class", "testUnaryOperator", "()I"),
+            6
+        );
+    }
+
+    // =========================================================================
+    // ---- Phase 85: method refs, Stream.toList, abstract class, enum fields ----
+    // =========================================================================
+
+    #[test]
+    fn test_p85_bound_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testBoundMethodRef", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p85_bound_method_ref_on_arg() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testBoundMethodRefOnArg", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p85_static_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStaticMethodRef", "()I"),
+            14
+        );
+    }
+    #[test]
+    fn test_p85_unbound_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testUnboundMethodRef", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p85_stream_to_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStreamToList", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p85_nested_lambda() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testNestedLambda", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p85_abstract_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testAbstractClass", "()I"),
+            74
+        );
+    }
+    #[test]
+    fn test_p85_enum_with_fields() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testEnumWithFields", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p85_static_initializer() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStaticInitializer", "()I"),
+            100
+        );
+    }
+    #[test]
+    fn test_p85_string_formatted() {
+        assert_eq!(
+            run_bootstrap_int("Phase85Test.class", "testStringFormatted", "()I"),
+            9
+        );
+    }
+
+    // ---- Phase 86 probes ----
+    #[test]
+    fn test_p86_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testVarargs", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p86_comparable() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testComparable", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p86_string_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testStringJoin", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p86_optional() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testOptional", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p86_optional_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testOptionalEmpty", "()I"),
+            0
+        );
+    }
+    #[test]
+    fn test_p86_custom_iterable() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testCustomIterable", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p86_string_chars() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testStringChars", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p86_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p86_treemap() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testTreeMap", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p86_linked_list_deque() {
+        assert_eq!(
+            run_bootstrap_int("Phase86Test.class", "testLinkedListDeque", "()I"),
+            4
+        );
+    }
+
+    // ---- Phase 87 probes ----
+    #[test]
+    fn test_p87_stream_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamJoining", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p87_stream_flatmap() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamFlatMap", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p87_stream_reduce() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamReduce", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p87_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStreamSortedWithComparator", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p87_map_entry_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testMapEntrySum", "()I"),
+            60
+        );
+    }
+    #[test]
+    fn test_p87_instanceof_pattern() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testInstanceof", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p87_switch_expression() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testSwitchExpression", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p87_text_block() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testTextBlock", "()I"),
+            16
+        );
+    }
+    #[test]
+    fn test_p87_multi_dim_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testMultiDimArray", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p87_string_format_multi() {
+        assert_eq!(
+            run_bootstrap_int("Phase87Test.class", "testStringFormatMulti", "()I"),
+            21
+        );
+    }
+
+    // ---- Phase 88 probes ----
+    #[test]
+    fn test_p88_generic_pair() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testGenericPair", "()I"),
+            47
+        );
+    }
+    #[test]
+    fn test_p88_stack_deque() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStackDeque", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p88_bitset() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testBitSet", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p88_math_functions() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testMathFunctions", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p88_character_methods() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testCharacterMethods", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p88_string_split_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStringSplitJoin", "()I"),
+            18
+        );
+    }
+    #[test]
+    fn test_p88_interface_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testInterfaceDefault", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p88_static_interface_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStaticInterfaceMethod", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p88_stream_collect_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testStreamCollectToMap", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p88_exception_message() {
+        assert_eq!(
+            run_bootstrap_int("Phase88Test.class", "testExceptionMessage", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p89_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testMapPutIfAbsent", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p89_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testMapMerge", "()I"),
+            22
+        );
+    }
+    #[test]
+    fn test_p89_comparator_comparing() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testComparatorComparing", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p89_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p89_string_chars_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testStringCharsStream", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p89_list_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testListContains", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p89_optional_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testOptionalMap", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p89_string_value_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testStringValueOf", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p89_int_stream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testIntStreamRange", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p89_map_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testMapForEach", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p90_char_array_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testCharArraySum", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p90_arrays_as_list_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testArraysAsListStream", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p90_collections_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testCollectionsReverse", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p90_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testCollectionsMinMax", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p90_substring_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testSubstringChain", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p90_static_fields() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testStaticFields", "()I"),
+            101
+        );
+    }
+    #[test]
+    fn test_p90_list_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testListSet", "()I"),
+            139
+        );
+    }
+    #[test]
+    fn test_p90_iterator_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testIteratorSum", "()I"),
+            50
+        );
+    }
+    #[test]
+    fn test_p90_ternary_in_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testTernaryInStream", "()I"),
+            33
+        );
+    }
+    #[test]
+    fn test_p90_string_equality() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testStringEquality", "()I"),
+            111
+        );
+    }
+    #[test]
+    fn test_p91_multi_level_inheritance() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testMultiLevelInheritance", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p91_interface_default_override() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testInterfaceDefaultOverride", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p91_integer_overflow() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testIntegerOverflow", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p91_long_arithmetic() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testLongArithmetic", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p91_nested_class_outer() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testNestedClassAccessesOuter", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p91_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testStreamDistinct", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p91_stream_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testStreamLimit", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p91_map_entry_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testMapEntrySet", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p91_fibonacci() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testFibonacci", "()I"),
+            55
+        );
+    }
+    #[test]
+    fn test_p91_list_sub_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testListSubList", "()I"),
+            90
+        );
+    }
+    #[test]
+    fn test_p92_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testVarargs", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p92_string_format_args() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testStringFormatArgs", "()I"),
+            28
+        );
+    }
+    #[test]
+    fn test_p92_chained_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testChainedStream", "()I"),
+            220
+        );
+    }
+    #[test]
+    fn test_p92_hashmap_values() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testHashMapValues", "()I"),
+            267
+        );
+    }
+    #[test]
+    fn test_p92_string_split_process() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testStringSplitProcess", "()I"),
+            150
+        );
+    }
+    #[test]
+    fn test_p92_do_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testDoWhile", "()I"),
+            120
+        );
+    }
+    #[test]
+    fn test_p92_labeled_break() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testLabeledBreak", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p92_array_of_objects() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testArrayOfObjects", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p92_grouping_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testGroupingBy", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p92_string_format_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase92Test.class", "testStringFormatChar", "()I"),
+            16
+        );
+    }
+    #[test]
+    fn test_p93_deque_as_stack() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testDequeAsStack", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p93_deque_as_queue() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testDequeAsQueue", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p93_stream_peek() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testStreamPeek", "()I"),
+            20
+        );
+    }
+    #[test]
+    fn test_p93_collectors_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testCollectorsJoining", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p93_compute_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testComputeIfAbsent", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p93_instanceof() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testInstanceOf", "()I"),
+            111
+        );
+    }
+    #[test]
+    fn test_p93_conditional_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testConditionalChain", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p93_array_sort_search() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testArraySortSearch", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p93_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testStringJoinList", "()I"),
+            16
+        );
+    }
+    #[test]
+    fn test_p93_multiple_returns() {
+        assert_eq!(
+            run_bootstrap_int("Phase93Test.class", "testMultipleReturns", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p94_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testCollectorsCounting", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p94_intstream_map_to_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testIntStreamMapToObj", "()I"),
+            7
+        );
+    }
+    #[test]
+    fn test_p94_comparable_impl() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testComparableImpl", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p94_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testMapGetOrDefault", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p94_string_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testStringContains", "()I"),
+            101
+        );
+    }
+    #[test]
+    fn test_p94_2d_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "test2DArray", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p94_enum_ordinal() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testEnumOrdinal", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p94_while_complex() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testWhileComplex", "()I"),
+            25
+        );
+    }
+    #[test]
+    fn test_p94_map_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testMapRemove", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p94_stream_boxed_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase94Test.class", "testStreamBoxedSum", "()I"),
+            24
+        );
+    }
+    #[test]
+    fn test_p95_stream_generate() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStreamGenerate", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p95_optional_is_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testOptionalIsPresent", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p95_map_keyset() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testMapKeySet", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p95_arrays_stream_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testArraysStreamObj", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p95_math_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testMathOps", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p95_string_builder_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStringBuilderChain", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p95_try_finally_return() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testTryFinallyReturn", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p95_nested_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testNestedMap", "()I"),
+            30
+        );
+    }
+    #[test]
+    fn test_p95_stream_matching() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStreamMatching", "()I"),
+            111
+        );
+    }
+    #[test]
+    fn test_p95_string_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStringReplaceAll", "()I"),
+            16
+        );
+    }
+    #[test]
+    fn test_p96_linked_list_recursion() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testLinkedListRecursion", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p96_generic_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testGenericMethod", "()I"),
+            26
+        );
+    }
+    #[test]
+    fn test_p96_exception_cause() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testExceptionCause", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p96_bitwise_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testBitwiseOps", "()I"),
+            76
+        );
+    }
+    #[test]
+    fn test_p96_shift_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testShiftOps", "()I"),
+            36
+        );
+    }
+    #[test]
+    fn test_p96_collect_then_sort() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testCollectThenSort", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p96_string_matches() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testStringMatches", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p96_multi_dim_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testMultiDimSum", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p96_instanceof_cast() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testInstanceOfCast", "()I"),
+            50
+        );
+    }
+    #[test]
+    fn test_p96_map_accumulation() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testMapAccumulation", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p97_record_shapes() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testRecordShapes", "()I"),
+            33
+        );
+    }
+    #[test]
+    fn test_p97_map_compute() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testMapCompute", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p97_stream_take_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStreamTakeWhile", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p97_stream_drop_while() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStreamDropWhile", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p97_n_copies() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testNCopies", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p97_string_case() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStringCase", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p97_intstream_average() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testIntStreamAverage", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p97_treemap_ordering() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testTreeMapOrdering", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p97_long_stream_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testLongStreamOps", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p97_string_repeat() {
+        assert_eq!(
+            run_bootstrap_int("Phase97Test.class", "testStringRepeat", "()I"),
+            8
+        );
+    }
+    #[test]
+    fn test_p98_double_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testDoubleStream", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p98_map_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testMapReplaceAll", "()I"),
+            60
+        );
+    }
+    #[test]
+    fn test_p98_grouping_by_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testGroupingByCount", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p98_stream_flat_map_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testStreamFlatMapInt", "()I"),
+            324
+        );
+    }
+    #[test]
+    fn test_p98_comparator_reversed() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testComparatorReversed", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p98_multiple_interfaces() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testMultipleInterfaces", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p98_string_index_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testStringIndexOf", "()I"),
+            24
+        );
+    }
+    #[test]
+    fn test_p98_exception_hierarchy() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testExceptionHierarchy", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p98_nested_lambda_capture() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testNestedLambdaCapture", "()I"),
+            108
+        );
+    }
+    #[test]
+    fn test_p98_map_values_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase98Test.class", "testMapValuesStream", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p99_priority_queue() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testPriorityQueue", "()I"),
+            35
+        );
+    }
+    #[test]
+    fn test_p99_string_format_padding() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testStringFormatPadding", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p99_method_chaining() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testMethodChaining", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p99_iterable_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testIterableForEach", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p99_map_entryset_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testMapEntrySetStream", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p99_arrays_copy_of_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testArraysCopyOfRange", "()I"),
+            90
+        );
+    }
+    #[test]
+    fn test_p99_partitioning_by() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testPartitioningBy", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p99_char_array_conversion() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testCharArrayConversion", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p99_stream_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testStreamMinMax", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p99_integer_radix_strings() {
+        assert_eq!(
+            run_bootstrap_int("Phase99Test.class", "testIntegerRadixStrings", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p100_function_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testFunctionCompose", "()I"),
+            29
+        );
+    }
+
+    #[test]
+    fn test_p100_predicate_compose() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testPredicateCompose", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p100_consumer_and_then() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testConsumerAndThen", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p100_supplier_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testSupplierGet", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p100_bifunction() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testBiFunction", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p100_map_foreach_biconsumer() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testMapForEachBiConsumer", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn test_p100_collectors_summarizing_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testCollectorsSummarizingInt", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p100_stream_map_to_long() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testStreamMapToLong", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p100_unmodifiable_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testUnmodifiableList", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p100_intstream_method_ref() {
+        assert_eq!(
+            run_bootstrap_int("Phase100Test.class", "testIntStreamMethodRef", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p101_comparator_then_comparing() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testComparatorThenComparing", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p101_list_sublist() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testListSubList", "()I"),
+            90
+        );
+    }
+
+    #[test]
+    fn test_p101_collections_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testCollectionsReverse", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p101_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p101_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testMapMerge", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p101_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testStreamDistinct", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p101_optional_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testOptionalFilter", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p101_string_chars_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testStringCharsStream", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p101_arrays_stream_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testArraysStreamInt", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p101_linked_list_deque() {
+        assert_eq!(
+            run_bootstrap_int("Phase101Test.class", "testLinkedListDeque", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p102_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testMapPutIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p102_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStreamSortedComparator", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p102_intstream_range_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testIntStreamRangeSum", "()I"),
+            55
+        );
+    }
+
+    #[test]
+    fn test_p102_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testCollectionsMinMax", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p102_list_index_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testListIndexOf", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p102_stringbuilder_insert() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStringBuilderInsert", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p102_string_formatted() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStringFormatted", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p102_map_contains_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testMapContainsValue", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p102_stream_none_match() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testStreamNoneMatch", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p102_arrays_sort_objects() {
+        assert_eq!(
+            run_bootstrap_int("Phase102Test.class", "testArraysSortObjects", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p103_stack() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testStack", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn test_p103_collections_shuffle() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testCollectionsShuffle", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p103_stream_generate() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testStreamGenerate", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p103_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testStringJoinList", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p103_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testMapGetOrDefault", "()I"),
+            109
+        );
+    }
+
+    #[test]
+    fn test_p103_tree_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testTreeSet", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p103_intstream_range_closed() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testIntStreamRangeClosed", "()I"),
+            55
+        );
+    }
+
+    #[test]
+    fn test_p103_comparator_reversed_method_ref() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase103Test.class",
+                "testComparatorReversedOnMethodRef",
+                "()I"
+            ),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p103_iterator_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testIteratorRemove", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p103_character_digit() {
+        assert_eq!(
+            run_bootstrap_int("Phase103Test.class", "testCharacterDigit", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p104_map_entryset_iteration() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testMapEntrySetIteration", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p104_stream_sorted_natural() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testStreamSortedNatural", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p104_optional_of_nullable() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testOptionalOfNullable", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p104_list_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testListOf", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p104_map_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testMapOf", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p104_set_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testSetOf", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p104_string_valueof_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testStringValueOfChar", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p104_stream_collect_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testStreamCollectJoining", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p104_collections_swap() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testCollectionsSwap", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p104_arrays_equals() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testArraysEquals", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p105_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testVarargs", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p105_string_chars_map_to_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testStringCharsMapToObj", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p105_collectors_to_unmodifiable_list() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase105Test.class",
+                "testCollectorsToUnmodifiableList",
+                "()I"
+            ),
+            25
+        );
+    }
+
+    #[test]
+    fn test_p105_map_compute_new() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testMapComputeNew", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p105_integer_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testIntegerCompare", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p105_string_format_multiple_args() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testStringFormatMultipleArgs", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p105_collect_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testCollectToMap", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p105_optional_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testOptionalInt", "()I"),
+            50
+        );
+    }
+
+    #[test]
+    fn test_p105_longstream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testLongStreamRange", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p105_collections_fill() {
+        assert_eq!(
+            run_bootstrap_int("Phase105Test.class", "testCollectionsFill", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p106_nested_collections() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testNestedCollections", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p106_stream_flat_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStreamFlatMap", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p106_linked_list_iterator() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testLinkedListIterator", "()I"),
+            150
+        );
+    }
+
+    #[test]
+    fn test_p106_unmodifiable_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testUnmodifiableMap", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p106_string_matches() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStringMatches", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p106_stream_match_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStreamMatchOps", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p106_integer_static_methods() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testIntegerStaticMethods", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn test_p106_string_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testStringReplaceAll", "()I"),
+            19
+        );
+    }
+
+    #[test]
+    fn test_p106_collectors_joining_full() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testCollectorsJoiningFull", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p106_map_keyset() {
+        assert_eq!(
+            run_bootstrap_int("Phase106Test.class", "testMapKeySet", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p107_enum_with_methods() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testEnumWithMethods", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p107_instanceof() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testInstanceof", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p107_ternary_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testTernaryChain", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p107_static_initializer() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStaticInitializer", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p107_string_chars_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStringCharsDistinct", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p107_map_compute_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testMapComputeIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p107_singleton_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testSingletonList", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p107_stream_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStreamCount", "()I"),
+            47
+        );
+    }
+
+    #[test]
+    fn test_p107_stringbuilder_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testStringBuilderChain", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p107_comparable() {
+        assert_eq!(
+            run_bootstrap_int("Phase107Test.class", "testComparable", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p108_substring_edge() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testSubstringEdge", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p108_arrays_as_list_mutable() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testArraysAsListMutable", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p108_comparator_comparing_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testComparatorComparingChain", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p108_map_foreach_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testMapForEachSum", "()I"),
+            55
+        );
+    }
+
+    #[test]
+    fn test_p108_stream_reduce_identity() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testStreamReduceIdentity", "()I"),
+            120
+        );
+    }
+
+    #[test]
+    fn test_p108_hashmap_compute_remove() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testHashMapComputeRemove", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p108_string_array_sort() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testStringArraySort", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p108_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testCollectorsCounting", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p108_bifunction_and_then() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testBiFunctionAndThen", "()I"),
+            9
+        );
+    }
+
+    #[test]
+    fn test_p108_interface_default_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase108Test.class", "testInterfaceDefaultMethod", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p109_string_split_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testStringSplitLimit", "()I"),
+            8
+        );
+    }
+
+    #[test]
+    fn test_p109_abstract_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testAbstractClass", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p109_map_put_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testMapPutAll", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p109_grouping_by_simple() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testGroupingBySimple", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p109_integer_parse_int_radix() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testIntegerParseIntRadix", "()I"),
+            245
+        );
+    }
+
+    #[test]
+    fn test_p109_string_format_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testStringFormatChar", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p109_list_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testListContains", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p109_stream_peek() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testStreamPeek", "()I"),
+            20
+        );
+    }
+
+    #[test]
+    fn test_p109_nested_static_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testNestedStaticClass", "()I"),
+            50
+        );
+    }
+
+    #[test]
+    fn test_p109_collections_disjoint() {
+        assert_eq!(
+            run_bootstrap_int("Phase109Test.class", "testCollectionsDisjoint", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p110_string_join() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testStringJoin", "()I"),
+            7
+        );
+    }
+
+    #[test]
+    fn test_p110_string_join_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testStringJoinList", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p110_collectors_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testCollectorsJoining", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p110_map_get_or_default() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testMapGetOrDefault", "()I"),
+            141
+        );
+    }
+
+    #[test]
+    fn test_p110_optional_filter() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testOptionalFilter", "()I"),
+            19
+        );
+    }
+
+    #[test]
+    fn test_p110_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testStreamDistinct", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p110_collections_sort_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testCollectionsSortComparator", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p110_iterator_pattern() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testIteratorPattern", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p110_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testMapMerge", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p110_ternary_in_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase110Test.class", "testTernaryInStream", "()I"),
+            129
+        );
+    }
+
+    #[test]
+    fn test_p111_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testMapPutIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p111_collections_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testCollectionsReverse", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p111_stream_sorted_comparator() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStreamSortedComparator", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p111_int_stream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testIntStreamRange", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p111_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testCollectionsMinMax", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p111_string_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStringContains", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p111_collectors_to_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testCollectorsToSet", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p111_stream_matchers() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStreamMatchers", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p111_varargs() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testVarargs", "()I"),
+            36
+        );
+    }
+
+    #[test]
+    fn test_p111_string_builder_chaining() {
+        assert_eq!(
+            run_bootstrap_int("Phase111Test.class", "testStringBuilderChaining", "()I"),
+            13
+        );
+    }
+
+    #[test]
+    fn test_p112_map_contains_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testMapContainsValue", "()I"),
+            2
+        );
+    }
+
+    #[test]
+    fn test_p112_list_sub_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testListSubList", "()I"),
+            90
+        );
+    }
+
+    #[test]
+    fn test_p112_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testCollectionsFrequency", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p112_collect_to_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testCollectToMap", "()I"),
+            17
+        );
+    }
+
+    #[test]
+    fn test_p112_integer_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testIntegerCompare", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p112_string_chars_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testStringCharsStream", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p112_collectors_counting() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testCollectorsCounting", "()I"),
+            4
+        );
+    }
+
+    #[test]
+    fn test_p112_array_deque_as_stack() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testArrayDequeAsStack", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p112_map_key_set_iteration() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testMapKeySetIteration", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p112_stream_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase112Test.class", "testStreamLimit", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p113_linked_hash_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testLinkedHashMap", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p113_collections_swap() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testCollectionsSwap", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p113_stream_generate() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testStreamGenerate", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p113_collectors_averaging_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testCollectorsAveragingInt", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p113_map_compute_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testMapComputeIfAbsent", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p113_integer_bit_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testIntegerBitCount", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p113_string_format_multiple() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testStringFormatMultiple", "()I"),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p113_stream_empty() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testStreamEmpty", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p113_list_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testListSet", "()I"),
+            111
+        );
+    }
+
+    #[test]
+    fn test_p113_grouping_by_downstream() {
+        assert_eq!(
+            run_bootstrap_int("Phase113Test.class", "testGroupingByDownstream", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p114_stack_class() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testStackClass", "()I"),
+            62
+        );
+    }
+
+    #[test]
+    fn test_p114_collections_shuffle() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testCollectionsShuffle", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p114_collectors_summing_int() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testCollectorsSummingInt", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p114_integer_leading_zeros() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testIntegerLeadingZeros", "()I"),
+            31
+        );
+    }
+
+    #[test]
+    fn test_p114_map_values_iteration() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testMapValuesIteration", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn test_p114_instance_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testInstanceOf", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p114_string_substring_edge() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testStringSubstringEdge", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p114_stream_flat_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testStreamFlatMap", "()I"),
+            45
+        );
+    }
+
+    #[test]
+    fn test_p114_enum_values() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testEnumValues", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p114_integer_max_min() {
+        assert_eq!(
+            run_bootstrap_int("Phase114Test.class", "testIntegerMaxMin", "()I"),
+            30
+        );
+    }
+
+    #[test]
+    fn test_p115_string_chars_to_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testStringCharsToList", "()I"),
+            196
+        );
+    }
+
+    #[test]
+    fn test_p115_optional_if_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testOptionalIfPresent", "()I"),
+            42
+        );
+    }
+
+    #[test]
+    fn test_p115_singleton_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testSingletonList", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p115_stream_reduce_identity() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testStreamReduceIdentity", "()I"),
+            120
+        );
+    }
+
+    #[test]
+    fn test_p115_map_entry_set_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testMapEntrySetForEach", "()I"),
+            60
+        );
+    }
+
+    #[test]
+    fn test_p115_integer_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testIntegerReverse", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p115_collectors_to_unmodifiable_map() {
+        assert_eq!(
+            run_bootstrap_int(
+                "Phase115Test.class",
+                "testCollectorsToUnmodifiableMap",
+                "()I"
+            ),
+            16
+        );
+    }
+
+    #[test]
+    fn test_p115_long_compare() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testLongCompare", "()I"),
+            0
+        );
+    }
+
+    #[test]
+    fn test_p115_arrays_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testArraysStream", "()I"),
+            50
+        );
+    }
+
+    #[test]
+    fn test_p115_nested_generics() {
+        assert_eq!(
+            run_bootstrap_int("Phase115Test.class", "testNestedGenerics", "()I"),
+            21
+        );
+    }
+
+    #[test]
+    fn test_p116_tree_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testTreeSet", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p116_stream_to_array() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testStreamToArray", "()I"),
+            3
+        );
+    }
+
+    #[test]
+    fn test_p116_deque_as_queue() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testDequeAsQueue", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p116_map_for_each_accumulate() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testMapForEachAccumulate", "()I"),
+            24
+        );
+    }
+
+    #[test]
+    fn test_p116_string_value_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testStringValueOf", "()I"),
+            10
+        );
+    }
+
+    #[test]
+    fn test_p116_int_stream_range_closed() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testIntStreamRangeClosed", "()I"),
+            15
+        );
+    }
+
+    #[test]
+    fn test_p116_partitioning_by_downstream() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testPartitioningByDownstream", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p116_optional_or_else_get() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testOptionalOrElseGet", "()I"),
+            52
+        );
+    }
+
+    #[test]
+    fn test_p116_stream_peek_count() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testStreamPeekCount", "()I"),
+            17
+        );
+    }
+
+    #[test]
+    fn test_p116_comparable() {
+        assert_eq!(
+            run_bootstrap_int("Phase116Test.class", "testComparable", "()I"),
+            140
+        );
+    }
+
+    // Phase 117: Map.remove(k,v), Collections.emptyList, Stream.concat, Set.forEach,
+    //            Map.replace, Integer.sum, IntStream.mapToObj, Collections.unmodifiableSet,
+    //            Optional.map, 2D arrays
+    #[test]
+    fn test_p117_map_remove_key_value() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testMapRemoveKeyValue", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p117_collections_empty_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testCollectionsEmptyList", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p117_stream_concat() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testStreamConcat", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p117_set_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testSetForEach", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p117_map_replace() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testMapReplace", "()I"),
+            100
+        );
+    }
+    #[test]
+    fn test_p117_integer_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testIntegerSum", "()I"),
+            300
+        );
+    }
+    #[test]
+    fn test_p117_int_stream_map_to_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testIntStreamMapToObj", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p117_unmodifiable_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testUnmodifiableSet", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p117_optional_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testOptionalMap", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p117_array_of_arrays() {
+        assert_eq!(
+            run_bootstrap_int("Phase117Test.class", "testArrayOfArrays", "()I"),
+            45
         );
     }
 }

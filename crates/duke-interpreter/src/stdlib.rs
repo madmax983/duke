@@ -749,6 +749,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/String",
+        "indexOf",
+        "(Ljava/lang/String;I)I",
+        native_string_indexof_from,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "lastIndexOf",
+        "(Ljava/lang/String;I)I",
+        native_string_last_indexof_from,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
         "contains",
         "(Ljava/lang/CharSequence;)Z",
         native_string_contains,
@@ -821,6 +833,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "split",
         "(Ljava/lang/String;)[Ljava/lang/String;",
         native_string_split,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "split",
+        "(Ljava/lang/String;I)[Ljava/lang/String;",
+        native_string_split_limit,
     );
     registry.natives_mut().register(
         "java/lang/String",
@@ -1813,9 +1831,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "cause".to_string(),
+            descriptor: "Ljava/lang/Throwable;".to_string(),
+            is_static: false,
+        }],
         static_fields: Vec::new(),
-        instance_field_count: 0,
+        instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
     };
@@ -1840,6 +1862,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getMessage",
         "()Ljava/lang/String;",
         native_throwable_get_message,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "getCause",
+        "()Ljava/lang/Throwable;",
+        native_throwable_get_cause,
     );
     registry.natives_mut().register(
         "java/lang/Throwable",
@@ -1896,6 +1924,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)V",
         native_throwable_init_string,
     );
+    registry.natives_mut().register(
+        "java/lang/RuntimeException",
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_throwable_init_string_cause,
+    );
 
     let illegal_argument_ctx = ClassContext {
         class_name: "java/lang/IllegalArgumentException".to_string(),
@@ -1909,6 +1943,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(illegal_argument_ctx);
+    registry.natives_mut().register(
+        "java/lang/IllegalArgumentException",
+        "<init>",
+        "()V",
+        native_object_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/IllegalArgumentException",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_throwable_init_string,
+    );
+    registry.natives_mut().register(
+        "java/lang/IllegalArgumentException",
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_throwable_init_string,
+    );
 
     let illegal_thread_state_ctx = ClassContext {
         class_name: "java/lang/IllegalThreadStateException".to_string(),
@@ -2013,6 +2065,109 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(invocation_target_ctx);
+
+    // Common RuntimeException subtypes — needed so materialize_java_exception_object
+    // can allocate and hierarchy-check catches for NPE, CCE, AIOOB, etc.
+    for (name, super_name) in [
+        (
+            "java/lang/NullPointerException",
+            "java/lang/RuntimeException",
+        ),
+        ("java/lang/ClassCastException", "java/lang/RuntimeException"),
+        (
+            "java/lang/ArithmeticException",
+            "java/lang/RuntimeException",
+        ),
+        (
+            "java/lang/IndexOutOfBoundsException",
+            "java/lang/RuntimeException",
+        ),
+        (
+            "java/lang/ArrayIndexOutOfBoundsException",
+            "java/lang/IndexOutOfBoundsException",
+        ),
+        (
+            "java/lang/StringIndexOutOfBoundsException",
+            "java/lang/IndexOutOfBoundsException",
+        ),
+        (
+            "java/lang/UnsupportedOperationException",
+            "java/lang/RuntimeException",
+        ),
+        (
+            "java/lang/IllegalStateException",
+            "java/lang/RuntimeException",
+        ),
+        (
+            "java/lang/NumberFormatException",
+            "java/lang/IllegalArgumentException",
+        ),
+    ] {
+        let ctx = ClassContext {
+            class_name: name.to_string(),
+            super_class: Some(super_name.to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+        };
+        registry.register(ctx);
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_object_init);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+            native_throwable_init_string_cause,
+        );
+    }
+
+    // java/lang/Error and StackOverflowError
+    for (name, super_name) in [
+        ("java/lang/Error", "java/lang/Throwable"),
+        ("java/lang/VirtualMachineError", "java/lang/Error"),
+        (
+            "java/lang/StackOverflowError",
+            "java/lang/VirtualMachineError",
+        ),
+        (
+            "java/lang/OutOfMemoryError",
+            "java/lang/VirtualMachineError",
+        ),
+        ("java/lang/AssertionError", "java/lang/Error"),
+    ] {
+        let ctx = ClassContext {
+            class_name: name.to_string(),
+            super_class: Some(super_name.to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+        };
+        registry.register(ctx);
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_object_init);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
+    }
 
     // java/lang/AutoCloseable — marker interface for try-with-resources.
     // Registered so is_assignable_from correctly handles queries like
@@ -2350,6 +2505,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Long", "longValue", "()J", native_long_longvalue);
+    registry
+        .natives_mut()
+        .register("java/lang/Long", "intValue", "()I", native_long_intvalue);
     registry.natives_mut().register(
         "java/lang/Long",
         "toString",
@@ -3253,61 +3411,70 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(character_ctx);
 
-    // Character.isDigit(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isDigit",
-        "(C)Z",
-        native_char_is_digit,
-    );
-    // Character.isLetter(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isLetter",
-        "(C)Z",
-        native_char_is_letter,
-    );
-    // Character.isWhitespace(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isWhitespace",
-        "(C)Z",
-        native_char_is_whitespace,
-    );
-    // Character.isUpperCase(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isUpperCase",
-        "(C)Z",
-        native_char_is_uppercase,
-    );
-    // Character.isLowerCase(C)Z
-    registry.natives_mut().register(
-        "java/lang/Character",
-        "isLowerCase",
-        "(C)Z",
-        native_char_is_lowercase,
-    );
-    // Character.toUpperCase(C)C
+    // Character.isDigit(C)Z and (I)Z — (I) variant used in IntStream.filter(Character::isDigit)
+    for desc in ["(C)Z", "(I)Z"] {
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isDigit",
+            desc,
+            native_char_is_digit,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isLetter",
+            desc,
+            native_char_is_letter,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isWhitespace",
+            desc,
+            native_char_is_whitespace,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isUpperCase",
+            desc,
+            native_char_is_uppercase,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isLowerCase",
+            desc,
+            native_char_is_lowercase,
+        );
+        registry.natives_mut().register(
+            "java/lang/Character",
+            "isLetterOrDigit",
+            desc,
+            native_char_is_letter_or_digit,
+        );
+    }
+    // Character.toUpperCase(C)C and (I)I
     registry.natives_mut().register(
         "java/lang/Character",
         "toUpperCase",
         "(C)C",
         native_char_to_uppercase,
     );
-    // Character.toLowerCase(C)C
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toUpperCase",
+        "(I)I",
+        native_char_to_uppercase,
+    );
+    // Character.toLowerCase(C)C and (I)I
     registry.natives_mut().register(
         "java/lang/Character",
         "toLowerCase",
         "(C)C",
         native_char_to_lowercase,
     );
-    // Character.isLetterOrDigit(C)Z
     registry.natives_mut().register(
         "java/lang/Character",
-        "isLetterOrDigit",
-        "(C)Z",
-        native_char_is_letter_or_digit,
+        "toLowerCase",
+        "(I)I",
+        native_char_to_lowercase,
     );
     // Character.valueOf(C)Ljava/lang/Character;
     registry.natives_mut().register(
@@ -3335,6 +3502,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Character;)I",
         native_char_compareto,
     );
+
+    registry
+        .natives_mut()
+        .register("java/lang/Character", "digit", "(CI)I", native_char_digit);
 
     let collection_ctx = ClassContext {
         class_name: "java/util/Collection".to_string(),
@@ -3478,6 +3649,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/ArrayList",
+        "lastIndexOf",
+        "(Ljava/lang/Object;)I",
+        native_arraylist_last_index_of,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
         "add",
         "(ILjava/lang/Object;)V",
         native_arraylist_add_at,
@@ -3564,6 +3741,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/util/Arrays", "sort", "([I)V", native_arrays_sort_int);
+    registry.natives_mut().register(
+        "java/util/Arrays",
+        "equals",
+        "([I[I)Z",
+        native_arrays_equals_int,
+    );
     registry.natives_mut().register(
         "java/util/Arrays",
         "asList",
@@ -3701,6 +3884,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/LinkedList",
+        "<init>",
+        "(Ljava/util/Collection;)V",
+        native_linked_list_init_collection,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
         "size",
         "()I",
         native_linked_list_size,
@@ -3776,6 +3965,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "iterator",
         "()Ljava/util/Iterator;",
         native_linked_list_iterator,
+    );
+    // peek() is an alias for peekFirst() in Queue context
+    registry.natives_mut().register(
+        "java/util/LinkedList",
+        "peek",
+        "()Ljava/lang/Object;",
+        native_linked_list_peek_first,
     );
 
     // java/util/Map$Entry — key/value pair produced by HashMap.entrySet()
@@ -4035,6 +4231,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/Collections",
+        "shuffle",
+        "(Ljava/util/List;Ljava/util/Random;)V",
+        native_collections_shuffle_random,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "fill",
+        "(Ljava/util/List;Ljava/lang/Object;)V",
+        native_collections_fill,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
         "nCopies",
         "(ILjava/lang/Object;)Ljava/util/List;",
         native_collections_n_copies,
@@ -4045,6 +4253,70 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/List;)Ljava/util/List;",
         native_collections_unmodifiable_list,
     );
+
+    // java/util/UnmodifiableList — wrapper that throws UnsupportedOperationException on mutation
+    let unmod_list_ctx = ClassContext {
+        class_name: "java/util/UnmodifiableList".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec![
+            "java/util/List".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(unmod_list_ctx);
+    // Read operations — reuse ArrayList handlers (same field layout)
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList",
+        "size",
+        "()I",
+        native_arraylist_size,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        native_arraylist_get,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_arraylist_contains,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList",
+        "isEmpty",
+        "()Z",
+        native_arraylist_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_arraylist_iterator,
+    );
+    // Mutation operations — throw UnsupportedOperationException
+    for (method, desc) in [
+        ("add", "(Ljava/lang/Object;)Z"),
+        ("add", "(ILjava/lang/Object;)V"),
+        ("remove", "(I)Ljava/lang/Object;"),
+        ("remove", "(Ljava/lang/Object;)Z"),
+        ("set", "(ILjava/lang/Object;)Ljava/lang/Object;"),
+        ("clear", "()V"),
+    ] {
+        registry.natives_mut().register(
+            "java/util/UnmodifiableList",
+            method,
+            desc,
+            native_unmodifiable_list_mutation,
+        );
+    }
 
     // HashSet.stream() and LinkedList.stream()
     registry.natives_mut().register(
@@ -4399,13 +4671,78 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_collections_swap,
     );
 
-    // Collections.unmodifiableMap(map) — identity stub
+    // Collections.unmodifiableMap(map) — wraps in UnmodifiableMap
     registry.natives_mut().register(
         "java/util/Collections",
         "unmodifiableMap",
         "(Ljava/util/Map;)Ljava/util/Map;",
         native_collections_unmodifiable_map,
     );
+    // java/util/UnmodifiableMap — same layout as HashMap; reads delegate, writes throw
+    let unmod_map_ctx = ClassContext {
+        class_name: "java/util/UnmodifiableMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/Map".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(unmod_map_ctx);
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        native_hashmap_contains_key,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "size",
+        "()I",
+        native_hashmap_size,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        native_hashmap_entry_set,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        native_hashmap_key_set,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "values",
+        "()Ljava/util/Collection;",
+        native_hashmap_values,
+    );
+    // Mutation ops throw UnsupportedOperationException
+    for (method, desc) in [
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        ),
+        ("remove", "(Ljava/lang/Object;)Ljava/lang/Object;"),
+        ("clear", "()V"),
+    ] {
+        registry.natives_mut().register(
+            "java/util/UnmodifiableMap",
+            method,
+            desc,
+            native_unmodifiable_list_mutation,
+        );
+    }
     // Collections.reverseOrder() — same as Comparator.reverseOrder()
     registry.natives_mut().register(
         "java/util/Collections",
@@ -4420,6 +4757,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "partitioningBy",
         "(Ljava/util/function/Predicate;)Ljava/util/stream/Collector;",
         native_collectors_partitioning_by,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/stream/Collectors",
+        "partitioningBy",
+        "(Ljava/util/function/Predicate;Ljava/util/stream/Collector;)Ljava/util/stream/Collector;",
+        native_collectors_partitioning_by_downstream,
     );
     let partitioning_ctx = ClassContext {
         class_name: "duke/util/PartitioningByCollector".to_string(),
@@ -4558,6 +4901,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "isEmpty",
         "()Z",
         native_treemap_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "headMap",
+        "(Ljava/lang/Object;)Ljava/util/SortedMap;",
+        native_treemap_head_map,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "tailMap",
+        "(Ljava/lang/Object;)Ljava/util/SortedMap;",
+        native_treemap_tail_map,
     );
 
     // java/util/Stack — LIFO stack backed by ArrayList field layout
@@ -4981,6 +5336,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/stream/Stream;",
         native_arraylist_stream,
     );
+    // UnmodifiableList.stream() — same layout as ArrayList
+    registry.natives_mut().register(
+        "java/util/UnmodifiableList",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_arraylist_stream,
+    );
+    // UnmodifiableList.forEach() — same layout as ArrayList
+    registry.natives_mut().register_callback(
+        "java/util/UnmodifiableList",
+        "forEach",
+        "(Ljava/util/function/Consumer;)V",
+        native_arraylist_for_each,
+    );
 
     // java/util/stream/Collectors — static factory for collectors
     let collectors_ctx = ClassContext {
@@ -5015,6 +5384,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         bootstrap_methods: Vec::new(),
     };
     registry.register(to_list_ctx);
+
+    // duke/util/ToUnmodifiableListCollector — sentinel for Collectors.toUnmodifiableList()
+    let to_unmod_list_ctx = ClassContext {
+        class_name: "duke/util/ToUnmodifiableListCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(to_unmod_list_ctx);
 
     // duke/util/JoiningCollector — joining collector; fields[0]=delimiter, [1]=prefix, [2]=suffix
     let joining_ctx = ClassContext {
@@ -5213,6 +5596,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "([I)Ljava/util/stream/IntStream;",
         native_int_stream_of,
     );
+    // IntStream.iterate(seed, UnaryOperator) — generates up to 4096 elements (limit truncates)
+    registry.natives_mut().register_callback(
+        "java/util/stream/IntStream",
+        "iterate",
+        "(ILjava/util/function/IntUnaryOperator;)Ljava/util/stream/IntStream;",
+        native_int_stream_iterate,
+    );
 
     // IntStream terminal ops
     registry.natives_mut().register(
@@ -5267,6 +5657,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "forEach",
         "(Ljava/util/function/IntConsumer;)V",
         native_int_stream_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "peek",
+        "(Ljava/util/function/IntConsumer;)Ljava/util/stream/IntStream;",
+        native_int_stream_peek,
     );
     registry.natives_mut().register(
         "duke/util/IntStream",
@@ -5336,6 +5732,57 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Z",
         native_optional_int_is_present,
     );
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "orElse",
+        "(I)I",
+        native_optional_int_or_else,
+    );
+    // OptionalInt.of(int) and OptionalInt.empty() static factories
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "of",
+        "(I)Ljava/util/OptionalInt;",
+        native_optional_int_of,
+    );
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "empty",
+        "()Ljava/util/OptionalInt;",
+        native_optional_int_empty,
+    );
+    // Also on duke/util/OptionalInt
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "of",
+        "(I)Ljava/util/OptionalInt;",
+        native_optional_int_of,
+    );
+    registry.natives_mut().register(
+        "duke/util/OptionalInt",
+        "empty",
+        "()Ljava/util/OptionalInt;",
+        native_optional_int_empty,
+    );
+    // mirror getAsInt/isPresent/orElse on java/util/OptionalInt too
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "getAsInt",
+        "()I",
+        native_optional_int_get_as_int,
+    );
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "isPresent",
+        "()Z",
+        native_optional_int_is_present,
+    );
+    registry.natives_mut().register(
+        "java/util/OptionalInt",
+        "orElse",
+        "(I)I",
+        native_optional_int_or_else,
+    );
 
     // duke/util/OptionalDouble
     let opt_dbl_ctx = ClassContext {
@@ -5378,6 +5825,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getAsDouble",
         "()D",
         native_optional_double_get_as_double,
+    );
+    registry.natives_mut().register(
+        "duke/util/OptionalDouble",
+        "orElse",
+        "(D)D",
+        native_optional_double_or_else,
     );
 
     // java/util/PriorityQueue — min-heap; fields[0]=Int(size), fields[1..]=heap array
@@ -5564,6 +6017,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "toString",
         "(Ljava/lang/Object;)Ljava/lang/String;",
         native_objects_tostring,
+    );
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "toString",
+        "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;",
+        native_objects_tostring_default,
     );
     registry.natives_mut().register(
         "java/util/Objects",
@@ -5879,6 +6338,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "group",
         "()Ljava/lang/String;",
         native_matcher_group,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "group",
+        "(I)Ljava/lang/String;",
+        native_matcher_group_n,
     );
     registry.natives_mut().register(
         "java/util/regex/Matcher",
@@ -6588,6 +7053,49 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_predicate_negate,
     );
 
+    // Consumer.andThen combinator
+    registry.natives_mut().register(
+        "java/util/function/Consumer",
+        "andThen",
+        "(Ljava/util/function/Consumer;)Ljava/util/function/Consumer;",
+        native_consumer_and_then,
+    );
+    let and_then_consumer_ctx = ClassContext {
+        class_name: "duke/util/AndThenConsumer".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "first".to_string(),
+                descriptor: "Ljava/util/function/Consumer;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "second".to_string(),
+                descriptor: "Ljava/util/function/Consumer;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/Consumer".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(and_then_consumer_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/AndThenConsumer",
+        "accept",
+        "(Ljava/lang/Object;)V",
+        native_and_then_consumer_accept,
+    );
+    registry.natives_mut().register(
+        "duke/util/AndThenConsumer",
+        "andThen",
+        "(Ljava/util/function/Consumer;)Ljava/util/function/Consumer;",
+        native_consumer_and_then,
+    );
+
     // Function.andThen / compose combinators
     registry.natives_mut().register(
         "java/util/function/Function",
@@ -6682,6 +7190,55 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "compose",
         "(Ljava/util/function/Function;)Ljava/util/function/Function;",
         native_function_compose,
+    );
+
+    // BiFunction.andThen combinator
+    let bifunction_ctx = ClassContext {
+        class_name: "java/util/function/BiFunction".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(bifunction_ctx);
+    registry.natives_mut().register(
+        "java/util/function/BiFunction",
+        "andThen",
+        "(Ljava/util/function/Function;)Ljava/util/function/BiFunction;",
+        native_bifunction_and_then,
+    );
+    let bifunction_and_then_ctx = ClassContext {
+        class_name: "duke/util/BiFunctionAndThen".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "bifunction".to_string(),
+                descriptor: "Ljava/util/function/BiFunction;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "after".to_string(),
+                descriptor: "Ljava/util/function/Function;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/function/BiFunction".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(bifunction_and_then_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/BiFunctionAndThen",
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_bifunction_and_then_apply,
     );
 
     // Stream.mapToLong → LongStream
@@ -6896,6 +7453,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "isPresent",
         "()Z",
         native_optional_long_is_present,
+    );
+    registry.natives_mut().register(
+        "duke/util/OptionalLong",
+        "orElse",
+        "(J)J",
+        native_optional_long_or_else,
     );
 
     // DoubleStream static factory (varargs and single-element forms)
@@ -8433,4 +8996,453 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()V",
         native_arraylist_iter_remove,
     );
+
+    // Phase 88 additions
+
+    // Phase 100: Collectors.summarizingInt → IntSummaryStatistics
+    registry.natives_mut().register(
+        "java/util/stream/Collectors",
+        "summarizingInt",
+        "(Ljava/util/function/ToIntFunction;)Ljava/util/stream/Collector;",
+        native_collectors_summarizing_int,
+    );
+    let summarizing_ctx = ClassContext {
+        class_name: "duke/util/SummarizingIntCollector".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "fn".to_string(),
+            descriptor: "Ljava/util/function/ToIntFunction;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/util/stream/Collector".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(summarizing_ctx);
+    // IntSummaryStatistics — fields: [0]=count(J) [1]=sum(J) [2]=min(I) [3]=max(I)
+    let iss_ctx = ClassContext {
+        class_name: "java/util/IntSummaryStatistics".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "count".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "sum".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "min".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "max".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(iss_ctx);
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getCount",
+        "()J",
+        native_int_summary_stats_get_count,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getSum",
+        "()J",
+        native_int_summary_stats_get_sum,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getMin",
+        "()I",
+        native_int_summary_stats_get_min,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getMax",
+        "()I",
+        native_int_summary_stats_get_max,
+    );
+    registry.natives_mut().register(
+        "java/util/IntSummaryStatistics",
+        "getAverage",
+        "()D",
+        native_int_summary_stats_get_average,
+    );
+
+    // java/util/BitSet — bitmask stored as fields[0] = Long(bits)
+    let bitset_ctx = ClassContext {
+        class_name: "java/util/BitSet".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "bits".to_string(),
+            descriptor: "J".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(bitset_ctx);
+    registry.natives_mut().register(
+        "java/util/BitSet",
+        "<init>",
+        "(I)V",
+        native_bitset_init_with_size,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/BitSet", "<init>", "()V", native_bitset_init);
+    registry
+        .natives_mut()
+        .register("java/util/BitSet", "set", "(I)V", native_bitset_set);
+    registry.natives_mut().register(
+        "java/util/BitSet",
+        "cardinality",
+        "()I",
+        native_bitset_cardinality,
+    );
+
+    // java/util/function/Function — synthetic interface (needed so ClassNotFound doesn't fire)
+    let function_iface_ctx = ClassContext {
+        class_name: "java/util/function/Function".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(function_iface_ctx);
+
+    // Function.identity() → returns a duke/util/IdentityFunction proxy
+    let identity_fn_ctx = ClassContext {
+        class_name: "duke/util/IdentityFunction".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/function/Function".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(identity_fn_ctx);
+    registry.natives_mut().register(
+        "java/util/function/Function",
+        "identity",
+        "()Ljava/util/function/Function;",
+        native_function_identity,
+    );
+    registry.natives_mut().register(
+        "duke/util/IdentityFunction",
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_identity_function_apply,
+    );
+
+    // ---- Phase 117 ----
+
+    // HashMap.remove(Object, Object) -> boolean — conditional remove
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "remove",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+        native_hashmap_remove_key_value,
+    );
+
+    // HashMap.replace(Object, Object) -> Object — replace value if key present
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "replace",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_replace,
+    );
+
+    // Integer.sum(int, int) -> int — static utility
+    registry
+        .natives_mut()
+        .register("java/lang/Integer", "sum", "(II)I", native_integer_sum);
+
+    // Stream.concat(Stream, Stream) -> Stream — static method
+    registry.natives_mut().register(
+        "duke/util/Stream",
+        "concat",
+        "(Ljava/util/stream/Stream;Ljava/util/stream/Stream;)Ljava/util/stream/Stream;",
+        native_stream_concat,
+    );
+
+    // IntStream.mapToObj(IntFunction) -> Stream
+    registry.natives_mut().register_callback(
+        "duke/util/IntStream",
+        "mapToObj",
+        "(Ljava/util/function/IntFunction;)Ljava/util/stream/Stream;",
+        native_int_stream_map_to_obj,
+    );
+
+    // Optional.map(Function) -> Optional
+    registry.natives_mut().register_callback(
+        "duke/util/Optional",
+        "map",
+        "(Ljava/util/function/Function;)Ljava/util/Optional;",
+        native_optional_map,
+    );
+
+    // java/util/UnmodifiableSet — read ops reuse HashSet handlers; writes throw
+    let unmod_set_ctx = ClassContext {
+        class_name: "java/util/UnmodifiableSet".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec![
+            "java/util/Set".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(unmod_set_ctx);
+    // Read operations — reuse HashSet handlers (same field layout)
+    for (method, desc, handler) in [
+        ("size", "()I", native_hashset_size as NativeHandler),
+        ("contains", "(Ljava/lang/Object;)Z", native_hashset_contains),
+        ("isEmpty", "()Z", native_hashset_is_empty),
+        (
+            "iterator",
+            "()Ljava/util/Iterator;",
+            native_hashset_iterator,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/UnmodifiableSet", method, desc, handler);
+    }
+    // Mutation operations — throw UnsupportedOperationException
+    for (method, desc) in [
+        ("add", "(Ljava/lang/Object;)Z"),
+        ("remove", "(Ljava/lang/Object;)Z"),
+        ("clear", "()V"),
+    ] {
+        registry.natives_mut().register(
+            "java/util/UnmodifiableSet",
+            method,
+            desc,
+            native_unmodifiable_list_mutation,
+        );
+    }
+}
+
+// ─── Phase 88 natives ────────────────────────────────────────────────────────
+
+/// `BitSet.<init>(int)V` — size hint ignored; initialise bits to 0.
+pub(crate) fn native_bitset_init_with_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(0);
+    Ok(None)
+}
+
+/// `BitSet.<init>()V`
+pub(crate) fn native_bitset_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(0);
+    Ok(None)
+}
+
+/// `BitSet.set(int)V` — set bit at position n.
+pub(crate) fn native_bitset_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let n = match args.get(1) {
+        Some(Slot::Int(v)) => *v,
+        _ => {
+            return Err(VmError::TypeMismatch {
+                expected: "int",
+                got: "other",
+            });
+        }
+    };
+    let bits = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(b)) => *b,
+        _ => 0i64,
+    };
+    let new_bits = bits | (1i64 << (n.cast_unsigned() & 63));
+    heap.get_mut(this_ref)?.fields[0] = Slot::Long(new_bits);
+    Ok(None)
+}
+
+/// `BitSet.cardinality()I` — number of set bits.
+pub(crate) fn native_bitset_cardinality(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let bits = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(b)) => *b,
+        _ => 0i64,
+    };
+    Ok(Some(Slot::Int(bits.count_ones().cast_signed())))
+}
+
+/// `Function.identity()Ljava/util/function/Function;` — returns a `duke/util/IdentityFunction` proxy.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_function_identity(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let r = heap.allocate("duke/util/IdentityFunction".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `IdentityFunction.apply(Object)Object` — returns its argument unchanged.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_identity_function_apply(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    // args[0] = this (the IdentityFunction proxy), args[1] = the element
+    Ok(Some(args.get(1).copied().unwrap_or(Slot::Reference(None))))
+}
+
+// ─── Phase 100 natives ───────────────────────────────────────────────────────
+
+/// `Collectors.summarizingInt(ToIntFunction)Collector` — returns a `SummarizingIntCollector`.
+pub(crate) fn native_collectors_summarizing_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/SummarizingIntCollector".to_string(), 1);
+    heap.get_mut(r)?.fields[0] = fn_slot;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `IntSummaryStatistics.getCount()J`
+pub(crate) fn native_int_summary_stats_get_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let count = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(count)))
+}
+
+/// `IntSummaryStatistics.getSum()J`
+pub(crate) fn native_int_summary_stats_get_sum(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let sum = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Long(sum)))
+}
+
+/// `IntSummaryStatistics.getMin()I`
+pub(crate) fn native_int_summary_stats_get_min(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let min = match heap.get(this_ref)?.fields.get(2) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(min)))
+}
+
+/// `IntSummaryStatistics.getMax()I`
+pub(crate) fn native_int_summary_stats_get_max(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let max = match heap.get(this_ref)?.fields.get(3) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(max)))
+}
+
+/// `IntSummaryStatistics.getAverage()D`
+pub(crate) fn native_int_summary_stats_get_average(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let count = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    let sum = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let avg = if count == 0 {
+        0.0
+    } else {
+        sum as f64 / count as f64
+    };
+    Ok(Some(Slot::Double(avg)))
 }

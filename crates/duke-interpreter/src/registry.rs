@@ -27,8 +27,9 @@ pub(crate) struct LambdaInfo {
     pub impl_desc: String,
     pub impl_kind: u8,
     pub sam_method: String,
-    #[allow(dead_code)]
     pub sam_desc: String,
+    /// Functional interface this lambda implements, e.g. "java/util/function/Function".
+    pub sam_interface: String,
     pub captured_count: usize,
 }
 
