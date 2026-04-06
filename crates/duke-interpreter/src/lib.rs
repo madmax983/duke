@@ -56036,6 +56036,76 @@ mod tests {
             16
         );
     }
+    #[test]
+    fn test_p96_linked_list_recursion() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testLinkedListRecursion", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p96_generic_method() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testGenericMethod", "()I"),
+            26
+        );
+    }
+    #[test]
+    fn test_p96_exception_cause() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testExceptionCause", "()I"),
+            12
+        );
+    }
+    #[test]
+    fn test_p96_bitwise_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testBitwiseOps", "()I"),
+            76
+        );
+    }
+    #[test]
+    fn test_p96_shift_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testShiftOps", "()I"),
+            36
+        );
+    }
+    #[test]
+    fn test_p96_collect_then_sort() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testCollectThenSort", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p96_string_matches() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testStringMatches", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p96_multi_dim_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testMultiDimSum", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p96_instanceof_cast() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testInstanceOfCast", "()I"),
+            50
+        );
+    }
+    #[test]
+    fn test_p96_map_accumulation() {
+        assert_eq!(
+            run_bootstrap_int("Phase96Test.class", "testMapAccumulation", "()I"),
+            5
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
