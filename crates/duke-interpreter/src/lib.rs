@@ -17450,13 +17450,37 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                 Some(Some(CpEntry::Utf8(s))) => s.clone(),
                 _ => return None,
             };
+            let is_native = m.access_flags.contains(MethodAccessFlags::NATIVE);
+            let is_abstract = m.access_flags.contains(MethodAccessFlags::ABSTRACT);
             let code = m.attributes.iter().find_map(|a| {
                 if let AttributeData::Code(c) = &a.data {
                     Some(c)
                 } else {
                     None
                 }
-            })?;
+            });
+            // Native and abstract methods have no Code attribute — emit a
+            // stub MethodEntry so they appear in the method table for resolution.
+            // The interpreter will dispatch these through NativeRegistry or error
+            // on abstract calls.
+            let Some(code) = code else {
+                if is_native || is_abstract {
+                    return Some(MethodEntry {
+                        name,
+                        descriptor,
+                        is_public: m.access_flags.contains(MethodAccessFlags::PUBLIC),
+                        is_static: m.access_flags.contains(MethodAccessFlags::STATIC),
+                        is_native,
+                        is_abstract,
+                        instructions: std::sync::Arc::new([]),
+                        max_stack: 0,
+                        max_locals: 0,
+                        exception_table: vec![],
+                        pc_to_idx: std::sync::Arc::new(std::collections::HashMap::new()),
+                    });
+                }
+                return None; // no Code and not native/abstract — malformed, skip
+            };
             let instructions = decode(&code.code).ok()?;
             let exception_table: Vec<ExceptionEntry> = code
                 .exception_table
@@ -17501,6 +17525,8 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                 descriptor,
                 is_public: m.access_flags.contains(MethodAccessFlags::PUBLIC),
                 is_static: m.access_flags.contains(MethodAccessFlags::STATIC),
+                is_native,
+                is_abstract,
                 instructions: instructions.into(),
                 max_stack: code.max_stack,
                 max_locals: code.max_locals,
@@ -17573,6 +17599,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         static_fields,
         instance_field_count: instance_count,
         bootstrap_methods,
+        load_source: ClassLoadSource::Classfile,
     }
 }
 
@@ -18742,7 +18769,15 @@ fn resolve_method_in_hierarchy_lookup(
                     .iter()
                     .position(|m| m.name == method_name && m.descriptor == method_desc)
                 {
-                    return MethodHierarchyLookup::Bytecode(current, idx);
+                    let method = &ctx.methods[idx];
+                    if method.is_native {
+                        // Declared native in classfile — dispatch through NativeRegistry
+                        return MethodHierarchyLookup::NativeOverride;
+                    }
+                    if !method.is_abstract {
+                        return MethodHierarchyLookup::Bytecode(current, idx);
+                    }
+                    // Abstract method — keep walking to find a concrete implementation
                 }
                 match &ctx.super_class {
                     Some(s) => current.clone_from(s),
@@ -29565,6 +29600,8 @@ mod tests {
             descriptor: "(Ljava/lang/Class;)Ljava/lang/Object;".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&instructions),
             max_stack: 1,
             max_locals: 1,
@@ -29581,6 +29618,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
 
         let mut registry = ClassRegistry::new();
@@ -29646,6 +29684,8 @@ mod tests {
             descriptor: "()V".to_string(),
             is_public: true,
             is_static: false,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&target_ctor_instructions),
             max_stack: 1,
             max_locals: 1,
@@ -29662,6 +29702,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
 
         let mut registry = ClassRegistry::new();
@@ -29723,6 +29764,8 @@ mod tests {
             descriptor: "(LAbstractBase;)I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&caller_instructions),
             max_stack: 1,
             max_locals: 1,
@@ -29739,6 +29782,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
         let abstract_base_ctx = ClassContext {
             class_name: "AbstractBase".to_string(),
@@ -29750,6 +29794,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
         let child_instructions: Arc<[(usize, Instruction)]> =
             vec![(0, Instruction::Bipush(7)), (2, Instruction::Ireturn)].into();
@@ -29758,6 +29803,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: false,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&child_instructions),
             max_stack: 1,
             max_locals: 1,
@@ -29774,6 +29821,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
 
         let mut registry = ClassRegistry::new();
@@ -29845,6 +29893,8 @@ mod tests {
             descriptor: "(LNativeOverrideTarget;)I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&caller_instructions),
             max_stack: 1,
             max_locals: 1,
@@ -29861,6 +29911,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
         let target_instructions: Arc<[(usize, Instruction)]> =
             vec![(0, Instruction::Bipush(7)), (2, Instruction::Ireturn)].into();
@@ -29869,6 +29920,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: false,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&target_instructions),
             max_stack: 1,
             max_locals: 1,
@@ -29885,6 +29938,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
 
         let mut registry = ClassRegistry::new();
@@ -29958,6 +30012,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&caller_instructions),
             max_stack: 1,
             max_locals: 0,
@@ -29974,6 +30030,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
         let target_instructions: Arc<[(usize, Instruction)]> =
             vec![(0, Instruction::Bipush(7)), (2, Instruction::Ireturn)].into();
@@ -29982,6 +30039,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&target_instructions),
             max_stack: 1,
             max_locals: 0,
@@ -29998,6 +30057,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
 
         let mut registry = ClassRegistry::new();
@@ -30281,6 +30341,8 @@ mod tests {
             descriptor: "(Ljava/util/Set;)I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: Arc::clone(&instructions),
             max_stack: 1,
             max_locals: 2,
@@ -30311,6 +30373,7 @@ mod tests {
             static_fields: Vec::new(),
             instance_field_count: 0,
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
 
         let mut registry = ClassRegistry::new();
@@ -31802,6 +31865,7 @@ mod tests {
             instance_field_count: 1,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         };
         registry.register(exploded_ctx);
 
@@ -36180,6 +36244,7 @@ mod tests {
             instance_field_count: 0,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Classfile,
         });
         registry.natives_mut().register(
             "java/util/Objects",
@@ -37361,6 +37426,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
         assert!(!reg.contains("Foo"));
         reg.register(ctx);
@@ -37389,6 +37455,7 @@ mod tests {
             static_fields: vec![Slot::Int(1)],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
         reg.register(ctx);
         for cls in reg.all_classes_mut() {
@@ -40162,6 +40229,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         });
         let loader = make_simple_loader();
         assert!(is_assignable_from(
@@ -40186,6 +40254,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         });
         let loader = make_simple_loader();
         assert!(!is_assignable_from(
@@ -40286,6 +40355,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 2,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         });
         registry.register(ClassContext {
             class_name: "Child".to_string(),
@@ -40301,6 +40371,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 1,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         });
         registry
     }
@@ -40938,6 +41009,8 @@ mod tests {
             descriptor: descriptor.to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: instructions.into(),
             max_stack,
             max_locals,
@@ -40954,6 +41027,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
         let mut registry = ClassRegistry::new();
         registry.register(ctx);
@@ -44880,6 +44954,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: instructions.into(),
             max_stack: 4,
             max_locals: 1,
@@ -44903,6 +44979,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
         let mut registry = ClassRegistry::new();
         registry.register(ctx);
@@ -44951,6 +45028,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: instructions.into(),
             max_stack: 4,
             max_locals: 1,
@@ -44974,6 +45053,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
         let mut registry = ClassRegistry::new();
         registry.register(ctx);
@@ -45286,6 +45366,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: std::sync::Arc::from(
                 vec![
                     (0, Instruction::LdcW(CpIndex(1))),
@@ -45310,6 +45392,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
         let mut registry = ClassRegistry::new();
         registry.register(ctx);
@@ -45354,6 +45437,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: std::sync::Arc::from(
                 vec![
                     (0, Instruction::LdcW(CpIndex(1))),
@@ -45378,6 +45463,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
         let mut registry = ClassRegistry::new();
         registry.register(ctx);
@@ -45466,6 +45552,8 @@ mod tests {
             descriptor: "()I".to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: instructions.into(),
             max_stack: 4,
             max_locals: 0,
@@ -45482,6 +45570,7 @@ mod tests {
             static_fields: vec![],
             instance_field_count: 0,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
 
         // RefBox: 1 static field "count:I" + 2 instance fields "intField:I", "refField:Ljava/lang/Object;"
@@ -45511,6 +45600,7 @@ mod tests {
             static_fields: vec![Slot::Int(0)],
             instance_field_count: 2,
             bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
         };
 
         let mut registry = ClassRegistry::new();
@@ -47392,6 +47482,8 @@ mod tests {
             descriptor: descriptor.to_string(),
             is_public: true,
             is_static: true,
+            is_native: false,
+            is_abstract: false,
             instructions: instructions.into(),
             max_stack: 2,
             max_locals: 1,
