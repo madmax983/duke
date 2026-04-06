@@ -13255,6 +13255,7 @@ fn activate_method_state(
     *instructions = callee_instructions;
     #[cfg(feature = "telemetry")]
     refresh_current_method_name(current_method, registry, current_class, *method_idx);
+    Ok(())
 }
 
 enum ExecutionOutcome {
