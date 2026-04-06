@@ -3639,6 +3639,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/ArrayList",
+        "lastIndexOf",
+        "(Ljava/lang/Object;)I",
+        native_arraylist_last_index_of,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
         "add",
         "(ILjava/lang/Object;)V",
         native_arraylist_add_at,
