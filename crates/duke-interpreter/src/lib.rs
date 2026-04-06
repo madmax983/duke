@@ -2314,6 +2314,55 @@ pub(crate) fn native_treeset_init(
 }
 
 /// Native: `TreeSet.add(E)Z` — inserts in sorted order; returns false if already present.
+/// Extract a sortable key from a Slot for TreeSet ordering.
+/// Returns an `Ordering`-compatible f64 for numeric types, lexicographic for strings.
+fn treeset_slot_sort_key(slot: Slot, heap: &duke_gc::Heap) -> Option<TreeSortKey> {
+    match slot {
+        Slot::Int(n) => Some(TreeSortKey::Num(f64::from(n))),
+        Slot::Long(n) => Some(TreeSortKey::Num(n as f64)),
+        Slot::Double(d) => Some(TreeSortKey::Num(d)),
+        Slot::Float(f) => Some(TreeSortKey::Num(f64::from(f))),
+        Slot::Reference(Some(r)) => {
+            let obj = heap.get(r).ok()?;
+            match obj.class_name.as_str() {
+                "java/lang/Integer" | "java/lang/Long" | "java/lang/Short" | "java/lang/Byte" => {
+                    match obj.fields.first() {
+                        Some(Slot::Int(n)) => Some(TreeSortKey::Num(f64::from(*n))),
+                        Some(Slot::Long(n)) => Some(TreeSortKey::Num(*n as f64)),
+                        _ => None,
+                    }
+                }
+                "java/lang/Double" | "java/lang/Float" => {
+                    match obj.fields.first() {
+                        Some(Slot::Double(d)) => Some(TreeSortKey::Num(*d)),
+                        Some(Slot::Float(f)) => Some(TreeSortKey::Num(f64::from(*f))),
+                        _ => None,
+                    }
+                }
+                "java/lang/String" => obj.string_value.clone().map(TreeSortKey::Str),
+                _ => obj.string_value.clone().map(TreeSortKey::Str),
+            }
+        }
+        _ => None,
+    }
+}
+
+#[derive(PartialEq)]
+enum TreeSortKey {
+    Num(f64),
+    Str(String),
+}
+
+impl TreeSortKey {
+    fn less_than(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Num(a), Self::Num(b)) => a < b,
+            (Self::Str(a), Self::Str(b)) => a < b,
+            _ => false,
+        }
+    }
+}
+
 pub(crate) fn native_treeset_add(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2322,11 +2371,7 @@ pub(crate) fn native_treeset_add(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let elem_str = match &elem {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
-        Slot::Int(v) => Some(v.to_string()),
-        _ => None,
-    };
+    let elem_key = treeset_slot_sort_key(elem, heap);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -2334,12 +2379,8 @@ pub(crate) fn native_treeset_add(
     // Check for duplicate.
     for i in 0..size {
         let ex = heap.get(this_ref)?.fields[1 + i];
-        let ex_str = match &ex {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-            Slot::Int(v) => Some(v.to_string()),
-            _ => None,
-        };
-        if ex_str == elem_str {
+        let ex_key = treeset_slot_sort_key(ex, heap);
+        if ex_key == elem_key {
             return Ok(Some(Slot::Int(0))); // false — no change
         }
     }
@@ -2348,14 +2389,12 @@ pub(crate) fn native_treeset_add(
         let mut pos = size;
         for i in 0..size {
             let ex = heap.get(this_ref)?.fields[1 + i];
-            let ex_str: Option<String> = match &ex {
-                Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
-                Slot::Int(v) => Some(v.to_string()),
-                _ => None,
-            };
-            if elem_str.as_deref().unwrap_or("") < ex_str.as_deref().unwrap_or("") {
-                pos = i;
-                break;
+            let ex_key = treeset_slot_sort_key(ex, heap);
+            if let (Some(ek), Some(exk)) = (&elem_key, &ex_key) {
+                if ek.less_than(exk) {
+                    pos = i;
+                    break;
+                }
             }
         }
         pos
@@ -3166,6 +3205,67 @@ pub(crate) fn native_stream_collect(
         heap.get_mut(map_ref)?
             .fields
             .push(Slot::Reference(Some(false_list)));
+        Ok(Some(Slot::Reference(Some(map_ref))))
+    } else if collector_class == "duke/util/PartitioningByDownstreamCollector" {
+        // partitioningBy(pred, downstream): partition then apply downstream to each group.
+        let collector_ref = match args.get(1) {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(VmError::NullPointerException),
+        };
+        let pred_slot = heap.get(collector_ref)?.fields.first().copied().unwrap_or(Slot::Reference(None));
+        let downstream_slot = heap.get(collector_ref)?.fields.get(1).copied().unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(pred_ref)) = pred_slot else { return Err(VmError::NullPointerException); };
+        let pred_class = heap.get(pred_ref)?.class_name.clone();
+        let mut true_elems: Vec<Slot> = Vec::new();
+        let mut false_elems: Vec<Slot> = Vec::new();
+        for elem in elems {
+            let result = ops.invoke(heap, out, &pred_class, "test", "(Ljava/lang/Object;)Z", vec![Slot::Reference(Some(pred_ref)), elem])?;
+            if matches!(result, Some(Slot::Int(n)) if n != 0) {
+                true_elems.push(elem);
+            } else {
+                false_elems.push(elem);
+            }
+        }
+        // Apply downstream collector to each partition by building a mini stream.
+        let apply_downstream = |elems_sub: Vec<Slot>, heap: &mut duke_gc::Heap, downstream: Slot| -> VmResult<Option<Slot>> {
+            let n = elems_sub.len();
+            let downstream_class = match downstream {
+                Slot::Reference(Some(r)) => heap.get(r)?.class_name.clone(),
+                _ => return Ok(Some(Slot::Reference(None))),
+            };
+            if downstream_class == "duke/util/CountingCollector" {
+                let boxed = heap.allocate("java/lang/Long".to_string(), 1);
+                heap.get_mut(boxed)?.fields[0] = Slot::Long(n as i64);
+                return Ok(Some(Slot::Reference(Some(boxed))));
+            }
+            // Generic: build a mini stream and collect into a list.
+            let stream_ref = heap.allocate("duke/util/Stream".to_string(), n);
+            heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n as i32);
+            for (i, e) in elems_sub.into_iter().enumerate() {
+                heap.get_mut(stream_ref)?.fields[1 + i] = e;
+            }
+            let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+            heap.get_mut(list_ref)?.fields[0] = Slot::Int(0);
+            for i in 1..=n {
+                let e = heap.get(stream_ref)?.fields[i];
+                let cur = match heap.get(list_ref)?.fields.first() { Some(Slot::Int(x)) => *x, _ => 0 };
+                heap.get_mut(list_ref)?.fields.push(e);
+                heap.get_mut(list_ref)?.fields[0] = Slot::Int(cur + 1);
+            }
+            Ok(Some(Slot::Reference(Some(list_ref))))
+        };
+        let true_result = apply_downstream(true_elems, heap, downstream_slot)?;
+        let false_result = apply_downstream(false_elems, heap, downstream_slot)?;
+        let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+        heap.get_mut(map_ref)?.fields[0] = Slot::Int(2);
+        let bool_true = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_true)?.fields[0] = Slot::Int(1);
+        let bool_false = heap.allocate("java/lang/Boolean".to_string(), 1);
+        heap.get_mut(bool_false)?.fields[0] = Slot::Int(0);
+        heap.get_mut(map_ref)?.fields.push(Slot::Reference(Some(bool_true)));
+        heap.get_mut(map_ref)?.fields.push(true_result.unwrap_or(Slot::Reference(None)));
+        heap.get_mut(map_ref)?.fields.push(Slot::Reference(Some(bool_false)));
+        heap.get_mut(map_ref)?.fields.push(false_result.unwrap_or(Slot::Reference(None)));
         Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/SummingIntCollector" {
         // Sum via applyAsInt(elem) for each element.
@@ -23431,6 +23531,21 @@ pub(crate) fn native_collectors_partitioning_by(
     let pred = args.first().copied().unwrap_or(Slot::Reference(None));
     let r = heap.allocate("duke/util/PartitioningByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = pred;
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+pub(crate) fn native_collectors_partitioning_by_downstream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let pred = args.first().copied().unwrap_or(Slot::Reference(None));
+    let downstream = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let r = heap.allocate("duke/util/PartitioningByDownstreamCollector".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = pred;
+    heap.get_mut(r)?.fields[1] = downstream;
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -57981,6 +58096,56 @@ mod tests {
             run_bootstrap_int("Phase115Test.class", "testNestedGenerics", "()I"),
             21
         );
+    }
+
+    #[test]
+    fn test_p116_tree_set() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testTreeSet", "()I"), 15);
+    }
+
+    #[test]
+    fn test_p116_stream_to_array() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testStreamToArray", "()I"), 3);
+    }
+
+    #[test]
+    fn test_p116_deque_as_queue() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testDequeAsQueue", "()I"), 6);
+    }
+
+    #[test]
+    fn test_p116_map_for_each_accumulate() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testMapForEachAccumulate", "()I"), 24);
+    }
+
+    #[test]
+    fn test_p116_string_value_of() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testStringValueOf", "()I"), 10);
+    }
+
+    #[test]
+    fn test_p116_int_stream_range_closed() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testIntStreamRangeClosed", "()I"), 15);
+    }
+
+    #[test]
+    fn test_p116_partitioning_by_downstream() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testPartitioningByDownstream", "()I"), 6);
+    }
+
+    #[test]
+    fn test_p116_optional_or_else_get() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testOptionalOrElseGet", "()I"), 52);
+    }
+
+    #[test]
+    fn test_p116_stream_peek_count() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testStreamPeekCount", "()I"), 17);
+    }
+
+    #[test]
+    fn test_p116_comparable() {
+        assert_eq!(run_bootstrap_int("Phase116Test.class", "testComparable", "()I"), 140);
     }
 }
 #[cfg(test)]

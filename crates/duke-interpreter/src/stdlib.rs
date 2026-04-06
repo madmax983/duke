@@ -4758,6 +4758,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/function/Predicate;)Ljava/util/stream/Collector;",
         native_collectors_partitioning_by,
     );
+    registry.natives_mut().register_callback(
+        "java/util/stream/Collectors",
+        "partitioningBy",
+        "(Ljava/util/function/Predicate;Ljava/util/stream/Collector;)Ljava/util/stream/Collector;",
+        native_collectors_partitioning_by_downstream,
+    );
     let partitioning_ctx = ClassContext {
         class_name: "duke/util/PartitioningByCollector".to_string(),
         super_class: Some("java/lang/Object".to_string()),
