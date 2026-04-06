@@ -5439,6 +5439,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "([I)Ljava/util/stream/IntStream;",
         native_int_stream_of,
     );
+    // IntStream.iterate(seed, UnaryOperator) — generates up to 4096 elements (limit truncates)
+    registry.natives_mut().register_callback(
+        "java/util/stream/IntStream",
+        "iterate",
+        "(ILjava/util/function/IntUnaryOperator;)Ljava/util/stream/IntStream;",
+        native_int_stream_iterate,
+    );
 
     // IntStream terminal ops
     registry.natives_mut().register(

@@ -4541,6 +4541,49 @@ pub(crate) fn native_int_stream_of(
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
 }
 
+/// Native: `IntStream.iterate(seed, UnaryOperator)IntStream` — generates up to 4096 elements.
+pub(crate) fn native_int_stream_iterate(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> VmResult<Option<Slot>> {
+    let seed = match args.first().copied() {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+        return Ok(Some(Slot::Reference(Some(make_int_stream(
+            heap,
+            vec![seed],
+        )))));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    const MAX: usize = 4096;
+    let mut values = Vec::with_capacity(MAX);
+    let mut cur = seed;
+    for _ in 0..MAX {
+        values.push(cur);
+        let next = ops
+            .invoke(
+                heap,
+                out,
+                &fn_class,
+                "applyAsInt",
+                "(I)I",
+                vec![fn_slot, Slot::Int(cur)],
+            )?
+            .unwrap_or(Slot::Int(cur));
+        match next {
+            Slot::Int(n) => cur = n,
+            _ => break,
+        }
+    }
+    Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
+}
+
 /// Native: `IntStream.count()J`
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_int_stream_count(
@@ -55614,6 +55657,76 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase90Test.class", "testStringEquality", "()I"),
             111
+        );
+    }
+    #[test]
+    fn test_p91_multi_level_inheritance() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testMultiLevelInheritance", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p91_interface_default_override() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testInterfaceDefaultOverride", "()I"),
+            21
+        );
+    }
+    #[test]
+    fn test_p91_integer_overflow() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testIntegerOverflow", "()I"),
+            1
+        );
+    }
+    #[test]
+    fn test_p91_long_arithmetic() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testLongArithmetic", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p91_nested_class_outer() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testNestedClassAccessesOuter", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p91_stream_distinct() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testStreamDistinct", "()I"),
+            4
+        );
+    }
+    #[test]
+    fn test_p91_stream_limit() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testStreamLimit", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p91_map_entry_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testMapEntrySet", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p91_fibonacci() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testFibonacci", "()I"),
+            55
+        );
+    }
+    #[test]
+    fn test_p91_list_sub_list() {
+        assert_eq!(
+            run_bootstrap_int("Phase91Test.class", "testListSubList", "()I"),
+            90
         );
     }
 }
