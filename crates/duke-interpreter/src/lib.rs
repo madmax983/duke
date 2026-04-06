@@ -12350,6 +12350,9 @@ struct CachedDispatch {
     class_name: String,
     method_idx: usize,
     arg_count: usize,
+    /// JVM primitive type chars for each parameter ('I', 'J', 'D', 'F', 'Z', 'B', 'C', 'S', 'L', '[').
+    /// Used to assign wide types (J/D) to the correct local variable slots.
+    param_types: Vec<char>,
     max_locals: usize,
     max_stack: usize,
     pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
@@ -13376,9 +13379,7 @@ fn run_execution(
                             max_locals: cached.max_locals,
                         });
                     }
-                    for i in (0..cached.arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    pop_typed_args_into_locals(&cached.param_types, frame, &mut locals_buf, 0)?;
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
                     match activate_method_state(
@@ -13463,6 +13464,7 @@ fn run_execution(
                                         class_name: callee_class_key.clone(),
                                         method_idx: callee_idx,
                                         arg_count,
+                                        param_types: parse_arg_types(&callee_desc),
                                         max_locals,
                                         max_stack,
                                         pc_to_idx: std::sync::Arc::clone(&pci),
@@ -13477,9 +13479,7 @@ fn run_execution(
                                     max_locals,
                                 });
                             }
-                            for i in (0..arg_count).rev() {
-                                locals_buf[i] = frame.pop()?;
-                            }
+                            pop_typed_args_into_locals(&parse_arg_types(&callee_desc), frame, &mut locals_buf, 0)?;
                             let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                             (pci, instrs, f)
                         };
@@ -14525,9 +14525,7 @@ fn run_execution(
                             max_locals: cached.max_locals,
                         });
                     }
-                    for i in (1..=cached.arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    pop_typed_args_into_locals(&cached.param_types, frame, &mut locals_buf, 1)?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
@@ -14608,9 +14606,7 @@ fn run_execution(
                             max_locals: cached.max_locals,
                         });
                     }
-                    for i in (1..=cached.arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    pop_typed_args_into_locals(&cached.param_types, frame, &mut locals_buf, 1)?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let callee_frame =
                         Frame::from_pool_bufs(locals_buf, stack_buf, cached.max_stack);
@@ -15060,6 +15056,7 @@ fn run_execution(
                                     class_name: dispatch_class.clone(),
                                     method_idx: callee_idx,
                                     arg_count,
+                                    param_types: parse_arg_types(&callee_desc),
                                     max_locals,
                                     max_stack,
                                     pc_to_idx: std::sync::Arc::clone(&pci),
@@ -15078,6 +15075,7 @@ fn run_execution(
                                     class_name: dispatch_class.clone(),
                                     method_idx: callee_idx,
                                     arg_count,
+                                    param_types: parse_arg_types(&callee_desc),
                                     max_locals,
                                     max_stack,
                                     pc_to_idx: std::sync::Arc::clone(&pci),
@@ -15093,10 +15091,8 @@ fn run_execution(
                             max_locals,
                         });
                     }
-                    // Pop args into locals[1..=arg_count] in reverse (stack top = last arg).
-                    for i in (1..=arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    // Pop args with wide-type-aware indexing (doubles/longs occupy 2 local slots).
+                    pop_typed_args_into_locals(&parse_arg_types(&callee_desc), frame, &mut locals_buf, 1)?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
@@ -15642,6 +15638,14 @@ fn run_execution(
                         captured_args[i] = frame.pop()?;
                     }
 
+                    // Extract SAM interface from invokedynamic return type: "(...)Ljava/util/function/Function;" → "java/util/function/Function"
+                    let sam_interface = call_desc
+                        .split_once(')')
+                        .and_then(|(_, ret)| ret.strip_prefix('L'))
+                        .and_then(|s| s.strip_suffix(';'))
+                        .unwrap_or("")
+                        .to_string();
+
                     let lambda_info = LambdaInfo {
                         impl_class: impl_class.clone(),
                         impl_method: impl_method.clone(),
@@ -15649,6 +15653,7 @@ fn run_execution(
                         impl_kind,
                         sam_method,
                         sam_desc,
+                        sam_interface,
                         captured_count,
                     };
                     let lambda_class = registry.register_lambda(lambda_info);
@@ -16155,6 +16160,7 @@ fn run_execution(
                                                 );
                                             }
                                         };
+                                        let result = autobox_if_needed(result, &lambda_info.impl_desc, &lambda_info.sam_desc, heap)?;
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
                                             frame,
@@ -16234,6 +16240,7 @@ fn run_execution(
                                                 );
                                             }
                                         };
+                                        let result = autobox_if_needed(result, &lambda_info.impl_desc, &lambda_info.sam_desc, heap)?;
                                         if let Some(outcome) = finish_native_call(
                                             &mut native_control,
                                             frame,
@@ -16316,10 +16323,8 @@ fn run_execution(
                             max_locals,
                         });
                     }
-                    // Pop method args in reverse (stack top = last arg) into locals[1..=arg_count].
-                    for i in (1..=arg_count).rev() {
-                        locals_buf[i] = frame.pop()?;
-                    }
+                    // Pop method args using wide-type-aware indexing (doubles/longs occupy 2 local slots).
+                    pop_typed_args_into_locals(&parse_arg_types(&callee_desc), frame, &mut locals_buf, 1)?;
                     locals_buf[0] = frame.pop()?; // `this`
                     let f = Frame::from_pool_bufs(locals_buf, stack_buf, max_stack);
                     (pci, instrs, f)
@@ -18016,6 +18021,14 @@ fn is_assignable_from(
     if from_key == to_key || to_internal == "java/lang/Object" {
         return true;
     }
+    // Lambda proxies implement their SAM interface (and transitively java/lang/Object).
+    if from_key.starts_with("$$Lambda$") {
+        if let Some(lambda_info) = registry.get_lambda(&from_key) {
+            if lambda_info.sam_interface == to_key || lambda_info.sam_interface == to_internal {
+                return true;
+            }
+        }
+    }
     // Arrays implement Cloneable and Serializable; everything else is Object.
     if from_internal.starts_with('[') {
         return matches!(to_internal, "java/lang/Cloneable" | "java/io/Serializable");
@@ -18497,6 +18510,89 @@ fn expand_args_for_desc(args: &[Slot], descriptor: &str) -> Vec<Slot> {
         result.extend_from_slice(&args[param_types.len()..]);
     }
     result
+}
+
+/// Pop args from the operand stack and store them in the locals array.
+///
+/// Wide types (J = long, D = double) occupy two local variable slots in the JVM.
+/// For each such type, the value is stored at `local_idx` and `local_idx + 1` is
+/// left as the default padding (`Slot::Int(0)`).
+///
+/// For methods without any wide-type params, this behaves identically to the
+/// previous simple sequential assignment.
+fn pop_typed_args_into_locals(
+    param_types: &[char],
+    frame: &mut Frame,
+    locals: &mut Vec<Slot>,
+    start_idx: usize,
+) -> VmResult<()> {
+    let count = param_types.len();
+    let mut args = vec![Slot::Int(0); count];
+    for i in (0..count).rev() {
+        args[i] = frame.pop()?;
+    }
+    let mut local_idx = start_idx;
+    for (slot, &tc) in args.iter().zip(param_types.iter()) {
+        if local_idx < locals.len() {
+            locals[local_idx] = *slot;
+        }
+        local_idx += 1;
+        if tc == 'J' || tc == 'D' {
+            local_idx += 1; // wide type: skip the padding slot
+        }
+    }
+    Ok(())
+}
+
+/// Return the first character of the return type portion of a method descriptor.
+fn desc_return_char(desc: &str) -> Option<char> {
+    desc.split_once(')').and_then(|(_, ret)| ret.chars().next())
+}
+
+/// Autobox a primitive return value when the SAM descriptor expects a reference.
+///
+/// This is needed for bound method references like `s::length` where the impl
+/// returns `int` but the SAM interface (`Supplier.get()`) returns `Object`.
+fn autobox_if_needed(
+    result: Option<Slot>,
+    impl_desc: &str,
+    sam_desc: &str,
+    heap: &mut duke_gc::Heap,
+) -> VmResult<Option<Slot>> {
+    let Some(slot) = result else {
+        return Ok(None);
+    };
+    if !matches!(desc_return_char(sam_desc), Some('L') | Some('[')) {
+        return Ok(Some(slot));
+    }
+    match (desc_return_char(impl_desc), slot) {
+        (Some('I'), Slot::Int(v)) => {
+            let r = heap.allocate("java/lang/Integer".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Int(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('Z'), Slot::Int(v)) => {
+            let r = heap.allocate("java/lang/Boolean".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Int(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('J'), Slot::Long(v)) => {
+            let r = heap.allocate("java/lang/Long".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Long(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('D'), Slot::Double(v)) => {
+            let r = heap.allocate("java/lang/Double".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Double(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        (Some('F'), Slot::Float(v)) => {
+            let r = heap.allocate("java/lang/Float".to_string(), 1);
+            heap.get_mut(r)?.fields[0] = Slot::Float(v);
+            Ok(Some(Slot::Reference(Some(r))))
+        }
+        _ => Ok(Some(slot)),
+    }
 }
 
 fn parse_arg_descriptors(descriptor: &str) -> Vec<String> {
@@ -35012,6 +35108,7 @@ mod tests {
             impl_kind: 6,
             sam_method: "getAsInt".to_string(),
             sam_desc: "()I".to_string(),
+            sam_interface: "java/util/function/IntSupplier".to_string(),
             captured_count: 0,
         });
         let lambda_ref = heap.allocate(lambda_class.clone(), 0);
@@ -35060,6 +35157,7 @@ mod tests {
             impl_kind: 5,
             sam_method: "applyAsInt".to_string(),
             sam_desc: "(I)I".to_string(),
+            sam_interface: "java/util/function/IntUnaryOperator".to_string(),
             captured_count: 1,
         });
         let target_ref = heap.allocate("duke/test/LambdaTarget".to_string(), 0);
@@ -36457,6 +36555,7 @@ mod tests {
             impl_kind: 6,
             sam_method: "run".to_string(),
             sam_desc: "()V".to_string(),
+            sam_interface: "java/lang/Runnable".to_string(),
             captured_count: 0,
         };
         let n0 = reg.register_lambda(info.clone());
@@ -54425,6 +54524,21 @@ mod tests {
     #[test] fn test_p84_consumer() { assert_eq!(run_bootstrap_int("Phase84Test.class","testConsumer","()I"), 10); }
     #[test] fn test_p84_supplier() { assert_eq!(run_bootstrap_int("Phase84Test.class","testSupplier","()I"), 42); }
     #[test] fn test_p84_unary_operator() { assert_eq!(run_bootstrap_int("Phase84Test.class","testUnaryOperator","()I"), 6); }
+
+    // =========================================================================
+    // ---- Phase 85: method refs, Stream.toList, abstract class, enum fields ----
+    // =========================================================================
+
+    #[test] fn test_p85_bound_method_ref() { assert_eq!(run_bootstrap_int("Phase85Test.class","testBoundMethodRef","()I"), 11); }
+    #[test] fn test_p85_bound_method_ref_on_arg() { assert_eq!(run_bootstrap_int("Phase85Test.class","testBoundMethodRefOnArg","()I"), 1); }
+    #[test] fn test_p85_static_method_ref() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStaticMethodRef","()I"), 14); }
+    #[test] fn test_p85_unbound_method_ref() { assert_eq!(run_bootstrap_int("Phase85Test.class","testUnboundMethodRef","()I"), 10); }
+    #[test] fn test_p85_stream_to_list() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStreamToList","()I"), 2); }
+    #[test] fn test_p85_nested_lambda() { assert_eq!(run_bootstrap_int("Phase85Test.class","testNestedLambda","()I"), 42); }
+    #[test] fn test_p85_abstract_class() { assert_eq!(run_bootstrap_int("Phase85Test.class","testAbstractClass","()I"), 74); }
+    #[test] fn test_p85_enum_with_fields() { assert_eq!(run_bootstrap_int("Phase85Test.class","testEnumWithFields","()I"), 9); }
+    #[test] fn test_p85_static_initializer() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStaticInitializer","()I"), 100); }
+    #[test] fn test_p85_string_formatted() { assert_eq!(run_bootstrap_int("Phase85Test.class","testStringFormatted","()I"), 9); }
 }
 #[cfg(test)]
 mod fuzz;
