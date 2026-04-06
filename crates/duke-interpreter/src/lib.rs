@@ -55965,6 +55965,76 @@ mod tests {
             24
         );
     }
+    #[test]
+    fn test_p95_stream_generate() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStreamGenerate", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p95_optional_is_present() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testOptionalIsPresent", "()I"),
+            11
+        );
+    }
+    #[test]
+    fn test_p95_map_keyset() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testMapKeySet", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p95_arrays_stream_obj() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testArraysStreamObj", "()I"),
+            2
+        );
+    }
+    #[test]
+    fn test_p95_math_ops() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testMathOps", "()I"),
+            45
+        );
+    }
+    #[test]
+    fn test_p95_string_builder_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStringBuilderChain", "()I"),
+            13
+        );
+    }
+    #[test]
+    fn test_p95_try_finally_return() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testTryFinallyReturn", "()I"),
+            42
+        );
+    }
+    #[test]
+    fn test_p95_nested_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testNestedMap", "()I"),
+            30
+        );
+    }
+    #[test]
+    fn test_p95_stream_matching() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStreamMatching", "()I"),
+            111
+        );
+    }
+    #[test]
+    fn test_p95_string_replace_all() {
+        assert_eq!(
+            run_bootstrap_int("Phase95Test.class", "testStringReplaceAll", "()I"),
+            16
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
