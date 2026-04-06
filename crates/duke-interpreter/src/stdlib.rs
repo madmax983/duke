@@ -3881,6 +3881,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/LinkedList",
+        "<init>",
+        "(Ljava/util/Collection;)V",
+        native_linked_list_init_collection,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedList",
         "size",
         "()I",
         native_linked_list_size,
@@ -4656,13 +4662,75 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_collections_swap,
     );
 
-    // Collections.unmodifiableMap(map) — identity stub
+    // Collections.unmodifiableMap(map) — wraps in UnmodifiableMap
     registry.natives_mut().register(
         "java/util/Collections",
         "unmodifiableMap",
         "(Ljava/util/Map;)Ljava/util/Map;",
         native_collections_unmodifiable_map,
     );
+    // java/util/UnmodifiableMap — same layout as HashMap; reads delegate, writes throw
+    let unmod_map_ctx = ClassContext {
+        class_name: "java/util/UnmodifiableMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/Map".to_string()],
+        bootstrap_methods: Vec::new(),
+    };
+    registry.register(unmod_map_ctx);
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "get",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "containsKey",
+        "(Ljava/lang/Object;)Z",
+        native_hashmap_contains_key,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "size",
+        "()I",
+        native_hashmap_size,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "entrySet",
+        "()Ljava/util/Set;",
+        native_hashmap_entry_set,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "keySet",
+        "()Ljava/util/Set;",
+        native_hashmap_key_set,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "values",
+        "()Ljava/util/Collection;",
+        native_hashmap_values,
+    );
+    // Mutation ops throw UnsupportedOperationException
+    for (method, desc) in [
+        ("put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"),
+        ("remove", "(Ljava/lang/Object;)Ljava/lang/Object;"),
+        ("clear", "()V"),
+    ] {
+        registry.natives_mut().register(
+            "java/util/UnmodifiableMap",
+            method,
+            desc,
+            native_unmodifiable_list_mutation,
+        );
+    }
     // Collections.reverseOrder() — same as Comparator.reverseOrder()
     registry.natives_mut().register(
         "java/util/Collections",
