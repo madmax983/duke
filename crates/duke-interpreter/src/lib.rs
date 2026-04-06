@@ -20407,6 +20407,25 @@ pub(crate) fn native_arrays_sort_int(
     Ok(None)
 }
 
+/// Native: `Arrays.equals(int[], int[])boolean` — element-wise equality.
+pub(crate) fn native_arrays_equals_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> VmResult<Option<Slot>> {
+    let a_ref = extract_ref_arg(args, 0)?;
+    let b_ref = extract_ref_arg(args, 1)?;
+    let a_fields = heap.get(a_ref)?.fields.clone();
+    let b_fields = heap.get(b_ref)?.fields.clone();
+    let equal = a_fields.len() == b_fields.len()
+        && a_fields.iter().zip(&b_fields).all(|(x, y)| match (x, y) {
+            (Slot::Int(a), Slot::Int(b)) => a == b,
+            _ => false,
+        });
+    Ok(Some(Slot::Int(i32::from(equal))))
+}
+
 // ---------------------------------------------------------------------------
 // Phase 44: Arrays.copyOfRange, List.subList, Comparator.reversed,
 //           Collections.binarySearch, String.intern, ArrayList.removeIf
@@ -56783,6 +56802,77 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase103Test.class", "testCharacterDigit", "()I"),
             13
+        );
+    }
+
+    #[test]
+    fn test_p104_map_entryset_iteration() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testMapEntrySetIteration", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p104_stream_sorted_natural() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testStreamSortedNatural", "()I"),
+            1
+        );
+    }
+
+    #[test]
+    fn test_p104_optional_of_nullable() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testOptionalOfNullable", "()I"),
+            5
+        );
+    }
+
+    #[test]
+    fn test_p104_list_of() {
+        assert_eq!(run_bootstrap_int("Phase104Test.class", "testListOf", "()I"), 15);
+    }
+
+    #[test]
+    fn test_p104_map_of() {
+        assert_eq!(run_bootstrap_int("Phase104Test.class", "testMapOf", "()I"), 60);
+    }
+
+    #[test]
+    fn test_p104_set_of() {
+        assert_eq!(run_bootstrap_int("Phase104Test.class", "testSetOf", "()I"), 5);
+    }
+
+    #[test]
+    fn test_p104_string_valueof_char() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testStringValueOfChar", "()I"),
+            11
+        );
+    }
+
+    #[test]
+    fn test_p104_stream_collect_joining() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testStreamCollectJoining", "()I"),
+            12
+        );
+    }
+
+    #[test]
+    fn test_p104_collections_swap() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testCollectionsSwap", "()I"),
+            6
+        );
+    }
+
+    #[test]
+    fn test_p104_arrays_equals() {
+        assert_eq!(
+            run_bootstrap_int("Phase104Test.class", "testArraysEquals", "()I"),
+            1
         );
     }
 }

@@ -3740,6 +3740,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         .register("java/util/Arrays", "sort", "([I)V", native_arrays_sort_int);
     registry.natives_mut().register(
         "java/util/Arrays",
+        "equals",
+        "([I[I)Z",
+        native_arrays_equals_int,
+    );
+    registry.natives_mut().register(
+        "java/util/Arrays",
         "asList",
         "([Ljava/lang/Object;)Ljava/util/List;",
         native_arrays_as_list,
