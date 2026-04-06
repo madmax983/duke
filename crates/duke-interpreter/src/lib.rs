@@ -55545,6 +55545,76 @@ mod tests {
             6
         );
     }
+    #[test]
+    fn test_p90_char_array_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testCharArraySum", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p90_arrays_as_list_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testArraysAsListStream", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p90_collections_reverse() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testCollectionsReverse", "()I"),
+            6
+        );
+    }
+    #[test]
+    fn test_p90_collections_min_max() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testCollectionsMinMax", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p90_substring_chain() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testSubstringChain", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p90_static_fields() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testStaticFields", "()I"),
+            101
+        );
+    }
+    #[test]
+    fn test_p90_list_set() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testListSet", "()I"),
+            139
+        );
+    }
+    #[test]
+    fn test_p90_iterator_sum() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testIteratorSum", "()I"),
+            50
+        );
+    }
+    #[test]
+    fn test_p90_ternary_in_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testTernaryInStream", "()I"),
+            33
+        );
+    }
+    #[test]
+    fn test_p90_string_equality() {
+        assert_eq!(
+            run_bootstrap_int("Phase90Test.class", "testStringEquality", "()I"),
+            111
+        );
+    }
 }
 #[cfg(test)]
 mod fuzz;
