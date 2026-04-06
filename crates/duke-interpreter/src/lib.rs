@@ -8645,24 +8645,8 @@ pub(crate) fn native_comparing_comparator_compare(
             vec![fn_slot, b],
         )?
         .unwrap_or(Slot::Reference(None));
-    // Compare extracted keys via compareTo
-    let cmp = match (&ka, &kb) {
-        (Slot::Reference(Some(ra)), Slot::Reference(Some(rb))) => {
-            let sa = heap
-                .get(*ra)
-                .ok()
-                .and_then(|o| o.string_value.clone())
-                .unwrap_or_default();
-            let sb = heap
-                .get(*rb)
-                .ok()
-                .and_then(|o| o.string_value.clone())
-                .unwrap_or_default();
-            sa.cmp(&sb) as i32
-        }
-        (Slot::Int(a), Slot::Int(b)) => a.cmp(b) as i32,
-        _ => 0,
-    };
+    // Compare extracted keys via natural ordering (String, Integer, Long, or raw int).
+    let cmp = compare_treemap_keys(ka, kb, heap) as i32;
     Ok(Some(Slot::Int(cmp)))
 }
 
@@ -12487,7 +12471,7 @@ fn callback_invoke_registered_lambda(
     };
 
     let impl_args = adapt_args_for_impl_desc(&impl_args, &lambda_info.impl_desc, heap);
-    Ok(Some(execute_class(
+    let result = execute_class(
         registry,
         loader,
         heap,
@@ -12496,7 +12480,9 @@ fn callback_invoke_registered_lambda(
         &lambda_info.impl_method,
         &lambda_info.impl_desc,
         &impl_args,
-    )?))
+    )?;
+    let result = autobox_if_needed(result, &lambda_info.impl_desc, &lambda_info.sam_desc, heap)?;
+    Ok(Some(result))
 }
 
 impl CallbackOps for InterpreterCallbackOps<'_> {
@@ -55488,6 +55474,76 @@ mod tests {
         assert_eq!(
             run_bootstrap_int("Phase88Test.class", "testExceptionMessage", "()I"),
             9
+        );
+    }
+    #[test]
+    fn test_p89_map_put_if_absent() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testMapPutIfAbsent", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p89_map_merge() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testMapMerge", "()I"),
+            22
+        );
+    }
+    #[test]
+    fn test_p89_comparator_comparing() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testComparatorComparing", "()I"),
+            9
+        );
+    }
+    #[test]
+    fn test_p89_collections_frequency() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testCollectionsFrequency", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p89_string_chars_stream() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testStringCharsStream", "()I"),
+            3
+        );
+    }
+    #[test]
+    fn test_p89_list_contains() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testListContains", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p89_optional_map() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testOptionalMap", "()I"),
+            5
+        );
+    }
+    #[test]
+    fn test_p89_string_value_of() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testStringValueOf", "()I"),
+            10
+        );
+    }
+    #[test]
+    fn test_p89_int_stream_range() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testIntStreamRange", "()I"),
+            15
+        );
+    }
+    #[test]
+    fn test_p89_map_for_each() {
+        assert_eq!(
+            run_bootstrap_int("Phase89Test.class", "testMapForEach", "()I"),
+            6
         );
     }
 }
