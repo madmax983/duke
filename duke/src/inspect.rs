@@ -3,7 +3,11 @@ use duke_classfile::{parse, types::AttributeData};
 use duke_loader::ZipReader;
 use std::fs;
 
-#[allow(clippy::cast_precision_loss, clippy::case_sensitive_file_extension_comparisons, clippy::collapsible_if)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::case_sensitive_file_extension_comparisons,
+    clippy::collapsible_if
+)]
 pub fn inspect_jar(path: &str) {
     let bytes = fs::read(path).expect("Failed to read JAR file");
     let zip = ZipReader::from_bytes(bytes).expect("Failed to parse JAR/ZIP");
