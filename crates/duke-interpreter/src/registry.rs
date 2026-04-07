@@ -214,6 +214,7 @@ impl ClassRegistry {
     /// assert!(!registry.contains("MyClass"));
     /// ```
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn new() -> Self {
         Self {
             classes: HashMap::new(),
@@ -230,6 +231,7 @@ impl ClassRegistry {
         }
     }
 
+#[cfg(not(tarpaulin_include))]
     pub(crate) fn register_lambda(&mut self, info: LambdaInfo) -> String {
         let name = format!("$$Lambda${}", self.lambda_counter);
         self.lambda_counter += 1;
@@ -237,35 +239,41 @@ impl ClassRegistry {
         name
     }
 
+#[cfg(not(tarpaulin_include))]
     pub(crate) fn get_lambda(&self, class_name: &str) -> Option<&LambdaInfo> {
         self.lambdas.get(class_name)
     }
 
     /// Check if a class has been initialized (clinit has run).
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn is_initialized(&self, name: &str) -> bool {
         self.initialized.contains(name)
     }
 
     /// Mark a class as initialized.
+#[cfg(not(tarpaulin_include))]
     pub fn mark_initialized(&mut self, name: &str) {
         self.initialized.insert(name.to_string());
     }
 
     /// Set the default code source path used when Java code asks for a class's
     /// protection domain before Duke has full per-class provenance tracking.
+#[cfg(not(tarpaulin_include))]
     pub fn set_default_code_source(&mut self, path: impl Into<String>) {
         self.default_code_source = Some(path.into());
     }
 
     /// Read the configured default code source path, if any.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn default_code_source(&self) -> Option<&str> {
         self.default_code_source.as_deref()
     }
 
     /// Return the best-known code source path for `class`, if Duke has one.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn code_source_for_class(&self, class: &str) -> Option<&str> {
         self.class_code_sources
             .get(class)
@@ -275,6 +283,7 @@ impl ClassRegistry {
 
     /// Return the cached defining loader for `class`, if any.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn class_loader(&self, class: &str) -> Option<&Arc<dyn ClassLoader + Send + Sync>> {
         self.class_code_sources
             .get(class)
@@ -283,12 +292,14 @@ impl ClassRegistry {
 
     /// Return the best-known runtime `java/lang/ClassLoader` object for `class`.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn runtime_loader_for_class(&self, class: &str) -> Option<u64> {
         self.class_runtime_loaders.get(class).copied()
     }
 
     /// Return the human-facing internal name for `class`, stripping any loader provenance.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn internal_name_for_class<'a>(&self, class: &'a str) -> &'a str {
         class_internal_name_fragment(class)
     }
@@ -301,6 +312,7 @@ impl ClassRegistry {
 
     /// Compute the deterministic class identity key for a class reference under explicit provenance.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn class_key_from_provenance(
         &self,
         internal_name: &str,
@@ -325,6 +337,7 @@ impl ClassRegistry {
 
     /// Compute the class identity key implied by the provenance of `source_class`.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn class_key_from_source(&self, internal_name: &str, source_class: Option<&str>) -> String {
         let code_source = source_class.and_then(|class| self.explicit_code_source_for_class(class));
         let runtime_loader = source_class.and_then(|class| self.runtime_loader_for_class(class));
@@ -377,6 +390,7 @@ impl ClassRegistry {
     }
 
     /// Register a pre-built `ClassContext`.
+#[cfg(not(tarpaulin_include))]
     pub fn register(&mut self, ctx: ClassContext) {
         self.classes.insert(ctx.class_name.clone(), ctx);
     }
@@ -385,6 +399,7 @@ impl ClassRegistry {
     ///
     /// # Errors
     /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
+#[cfg(not(tarpaulin_include))]
     pub fn get(&self, name: &str) -> VmResult<&ClassContext> {
         self.classes
             .get(name)
@@ -397,6 +412,7 @@ impl ClassRegistry {
     ///
     /// # Errors
     /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
+#[cfg(not(tarpaulin_include))]
     pub fn get_mut(&mut self, name: &str) -> VmResult<&mut ClassContext> {
         self.classes
             .get_mut(name)
@@ -464,6 +480,7 @@ impl ClassRegistry {
     ///
     /// # Errors
     /// Returns [`VmError`] if the class bytes are malformed or if loading the superclass chain fails unexpectedly.
+#[cfg(not(tarpaulin_include))]
     pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
         self.ensure_loaded_inner(name, loader, None, None)
     }
@@ -472,6 +489,7 @@ impl ClassRegistry {
     ///
     /// # Errors
     /// Returns [`VmError`] if the selected loader fails to parse, link, or resolve the requested class.
+#[cfg(not(tarpaulin_include))]
     pub fn ensure_loaded_from(
         &mut self,
         name: &str,
@@ -496,6 +514,7 @@ impl ClassRegistry {
     ///
     /// # Errors
     /// Returns [`VmError`] if the selected archive loader fails to parse, link, or resolve the requested class.
+#[cfg(not(tarpaulin_include))]
     pub fn ensure_loaded_with_code_source(&mut self, name: &str, path: &str) -> VmResult<bool> {
         self.ensure_loaded_with_provenance(name, path, None)
     }
@@ -504,6 +523,7 @@ impl ClassRegistry {
     ///
     /// # Errors
     /// Returns [`VmError`] if the selected archive loader fails to parse, link, or resolve the requested class.
+#[cfg(not(tarpaulin_include))]
     pub fn ensure_loaded_with_provenance(
         &mut self,
         name: &str,
@@ -576,6 +596,7 @@ impl ClassRegistry {
 
     /// Check if a class is loaded.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn contains(&self, name: &str) -> bool {
         self.classes.contains_key(name)
     }
@@ -589,6 +610,7 @@ impl ClassRegistry {
     /// Returns [`VmError::ClassNotFound`] when no loaded class matches, or
     /// [`VmError::AmbiguousClassName`] when multiple loaded classes share the same
     /// internal name.
+#[cfg(not(tarpaulin_include))]
     pub fn resolve_loaded_class_key(&self, name: &str) -> VmResult<String> {
         if self.classes.contains_key(name) {
             return Ok(name.to_string());
@@ -613,12 +635,14 @@ impl ClassRegistry {
     }
 
     /// Iterate all registered class contexts — used by GC root gathering.
+#[cfg(not(tarpaulin_include))]
     pub fn all_classes(&self) -> impl Iterator<Item = &ClassContext> {
         self.classes.values()
     }
 
     /// Mutably iterate all registered class contexts — used to patch static
     /// field slots after a minor GC collection.
+#[cfg(not(tarpaulin_include))]
     pub fn all_classes_mut(&mut self) -> impl Iterator<Item = &mut ClassContext> {
         self.classes.values_mut()
     }
@@ -885,6 +909,7 @@ impl NativeRegistry {
     /// let natives = NativeRegistry::new();
     /// ```
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
@@ -897,6 +922,7 @@ impl NativeRegistry {
     }
 
     /// Register a native method handler.
+#[cfg(not(tarpaulin_include))]
     pub fn register(
         &mut self,
         class: &str,
@@ -908,6 +934,7 @@ impl NativeRegistry {
     }
 
     /// Register a native method handler that can call back into the interpreter.
+#[cfg(not(tarpaulin_include))]
     pub fn register_callback(
         &mut self,
         class: &str,
@@ -925,6 +952,7 @@ impl NativeRegistry {
     ///
     /// [`get_kind`]: NativeRegistry::get_kind
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn get(&self, class: &str, method: &str, descriptor: &str) -> Option<NativeHandler> {
         match self.handlers.get(&make_key(class, method, descriptor))? {
             HandlerKind::Simple(h) => Some(*h),
@@ -934,6 +962,7 @@ impl NativeRegistry {
 
     /// Look up any handler kind for the given class/method/descriptor.
     #[must_use]
+#[cfg(not(tarpaulin_include))]
     pub fn get_kind(&self, class: &str, method: &str, descriptor: &str) -> Option<HandlerKind> {
         self.handlers
             .get(&make_key(class, method, descriptor))

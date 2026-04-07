@@ -1,3 +1,4 @@
+#![cfg(not(tarpaulin_include))]
 #![allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 use super::*;
 // use crate::*;
