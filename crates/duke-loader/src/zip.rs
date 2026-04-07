@@ -1135,6 +1135,27 @@ mod tests {
         assert_eq!(bytes, app_class);
         std::fs::remove_file(&tmp).ok();
     }
+
+    #[test]
+    fn test_zip_missing_eocd() {
+        let zip_bytes = vec![0u8; 100];
+        let err = ZipReader::from_bytes(zip_bytes).unwrap_err();
+        assert!(
+            matches!(err, LoadError::ZipFormat { ref msg } if msg == "could not find end-of-central-directory record")
+        );
+    }
+
+    #[test]
+    fn test_zip_cd_extends_past_eof() {
+        let mut zip_bytes = build_stored_zip("test.txt", b"hello world");
+        let len = zip_bytes.len();
+        let eocd_pos = len - 22;
+        zip_bytes[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&u32::MAX.to_le_bytes());
+        let err = ZipReader::from_bytes(zip_bytes).unwrap_err();
+        assert!(
+            matches!(err, LoadError::ZipFormat { ref msg } if msg == "central directory extends past end of file")
+        );
+    }
 }
 
 #[cfg(test)]
