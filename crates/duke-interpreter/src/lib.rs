@@ -13,7 +13,7 @@ pub mod context;
 pub mod registry;
 /// Core standard library classes and methods bootstrap.
 pub mod stdlib;
-mod threading;
+pub mod threading;
 
 pub use context::*;
 pub use registry::*;
