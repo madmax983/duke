@@ -237,8 +237,8 @@ impl Heap {
         })
     }
 
-            #[allow(unexpected_cfgs)]
-#[cfg(not(tarpaulin_include))]
+    #[allow(unexpected_cfgs)]
+    #[cfg(not(tarpaulin_include))]
     #[cfg(unix)]
     fn exit_status_code(status: std::process::ExitStatus) -> i32 {
         use std::os::unix::process::ExitStatusExt;
@@ -248,8 +248,8 @@ impl Heap {
             .unwrap_or_else(|| status.signal().map_or(-1, |signal| 128 + signal))
     }
 
-            #[allow(unexpected_cfgs)]
-#[cfg(not(tarpaulin_include))]
+    #[allow(unexpected_cfgs)]
+    #[cfg(not(tarpaulin_include))]
     #[cfg(not(unix))]
     fn exit_status_code(status: std::process::ExitStatus) -> i32 {
         status.code().unwrap_or(-1)
