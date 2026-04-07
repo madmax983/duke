@@ -4,6 +4,29 @@ use crate::registry::ClassRegistry;
 use crate::*;
 use duke_runtime::Slot;
 
+/// Populates the `ClassRegistry` and `Heap` with synthetic Java standard library classes
+/// and native method handlers required for the interpreter to execute basic operations.
+///
+/// This function serves as the "JVM bootstrapper" for Duke's limited standard library.
+/// It registers hundreds of internal native handlers for core classes like `java/lang/Object`,
+/// `java/lang/String`, `java/util/ArrayList`, `java/lang/System`, and `java/io/PrintStream`.
+///
+/// # Examples
+///
+/// ```
+/// use duke_gc::Heap;
+/// use duke_interpreter::registry::ClassRegistry;
+/// use duke_interpreter::stdlib::bootstrap_stdlib;
+///
+/// let mut heap = Heap::new();
+/// let mut registry = ClassRegistry::new();
+///
+/// // Initialize standard library classes and native handlers
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // The registry should now contain core classes like `java/lang/System`
+/// assert!(registry.contains("java/lang/System"));
+/// ```
 #[allow(clippy::too_many_lines)]
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.

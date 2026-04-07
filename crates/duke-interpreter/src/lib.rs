@@ -11,6 +11,7 @@
 pub mod context;
 /// Repositories for loaded classes and registered native methods.
 pub mod registry;
+/// Standard library bootstrap logic and native method implementations.
 pub mod stdlib;
 mod threading;
 
