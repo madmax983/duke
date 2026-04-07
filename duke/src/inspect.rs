@@ -3,11 +3,7 @@ use duke_classfile::{parse, types::AttributeData};
 use duke_loader::ZipReader;
 use std::fs;
 
-#[allow(
-    clippy::cast_precision_loss,
-    clippy::case_sensitive_file_extension_comparisons,
-    clippy::collapsible_if
-)]
+#[allow(clippy::cast_precision_loss, clippy::case_sensitive_file_extension_comparisons, clippy::collapsible_if)]
 pub fn inspect_jar(path: &str) {
     let bytes = fs::read(path).expect("Failed to read JAR file");
     let zip = ZipReader::from_bytes(bytes).expect("Failed to parse JAR/ZIP");
@@ -91,5 +87,21 @@ mod tests {
             inspect_jar("non_existent_file.jar");
         });
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_inspect_jar_valid_file() {
+        // Find the fixtures directory. From `duke/src/inspect.rs`, the workspace root is `../`
+        let path1 = "../tests/fixtures/hello.jar";
+        let path2 = "tests/fixtures/hello.jar";
+        let path = if std::path::Path::new(path1).exists() {
+            path1
+        } else if std::path::Path::new(path2).exists() {
+            path2
+        } else {
+            panic!("Could not find hello.jar fixture");
+        };
+
+        inspect_jar(path);
     }
 }

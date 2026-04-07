@@ -7,7 +7,6 @@ use std::process;
 
 mod analyze;
 mod html;
-mod inspect;
 mod uml;
 
 use duke_bytecode::{decode, generate_mermaid_call_graph, generate_mermaid_cfg};
@@ -214,7 +213,6 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke html <classfile.class> [output.html]");
-        eprintln!("       duke inspect-jar <file.jar>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke cg <classfile.class>");
@@ -274,13 +272,6 @@ fn main() {
     }
 
     // Dispatch `analyze`: run static analysis on the class.
-
-    // Dispatch `inspect-jar`: analyze entire jar file
-    if args.len() >= 3 && args[1] == "inspect-jar" {
-        inspect::inspect_jar(&args[2]);
-        return;
-    }
-
     if args.len() >= 3 && args[1] == "analyze" {
         dump_analyze(&args[2]);
         return;
