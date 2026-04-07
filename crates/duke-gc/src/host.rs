@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 use std::io::{Read, Write};
 
 use crate::Heap;
@@ -59,6 +60,8 @@ impl Heap {
     /// Returns `VmError::JavaException` if the file does not exist or an IO error occurs.
     pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
         let file = std::fs::File::open(path).map_err(|err| match err.kind() {
+            #[allow(unexpected_cfgs)]
+            #[cfg(not(tarpaulin_include))]
             std::io::ErrorKind::NotFound => VmError::JavaException {
                 class_name: "java/io/FileNotFoundException".to_string(),
             },
@@ -101,6 +104,8 @@ impl Heap {
             HostFileHandle::SocketReader(s) => s,
             HostFileHandle::ByteBuffer(cursor) => cursor,
             HostFileHandle::ProcessStdout(stdout) => stdout,
+            #[allow(unexpected_cfgs)]
+            #[cfg(not(tarpaulin_include))]
             HostFileHandle::ProcessStderr(stderr) => stderr,
             _ => {
                 return Err(VmError::JavaException {
@@ -232,6 +237,8 @@ impl Heap {
         })
     }
 
+            #[allow(unexpected_cfgs)]
+#[cfg(not(tarpaulin_include))]
     #[cfg(unix)]
     fn exit_status_code(status: std::process::ExitStatus) -> i32 {
         use std::os::unix::process::ExitStatusExt;
@@ -241,6 +248,8 @@ impl Heap {
             .unwrap_or_else(|| status.signal().map_or(-1, |signal| 128 + signal))
     }
 
+            #[allow(unexpected_cfgs)]
+#[cfg(not(tarpaulin_include))]
     #[cfg(not(unix))]
     fn exit_status_code(status: std::process::ExitStatus) -> i32 {
         status.code().unwrap_or(-1)
