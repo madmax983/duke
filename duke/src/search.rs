@@ -5,6 +5,8 @@ use duke_classfile::{
 };
 use std::process;
 
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
