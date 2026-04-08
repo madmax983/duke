@@ -58,7 +58,27 @@ pub struct ClassFile {
     pub attributes: Vec<AttributeInfo>,
 }
 
-/// Field descriptor (§4.5).
+/// Represents a field declared within a Java class or interface (§4.5).
+///
+/// Why do we need this? A class without state is just a namespace of functions.
+/// `FieldInfo` defines the layout, type descriptors, and access modifiers of every instance
+/// and static field. Crucially, it also carries attributes—such as `ConstantValue` for
+/// primitive constants—which tell the JVM how to initialize static variables before any code runs.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::types::{FieldInfo, CpIndex};
+/// use duke_classfile::access_flags::FieldAccessFlags;
+///
+/// let field = FieldInfo {
+///     access_flags: FieldAccessFlags::PUBLIC,
+///     name_index: CpIndex(1),
+///     descriptor_index: CpIndex(2),
+///     attributes: vec![],
+/// };
+/// assert!(field.access_flags.contains(FieldAccessFlags::PUBLIC));
+/// ```
 #[derive(Debug, Clone)]
 pub struct FieldInfo {
     /// Access flags for the field.
@@ -71,7 +91,28 @@ pub struct FieldInfo {
     pub attributes: Vec<AttributeInfo>,
 }
 
-/// Method descriptor (§4.6).
+/// Represents a method or initialization routine within a class (§4.6).
+///
+/// Methods are the verbs of the JVM. This structure tells you the method's name, its descriptor
+/// (what arguments it takes and returns), and its access flags (is it `public`, `static`, or `native`?).
+///
+/// More importantly, if the method is not `native` or `abstract`, its `attributes` array will contain
+/// a [`crate::attributes::AttributeData::Code`] attribute—the raw bytecode instructions the interpreter must execute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::types::{MethodInfo, CpIndex};
+/// use duke_classfile::access_flags::MethodAccessFlags;
+///
+/// let method = MethodInfo {
+///     access_flags: MethodAccessFlags::PUBLIC,
+///     name_index: CpIndex(3),
+///     descriptor_index: CpIndex(4),
+///     attributes: vec![],
+/// };
+/// assert!(method.access_flags.contains(MethodAccessFlags::PUBLIC));
+/// ```
 #[derive(Debug, Clone)]
 pub struct MethodInfo {
     /// Access flags for the method.
