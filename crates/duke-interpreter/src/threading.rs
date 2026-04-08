@@ -1,4 +1,12 @@
 //! `duke-interpreter::threading` — Thread management
+//!
+//! This module provides the internal execution scaffold for handling Java threads
+//! within the interpreter. Because Duke runs as a single-threaded execution loop
+//! at its core, it requires a way to track, suspend, and synchronize independent
+//! Java execution contexts without natively blocking the Rust host thread.
+//!
+//! The structures here (like `ThreadRuntime` and `SharedOutput`) allow native methods
+//! to register new threads and coordinate standard output safely across execution frames.
 
 #![allow(dead_code)]
 
@@ -19,6 +27,19 @@ pub struct SharedOutput {
 }
 
 impl SharedOutput {
+    /// Creates a new `SharedOutput` instance with an empty buffer.
+    ///
+    /// This is used when a background Java thread needs to write to `System.out`
+    /// or `System.err`. By allocating a fresh buffer, we avoid interleaving
+    /// byte streams directly to the host's stdout until the interpreter loop
+    /// decides it is safe to flush.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::SharedOutput;
+    /// let output = SharedOutput::new();
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -29,6 +50,19 @@ impl SharedOutput {
         Self { buffer }
     }
 
+    /// Extracts a thread-safe, clonable reference to the underlying output buffer.
+    ///
+    /// The buffer is wrapped in an `Arc<Mutex<..>>` because native handlers
+    /// and the interpreter loop both need to push and drain bytes concurrently
+    /// without violating Rust's aliasing rules.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::SharedOutput;
+    /// let output = SharedOutput::new();
+    /// let buffer = output.buffer();
+    /// ```
     #[must_use]
     pub fn buffer(&self) -> Arc<Mutex<Vec<u8>>> {
         Arc::clone(&self.buffer)
@@ -73,6 +107,18 @@ pub struct ThreadRuntime {
 }
 
 impl ThreadRuntime {
+    /// Allocates a new empty `ThreadRuntime`.
+    ///
+    /// The runtime begins at thread ID 0 and holds no active worker records.
+    /// This is typically instantiated once per JVM launch to act as the global
+    /// scoreboard for active threads.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::ThreadRuntime;
+    /// let runtime = ThreadRuntime::new();
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -83,6 +129,20 @@ impl ThreadRuntime {
         self.next_thread_id
     }
 
+    /// Calculates the number of currently active, unfinished Java threads.
+    ///
+    /// The JVM specification dictates that the virtual machine cannot exit
+    /// until all non-daemon threads have completed. This method provides the
+    /// interpreter loop with that termination signal.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
+    /// let mut runtime = ThreadRuntime::new();
+    /// runtime.register(ThreadRecord::new(123, 0));
+    /// assert_eq!(runtime.live_workers(), 1);
+    /// ```
     #[must_use]
     pub fn live_workers(&self) -> usize {
         self.records
@@ -91,6 +151,18 @@ impl ThreadRuntime {
             .count()
     }
 
+    /// Exposes a read-only view of all recorded Java threads.
+    ///
+    /// This is used primarily by garbage collection to scan active threads
+    /// for root object references to prevent premature reclamation.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::ThreadRuntime;
+    /// let runtime = ThreadRuntime::new();
+    /// assert_eq!(runtime.records().len(), 0);
+    /// ```
     #[must_use]
     pub fn records(&self) -> &[ThreadRecord] {
         &self.records
@@ -103,11 +175,38 @@ impl ThreadRuntime {
         id
     }
 
+    /// Injects a newly allocated Java thread into the interpreter's lifecycle manager.
+    ///
+    /// Without registering the thread record, the interpreter loop will not track
+    /// its termination, potentially causing the JVM to exit prematurely or leak resources.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
+    /// let mut runtime = ThreadRuntime::new();
+    /// runtime.register(ThreadRecord::new(123, 0));
+    /// ```
     pub fn register(&mut self, record: ThreadRecord) {
         self.records.push(record);
     }
 
-    /// Mark a worker as finished by thread id.
+    /// Flags a worker thread as completed using its underlying native OS ID.
+    ///
+    /// When a native thread executing a Java task completes, it must signal
+    /// the runtime so that `live_workers` can decrement, unblocking `Thread.join()`
+    /// calls and potentially allowing the JVM to shut down safely.
+    ///
+    /// Returns `true` if the thread was found and marked as finished; `false` otherwise.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
+    /// let mut runtime = ThreadRuntime::new();
+    /// runtime.register(ThreadRecord::new(123, 0));
+    /// assert!(runtime.mark_finished(0));
+    /// ```
     #[must_use]
     pub fn mark_finished(&mut self, thread_id: i32) -> bool {
         let Some(record) = self
@@ -120,7 +219,22 @@ impl ThreadRuntime {
         record.mark_finished()
     }
 
-    /// Mark a worker as finished by Java thread reference.
+    /// Flags a worker thread as completed using its JVM internal `java/lang/Thread` object reference.
+    ///
+    /// Similar to `mark_finished`, but operates on the heap reference rather than
+    /// the native ID. This is heavily utilized when resolving `Thread.join()` invocations,
+    /// where the caller only holds a reference to the target Java thread object.
+    ///
+    /// Returns `true` if the thread was found and marked as finished; `false` otherwise.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
+    /// let mut runtime = ThreadRuntime::new();
+    /// runtime.register(ThreadRecord::new(123, 0));
+    /// assert!(runtime.mark_finished_by_java_ref(123));
+    /// ```
     #[must_use]
     pub fn mark_finished_by_java_ref(&mut self, java_ref: u64) -> bool {
         let Some(record) = self
