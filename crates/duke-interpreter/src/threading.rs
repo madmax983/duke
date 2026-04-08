@@ -16,8 +16,13 @@ use std::time::Duration;
 /// Marker for a Java thread action that the runtime can pause on later.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThreadPause {
+    /// Instructs the current Java thread to sleep for the specified duration.
     Sleep(Duration),
-    Join { thread_id: i32 },
+    /// Instructs the current Java thread to wait until another thread finishes.
+    Join {
+        /// The internal runtime ID of the target thread to wait for.
+        thread_id: i32,
+    },
 }
 
 /// Shared output sink placeholder for future threaded interpreter writes.
@@ -45,6 +50,20 @@ impl SharedOutput {
         Self::default()
     }
 
+    /// Wraps an existing shared buffer into a `SharedOutput` instance.
+    ///
+    /// This is useful when you already have a byte buffer (perhaps passed in from
+    /// a different subsystem) and need to attach it to the threading machinery
+    /// for Java output redirection.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use std::sync::{Arc, Mutex};
+    /// use duke_interpreter::threading::SharedOutput;
+    /// let buffer = Arc::new(Mutex::new(Vec::new()));
+    /// let output = SharedOutput::from_buffer(buffer);
+    /// ```
     #[must_use]
     pub const fn from_buffer(buffer: Arc<Mutex<Vec<u8>>>) -> Self {
         Self { buffer }
@@ -72,13 +91,30 @@ impl SharedOutput {
 /// Minimal metadata for a Java thread record.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ThreadRecord {
+    /// The heap reference (object ID) of the underlying `java/lang/Thread` instance.
     pub java_ref: u64,
+    /// The internal runtime thread identifier.
     pub thread_id: i32,
+    /// Indicates whether the thread has completed execution.
     pub finished: bool,
+    /// Indicates whether the thread is a daemon thread.
+    /// The JVM will exit when only daemon threads remain.
     pub daemon: bool,
 }
 
 impl ThreadRecord {
+    /// Constructs a new active `ThreadRecord`.
+    ///
+    /// The thread is marked as unfinished and non-daemon by default.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::ThreadRecord;
+    /// let record = ThreadRecord::new(12345, 1);
+    /// assert_eq!(record.java_ref, 12345);
+    /// assert_eq!(record.thread_id, 1);
+    /// ```
     #[must_use]
     pub const fn new(java_ref: u64, thread_id: i32) -> Self {
         Self {
@@ -124,6 +160,15 @@ impl ThreadRuntime {
         Self::default()
     }
 
+    /// Peeks at the next available thread identifier without allocating it.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::ThreadRuntime;
+    /// let runtime = ThreadRuntime::new();
+    /// assert_eq!(runtime.next_thread_id(), 0);
+    /// ```
     #[must_use]
     pub const fn next_thread_id(&self) -> i32 {
         self.next_thread_id
@@ -168,6 +213,21 @@ impl ThreadRuntime {
         &self.records
     }
 
+    /// Retrieves the next available thread identifier and advances the counter.
+    ///
+    /// This ensures that every newly created Java thread receives a unique ID
+    /// within the `ThreadRuntime`.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_interpreter::threading::ThreadRuntime;
+    /// let mut runtime = ThreadRuntime::new();
+    /// let id1 = runtime.allocate_thread_id();
+    /// let id2 = runtime.allocate_thread_id();
+    /// assert_eq!(id1, 0);
+    /// assert_eq!(id2, 1);
+    /// ```
     #[must_use]
     pub const fn allocate_thread_id(&mut self) -> i32 {
         let id = self.next_thread_id;
