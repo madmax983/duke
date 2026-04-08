@@ -1,7 +1,5 @@
-#![cfg(not(tarpaulin_include))]
 #![allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 use super::*;
-// use crate::*;
 
 macro_rules! wrap_simple_native_for_tests {
         ($($name:ident),* $(,)?) => {

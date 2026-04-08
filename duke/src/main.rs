@@ -36,8 +36,6 @@ enum TelemetryDest {
 }
 
 /// Strip `--jdk=<path>` or `--jdk <path>` from `args` and return the JDK home.
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
     let mut jdk = std::env::var("JAVA_HOME").ok();
     let mut remove_next = false;
@@ -61,8 +59,6 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
 }
 
 /// Strip `-jar <path>` or `--jar <path>` from `args` and return the JAR path.
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn extract_jar_flag(args: &mut Vec<String>) -> Option<String> {
     let mut jar = None;
     let mut remove_next = false;
@@ -91,8 +87,6 @@ impl ClassLoader for CliLoader {
     }
 }
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn make_loader(jdk_home: Option<&str>, classpath: &[std::path::PathBuf]) -> CliLoader {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
@@ -169,8 +163,6 @@ enum MermaidDest {
 
 /// Strip `--mermaid-heap[=path]` from `args` and return the configured destination.
 #[allow(dead_code)]
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn extract_mermaid_heap_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
     let mut result = None;
     args.retain(|arg| {
@@ -188,8 +180,6 @@ fn extract_mermaid_heap_flag(args: &mut Vec<String>) -> Option<MermaidDest> {
 }
 
 /// Strip `--telemetry[=path]` from `args` and return the configured destination.
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     let mut result = None;
     args.retain(|arg| {
@@ -214,7 +204,6 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
 }
 
 #[allow(clippy::too_many_lines)]
-#[cfg(not(tarpaulin_include))]
 #[cfg(not(tarpaulin_include))]
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
@@ -400,8 +389,6 @@ fn emit_telemetry(_registry: &ClassRegistry, dest: Option<TelemetryDest>) {
 /// directory and dump its structure.
 ///
 /// Example: `duke load HelloWorld` loads `./HelloWorld.class`.
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn load_and_dump(class_name: &str) {
     let loader = DirectoryLoader::new(".");
     let bytes = loader.find_class(class_name).unwrap_or_else(|e| {
@@ -422,8 +409,6 @@ fn load_and_dump(class_name: &str) {
 /// `duke exec <classfile.class> <method> [int-arg...]`
 ///
 /// Parses and executes a static method, printing the return value.
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn exec_method(
     args: &[String],
     telemetry: Option<TelemetryDest>,
@@ -528,8 +513,6 @@ fn exec_method(
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn run_main(
     args: &[String],
     telemetry: Option<TelemetryDest>,
@@ -611,8 +594,6 @@ fn run_main(
 /// `duke -jar <file.jar> [string-arg...]`
 ///
 /// Reads `META-INF/MANIFEST.MF` to discover `Main-Class`, then executes it.
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn run_jar(
     jar_path: &str,
     string_args: &[&str],
@@ -703,8 +684,6 @@ fn run_jar(
 // Dump
 // ---------------------------------------------------------------------------
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn dump_analyze(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -719,8 +698,6 @@ fn dump_analyze(path: &str) {
     println!("{report}");
 }
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn dump_uml(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -735,8 +712,6 @@ fn dump_uml(path: &str) {
     println!("{uml_diagram}");
 }
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn dump_html(path: &str, output_path: Option<&str>) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -759,8 +734,6 @@ fn dump_html(path: &str, output_path: Option<&str>) {
     }
 }
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn dump_cfg(path: &str, method_name: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -799,8 +772,6 @@ fn dump_cfg(path: &str, method_name: &str) {
     process::exit(1);
 }
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn dump_cg(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -902,8 +873,6 @@ mod cfg_tests {
     }
 }
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn generate_stubs(cf: &ClassFile) {
     println!("{}", generate_native_stubs_code(cf));
 }
@@ -916,8 +885,6 @@ use std::fmt::Write;
 /// a `register_natives` function to bind the handlers, along with placeholder stub
 /// implementations for each native method that return `VmError::Unimplemented`.
 #[must_use]
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
     let mut out = String::new();
     let class_name = resolve_class_name(cf, cf.this_class);
@@ -980,8 +947,6 @@ pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
     out
 }
 
-#[cfg(not(tarpaulin_include))]
-#[cfg(not(tarpaulin_include))]
 fn dump_class_file(cf: &ClassFile) {
     let this_name = resolve_class_name(cf, cf.this_class);
     let super_name = resolve_class_name(cf, cf.super_class);
