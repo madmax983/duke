@@ -8,6 +8,7 @@ use std::process;
 mod analyze;
 mod deps_graph;
 mod html;
+mod search;
 mod uml;
 
 use duke_bytecode::{decode, generate_mermaid_call_graph, generate_mermaid_cfg};
@@ -221,6 +222,7 @@ fn main() {
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
+        eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke uml <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
@@ -272,6 +274,12 @@ fn main() {
     // Dispatch `cg`: dump call graph for a class.
     if args.len() >= 3 && args[1] == "cg" {
         dump_cg(&args[2]);
+        return;
+    }
+
+    // Dispatch `search`: search for opcodes in class methods.
+    if args.len() >= 4 && args[1] == "search" {
+        search::dump_search(&args[2], &args[3]);
         return;
     }
 
