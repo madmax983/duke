@@ -1,8 +1,39 @@
 //! `duke-classfile::error` — [`ParseError`] and related types
+//!
+//! Why does parsing a class file fail? Because the Java Virtual Machine is a strict taskmaster.
+//! When reading binary bytes, any malformed magic number, truncated byte stream, or invalid
+//! constant pool index means the file is fundamentally corrupt. This module provides a detailed
+//! [`enum@Error`] enumeration so that when a failure occurs, a tired developer at 3 AM knows exactly
+//! *where* and *why* it happened—whether it was a missing byte or an invalid UTF-8 string.
+//!
+//! # Examples
+//!
+//! ```
+//! use duke_classfile::error::Error;
+//!
+//! let err = Error::CpIndexZero;
+//! assert_eq!(err.to_string(), "constant pool index 0 is reserved and must not be used");
+//! ```
 
 use thiserror::Error;
 
-/// Errors that can occur while parsing a JVM `.class` file.
+/// The grand catalog of everything that can go wrong when reading a JVM `.class` file.
+///
+/// We don't just return a generic "parse failed" message. We want you to know the exact
+/// offset of the truncation, the specific invalid magic number, or the out-of-bounds
+/// [`crate::constant_pool::CpIndex`]. Use these variants to log precise, helpful diagnostics.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::error::Error;
+///
+/// let err = Error::UnexpectedEof { offset: 42 };
+/// match err {
+///     Error::UnexpectedEof { offset } => assert_eq!(offset, 42),
+///     _ => panic!("Expected UnexpectedEof"),
+/// }
+/// ```
 #[derive(Debug, Error)]
 pub enum Error {
     /// Expected more bytes to parse but reached the end of the file.
