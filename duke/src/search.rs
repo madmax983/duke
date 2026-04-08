@@ -18,6 +18,8 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
 pub fn dump_search(path: &str, query: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -77,10 +79,7 @@ mod tests {
         let cf = ClassFile {
             major_version: 61,
             minor_version: 0,
-            constant_pool: vec![
-                None,
-                Some(CpEntry::Utf8("testMethod".to_string())),
-            ],
+            constant_pool: vec![None, Some(CpEntry::Utf8("testMethod".to_string()))],
             access_flags: ClassAccessFlags::PUBLIC,
             this_class: CpIndex(0),
             super_class: CpIndex(0),
