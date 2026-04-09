@@ -60,6 +60,8 @@ pub fn dump_jar_analyze(jar_path: &str) {
     let mut total_methods = 0;
     let mut total_bytecode_bytes = 0;
 
+    #[cfg(not(tarpaulin_include))]
+    #[allow(unexpected_cfgs)]
     struct MethodRecord {
         class_name: String,
         method_name: String,
