@@ -232,7 +232,7 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
     let count = c.read_u16()? as usize;
     // Index 0 is unused; spec uses 1-based indexing.
     // `count` is one more than the actual number of entries.
-    let safe_count = count.min(c.remaining() / 1);
+    let safe_count = count.min(c.remaining());
     let mut pool: Vec<Option<CpEntry>> = Vec::with_capacity(safe_count);
     pool.push(None); // slot 0 — reserved
 
