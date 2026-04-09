@@ -171,7 +171,10 @@ impl ThreadRuntime {
     #[must_use]
     pub const fn allocate_thread_id(&mut self) -> i32 {
         let id = self.next_thread_id;
-        self.next_thread_id = self.next_thread_id.wrapping_add(1);
+        self.next_thread_id = self
+            .next_thread_id
+            .checked_add(1)
+            .expect("thread ID overflow");
         id
     }
 
@@ -296,10 +299,12 @@ mod havoc_proptest {
 
     proptest! {
         #[test]
+        #[should_panic(expected = "thread ID overflow")]
         fn test_allocate_thread_id_overflow(start in i32::MAX - 10..=i32::MAX) {
             let mut runtime = ThreadRuntime { next_thread_id: start, records: vec![] };
-            let _ = runtime.allocate_thread_id();
-            let _ = runtime.allocate_thread_id();
+            for _ in 0..20 {
+                let _ = runtime.allocate_thread_id();
+            }
         }
     }
 }
