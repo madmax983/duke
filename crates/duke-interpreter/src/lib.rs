@@ -20790,6 +20790,7 @@ pub(crate) fn native_arrays_sort_int(
 }
 
 /// Native: `Arrays.equals(int[], int[])boolean` — element-wise equality.
+/// ⚡ Bolt: Avoids `Vec` cloning during equality checks to eliminate O(N) heap allocations.
 pub(crate) fn native_arrays_equals_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -20798,13 +20799,16 @@ pub(crate) fn native_arrays_equals_int(
 ) -> VmResult<Option<Slot>> {
     let a_ref = extract_ref_arg(args, 0)?;
     let b_ref = extract_ref_arg(args, 1)?;
-    let a_fields = heap.get(a_ref)?.fields.clone();
-    let b_fields = heap.get(b_ref)?.fields.clone();
+    let a_fields = &heap.get(a_ref)?.fields;
+    let b_fields = &heap.get(b_ref)?.fields;
     let equal = a_fields.len() == b_fields.len()
-        && a_fields.iter().zip(&b_fields).all(|(x, y)| match (x, y) {
-            (Slot::Int(a), Slot::Int(b)) => a == b,
-            _ => false,
-        });
+        && a_fields
+            .iter()
+            .zip(b_fields.iter())
+            .all(|(x, y)| match (x, y) {
+                (Slot::Int(a), Slot::Int(b)) => a == b,
+                _ => false,
+            });
     Ok(Some(Slot::Int(i32::from(equal))))
 }
 
@@ -28534,6 +28538,7 @@ pub(crate) fn native_localdatetime_to_local_date(
 }
 
 /// Native: `LocalDateTime.isBefore(LocalDateTime) -> boolean`
+/// ⚡ Bolt: Avoids `Vec` cloning during comparisons to eliminate O(N) heap allocations.
 pub(crate) fn native_localdatetime_is_before(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -28554,8 +28559,8 @@ pub(crate) fn native_localdatetime_is_before(
         return Ok(Some(Slot::Int(i32::from(a_epoch < b_epoch))));
     }
     // same day — compare time fields
-    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
-    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
+    let fields_a = &heap.get(this_ref)?.fields;
+    let fields_b = &heap.get(other_ref)?.fields;
     for idx in 1..=3 {
         let a = match fields_a.get(idx) {
             Some(Slot::Int(v)) => *v,
@@ -28573,6 +28578,7 @@ pub(crate) fn native_localdatetime_is_before(
 }
 
 /// Native: `LocalDateTime.isAfter(LocalDateTime) -> boolean`
+/// ⚡ Bolt: Avoids `Vec` cloning during comparisons to eliminate O(N) heap allocations.
 pub(crate) fn native_localdatetime_is_after(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -28592,8 +28598,8 @@ pub(crate) fn native_localdatetime_is_after(
     if a_epoch != b_epoch {
         return Ok(Some(Slot::Int(i32::from(a_epoch > b_epoch))));
     }
-    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
-    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
+    let fields_a = &heap.get(this_ref)?.fields;
+    let fields_b = &heap.get(other_ref)?.fields;
     for idx in 1..=3 {
         let a = match fields_a.get(idx) {
             Some(Slot::Int(v)) => *v,
