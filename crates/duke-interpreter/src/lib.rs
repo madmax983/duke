@@ -11596,6 +11596,22 @@ fn format_java_double(v: f64) -> String {
 /// # Errors
 /// Returns [`VmError`] on execution faults (division by zero, stack overflow,
 /// unimplemented instruction, etc.).
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::Instruction;
+/// use duke_runtime::Slot;
+/// use duke_interpreter::execute;
+///
+/// let instructions = vec![
+///     (0, Instruction::Iconst5),
+///     (1, Instruction::Ireturn),
+/// ];
+/// let cp = vec![];
+/// let result = execute(&instructions, &cp, vec![], 1, 0).unwrap();
+/// assert_eq!(result, Some(Slot::Int(5)));
+/// ```
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
@@ -13584,6 +13600,26 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
 /// # Panics
 /// Panics on internal invariant violations, such as a `Class` CP entry whose
 /// name index refers to a non-`Utf8` entry (indicates a malformed class file).
+///
+/// # Examples
+///
+/// ```
+/// use std::io::sink;
+/// use duke_runtime::Slot;
+/// use duke_gc::Heap;
+/// use duke_loader::directory::DirectoryLoader;
+/// use duke_interpreter::{execute_class, ClassRegistry};
+///
+/// let mut registry = ClassRegistry::new();
+/// let loader = DirectoryLoader::new("my_classes");
+/// let mut heap = Heap::new();
+/// let mut out = sink();
+///
+/// // We simulate execution by calling execute_class.
+/// // It fails here with a missing class error, but demonstrates the setup.
+/// let res = execute_class(&mut registry, &loader, &mut heap, &mut out, "java/lang/Object", "hashCode", "()I", &[]);
+/// assert!(res.is_err());
+/// ```
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
