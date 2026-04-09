@@ -5,8 +5,6 @@ use duke_classfile::{
 };
 use std::process;
 
-#[cfg(not(tarpaulin_include))]
-#[allow(unexpected_cfgs)]
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
@@ -20,8 +18,6 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
-#[cfg(not(tarpaulin_include))]
-#[allow(unexpected_cfgs)]
 pub fn dump_search(path: &str, query: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
