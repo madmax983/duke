@@ -1,5 +1,10 @@
 #![allow(clippy::items_after_statements)]
-#![allow(clippy::case_sensitive_file_extension_comparisons, clippy::collapsible_if, clippy::cast_precision_loss, clippy::cast_lossless)]
+#![allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    clippy::collapsible_if,
+    clippy::cast_precision_loss,
+    clippy::cast_lossless
+)]
 use duke_bytecode::{cyclomatic_complexity, decode};
 use duke_classfile::{
     parse,
@@ -43,6 +48,8 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
 pub fn dump_jar_analyze(jar_path: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         eprintln!("duke: failed to open JAR '{jar_path}': {e}");
