@@ -148,7 +148,10 @@ impl ZipReader {
         let offset = info.local_header_offset as usize;
 
         // Validate local file header signature.
-        if offset + 30 > self.data.len() {
+        let sig_offset = offset.checked_add(30).ok_or_else(|| LoadError::ZipFormat {
+            msg: format!("local header at offset {offset} overflows"),
+        })?;
+        if sig_offset > self.data.len() {
             return Err(LoadError::ZipFormat {
                 msg: format!("local header at offset {offset} is truncated"),
             });
@@ -163,10 +166,23 @@ impl ZipReader {
         // Read local header's own filename_len and extra_len to find data start.
         let filename_len = read_u16_le(&self.data, offset + 26) as usize;
         let extra_len = read_u16_le(&self.data, offset + 28) as usize;
-        let data_start = offset + 30 + filename_len + extra_len;
+        let data_start = offset
+            .checked_add(30)
+            .and_then(|x| x.checked_add(filename_len))
+            .and_then(|x| x.checked_add(extra_len))
+            .ok_or_else(|| LoadError::ZipFormat {
+                msg: format!("entry '{}' local header lengths overflow", info.name),
+            })?;
         let compressed_size = info.compressed_size as usize;
 
-        if data_start + compressed_size > self.data.len() {
+        let end_pos =
+            data_start
+                .checked_add(compressed_size)
+                .ok_or_else(|| LoadError::ZipFormat {
+                    msg: format!("entry '{}' data extends past end of archive", info.name),
+                })?;
+
+        if end_pos > self.data.len() {
             return Err(LoadError::ZipFormat {
                 msg: format!("entry '{}' data extends past end of archive", info.name),
             });
@@ -1188,5 +1204,28 @@ mod proptests {
 
             let _ = reader.read_entry_info(&info);
         }
+    }
+}
+
+#[cfg(test)]
+mod havoc_tests {
+    use super::*;
+
+    #[test]
+    fn havoc_zip_panic_read_entry_info_start_overflow() {
+        let info = ZipEntryInfo {
+            name: "dummy".to_string(),
+            local_header_offset: usize::MAX as u64 - 10,
+            compressed_size: 100,
+            uncompressed_size: 0,
+            compression_method: 0,
+            crc32: 0,
+        };
+        let data = vec![0; 46];
+        let reader = ZipReader {
+            data,
+            index: std::collections::HashMap::new(),
+        };
+        let _ = reader.read_entry_info(&info);
     }
 }
