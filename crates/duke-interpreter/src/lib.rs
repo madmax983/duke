@@ -19015,6 +19015,9 @@ fn slot_to_string(slot: Slot, heap: &duke_gc::Heap) -> String {
 }
 
 /// Native: `StringJoiner.toString()String` — builds the joined result.
+///
+/// ⚡ Bolt Optimization: Eliminated intermediate `Vec<String>` allocation and format
+/// macro overhead by appending directly to a single String buffer.
 pub(crate) fn native_stringjoiner_tostring(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -19057,8 +19060,17 @@ pub(crate) fn native_stringjoiner_tostring(
         fields.get(2).copied().unwrap_or(Slot::Reference(None)),
         heap,
     );
-    let parts: Vec<String> = elems.iter().map(|s| slot_to_string(*s, heap)).collect();
-    let result = format!("{}{}{}", prefix, parts.join(&delim), suffix);
+    // ⚡ Bolt: Eliminate intermediate Vec<String> allocation and format! macro overhead
+    // by appending directly to a single String buffer.
+    let mut result = String::new();
+    result.push_str(&prefix);
+    for (i, elem) in elems.iter().enumerate() {
+        if i > 0 {
+            result.push_str(&delim);
+        }
+        result.push_str(&slot_to_string(*elem, heap));
+    }
+    result.push_str(&suffix);
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
