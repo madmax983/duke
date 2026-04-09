@@ -310,6 +310,12 @@ impl ThreadRuntime {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mark_finished_returns_false_for_unknown_thread_id() {
+        let mut runtime = ThreadRuntime::new();
+        assert!(!runtime.mark_finished(999));
+    }
+
     use super::*;
 
     #[test]
