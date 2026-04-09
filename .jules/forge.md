@@ -1,3 +1,3 @@
 **Extract God Function**
-**Learning:** `bootstrap_stdlib` was over 3600 lines long, a classic God Function anti-pattern that cluttered the `lib.rs` file. Moving it to its own file dramatically improved readability.
-**Action:** Always look for massive setup or registration functions and extract them to dedicated modules, using `pub(crate)` to share internal helpers.
+**Learning:** `apply_format_width` suffered from Boolean Blindness, taking multiple un-typed boolean flags for alignment behavior, reducing clarity at call sites.
+**Action:** Replaced ambiguous boolean flags with a strictly typed enum (`FormatAlignment`), using Guard Clauses internally, to improve clarity and type safety.

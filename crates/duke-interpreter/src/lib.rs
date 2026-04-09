@@ -9626,23 +9626,30 @@ pub(crate) fn native_string_concat(
 
 /// Formats a single boxed slot value using the given format specifier.
 /// Apply width/alignment/flags to an already-formatted value string.
-fn apply_format_width(s: String, width: usize, left_align: bool, zero_pad: bool) -> String {
+enum FormatAlignment {
+    Left,
+    RightZeroPad,
+    RightSpacePad,
+}
+
+/// Apply width/alignment/flags to an already-formatted value string.
+fn apply_format_width(s: String, width: usize, alignment: FormatAlignment) -> String {
     if s.len() >= width {
         return s;
     }
     let pad = width - s.len();
-    if left_align {
-        format!("{s}{}", " ".repeat(pad))
-    } else if zero_pad {
-        // zero-pad: insert zeros after optional sign
-        if s.starts_with('-') || s.starts_with('+') {
-            let (sign, rest) = s.split_at(1);
-            format!("{sign}{}{rest}", "0".repeat(pad))
-        } else {
-            format!("{}{s}", "0".repeat(pad))
+    match alignment {
+        FormatAlignment::Left => format!("{s}{}", " ".repeat(pad)),
+        FormatAlignment::RightZeroPad => {
+            // zero-pad: insert zeros after optional sign
+            if s.starts_with('-') || s.starts_with('+') {
+                let (sign, rest) = s.split_at(1);
+                format!("{sign}{}{rest}", "0".repeat(pad))
+            } else {
+                format!("{}{s}", "0".repeat(pad))
+            }
         }
-    } else {
-        format!("{}{s}", " ".repeat(pad))
+        FormatAlignment::RightSpacePad => format!("{}{s}", " ".repeat(pad)),
     }
 }
 
@@ -9807,7 +9814,16 @@ fn format_arg(
 
     Ok(match width {
         None => raw,
-        Some(w) => apply_format_width(raw, w, left_align, zero_pad),
+        Some(w) => {
+            let alignment = if left_align {
+                FormatAlignment::Left
+            } else if zero_pad {
+                FormatAlignment::RightZeroPad
+            } else {
+                FormatAlignment::RightSpacePad
+            };
+            apply_format_width(raw, w, alignment)
+        }
     })
 }
 
