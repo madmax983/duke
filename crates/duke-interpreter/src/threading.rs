@@ -168,6 +168,11 @@ impl ThreadRuntime {
         &self.records
     }
 
+    /// Allocates a unique thread ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the thread ID counter exceeds `i32::MAX`.
     #[must_use]
     pub const fn allocate_thread_id(&mut self) -> i32 {
         let id = self.next_thread_id;
