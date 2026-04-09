@@ -12,3 +12,6 @@
 **[Split ClassFile types]
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+**Extract JVM native method implementations**
+**Tangle:** `duke-interpreter/src/lib.rs` had grown into a massive "Blob" anti-pattern again (over 28,000 lines), mixing the core execution engine with hundreds of JVM standard library native method implementations (`pub(crate) fn native_*`).
+**Blueprint:** Extracted all `native_*` implementations and their corresponding helper methods and tests into a new `crates/duke-interpreter/src/native.rs` module, keeping the core interpreter execution loop clean and cohesive in `lib.rs`.

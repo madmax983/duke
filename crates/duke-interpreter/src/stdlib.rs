@@ -1,7 +1,9 @@
 use crate::context::{ClassContext, ClassLoadSource, FieldEntry};
-use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
-use crate::*;
+use crate::native::*;
+use crate::registry::ClassRegistry;
+use crate::{NativeHandler, NativeControl, VmResult, VmError};
+use std::io::Write;
 use duke_runtime::Slot;
 
 #[allow(clippy::too_many_lines)]
