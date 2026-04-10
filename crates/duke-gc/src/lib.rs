@@ -2506,3 +2506,98 @@ fn socket_operations() {
     heap.close_host_file(client_fd.1);
     heap.close_host_file(server_fd);
 }
+
+#[test]
+fn should_return_error_when_opening_non_existent_file() {
+    let mut heap = Heap::new();
+    let path = std::env::temp_dir().join(format!(
+        "does_not_exist_abc123_{}",
+        std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()
+    ));
+    let res = heap.open_host_input_file(&path);
+    assert!(
+        matches!(res, Err(duke_runtime::error::VmError::JavaException { ref class_name }) if class_name == "java/io/FileNotFoundException")
+    );
+}
+
+#[test]
+fn should_return_error_when_opening_directory_as_file() {
+    let mut heap = Heap::new();
+    let dir_path = std::env::temp_dir().join(format!(
+        "dummy_dir_in_{}",
+        std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()
+    ));
+    std::fs::create_dir_all(&dir_path).unwrap();
+    let res = heap.open_host_input_file(&dir_path);
+    if let Ok(id) = res {
+        let read_res = heap.read_host_file_byte(id);
+        assert!(read_res.is_err());
+    } else {
+        assert!(
+            matches!(res, Err(duke_runtime::error::VmError::JavaException { ref class_name }) if class_name == "java/io/IOException")
+        );
+    }
+    std::fs::remove_dir(dir_path).unwrap();
+}
+
+#[test]
+fn should_return_error_when_opening_directory_as_output_file() {
+    let mut heap = Heap::new();
+    let dir_path = std::env::temp_dir().join(format!(
+        "dummy_dir_out_{}",
+        std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()
+    ));
+    std::fs::create_dir_all(&dir_path).unwrap();
+    let res = heap.open_host_output_file(&dir_path);
+    assert!(
+        matches!(res, Err(duke_runtime::error::VmError::JavaException { ref class_name }) if class_name == "java/io/IOException")
+    );
+    std::fs::remove_dir(dir_path).unwrap();
+}
+
+#[test]
+fn should_return_error_when_reading_from_writer_or_invalid_handle() {
+    let mut heap = Heap::new();
+    let file_path = std::env::temp_dir().join(format!(
+        "dummy_out_{}.txt",
+        std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()
+    ));
+    std::fs::write(&file_path, b"a").unwrap();
+    let file_id = heap.open_host_output_file(&file_path).unwrap();
+    let res2 = heap.read_host_file_byte(file_id);
+    assert!(
+        matches!(res2, Err(duke_runtime::error::VmError::JavaException { ref class_name }) if class_name == "java/io/IOException")
+    );
+    std::fs::remove_file(file_path).unwrap();
+}
+
+#[test]
+fn should_return_error_when_writing_to_reader_or_invalid_handle() {
+    let mut heap = Heap::new();
+    let file_path = std::env::temp_dir().join(format!(
+        "dummy_in_{}.txt",
+        std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()
+    ));
+    std::fs::write(&file_path, b"a").unwrap();
+    let file_id = heap.open_host_input_file(&file_path).unwrap();
+    let res2 = heap.write_host_file_byte(file_id, 1);
+    assert!(
+        matches!(res2, Err(duke_runtime::error::VmError::JavaException { ref class_name }) if class_name == "java/io/IOException")
+    );
+    std::fs::remove_file(file_path).unwrap();
+}
+
+#[test]
+fn should_return_zip_exception_when_opening_invalid_zip() {
+    let mut heap = Heap::new();
+    let file_path = std::env::temp_dir().join(format!(
+        "dummy_invalid_{}.zip",
+        std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()
+    ));
+    std::fs::write(&file_path, b"not a zip").unwrap();
+    let res = heap.open_host_zip(&file_path);
+    assert!(
+        matches!(res, Err(duke_runtime::error::VmError::JavaException { ref class_name }) if class_name == "java/util/zip/ZipException")
+    );
+    std::fs::remove_file(file_path).unwrap();
+}
