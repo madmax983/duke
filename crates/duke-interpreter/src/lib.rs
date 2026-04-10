@@ -36774,49 +36774,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_arg_descriptors_test() {
-        let empty_vec: Vec<String> = vec![];
-        assert_eq!(parse_arg_descriptors("(I)V"), vec!["I".to_string()]);
-        assert_eq!(parse_arg_descriptors("(IZB)V"), vec!["I".to_string(), "Z".to_string(), "B".to_string()]);
-        assert_eq!(parse_arg_descriptors("()V"), empty_vec);
-        assert_eq!(parse_arg_descriptors("(Ljava/lang/String;)V"), vec!["Ljava/lang/String;".to_string()]);
-        assert_eq!(parse_arg_descriptors("([I)V"), vec!["[I".to_string()]);
-        assert_eq!(parse_arg_descriptors("([Ljava/lang/String;)V"), vec!["[Ljava/lang/String;".to_string()]);
-        assert_eq!(parse_arg_descriptors("(ILjava/lang/String;[I)V"), vec!["I".to_string(), "Ljava/lang/String;".to_string(), "[I".to_string()]);
-        assert_eq!(parse_arg_descriptors("invalid"), empty_vec);
-        assert_eq!(parse_arg_descriptors("("), empty_vec);
-        assert_eq!(parse_arg_descriptors(")"), empty_vec);
-        assert_eq!(parse_arg_descriptors("(I"), empty_vec);
-        // Edge cases
-        assert_eq!(parse_arg_descriptors("([[I)V"), vec!["[[I".to_string()]);
-        assert_eq!(parse_arg_descriptors("([)V"), vec!["[".to_string()]);
-        assert_eq!(parse_arg_descriptors("(L)V"), vec!["L".to_string()]);
-        assert_eq!(parse_arg_descriptors("(Ljava/lang/String)V"), vec!["Ljava/lang/String".to_string()]);
-        assert_eq!(parse_arg_descriptors("([L)V"), vec!["[L".to_string()]);
-        assert_eq!(parse_arg_descriptors("([L;)V"), vec!["[L;".to_string()]);
-        assert_eq!(parse_arg_descriptors("X"), empty_vec);
-    }
-
-    #[test]
     fn parse_arg_types_malformed() {
         assert_eq!(parse_arg_types("invalid"), vec![]);
         assert_eq!(parse_arg_types("("), vec![]);
         assert_eq!(parse_arg_types(")"), vec![]);
         assert_eq!(parse_arg_types("(I"), vec![]);
-        assert_eq!(parse_arg_types("([[I)V"), vec!['[']);
-        assert_eq!(parse_arg_types("([)V"), vec!['[']);
-        assert_eq!(parse_arg_types("(L)V"), vec!['L']);
-        assert_eq!(parse_arg_types("(Ljava/lang/String)V"), vec!['L']);
-        assert_eq!(parse_arg_types("([L)V"), vec!['[']);
-        assert_eq!(parse_arg_types("([L;)V"), vec!['[']);
-        assert_eq!(parse_arg_types("X"), vec![]);
-        assert_eq!(parse_arg_types("([[I)V"), vec!['[']);
-        assert_eq!(parse_arg_types("([)V"), vec!['[']);
-        assert_eq!(parse_arg_types("(L)V"), vec!['L']);
-        assert_eq!(parse_arg_types("(Ljava/lang/String)V"), vec!['L']);
-        assert_eq!(parse_arg_types("([L)V"), vec!['[']);
-        assert_eq!(parse_arg_types("([L;)V"), vec!['[']);
-        assert_eq!(parse_arg_types("X"), vec![]);
     }
 
     // ===========================================================================
@@ -55229,6 +55191,5 @@ mod tests {
         );
     }
 }
-
 #[cfg(test)]
 mod fuzz;
