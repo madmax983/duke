@@ -2450,6 +2450,41 @@ fn spawn_host_process_invalid_command() {
 }
 
 #[test]
+fn should_return_error_when_reading_fails_with_io_error() {
+    let mut heap = Heap::new();
+    let temp_dir = std::env::temp_dir();
+    let result = heap.open_host_input_file(&temp_dir);
+    // On some OSes opening a dir as a file fails immediately.
+    // On others it succeeds but reading fails. We test both.
+    match result {
+        Ok(fd) => {
+            let err = heap.read_host_file_byte(fd).unwrap_err();
+            assert!(matches!(err, duke_runtime::VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        },
+        Err(err) => {
+            assert!(matches!(err, duke_runtime::VmError::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException" || class_name == "java/io/IOException"));
+        }
+    }
+}
+
+#[test]
+fn should_return_error_when_reading_closed_file_fails() {
+    let mut heap = Heap::new();
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join("test_file_to_close_and_fail_reading.txt");
+    std::fs::write(&temp_file, "a").unwrap();
+    let fd = heap.open_host_input_file(&temp_file).unwrap();
+
+    heap.close_host_file(fd);
+
+    // Now reading should fail with IOException because the handle is invalid
+    let err = heap.read_host_file_byte(fd).unwrap_err();
+    assert!(matches!(err, duke_runtime::VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+
+    let _ = std::fs::remove_file(&temp_file);
+}
+
+#[test]
 fn read_write_invalid_host_file_handle() {
     let mut heap = Heap::new();
     assert!(
@@ -2459,6 +2494,7 @@ fn read_write_invalid_host_file_handle() {
         matches!(heap.write_host_file_byte(999, 10), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
     );
 }
+
 
 #[test]
 fn process_wait_and_destroy_cycle() {
@@ -2484,6 +2520,36 @@ fn process_wait_and_destroy_cycle() {
 
     // destroy on a finished process is a no-op
     heap.destroy_host_process(p_ids.process_id).unwrap();
+}
+
+
+#[test]
+fn process_wait_io_error_on_invalid_handle() {
+    let mut heap = Heap::new();
+    assert!(heap.wait_host_process(999).is_err());
+    assert!(heap.try_host_process_exit_value(999).is_err());
+    assert!(heap.destroy_host_process(999).is_err());
+}
+
+
+
+#[test]
+fn should_return_error_when_server_socket_local_port_invalid() {
+    let heap = Heap::new();
+    let err = heap.server_socket_local_port(999).unwrap_err();
+    assert!(matches!(err, duke_runtime::VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+}
+
+#[test]
+fn should_return_error_when_server_socket_local_port_not_listener() {
+    let mut heap = Heap::new();
+    // Open a regular file
+    let temp_dir = std::env::temp_dir();
+    let fd = heap.open_host_input_file(&temp_dir).unwrap_or(0);
+    if fd > 0 {
+        let err = heap.server_socket_local_port(fd).unwrap_err();
+        assert!(matches!(err, duke_runtime::VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+    }
 }
 
 #[test]
