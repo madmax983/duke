@@ -390,7 +390,7 @@ pub(crate) fn native_file_input_stream_init(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path = path_from_string_slot(args, 1, heap)?;
-    let file_id = heap.host.open_host_input_file(&path)?;
+    let file_id = heap.open_host_input_file(&path)?;
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -406,7 +406,7 @@ pub(crate) fn native_file_input_stream_read(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
-    Ok(Some(Slot::Int(heap.host.read_host_file_byte(file_id)?)))
+    Ok(Some(Slot::Int(heap.read_host_file_byte(file_id)?)))
 }
 
 pub(crate) fn native_file_input_stream_read_bytes(
@@ -424,7 +424,7 @@ pub(crate) fn native_file_input_stream_read_bytes(
 
     let mut count = 0_usize;
     for idx in 0..len {
-        let next = heap.host.read_host_file_byte(file_id)?;
+        let next = heap.read_host_file_byte(file_id)?;
         if next < 0 {
             break;
         }
@@ -447,7 +447,7 @@ pub(crate) fn native_file_input_stream_close(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let file_id = extract_io_fd(heap, this_ref)?;
-    heap.host.close_host_file(file_id);
+    heap.close_host_file(file_id);
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -464,7 +464,7 @@ pub(crate) fn native_file_output_stream_init(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path = path_from_string_slot(args, 1, heap)?;
-    let file_id = heap.host.open_host_output_file(&path)?;
+    let file_id = heap.open_host_output_file(&path)?;
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -481,7 +481,7 @@ pub(crate) fn native_file_output_stream_write(
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let value = extract_int_arg(args, 1)?;
-    heap.host.write_host_file_byte(file_id, value)?;
+    heap.write_host_file_byte(file_id, value)?;
     Ok(None)
 }
 
@@ -501,7 +501,7 @@ pub(crate) fn native_file_output_stream_write_bytes(
                 got: "other",
             });
         };
-        heap.host.write_host_file_byte(file_id, value)?;
+        heap.write_host_file_byte(file_id, value)?;
     }
     Ok(None)
 }
@@ -514,7 +514,7 @@ pub(crate) fn native_file_output_stream_close(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let file_id = extract_io_fd(heap, this_ref)?;
-    heap.host.close_host_file(file_id);
+    heap.close_host_file(file_id);
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -535,8 +535,8 @@ pub(crate) fn native_server_socket_init(
     let this_ref = extract_ref_arg(args, 0)?;
     let port = extract_int_arg(args, 1)?;
     let addr = format!("0.0.0.0:{port}");
-    let server_id = heap.host.bind_server_socket(&addr)?;
-    let actual_port = heap.host.server_socket_local_port(server_id)?;
+    let server_id = heap.bind_server_socket(&addr)?;
+    let actual_port = heap.server_socket_local_port(server_id)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -562,7 +562,7 @@ pub(crate) fn native_server_socket_accept(
             });
         }
     };
-    let (reader_id, writer_id) = heap.host.accept_connection(server_fd)?;
+    let (reader_id, writer_id) = heap.accept_connection(server_fd)?;
     // Allocate a new Socket object with fdRead=reader_id, fdWrite=writer_id
     let socket_ref = heap.allocate("java/net/Socket".to_string(), 2);
     heap.get_mut(socket_ref)?.fields[0] = Slot::Int(reader_id);
@@ -603,7 +603,7 @@ pub(crate) fn native_server_socket_close(
             });
         }
     };
-    heap.host.close_host_file(fd);
+    heap.close_host_file(fd);
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(0);
     obj.fields[1] = Slot::Int(0); // also zero cached port so getLocalPort() returns 0 after close
@@ -626,7 +626,7 @@ pub(crate) fn native_socket_init(
         .ok_or(VmError::NullPointerException)?;
     let port = extract_int_arg(args, 2)?;
     let addr = format!("{host}:{port}");
-    let (reader_id, writer_id) = heap.host.connect_socket(&addr)?;
+    let (reader_id, writer_id) = heap.connect_socket(&addr)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.len() < 2 {
         return Err(VmError::InvalidRef { address: this_ref });
@@ -688,8 +688,8 @@ pub(crate) fn native_socket_close(
     let this_ref = extract_ref_arg(args, 0)?;
     let fd_read = extract_io_fd(heap, this_ref)?;
     let fd_write = extract_io_fd_at(heap, this_ref, 1)?;
-    heap.host.close_host_file(fd_read);
-    heap.host.close_host_file(fd_write);
+    heap.close_host_file(fd_read);
+    heap.close_host_file(fd_write);
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(0);
     obj.fields[1] = Slot::Int(0);
@@ -713,7 +713,7 @@ pub(crate) fn native_zip_file_init(
         .as_deref()
         .ok_or(VmError::NullPointerException)?
         .to_string();
-    let fd = heap.host.open_host_zip(std::path::Path::new(&path_str))?;
+    let fd = heap.open_host_zip(std::path::Path::new(&path_str))?;
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(fd);
     Ok(None)
@@ -729,7 +729,7 @@ pub(crate) fn native_jar_file_init_from_file(
     let this_ref = extract_ref_arg(args, 0)?;
     let file_ref = extract_ref_arg(args, 1)?;
     let path = file_path_from_ref(file_ref, heap)?;
-    let fd = heap.host.open_host_zip(&path)?;
+    let fd = heap.open_host_zip(&path)?;
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(fd);
     Ok(None)
@@ -761,7 +761,7 @@ pub(crate) fn native_jar_file_get_manifest(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = extract_io_fd(heap, this_ref)?;
-    let Ok(manifest_bytes) = heap.host.zip_read_entry(fd, "META-INF/MANIFEST.MF") else {
+    let Ok(manifest_bytes) = heap.zip_read_entry(fd, "META-INF/MANIFEST.MF") else {
         return Ok(Some(Slot::Reference(None)));
     };
     let manifest_ref = allocate_manifest_from_bytes(heap, &manifest_bytes)?;
@@ -900,7 +900,7 @@ pub(crate) fn native_zip_file_get_entry(
         .as_deref()
         .ok_or(VmError::NullPointerException)?
         .to_string();
-    let info = heap.host.zip_get_entry_info(fd, &entry_name)?;
+    let info = heap.zip_get_entry_info(fd, &entry_name)?;
     let Some(info) = info else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -939,8 +939,8 @@ pub(crate) fn native_zip_file_get_input_stream(
         .ok_or(VmError::NullPointerException)?
         .to_string();
     // Decompress the entry and wrap in a ByteBuffer.
-    let data = heap.host.zip_read_entry(fd, &entry_name)?;
-    let buf_fd = heap.host.open_host_byte_buffer(data);
+    let data = heap.zip_read_entry(fd, &entry_name)?;
+    let buf_fd = heap.open_host_byte_buffer(data);
     let is_ref = heap.allocate("duke/zip/ByteBufferInputStream".to_string(), 1);
     let is_obj = heap.get_mut(is_ref)?;
     is_obj.fields[0] = Slot::Int(buf_fd);
@@ -959,7 +959,7 @@ pub(crate) fn native_zip_file_close(
         Some(Slot::Int(id)) => *id,
         _ => return Ok(None),
     };
-    heap.host.close_host_file(fd);
+    heap.close_host_file(fd);
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(0);
     Ok(None)
@@ -975,7 +975,7 @@ pub(crate) fn native_zip_file_size(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = extract_io_fd(heap, this_ref)?;
-    let count = heap.host.zip_entry_count(fd)?;
+    let count = heap.zip_entry_count(fd)?;
     Ok(Some(Slot::Int(count as i32)))
 }
 
@@ -19695,7 +19695,7 @@ fn optional_file_path_from_slot(
 
 fn allocate_process_impl(
     heap: &mut duke_gc::Heap,
-    ids: duke_gc::host::SpawnedProcessIds,
+    ids: duke_gc::SpawnedProcessIds,
 ) -> VmResult<Option<Slot>> {
     let process_ref = heap.allocate("java/lang/ProcessImpl".to_string(), 4);
     let process_obj = heap.get_mut(process_ref)?;
@@ -19711,7 +19711,7 @@ fn spawn_process_impl(
     command: &[String],
     cwd: Option<&std::path::Path>,
 ) -> VmResult<Option<Slot>> {
-    let ids = heap.host.spawn_host_process(command, cwd)?;
+    let ids = heap.spawn_host_process(command, cwd)?;
     allocate_process_impl(heap, ids)
 }
 
@@ -19872,7 +19872,7 @@ pub(crate) fn native_process_wait_for(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
-    Ok(Some(Slot::Int(heap.host.wait_host_process(process_id)?)))
+    Ok(Some(Slot::Int(heap.wait_host_process(process_id)?)))
 }
 
 pub(crate) fn native_process_exit_value(
@@ -19882,7 +19882,7 @@ pub(crate) fn native_process_exit_value(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
-    let Some(exit_code) = heap.host.try_host_process_exit_value(process_id)? else {
+    let Some(exit_code) = heap.try_host_process_exit_value(process_id)? else {
         return Err(VmError::JavaException {
             class_name: "java/lang/IllegalThreadStateException".into(),
         });
@@ -19897,7 +19897,7 @@ pub(crate) fn native_process_destroy(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
-    heap.host.destroy_host_process(process_id)?;
+    heap.destroy_host_process(process_id)?;
     Ok(None)
 }
 
