@@ -442,7 +442,8 @@ fn parse_central_directory(
     cd_size: usize,
     expected_count: usize,
 ) -> LoadResult<HashMap<String, ZipEntryInfo>> {
-    let mut index = HashMap::with_capacity(expected_count);
+    let safe_count = expected_count.min(cd_size / 46);
+    let mut index = HashMap::with_capacity(safe_count);
     let cd_end = cd_offset + cd_size;
     let mut pos = cd_offset;
 
