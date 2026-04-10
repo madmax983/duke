@@ -7746,17 +7746,17 @@ pub(crate) fn native_system_exit(
     Err(VmError::SystemExit { code })
 }
 
-static SYSTEM_PROPERTY_OVERRIDES: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
+static SYSTEM_PROPERTY_OVERRIDES: std::sync::OnceLock<std::sync::RwLock<HashMap<String, String>>> =
     std::sync::OnceLock::new();
 
-fn system_property_overrides() -> &'static std::sync::Mutex<HashMap<String, String>> {
-    SYSTEM_PROPERTY_OVERRIDES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+fn system_property_overrides() -> &'static std::sync::RwLock<HashMap<String, String>> {
+    SYSTEM_PROPERTY_OVERRIDES.get_or_init(|| std::sync::RwLock::new(HashMap::new()))
 }
 
 fn system_property_value(key: &str) -> Option<String> {
     let override_value = system_property_overrides()
-        .lock()
-        .expect("system property overrides mutex poisoned")
+        .read()
+        .expect("system property overrides rwlock poisoned")
         .get(key)
         .cloned();
     if let Some(value) = override_value {
@@ -7817,8 +7817,8 @@ pub(crate) fn native_system_set_property(
     let value = string_value_from_ref(heap, value_ref)?;
     let previous = system_property_value(&key);
     system_property_overrides()
-        .lock()
-        .expect("system property overrides mutex poisoned")
+        .write()
+        .expect("system property overrides rwlock poisoned")
         .insert(key, value);
     let result = previous.map_or(Slot::Reference(None), |previous| {
         Slot::Reference(Some(heap.allocate_string(previous)))
@@ -58508,3 +58508,5 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+#[cfg(test)]
+mod threading_fuzz;

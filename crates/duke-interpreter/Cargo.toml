@@ -12,12 +12,15 @@ duke-gc = { path = "../duke-gc" }
 duke-loader = { path = "../duke-loader" }
 duke-telemetry = { path = "../duke-telemetry", optional = true }
 regex.workspace = true
+loom = { version = "0.7.2", optional = true }
 
 [features]
 telemetry = ["dep:duke-telemetry", "duke-telemetry/telemetry"]
+loom = ["dep:loom"]
 
 [dev-dependencies]
 proptest.workspace = true
+arbitrary = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
