@@ -5,6 +5,16 @@ use std::path::Path;
 use crate::{ClassLoader, DirectoryLoader, JImageReader, LoadError, LoadResult, ZipLoader};
 
 /// A single classpath entry — either a directory or a ZIP/JAR archive.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::PathBuf;
+/// use duke_loader::{DirectoryLoader, bootstrap::ClasspathEntry};
+///
+/// let dir_loader = DirectoryLoader::new(PathBuf::from("my_classes"));
+/// let entry = ClasspathEntry::Directory(dir_loader);
+/// ```
 pub enum ClasspathEntry {
     /// Loads `.class` files from a filesystem directory.
     Directory(DirectoryLoader),
@@ -26,6 +36,16 @@ impl ClassLoader for ClasspathEntry {
 /// Resolves classes by trying the JDK jimage first (for standard library
 /// classes), then falling through to classpath entries (directories or JARs)
 /// for application classes.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::PathBuf;
+/// use duke_loader::{BootstrapLoader, ClassLoader};
+///
+/// let loader = BootstrapLoader::new(&PathBuf::from("lib/modules"), vec!["app.jar"]).unwrap();
+/// let bytes = loader.find_class("java/lang/Object").unwrap();
+/// ```
 pub struct BootstrapLoader {
     jimage: JImageReader,
     classpath: Vec<ClasspathEntry>,

@@ -1,3 +1,4 @@
-## 2024-04-07 - Threading module documentation gap
-**Confusion:** The `duke_interpreter::threading` module had zero documentation, making its purpose unclear to users.
-**Clarification:** Documented the module, its structures, and exposed methods properly.
+## 2024-04-10 - Module docs on structs
+
+**Confusion:** Many structs like `ZipEntryInfo`, `ZipReader`, `ResourceInfo`, `JImageReader`, `ClasspathEntry`, `BootstrapLoader` lacked usage examples, and `havoc_zip_capacity.rs` was missing module docs, causing `-D missing_docs` failures.
+**Clarification:** Added executable doctests to struct documentation and `//!` to the integration test file.
