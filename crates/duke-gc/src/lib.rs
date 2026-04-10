@@ -740,7 +740,7 @@ impl Heap {
         obj.age = 0; // reset age in old gen (not used there)
         obj.forward = None;
         if let Some(raw_idx) = self.old_free_list.pop() {
-            self.old[usize::try_from(raw_idx).unwrap()] = Some(obj);
+            self.old[usize::try_from(raw_idx).unwrap_or(usize::MAX)] = Some(obj);
             raw_idx | OLD_BIT
         } else {
             let raw_idx = self.old.len() as u64;
@@ -777,7 +777,7 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -812,7 +812,7 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -943,7 +943,7 @@ impl Heap {
             if let Some(r) = slot.as_reference()
                 && r & OLD_BIT == 0
             {
-                worklist.push(usize::try_from(r).unwrap());
+                worklist.push(usize::try_from(r).unwrap_or(usize::MAX));
             }
         }
 
@@ -956,7 +956,7 @@ impl Heap {
                         .iter()
                         .filter_map(Slot::as_reference)
                         .filter(|r| r & OLD_BIT == 0)
-                        .map(|r| usize::try_from(r).unwrap()),
+                        .map(|r| usize::try_from(r).unwrap_or(usize::MAX)),
                 );
             }
         }
@@ -994,7 +994,7 @@ impl Heap {
                         .iter()
                         .filter_map(Slot::as_reference)
                         .filter(|r| r & OLD_BIT == 0)
-                        .map(|r| usize::try_from(r).unwrap()),
+                        .map(|r| usize::try_from(r).unwrap_or(usize::MAX)),
                 );
             }
         }
@@ -1040,7 +1040,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(usize::try_from(r).unwrap())
+                    .get(usize::try_from(r).unwrap_or(usize::MAX))
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -1621,14 +1621,14 @@ mod tests {
         heap.minor_collect_prepare(&roots);
         // r0 must have a forwarding pointer; r1 must not.
         assert!(
-            heap.young[usize::try_from(r0).unwrap()]
+            heap.young[usize::try_from(r0).unwrap_or(usize::MAX)]
                 .as_ref()
                 .unwrap()
                 .forward
                 .is_some()
         );
         assert!(
-            heap.young[usize::try_from(r1).unwrap()]
+            heap.young[usize::try_from(r1).unwrap_or(usize::MAX)]
                 .as_ref()
                 .unwrap()
                 .forward
@@ -1645,7 +1645,7 @@ mod tests {
         let mut slot = Slot::Reference(Some(r0));
         heap.apply_forward(&mut slot);
         // After forwarding, slot must point to the new location.
-        let new_r = heap.young[usize::try_from(r0).unwrap()]
+        let new_r = heap.young[usize::try_from(r0).unwrap_or(usize::MAX)]
             .as_ref()
             .unwrap()
             .forward
@@ -1675,14 +1675,14 @@ mod tests {
         let roots = vec![Slot::Reference(Some(r))];
         heap.minor_collect_prepare(&roots);
         // Locate the copy in to_space (new_ref from forward pointer).
-        let new_r = heap.young[usize::try_from(r).unwrap()]
+        let new_r = heap.young[usize::try_from(r).unwrap_or(usize::MAX)]
             .as_ref()
             .unwrap()
             .forward
             .unwrap();
         heap.minor_collect_finish();
         // After finish, young is former to_space. new_r has no OLD_BIT → young index.
-        let survivor = heap.young[usize::try_from(new_r).unwrap()]
+        let survivor = heap.young[usize::try_from(new_r).unwrap_or(usize::MAX)]
             .as_ref()
             .unwrap();
         assert_eq!(survivor.age, 1);
@@ -1701,7 +1701,7 @@ mod tests {
         for round in 0..2u8 {
             let roots = vec![Slot::Reference(Some(current_r))];
             heap.minor_collect_prepare(&roots);
-            let new_r = heap.young[usize::try_from(current_r).unwrap()]
+            let new_r = heap.young[usize::try_from(current_r).unwrap_or(usize::MAX)]
                 .as_ref()
                 .unwrap()
                 .forward
@@ -1742,7 +1742,7 @@ mod tests {
         // No stack roots — young object reachable only through remembered set.
         heap.minor_collect_prepare(&[]);
         assert!(
-            heap.young[usize::try_from(young_ref).unwrap()]
+            heap.young[usize::try_from(young_ref).unwrap_or(usize::MAX)]
                 .as_ref()
                 .unwrap()
                 .forward
@@ -1974,7 +1974,7 @@ mod tests {
         // Round 2: promote via free-list path (raw_idx=0 from old_free_list)
         let r1 = heap.allocate("NewObj".to_string(), 0);
         heap.minor_collect_prepare(&[Slot::Reference(Some(r1))]);
-        let new_r1 = heap.young[usize::try_from(r1).unwrap()]
+        let new_r1 = heap.young[usize::try_from(r1).unwrap_or(usize::MAX)]
             .as_ref()
             .unwrap()
             .forward
