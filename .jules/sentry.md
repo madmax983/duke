@@ -4,3 +4,6 @@
 ## 2024-05-18 - [Missing Coverage in `duke-gc`]
 **Learning:** Found multiple uncovered edge cases and error paths in `duke-gc` related to `read_host_file_byte`, `write_host_file_byte`, `spawn_host_process`, `open_host_zip`, `bind_server_socket`, and `accept_connection`. When testing `GarbageCollector`, the struct is actually named `Heap` locally in `crates/duke-gc/src/lib.rs` and aliased to `GarbageCollector` later/externally.
 **Action:** Always check the struct definitions and imports inside the file to ensure the tests compile, and use the internal type name when writing unit tests in `mod tests`.
+## 2026-04-10 - `process::exit` in code breaks standard test coverage loops
+**Learning:** Functions that call `std::process::exit(1)` upon failure will abort the standard Rust test runner even if executed within `catch_unwind`. While `cargo-tarpaulin` does track this, it can make it difficult to get clean test execution.
+**Action:** For utilities that perform setup tasks, consider refactoring the core logic into an `_internal` function that accepts buffers (`&mut impl std::io::Write`) and returns a `Result`. This allows for comprehensive unit testing (including matching strings internally and error states) without having to spawn new processes for every negative test case.
