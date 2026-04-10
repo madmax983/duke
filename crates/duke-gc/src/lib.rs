@@ -771,13 +771,17 @@ impl Heap {
     /// ```
     pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let Ok(idx) = usize::try_from(r & !OLD_BIT) else {
+                return Err(VmError::InvalidRef { address: r });
+            };
             self.old
                 .get(idx)
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let Ok(idx) = usize::try_from(r) else {
+                return Err(VmError::InvalidRef { address: r });
+            };
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -806,13 +810,17 @@ impl Heap {
     /// ```
     pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let Ok(idx) = usize::try_from(r & !OLD_BIT) else {
+                return Err(VmError::InvalidRef { address: r });
+            };
             self.old
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let Ok(idx) = usize::try_from(r) else {
+                return Err(VmError::InvalidRef { address: r });
+            };
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
