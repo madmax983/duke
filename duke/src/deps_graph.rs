@@ -1,3 +1,8 @@
+//! `duke::deps_graph` — Dependency Graph Generation.
+//!
+//! Generates a Mermaid.js flowchart representing the external classes referenced
+//! by the constant pool of a given class file.
+
 use duke_classfile::{
     ClassFile,
     types::{CpEntry, CpIndex},
@@ -33,6 +38,42 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
 
 use std::fmt::Write;
 
+/// Generates a Mermaid.js formatted dependency graph for the given `ClassFile`.
+///
+/// This flowchart visually represents the external classes referenced by the constant pool
+/// of a given class file. It traces all `CONSTANT_Class` entries to their fully qualified names,
+/// mapping dependencies between `this_class` and other types.
+///
+/// # Arguments
+///
+/// * `cf` - A reference to the parsed `ClassFile` structure.
+///
+/// # Returns
+///
+/// Returns a `String` containing the Mermaid diagram text (e.g., `graph TD; ...`).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ClassFile, types::{CpEntry, CpIndex}};
+/// use duke_classfile::access_flags::ClassAccessFlags;
+/// use duke::deps_graph::generate_deps_graph;
+///
+/// let cf = ClassFile {
+///     major_version: 61,
+///     minor_version: 0,
+///     constant_pool: vec![],
+///     access_flags: ClassAccessFlags::PUBLIC,
+///     this_class: CpIndex(0),
+///     super_class: CpIndex(0),
+///     interfaces: vec![],
+///     fields: vec![],
+///     methods: vec![],
+///     attributes: vec![],
+/// };
+/// let graph = generate_deps_graph(&cf);
+/// assert!(graph.contains("graph TD;"));
+/// ```
 pub fn generate_deps_graph(cf: &ClassFile) -> String {
     let mut out = String::new();
     out.push_str("graph TD;\n");

@@ -1,3 +1,8 @@
+//! `duke_interpreter::execution` — Core Execution Loop.
+//!
+//! Contains the main interpreter loop (`run_execution`) responsible for dispatching
+//! instructions and managing the operand stack and local variables.
+
 use std::io::Write;
 
 use duke_bytecode::Instruction;
@@ -24,6 +29,32 @@ use crate::*;
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+/// The core interpreter loop for executing JVM bytecode.
+///
+/// This function drives execution for a single method invocation or a quantum of
+/// instructions in a multithreaded context. It loops over the bytecode stream,
+/// updating the [`ExecutionState`] and dispatching each `Instruction` to its corresponding
+/// implementation logic.
+///
+/// # Arguments
+///
+/// * `state` - The current thread's mutable [`ExecutionState`].
+/// * `registry` - The `ClassRegistry` containing loaded classes and native method bindings.
+/// * `loader` - The `ClassLoader` used for resolving new classes dynamically.
+/// * `heap` - The garbage-collected `Heap` for object allocation.
+/// * `stdout` - The stream to which standard output (e.g. from native methods) is written.
+/// * `gc_allowed` - If true, memory allocation requests are permitted to trigger garbage collection.
+/// * `quantum` - Optional number of instructions to execute before yielding. If `None`, executes until method return or exception.
+///
+/// # Errors
+///
+/// Returns a `VmError` if execution fails due to stack overflows, illegal accesses, or other runtime exceptions.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Internal execution loop, usually invoked via Context or Threading logic.
+/// ```
 pub fn run_execution(
     state: &mut ExecutionState,
     registry: &mut ClassRegistry,
