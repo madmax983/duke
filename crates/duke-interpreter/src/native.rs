@@ -11,6 +11,16 @@ fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
 }
 
 #[inline]
+fn extract_field_arg(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<Slot> {
+    Ok(heap.get(obj_ref)?.fields.get(idx).copied().unwrap_or(Slot::Reference(None)))
+}
+
+#[inline]
+fn extract_first_field_arg(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<Slot> {
+    extract_field_arg(heap, obj_ref, 0)
+}
+
+#[inline]
 fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<i32> {
     match heap.get(obj_ref)?.fields.first() {
         Some(Slot::Int(id)) => Ok(*id),
@@ -1200,12 +1210,7 @@ pub(crate) fn native_throwable_get_cause(
 ) -> VmResult<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let cause = heap
-                .get(*r)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
+            let cause = extract_first_field_arg(heap, *r)?;
             Ok(Some(cause))
         }
         _ => Ok(Some(Slot::Reference(None))),
@@ -1383,7 +1388,7 @@ pub(crate) fn native_optional_of(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = args.first().copied().unwrap_or(Slot::Reference(None));
+    let val = extract_slot_arg(args, 0);
     if matches!(val, Slot::Reference(None)) {
         return Err(VmError::NullPointerException);
     }
@@ -1399,7 +1404,7 @@ pub(crate) fn native_optional_of_nullable(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let val = args.first().copied().unwrap_or(Slot::Reference(None));
+    let val = extract_slot_arg(args, 0);
     let r = heap.allocate("java/util/Optional".to_string(), 1);
     heap.get_mut(r)?.fields[0] = val;
     Ok(Some(Slot::Reference(Some(r))))
@@ -1413,12 +1418,7 @@ pub(crate) fn native_optional_get(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let val = extract_first_field_arg(heap, this_ref)?;
     if matches!(val, Slot::Reference(None)) {
         return Err(VmError::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -1468,14 +1468,9 @@ pub(crate) fn native_optional_or_else(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let val = extract_first_field_arg(heap, this_ref)?;
     let result = if matches!(val, Slot::Reference(None)) {
-        args.get(1).copied().unwrap_or(Slot::Reference(None))
+        extract_slot_arg(args, 1)
     } else {
         val
     };
@@ -1545,7 +1540,7 @@ pub(crate) fn native_hashmap_compute_if_absent(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     // Check if key already present.
     let existing = native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
     if let Some(v) = existing
@@ -1969,8 +1964,8 @@ pub(crate) fn native_treemap_put(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let val = extract_slot_arg(args, 2);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -2010,7 +2005,7 @@ pub(crate) fn native_treemap_get(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -2101,7 +2096,7 @@ pub(crate) fn native_treemap_remove(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -2141,7 +2136,7 @@ pub(crate) fn native_treemap_head_map(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let to_key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let to_key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -2170,7 +2165,7 @@ pub(crate) fn native_treemap_tail_map(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let from_key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let from_key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -2210,7 +2205,7 @@ pub(crate) fn native_stack_push(
     out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
     native_arraylist_add(args, heap, out, control)?;
     Ok(Some(elem))
 }
@@ -2325,7 +2320,7 @@ pub(crate) fn native_treeset_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
     let elem_key = treeset_slot_sort_key(elem, heap);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -2368,7 +2363,7 @@ pub(crate) fn native_treeset_contains(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
     let elem_str = match &elem {
         Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
         Slot::Int(v) => Some(v.to_string()),
@@ -2840,12 +2835,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Ok(Some(Slot::Reference(None)));
         };
@@ -2880,12 +2870,7 @@ pub(crate) fn native_stream_collect(
             }
             if let Some(ki) = found_ki {
                 // Append elem to existing list
-                let list_slot = heap
-                    .get(map_ref)?
-                    .fields
-                    .get(ki + 1)
-                    .copied()
-                    .unwrap_or(Slot::Reference(None));
+                let list_slot = extract_field_arg(heap, map_ref, ki + 1)?;
                 if let Slot::Reference(Some(list_ref)) = list_slot {
                     let list_size = match heap.get(list_ref)?.fields.first() {
                         Some(Slot::Int(n)) => *n,
@@ -2938,18 +2923,8 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let key_fn = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let val_fn = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let key_fn = extract_first_field_arg(heap, collector_ref)?;
+        let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
             return Err(VmError::NullPointerException);
         };
@@ -2999,18 +2974,8 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let key_fn = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let val_fn = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let key_fn = extract_first_field_arg(heap, collector_ref)?;
+        let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
             return Err(VmError::NullPointerException);
         };
@@ -3059,24 +3024,9 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let key_fn = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let val_fn = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let merge_fn = heap
-            .get(collector_ref)?
-            .fields
-            .get(2)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let key_fn = extract_first_field_arg(heap, collector_ref)?;
+        let val_fn = extract_field_arg(heap, collector_ref, 1)?;
+        let merge_fn = extract_field_arg(heap, collector_ref, 2)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
             return Err(VmError::NullPointerException);
         };
@@ -3144,12 +3094,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let pred_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let pred_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(pred_ref)) = pred_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3203,18 +3148,8 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let pred_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let downstream_slot = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let pred_slot = extract_first_field_arg(heap, collector_ref)?;
+        let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(pred_ref)) = pred_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3301,12 +3236,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3335,12 +3265,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3377,12 +3302,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3428,12 +3348,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3464,12 +3379,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3513,18 +3423,8 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let mapper_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let downstream_slot = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let mapper_slot = extract_first_field_arg(heap, collector_ref)?;
+        let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3559,18 +3459,8 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let downstream_slot = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
+        let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3605,12 +3495,7 @@ pub(crate) fn native_stream_collect(
                 }
             }
             if let Some(ki) = found_ki {
-                let list_slot = heap
-                    .get(raw_map)?
-                    .fields
-                    .get(ki + 1)
-                    .copied()
-                    .unwrap_or(Slot::Reference(None));
+                let list_slot = extract_field_arg(heap, raw_map, ki + 1)?;
                 if let Slot::Reference(Some(list_ref)) = list_slot {
                     let list_size = match heap.get(list_ref)?.fields.first() {
                         Some(Slot::Int(n)) => *n,
@@ -3686,12 +3571,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let cmp_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let cmp_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
             let r = make_optional(heap, None);
             return Ok(Some(Slot::Reference(Some(r))));
@@ -3726,12 +3606,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let cmp_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let cmp_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
             let r = make_optional(heap, None);
             return Ok(Some(Slot::Reference(Some(r))));
@@ -3766,12 +3641,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3802,12 +3672,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let fn_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3850,12 +3715,7 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let op_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let op_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(bop_ref)) = op_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3886,18 +3746,8 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let identity_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let op_slot = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let identity_slot = extract_first_field_arg(heap, collector_ref)?;
+        let op_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(bop_ref)) = op_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3922,24 +3772,9 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let identity_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let mapper_slot = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let op_slot = heap
-            .get(collector_ref)?
-            .fields
-            .get(2)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let identity_slot = extract_first_field_arg(heap, collector_ref)?;
+        let mapper_slot = extract_field_arg(heap, collector_ref, 1)?;
+        let op_slot = extract_field_arg(heap, collector_ref, 2)?;
         let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -3978,18 +3813,8 @@ pub(crate) fn native_stream_collect(
             Some(Slot::Reference(Some(r))) => *r,
             _ => return Err(VmError::NullPointerException),
         };
-        let downstream_slot = heap
-            .get(collector_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let finisher_slot = heap
-            .get(collector_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let downstream_slot = extract_first_field_arg(heap, collector_ref)?;
+        let finisher_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(finisher_ref)) = finisher_slot else {
             return Err(VmError::NullPointerException);
         };
@@ -4284,8 +4109,8 @@ pub(crate) fn native_stream_reduce_with_identity(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let identity = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fn_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let identity = extract_slot_arg(args, 1);
+    let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(identity));
     };
@@ -4451,7 +4276,7 @@ pub(crate) fn native_collectors_grouping_by(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/GroupingByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -4466,7 +4291,7 @@ pub(crate) fn native_stream_peek(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(Some(Slot::Reference(Some(stream_ref))));
     };
@@ -4538,12 +4363,7 @@ pub(crate) fn native_stream_limit(
 
     // Lazy generators: materialise N elements on limit().
     if class_name == "duke/util/GeneratorStream" {
-        let supplier_slot = heap
-            .get(stream_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let supplier_slot = extract_first_field_arg(heap, stream_ref)?;
         let Slot::Reference(Some(sup_ref)) = supplier_slot else {
             return Ok(Some(Slot::Reference(None)));
         };
@@ -4568,18 +4388,8 @@ pub(crate) fn native_stream_limit(
 
     if class_name == "duke/util/IteratorStream" {
         // fields[0] = current seed, fields[1] = UnaryOperator fn
-        let seed = heap
-            .get(stream_ref)?
-            .fields
-            .first()
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        let fn_slot = heap
-            .get(stream_ref)?
-            .fields
-            .get(1)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let seed = extract_first_field_arg(heap, stream_ref)?;
+        let fn_slot = extract_field_arg(heap, stream_ref, 1)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Ok(Some(Slot::Reference(None)));
         };
@@ -4654,7 +4464,7 @@ pub(crate) fn native_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -4817,7 +4627,7 @@ pub(crate) fn native_int_stream_iterate(
         Some(Slot::Int(n)) => n,
         _ => 0,
     };
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(
             heap,
@@ -4966,7 +4776,7 @@ pub(crate) fn native_int_stream_filter(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -4998,7 +4808,7 @@ pub(crate) fn native_int_stream_peek(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let elems = int_stream_elems(heap, r);
     if let Slot::Reference(Some(fn_ref)) = fn_slot {
         let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -5025,7 +4835,7 @@ pub(crate) fn native_int_stream_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -5058,7 +4868,7 @@ pub(crate) fn native_int_stream_for_each(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
@@ -5108,7 +4918,7 @@ pub(crate) fn native_int_stream_map_to_obj(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -5324,7 +5134,7 @@ pub(crate) fn native_arraydeque_push(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -5461,7 +5271,7 @@ pub(crate) fn native_priorityqueue_offer(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
     // Append, then sift up.
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -5684,8 +5494,8 @@ pub(crate) fn native_natural_order_compare(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     // args: [this, o1, o2]
-    let o1 = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let o2 = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let o1 = extract_slot_arg(args, 1);
+    let o2 = extract_slot_arg(args, 2);
     let o1_class = match &o1 {
         Slot::Reference(Some(r)) => heap.get(*r)?.class_name.clone(),
         _ => return Ok(Some(Slot::Int(0))),
@@ -5740,18 +5550,13 @@ pub(crate) fn native_comparing_int_compare(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
     let ka = ops
         .invoke(
             heap,
@@ -5789,7 +5594,7 @@ pub(crate) fn native_collections_sort_with_comparator(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
-    let comparator = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let comparator = extract_slot_arg(args, 1);
     let class_name = heap.get(list_ref)?.class_name.clone();
     ops.invoke(
         heap,
@@ -8745,8 +8550,8 @@ pub(crate) fn native_objects_equals(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let a = args.first().copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 0);
+    let b = extract_slot_arg(args, 1);
     let equal = slots_equal(&a, &b, heap);
     Ok(Some(Slot::Int(i32::from(equal))))
 }
@@ -9004,7 +8809,7 @@ pub(crate) fn native_comparator_comparing(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/ComparingComparator".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -9019,14 +8824,9 @@ pub(crate) fn native_comparing_comparator_compare(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let fn_slot = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
+    let fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -9081,8 +8881,8 @@ pub(crate) fn native_collectors_to_map(
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let key_fn = args.first().copied().unwrap_or(Slot::Reference(None));
-    let val_fn = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key_fn = extract_slot_arg(args, 0);
+    let val_fn = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ToMapCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = key_fn;
     heap.get_mut(r)?.fields[1] = val_fn;
@@ -9098,7 +8898,7 @@ pub(crate) fn native_stream_map_to_int(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -9149,7 +8949,7 @@ pub(crate) fn native_int_stream_reduce_identity(
         Some(Slot::Int(n)) => *n,
         _ => 0,
     };
-    let fn_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(identity)));
     };
@@ -9184,7 +8984,7 @@ pub(crate) fn native_int_stream_reduce_optional(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         // Return empty OptionalInt
         let r = make_optional_int(heap, None);
@@ -9248,7 +9048,7 @@ fn stream_min_max_by_comparator(
     want_max: bool,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let cmp_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let cmp_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
         let r = heap.allocate("java/util/Optional".to_string(), 1);
         heap.get_mut(r)?.fields[0] = Slot::Reference(None);
@@ -9409,7 +9209,7 @@ pub(crate) fn native_collections_singleton_list(
     out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let element = args.first().copied().unwrap_or(Slot::Reference(None));
+    let element = extract_slot_arg(args, 0);
     let r = heap.allocate("java/util/ArrayList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(r))], heap, out, control)?;
     native_arraylist_add(&[Slot::Reference(Some(r)), element], heap, out, control)?;
@@ -9863,12 +9663,7 @@ pub(crate) fn native_string_format(
             's' | 'd' | 'f' | 'x' | 'X' | 'b' | 'c' | 'o' | 'e' | 'E' => {
                 let slot = if arg_idx < arr_len {
                     match args.get(1) {
-                        Some(Slot::Reference(Some(r))) => heap
-                            .get(*r)?
-                            .fields
-                            .get(arg_idx)
-                            .copied()
-                            .unwrap_or(Slot::Reference(None)),
+                        Some(Slot::Reference(Some(r))) => extract_field_arg(heap, *r, arg_idx)?,
                         _ => Slot::Reference(None),
                     }
                 } else {
@@ -10077,7 +9872,7 @@ pub(crate) fn native_string_tostring(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+    Ok(Some(extract_slot_arg(args, 0)))
 }
 
 // ---- Math natives ----
@@ -10552,12 +10347,7 @@ pub(crate) fn native_map_entry_get_key(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let key = extract_first_field_arg(heap, this_ref)?;
     Ok(Some(key))
 }
 
@@ -10569,12 +10359,7 @@ pub(crate) fn native_map_entry_get_value(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let val = extract_field_arg(heap, this_ref, 1)?;
     Ok(Some(val))
 }
 
@@ -17540,7 +17325,7 @@ pub(crate) fn native_arraylist_remove_if(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -17588,7 +17373,7 @@ pub(crate) fn native_comparator_reversed(
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let delegate = args.first().copied().unwrap_or(Slot::Reference(None));
+    let delegate = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/ReversedComparator".to_string(), 1);
     heap.get_mut(r)?.fields[0] = delegate;
     Ok(Some(Slot::Reference(Some(r))))
@@ -17603,14 +17388,9 @@ pub(crate) fn native_reversed_comparator_compare(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let delegate = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
+    let delegate = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(del_ref)) = delegate else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -17641,7 +17421,7 @@ pub(crate) fn native_collections_binary_search(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     let size = match heap.get(list_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -17675,7 +17455,7 @@ pub(crate) fn native_string_intern(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     // In our interpreter, string equality is by value already; intern = identity.
-    Ok(Some(args.first().copied().unwrap_or(Slot::Reference(None))))
+    Ok(Some(extract_slot_arg(args, 0)))
 }
 
 // ---- Arrays.asList ----
@@ -17693,12 +17473,7 @@ pub(crate) fn native_arrays_as_list(
     let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(list_ref))], heap, out, control)?;
     for i in 0..arr_len {
-        let elem = heap
-            .get(arr_ref)?
-            .fields
-            .get(i)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
+        let elem = extract_field_arg(heap, arr_ref, i)?;
         native_arraylist_add(&[Slot::Reference(Some(list_ref)), elem], heap, out, control)?;
     }
     Ok(Some(Slot::Reference(Some(list_ref))))
@@ -17785,7 +17560,7 @@ pub(crate) fn native_string_formatted(
 ) -> VmResult<Option<Slot>> {
     // args[0] = this (the format string), args[1] = Object[] varargs
     let fmt_ref = extract_ref_arg(args, 0)?;
-    let arr_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let arr_slot = extract_slot_arg(args, 1);
     native_string_format(
         &[Slot::Reference(Some(fmt_ref)), arr_slot],
         heap,
@@ -18167,7 +17942,7 @@ pub(crate) fn native_pattern_matcher(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let pat_ref = extract_ref_arg(args, 0)?;
-    let input_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let input_slot = extract_slot_arg(args, 1);
     // fields: [0]=pattern_ref, [1]=input_ref, [2]=pos, [3]=match_start, [4]=match_end
     let m_ref = heap.allocate("java/util/regex/Matcher".to_string(), 5);
     heap.get_mut(m_ref)?.fields[0] = Slot::Reference(Some(pat_ref));
@@ -18489,13 +18264,8 @@ pub(crate) fn native_optional_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value = heap
-        .get(opt_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
+    let value = extract_first_field_arg(heap, opt_ref)?;
     let result_ref = heap.allocate("java/util/Optional".to_string(), 1);
     if matches!(value, Slot::Reference(None)) {
         // empty — propagate empty
@@ -18528,13 +18298,8 @@ pub(crate) fn native_optional_filter(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value = heap
-        .get(opt_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
+    let value = extract_first_field_arg(heap, opt_ref)?;
     let result_ref = heap.allocate("java/util/Optional".to_string(), 1);
     if matches!(value, Slot::Reference(None)) {
         heap.get_mut(result_ref)?.fields[0] = Slot::Reference(None);
@@ -18568,13 +18333,8 @@ pub(crate) fn native_optional_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value = heap
-        .get(opt_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
+    let value = extract_first_field_arg(heap, opt_ref)?;
     if matches!(value, Slot::Reference(None)) {
         let empty_ref = heap.allocate("java/util/Optional".to_string(), 1);
         heap.get_mut(empty_ref)?.fields[0] = Slot::Reference(None);
@@ -18607,13 +18367,8 @@ pub(crate) fn native_optional_if_present(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value = heap
-        .get(opt_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let consumer_slot = extract_slot_arg(args, 1);
+    let value = extract_first_field_arg(heap, opt_ref)?;
     if let (Slot::Reference(Some(_)), Slot::Reference(Some(consumer_ref))) = (value, consumer_slot)
     {
         let consumer_class = heap.get(consumer_ref)?.class_name.clone();
@@ -18638,13 +18393,8 @@ pub(crate) fn native_optional_or_else_get(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
-    let supplier_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value = heap
-        .get(opt_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let supplier_slot = extract_slot_arg(args, 1);
+    let value = extract_first_field_arg(heap, opt_ref)?;
     if !matches!(value, Slot::Reference(None)) {
         return Ok(Some(value));
     }
@@ -18691,8 +18441,8 @@ pub(crate) fn native_hashmap_compute(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let fn_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -18752,9 +18502,9 @@ pub(crate) fn native_hashmap_merge(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let new_val_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let fn_slot = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
+    let new_val_slot = extract_slot_arg(args, 2);
+    let fn_slot = extract_slot_arg(args, 3);
     let fields = heap.get(this_ref)?.fields.clone();
     let old_ki = hashmap_find_key(&fields, key, heap);
     if let Some(ki) = old_ki {
@@ -18831,7 +18581,7 @@ pub(crate) fn native_stringbuffer_append(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let frag = match args.get(1).copied().unwrap_or(Slot::Reference(None)) {
+    let frag = match extract_slot_arg(args, 1) {
         Slot::Reference(Some(r)) => heap
             .get(r)?
             .string_value
@@ -18898,7 +18648,7 @@ pub(crate) fn native_stringjoiner_init(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let delim_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let delim_slot = extract_slot_arg(args, 1);
     let empty_ref = heap.allocate_string(String::new());
     let prefix_ref = heap.allocate_string(String::new());
     let suffix_ref = heap.allocate_string(String::new());
@@ -18918,9 +18668,9 @@ pub(crate) fn native_stringjoiner_init_prefix_suffix(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let delim_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let prefix_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let suffix_slot = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let delim_slot = extract_slot_arg(args, 1);
+    let prefix_slot = extract_slot_arg(args, 2);
+    let suffix_slot = extract_slot_arg(args, 3);
     let empty_ref = heap.allocate_string(String::new());
     heap.get_mut(this_ref)?.fields[0] = delim_slot;
     heap.get_mut(this_ref)?.fields[1] = prefix_slot;
@@ -18937,7 +18687,7 @@ pub(crate) fn native_stringjoiner_add(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
     heap.get_mut(this_ref)?.fields.push(elem);
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -18950,7 +18700,7 @@ pub(crate) fn native_stringjoiner_set_empty_value(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let empty_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let empty_slot = extract_slot_arg(args, 1);
     heap.get_mut(this_ref)?.fields[3] = empty_slot;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -19266,7 +19016,7 @@ pub(crate) fn native_set_of(
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
     native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
 
-    match args.first().copied().unwrap_or(Slot::Reference(None)) {
+    match extract_slot_arg(args, 0) {
         Slot::Reference(Some(array_ref)) => {
             let elements = heap.get(array_ref)?.fields.clone();
             for element in elements {
@@ -19593,7 +19343,7 @@ pub(crate) fn native_collections_n_copies(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let n = usize::try_from(extract_int_arg(args, 0)?.max(0)).unwrap_or(0);
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
     let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
     heap.get_mut(list_ref)?.fields[0] = Slot::Int(i32::try_from(n).unwrap_or(0));
     for _ in 0..n {
@@ -19913,7 +19663,7 @@ pub(crate) fn native_stream_generate(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let supplier = args.first().copied().unwrap_or(Slot::Reference(None));
+    let supplier = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/GeneratorStream".to_string(), 1);
     heap.get_mut(r)?.fields[0] = supplier;
     Ok(Some(Slot::Reference(Some(r))))
@@ -19928,8 +19678,8 @@ pub(crate) fn native_stream_iterate(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let seed = args.first().copied().unwrap_or(Slot::Reference(None));
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let seed = extract_slot_arg(args, 0);
+    let fn_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/IteratorStream".to_string(), 2);
     heap.get_mut(r)?.fields[0] = seed;
     heap.get_mut(r)?.fields[1] = fn_slot;
@@ -19990,7 +19740,7 @@ pub(crate) fn native_stream_take_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -20034,7 +19784,7 @@ pub(crate) fn native_stream_drop_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -20087,7 +19837,7 @@ pub(crate) fn native_arraylist_for_each(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(consumer_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(consumer_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(None);
     };
@@ -20119,7 +19869,7 @@ pub(crate) fn native_stream_sorted_comparator(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     // If no comparator provided, fall back to natural-order sort.
-    let Slot::Reference(Some(comp_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(comp_ref)) = extract_slot_arg(args, 1)
     else {
         return native_stream_sorted(args, heap, out, control, ops);
     };
@@ -20289,7 +20039,7 @@ pub(crate) fn native_collectors_partitioning_by(
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let pred = args.first().copied().unwrap_or(Slot::Reference(None));
+    let pred = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/PartitioningByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = pred;
     Ok(Some(Slot::Reference(Some(r))))
@@ -20302,8 +20052,8 @@ pub(crate) fn native_collectors_partitioning_by_downstream(
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let pred = args.first().copied().unwrap_or(Slot::Reference(None));
-    let downstream = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred = extract_slot_arg(args, 0);
+    let downstream = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/PartitioningByDownstreamCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = pred;
     heap.get_mut(r)?.fields[1] = downstream;
@@ -20349,8 +20099,8 @@ pub(crate) fn native_comparator_then_comparing(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let primary = args.first().copied().unwrap_or(Slot::Reference(None));
-    let secondary = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let primary = extract_slot_arg(args, 0);
+    let secondary = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ThenComparingComparator".to_string(), 2);
     heap.get_mut(r)?.fields[0] = primary;
     heap.get_mut(r)?.fields[1] = secondary;
@@ -20366,20 +20116,10 @@ pub(crate) fn native_then_comparing_compare(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let primary = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let secondary = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
+    let primary = extract_first_field_arg(heap, this_ref)?;
+    let secondary = extract_field_arg(heap, this_ref, 1)?;
     // Invoke primary.compare(a, b)
     let result = invoke_comparator(primary, a, b, heap, out, ops)?;
     if result != 0 {
@@ -20427,8 +20167,8 @@ pub(crate) fn native_predicate_and(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let left = args.first().copied().unwrap_or(Slot::Reference(None));
-    let right = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let left = extract_slot_arg(args, 0);
+    let right = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/AndPredicate".to_string(), 2);
     heap.get_mut(r)?.fields[0] = left;
     heap.get_mut(r)?.fields[1] = right;
@@ -20444,19 +20184,9 @@ pub(crate) fn native_and_predicate_test(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let left = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let right = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
+    let left = extract_first_field_arg(heap, this_ref)?;
+    let right = extract_field_arg(heap, this_ref, 1)?;
     let la = invoke_predicate_test(left, elem, heap, out, ops)?;
     if !la {
         return Ok(Some(Slot::Int(0)));
@@ -20473,8 +20203,8 @@ pub(crate) fn native_predicate_or(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let left = args.first().copied().unwrap_or(Slot::Reference(None));
-    let right = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let left = extract_slot_arg(args, 0);
+    let right = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/OrPredicate".to_string(), 2);
     heap.get_mut(r)?.fields[0] = left;
     heap.get_mut(r)?.fields[1] = right;
@@ -20490,19 +20220,9 @@ pub(crate) fn native_or_predicate_test(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let left = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let right = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
+    let left = extract_first_field_arg(heap, this_ref)?;
+    let right = extract_field_arg(heap, this_ref, 1)?;
     let la = invoke_predicate_test(left, elem, heap, out, ops)?;
     if la {
         return Ok(Some(Slot::Int(1)));
@@ -20519,7 +20239,7 @@ pub(crate) fn native_predicate_negate(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let original = args.first().copied().unwrap_or(Slot::Reference(None));
+    let original = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/NegatedPredicate".to_string(), 1);
     heap.get_mut(r)?.fields[0] = original;
     Ok(Some(Slot::Reference(Some(r))))
@@ -20534,13 +20254,8 @@ pub(crate) fn native_negated_predicate_test(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let original = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let elem = extract_slot_arg(args, 1);
+    let original = extract_first_field_arg(heap, this_ref)?;
     let result = invoke_predicate_test(original, elem, heap, out, ops)?;
     Ok(Some(Slot::Int(i32::from(!result))))
 }
@@ -20578,8 +20293,8 @@ pub(crate) fn native_function_and_then(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let first = args.first().copied().unwrap_or(Slot::Reference(None));
-    let second = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let first = extract_slot_arg(args, 0);
+    let second = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/AndThenFunction".to_string(), 2);
     heap.get_mut(r)?.fields[0] = first;
     heap.get_mut(r)?.fields[1] = second;
@@ -20595,19 +20310,9 @@ pub(crate) fn native_and_then_function_apply(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let input = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let first = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let second = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let input = extract_slot_arg(args, 1);
+    let first = extract_first_field_arg(heap, this_ref)?;
+    let second = extract_field_arg(heap, this_ref, 1)?;
     let mid = invoke_function_apply(first, input, heap, out, ops)?;
     invoke_function_apply(second, mid, heap, out, ops).map(Some)
 }
@@ -20620,8 +20325,8 @@ pub(crate) fn native_consumer_and_then(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let first = args.first().copied().unwrap_or(Slot::Reference(None));
-    let second = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let first = extract_slot_arg(args, 0);
+    let second = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/AndThenConsumer".to_string(), 2);
     heap.get_mut(r)?.fields[0] = first;
     heap.get_mut(r)?.fields[1] = second;
@@ -20637,19 +20342,9 @@ pub(crate) fn native_and_then_consumer_accept(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let arg = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let first = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let second = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let arg = extract_slot_arg(args, 1);
+    let first = extract_first_field_arg(heap, this_ref)?;
+    let second = extract_field_arg(heap, this_ref, 1)?;
     invoke_consumer_accept(first, arg, heap, out, ops)?;
     invoke_consumer_accept(second, arg, heap, out, ops)?;
     Ok(None)
@@ -20685,8 +20380,8 @@ pub(crate) fn native_function_compose(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let outer = args.first().copied().unwrap_or(Slot::Reference(None));
-    let inner = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let outer = extract_slot_arg(args, 0);
+    let inner = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ComposeFunction".to_string(), 2);
     heap.get_mut(r)?.fields[0] = outer;
     heap.get_mut(r)?.fields[1] = inner;
@@ -20702,19 +20397,9 @@ pub(crate) fn native_compose_function_apply(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let input = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let outer = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let inner = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let input = extract_slot_arg(args, 1);
+    let outer = extract_first_field_arg(heap, this_ref)?;
+    let inner = extract_field_arg(heap, this_ref, 1)?;
     let mid = invoke_function_apply(inner, input, heap, out, ops)?;
     invoke_function_apply(outer, mid, heap, out, ops).map(Some)
 }
@@ -20750,8 +20435,8 @@ pub(crate) fn native_bifunction_and_then(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let bifunction = args.first().copied().unwrap_or(Slot::Reference(None));
-    let after = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let bifunction = extract_slot_arg(args, 0);
+    let after = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/BiFunctionAndThen".to_string(), 2);
     heap.get_mut(r)?.fields[0] = bifunction;
     heap.get_mut(r)?.fields[1] = after;
@@ -20767,20 +20452,10 @@ pub(crate) fn native_bifunction_and_then_apply(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let bifunction = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let after = heap
-        .get(this_ref)?
-        .fields
-        .get(1)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
+    let bifunction = extract_first_field_arg(heap, this_ref)?;
+    let after = extract_field_arg(heap, this_ref, 1)?;
     let Slot::Reference(Some(bf_ref)) = bifunction else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -20807,7 +20482,7 @@ pub(crate) fn native_stream_map_to_long(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -20883,7 +20558,7 @@ pub(crate) fn native_stream_map_to_double(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -21227,7 +20902,7 @@ pub(crate) fn native_long_stream_reduce_identity(
         Some(Slot::Long(n)) => n,
         _ => 0,
     };
-    let fn_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Long(identity)));
     };
@@ -21287,7 +20962,7 @@ pub(crate) fn native_long_stream_filter(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -21319,7 +20994,7 @@ pub(crate) fn native_long_stream_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -21353,7 +21028,7 @@ pub(crate) fn native_long_stream_for_each(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
@@ -21383,7 +21058,7 @@ pub(crate) fn native_long_stream_map_to_int(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -21560,7 +21235,7 @@ pub(crate) fn native_double_stream_filter(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -21595,7 +21270,7 @@ pub(crate) fn native_double_stream_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -21711,7 +21386,7 @@ pub(crate) fn native_collectors_summing_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/SummingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -21725,7 +21400,7 @@ pub(crate) fn native_collectors_averaging_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/AveragingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -21759,7 +21434,7 @@ pub(crate) fn native_int_stream_any_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -21790,7 +21465,7 @@ pub(crate) fn native_int_stream_all_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
@@ -21821,7 +21496,7 @@ pub(crate) fn native_int_stream_none_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
@@ -21852,7 +21527,7 @@ pub(crate) fn native_int_stream_map_to_long(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -21900,7 +21575,7 @@ pub(crate) fn native_long_stream_any_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -21931,7 +21606,7 @@ pub(crate) fn native_long_stream_all_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
@@ -21962,7 +21637,7 @@ pub(crate) fn native_long_stream_none_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
@@ -22007,18 +21682,13 @@ pub(crate) fn native_comparing_long_compare(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
     let ka = ops
         .invoke(
             heap,
@@ -22075,18 +21745,13 @@ pub(crate) fn native_comparing_double_compare(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let a = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let b = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
     let ka = ops
         .invoke(
             heap,
@@ -22148,8 +21813,8 @@ pub(crate) fn native_map_entry_factory(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let key = args.first().copied().unwrap_or(Slot::Reference(None));
-    let val = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 0);
+    let val = extract_slot_arg(args, 1);
     let r = heap.allocate("java/util/Map$Entry".to_string(), 2);
     heap.get_mut(r)?.fields[0] = key;
     heap.get_mut(r)?.fields[1] = val;
@@ -22172,18 +21837,8 @@ pub(crate) fn native_map_of_entries(
             let Slot::Reference(Some(entry_ref)) = entry_slot else {
                 continue;
             };
-            let key = heap
-                .get(entry_ref)?
-                .fields
-                .first()
-                .copied()
-                .unwrap_or(Slot::Reference(None));
-            let val = heap
-                .get(entry_ref)?
-                .fields
-                .get(1)
-                .copied()
-                .unwrap_or(Slot::Reference(None));
+            let key = extract_first_field_arg(heap, entry_ref)?;
+            let val = extract_field_arg(heap, entry_ref, 1)?;
             native_hashmap_put(
                 &[Slot::Reference(Some(map_ref)), key, val],
                 heap,
@@ -22251,7 +21906,7 @@ pub(crate) fn native_stream_flat_map_to_int(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -22287,7 +21942,7 @@ pub(crate) fn native_stream_flat_map_to_long(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -22323,7 +21978,7 @@ pub(crate) fn native_stream_flat_map_to_double(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -22363,9 +22018,9 @@ pub(crate) fn native_collectors_to_map_merge(
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let key_fn = args.first().copied().unwrap_or(Slot::Reference(None));
-    let val_fn = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let merge_fn = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let key_fn = extract_slot_arg(args, 0);
+    let val_fn = extract_slot_arg(args, 1);
+    let merge_fn = extract_slot_arg(args, 2);
     let r = heap.allocate("duke/util/ToMapMergeCollector".to_string(), 3);
     heap.get_mut(r)?.fields[0] = key_fn;
     heap.get_mut(r)?.fields[1] = val_fn;
@@ -22382,7 +22037,7 @@ pub(crate) fn native_hashset_for_each(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(consumer_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(consumer_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(None);
     };
@@ -22477,7 +22132,7 @@ pub(crate) fn native_int_stream_take_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -22512,7 +22167,7 @@ pub(crate) fn native_int_stream_drop_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -22551,7 +22206,7 @@ pub(crate) fn native_long_stream_take_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -22586,7 +22241,7 @@ pub(crate) fn native_long_stream_drop_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -22625,7 +22280,7 @@ pub(crate) fn native_double_stream_take_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -22663,7 +22318,7 @@ pub(crate) fn native_double_stream_drop_while(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = args.get(1).copied().unwrap_or(Slot::Reference(None))
+    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -22908,7 +22563,7 @@ pub(crate) fn native_treemap_get_or_default(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let default_val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let default_val = extract_slot_arg(args, 2);
     let fields = heap.get(this_ref)?.fields.clone();
     Ok(Some(
         find_hashmap_entry_index(&fields, &key, heap).map_or(default_val, |i| fields[i + 1]),
@@ -22936,13 +22591,8 @@ pub(crate) fn native_optional_or(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
-    let supplier_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let value = heap
-        .get(opt_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let supplier_slot = extract_slot_arg(args, 1);
+    let value = extract_first_field_arg(heap, opt_ref)?;
     // If present (non-null value stored), return self
     if !matches!(value, Slot::Reference(None)) {
         return Ok(Some(Slot::Reference(Some(opt_ref))));
@@ -22972,14 +22622,9 @@ pub(crate) fn native_optional_if_present_or_else(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let runnable_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let value = heap
-        .get(opt_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let consumer_slot = extract_slot_arg(args, 1);
+    let runnable_slot = extract_slot_arg(args, 2);
+    let value = extract_first_field_arg(heap, opt_ref)?;
     if matches!(value, Slot::Reference(None)) {
         let Slot::Reference(Some(runnable_ref)) = runnable_slot else {
             return Ok(None);
@@ -23086,7 +22731,7 @@ pub(crate) fn native_int_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -23155,7 +22800,7 @@ pub(crate) fn native_long_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -23224,8 +22869,8 @@ pub(crate) fn native_collectors_grouping_by_2(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    let downstream_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
+    let downstream_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/GroupingBy2Collector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = fn_slot;
     heap.get_mut(r)?.fields[1] = downstream_slot;
@@ -23241,8 +22886,8 @@ pub(crate) fn native_collectors_mapping(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let mapper_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    let downstream_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let mapper_slot = extract_slot_arg(args, 0);
+    let downstream_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/MappingCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = mapper_slot;
     heap.get_mut(r)?.fields[1] = downstream_slot;
@@ -23262,7 +22907,7 @@ pub(crate) fn native_double_stream_for_each(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
@@ -23290,7 +22935,7 @@ pub(crate) fn native_double_stream_any_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -23321,7 +22966,7 @@ pub(crate) fn native_double_stream_all_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
@@ -23352,7 +22997,7 @@ pub(crate) fn native_double_stream_none_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
@@ -23400,7 +23045,7 @@ pub(crate) fn native_double_stream_reduce_identity(
         Some(Slot::Double(d)) => d,
         _ => 0.0,
     };
-    let fn_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Double(identity)));
     };
@@ -23437,7 +23082,7 @@ pub(crate) fn native_double_stream_reduce_optional(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         let opt_ref = make_optional_double_val(heap, None);
         return Ok(Some(Slot::Reference(Some(opt_ref))));
@@ -23483,7 +23128,7 @@ pub(crate) fn native_double_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -23520,7 +23165,7 @@ pub(crate) fn native_double_stream_map_to_int(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -23553,7 +23198,7 @@ pub(crate) fn native_double_stream_map_to_long(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -23642,7 +23287,7 @@ pub(crate) fn native_long_stream_reduce_optional(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         let opt_ref = make_optional_long(heap, None);
         return Ok(Some(Slot::Reference(Some(opt_ref))));
@@ -23685,7 +23330,7 @@ pub(crate) fn native_long_stream_map_to_double(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -23724,7 +23369,7 @@ pub(crate) fn native_collectors_summing_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/SummingLongCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -23743,7 +23388,7 @@ pub(crate) fn native_collectors_min_by(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let cmp_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let cmp_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/MinByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = cmp_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -23757,7 +23402,7 @@ pub(crate) fn native_collectors_max_by(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let cmp_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let cmp_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/MaxByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = cmp_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -23771,7 +23416,7 @@ pub(crate) fn native_collectors_summing_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/SummingDoubleCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -23785,7 +23430,7 @@ pub(crate) fn native_collectors_averaging_long(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/AveragingLongCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -23799,8 +23444,8 @@ pub(crate) fn native_collectors_to_unmodifiable_map(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let key_fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    let val_fn_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key_fn_slot = extract_slot_arg(args, 0);
+    let val_fn_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ToUnmodifiableMapCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = key_fn_slot;
     heap.get_mut(r)?.fields[1] = val_fn_slot;
@@ -23816,8 +23461,8 @@ pub(crate) fn native_collectors_collecting_and_then(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let downstream_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    let finisher_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let downstream_slot = extract_slot_arg(args, 0);
+    let finisher_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/CollectingAndThenCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = downstream_slot;
     heap.get_mut(r)?.fields[1] = finisher_slot;
@@ -23832,7 +23477,7 @@ pub(crate) fn native_collectors_averaging_double(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/AveragingDoubleCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -23852,7 +23497,7 @@ pub(crate) fn native_collectors_reducing_no_identity(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let op_slot = args.first().copied().unwrap_or(Slot::Reference(None));
+    let op_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/ReducingNoIdentityCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = op_slot;
     Ok(Some(Slot::Reference(Some(r))))
@@ -23867,8 +23512,8 @@ pub(crate) fn native_collectors_reducing_with_identity(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let identity_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    let op_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let identity_slot = extract_slot_arg(args, 0);
+    let op_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ReducingCollector".to_string(), 2);
     heap.get_mut(r)?.fields[0] = identity_slot;
     heap.get_mut(r)?.fields[1] = op_slot;
@@ -23884,9 +23529,9 @@ pub(crate) fn native_collectors_reducing_mapping(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let identity_slot = args.first().copied().unwrap_or(Slot::Reference(None));
-    let mapper_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let op_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let identity_slot = extract_slot_arg(args, 0);
+    let mapper_slot = extract_slot_arg(args, 1);
+    let op_slot = extract_slot_arg(args, 2);
     let r = heap.allocate("duke/util/ReducingMappingCollector".to_string(), 3);
     heap.get_mut(r)?.fields[0] = identity_slot;
     heap.get_mut(r)?.fields[1] = mapper_slot;
@@ -23903,9 +23548,9 @@ pub(crate) fn native_stream_iterate_predicate(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
-    let seed = args.first().copied().unwrap_or(Slot::Reference(None));
-    let pred_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let next_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let seed = extract_slot_arg(args, 0);
+    let pred_slot = extract_slot_arg(args, 1);
+    let next_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Err(VmError::NullPointerException);
     };
@@ -23960,12 +23605,7 @@ pub(crate) fn native_optional_stream(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let value = heap
-        .get(this_ref)?
-        .fields
-        .first()
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let value = extract_first_field_arg(heap, this_ref)?;
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     match value {
         Slot::Reference(None) => {
@@ -24089,7 +23729,7 @@ pub(crate) fn native_arraydeque_contains(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -24129,7 +23769,7 @@ pub(crate) fn native_arraydeque_for_each(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(cons_ref)) = consumer_slot else {
         return Err(VmError::NullPointerException);
     };
@@ -25438,7 +25078,7 @@ pub(crate) fn native_hashmap_compute_if_present(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let key = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let key = extract_slot_arg(args, 1);
     // Look up existing value.
     let existing = native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
     let old_value = match existing {
@@ -25490,7 +25130,7 @@ pub(crate) fn native_hashmap_remove_key_value(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let expected_val = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let expected_val = extract_slot_arg(args, 2);
     let fields = heap.get(this_ref)?.fields.clone();
     if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
         let actual_val = fields[i + 1];
