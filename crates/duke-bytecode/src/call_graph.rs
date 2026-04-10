@@ -73,35 +73,6 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 }
 
 /// Generates a Mermaid call graph (CFG) from a class file.
-///
-/// This is used for visualising the structure of a Java method. It outputs
-/// Mermaid.js compatible syntax (using `graph TD`). The graph shows calls made
-/// from methods within the given class to other methods, helping visualize
-/// inter-method dependencies.
-///
-/// # Examples
-///
-/// ```
-/// use duke_bytecode::generate_mermaid_call_graph;
-/// use duke_classfile::types::{ClassFile, CpIndex};
-/// use duke_classfile::access_flags::ClassAccessFlags;
-///
-/// let cf = ClassFile {
-///     minor_version: 0,
-///     major_version: 65,
-///     constant_pool: vec![None], // Dummy constant pool
-///     access_flags: ClassAccessFlags::PUBLIC,
-///     this_class: CpIndex(0),
-///     super_class: CpIndex(0),
-///     interfaces: vec![],
-///     fields: vec![],
-///     methods: vec![],
-///     attributes: vec![],
-/// };
-///
-/// let graph = generate_mermaid_call_graph(&cf);
-/// assert!(graph.contains("graph TD"));
-/// ```
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
 /// ⚡ Bolt: Using `BTreeSet<String>` removes the need to collect and sort a `Vec` and avoids cloning `source_id` in the hot loop.

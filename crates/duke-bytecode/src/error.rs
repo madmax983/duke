@@ -15,7 +15,7 @@ use thiserror::Error;
 ///
 /// let v_err = VerifyError::StackUnderflow { pc: 10 };
 /// let err: Error = v_err.into();
-/// assert_eq!(err.to_string(), "Verify error: stack underflow at pc=10");
+/// assert_eq!(err.to_string(), "Verify error: stack underflow at pc=10: tried to pop from empty stack");
 /// ```
 #[derive(Debug, Error)]
 pub enum Error {

@@ -1,10 +1,10 @@
-#![allow(missing_docs)]
-
 //! Typed JVM instruction representation.
 //!
 //! Each [`Instruction`] variant carries exactly the operands decoded from
 //! the bytecode stream. The variant names match the JVM spec opcode names
 //! (`PascalCase`). Wide-prefixed forms carry a `u16` local index instead of `u8`.
+
+#![allow(missing_docs)]
 
 use duke_classfile::CpIndex;
 
