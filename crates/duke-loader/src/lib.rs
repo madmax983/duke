@@ -26,6 +26,17 @@ pub use zip::{ZipEntryInfo, ZipLoader, ZipReader};
 /// Abstraction over class file loading sources.
 ///
 /// `name` is internal form: `"java/lang/Object"` (no `.class` suffix).
+///
+/// # Examples
+///
+/// ```
+/// use duke_loader::{ClassLoader, DirectoryLoader};
+/// use std::path::Path;
+///
+/// let loader = DirectoryLoader::new(Path::new("."));
+/// let result = loader.find_class("HelloWorld");
+/// assert!(result.is_err());
+/// ```
 pub trait ClassLoader {
     /// Load the raw `.class` bytes for a class.
     ///
