@@ -4,3 +4,6 @@
 **[Optimize Parser Allocations]
 **Learning:** Iterator chains like `.map().collect()` on complex structures returning `Result<Vec<T>, E>` can obscure exact allocations, even when the iterator length is known.
 **Action:** Replace these chains with explicit `Vec::with_capacity(count)` and `for` loops in hot parsing paths (like `duke-classfile/src/parser.rs`) to ensure zero intermediate allocations and explicit sizing.
+**Placebo Clone Optimizations**
+**Learning:** Shifting a `.clone()` call from a function argument to a struct initialization field (or vice versa) does not eliminate the heap allocation, it only moves where the allocation occurs. This results in a placebo optimization with no actual performance gain.
+**Action:** To genuinely eliminate a string or vector allocation, the underlying data structure or ownership model must be changed (e.g., using references `&str`, `Cow`, or sharing ownership). Always verify the total number of allocations remains reduced before submitting.

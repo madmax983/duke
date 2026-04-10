@@ -482,10 +482,11 @@ fn parse_central_directory(
         let name =
             String::from_utf8_lossy(&data[name_start..name_start + filename_len]).into_owned();
 
+        let entry_name = name.clone();
         index.insert(
-            name.clone(),
+            name,
             ZipEntryInfo {
-                name,
+                name: entry_name,
                 compression_method,
                 crc32,
                 compressed_size,

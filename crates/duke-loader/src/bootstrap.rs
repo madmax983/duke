@@ -68,7 +68,7 @@ impl BootstrapLoader {
     /// ```
     pub fn new(modules_path: &Path, classpath_paths: Vec<impl AsRef<Path>>) -> LoadResult<Self> {
         let jimage = JImageReader::open(modules_path)?;
-        let mut classpath = Vec::new();
+        let mut classpath = Vec::with_capacity(classpath_paths.len());
         for p in classpath_paths {
             classpath.push(classpath_entry_for(p.as_ref())?);
         }
