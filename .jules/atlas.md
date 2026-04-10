@@ -12,3 +12,6 @@
 **[Split ClassFile types]
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+**Extract HostManager out of Heap God Struct**
+**Tangle:** The `Heap` struct in `crates/duke-gc/src/lib.rs` had grown into a "God Struct". In addition to generational garbage collection, it managed OS-level resources including TCP sockets, host files, processes, and ZIP archives. This mixed memory management with I/O and networking abstractions, bloating `lib.rs` to over 2500 lines.
+**Blueprint:** Extracted all host-related types (`HostFileHandle`, `HostProcessHandle`, `SpawnedProcessIds`) and operations (`open_host_input_file`, `spawn_host_process`, `bind_server_socket`, etc.) into a cohesive `HostManager` struct within a new `crates/duke-gc/src/host.rs` module. The `Heap` now embeds a `pub host: HostManager` as a facade. Updated `duke-interpreter` to route OS calls through `heap.host`, cleanly separating memory concerns from host integrations.

@@ -14,11 +14,13 @@
 //! need to know which gen an object lives in.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
 
 use duke_runtime::{Slot, VmError, VmResult};
 
+pub mod host;
 mod mermaid;
+#[allow(clippy::wildcard_imports)]
+use host::*;
 
 /// High bit set ⟹ old-generation reference; clear ⟹ young-generation reference.
 pub const OLD_BIT: u64 = 1 << 63;
@@ -66,75 +68,6 @@ pub struct HeapObject {
     pub(crate) forward: Option<u64>,
 }
 
-#[derive(Debug)]
-/// A handle for a native host process managed by the VM.
-///
-/// Used for Java's `Runtime.exec` and related API implementations.
-pub struct HostProcessHandle {
-    child: std::process::Child,
-    exit_code: Option<i32>,
-}
-
-/// Identifying file descriptors associated with a spawned native process.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SpawnedProcessIds {
-    /// The unique process identifier.
-    pub process_id: i32,
-    /// The file descriptor ID for the process's standard input.
-    pub stdin_id: i32,
-    /// The file descriptor ID for the process's standard output.
-    pub stdout_id: i32,
-    /// The file descriptor ID for the process's standard error.
-    pub stderr_id: i32,
-}
-
-#[derive(Debug)]
-/// A handle to a native file managed by the VM on behalf of Java I/O classes.
-pub enum HostFileHandle {
-    /// A file opened for reading.
-    Reader(std::fs::File),
-    /// A file opened for writing.
-    Writer(std::fs::File),
-    /// A TCP server socket waiting for incoming connections.
-    TcpListener(std::net::TcpListener),
-    /// The read half of an accepted or connected TCP socket.
-    SocketReader(std::net::TcpStream),
-    /// The write half of an accepted or connected TCP socket.
-    SocketWriter(std::net::TcpStream),
-    /// An opened ZIP/JAR archive (parsed and indexed).
-    ZipArchive(duke_loader::ZipReader),
-    /// An in-memory byte buffer (e.g. decompressed ZIP entry for `InputStream`).
-    ByteBuffer(std::io::Cursor<Vec<u8>>),
-    /// An owned child process plus any cached exit status.
-    Process(HostProcessHandle),
-    /// The stdout pipe of a child process.
-    ProcessStdout(std::process::ChildStdout),
-    /// The stderr pipe of a child process.
-    ProcessStderr(std::process::ChildStderr),
-    /// The stdin pipe of a child process.
-    ProcessStdin(std::process::ChildStdin),
-}
-
-/// The generational object heap.
-///
-/// Young-gen refs: `r & OLD_BIT == 0`  → index into `young`
-/// Old-gen refs:   `r & OLD_BIT != 0`  → index `(r & !OLD_BIT)` into `old`
-///
-/// # Examples
-///
-/// ```
-/// use duke_gc::Heap;
-/// use duke_runtime::Slot;
-///
-/// let mut heap = Heap::new();
-/// let obj_ref = heap.allocate("MyClass".to_string(), 2);
-///
-/// let obj = heap.get_mut(obj_ref).unwrap();
-/// obj.fields[0] = Slot::Int(42);
-///
-/// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
-/// ```
-#[derive(Debug, Default)]
 pub struct Heap {
     // ── Young generation ────────────────────────────────────────────────────
     /// Young-gen object store. Index = raw young-gen reference.
@@ -184,8 +117,7 @@ pub struct Heap {
     /// `collect()` returns via [`Heap::apply_forward`].
     forward_map: HashMap<u64, u64>,
     /// Host OS file handles keyed by small integer ids stored in Java objects.
-    host_files: HashMap<i32, HostFileHandle>,
-    next_host_file_id: i32,
+    pub host: HostManager,
 }
 
 impl Heap {
@@ -199,6 +131,7 @@ impl Heap {
     /// assert!(heap.is_empty());
     /// ```
     #[must_use]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             young: Vec::new(),
@@ -214,8 +147,7 @@ impl Heap {
             live_count: 0,
             young_dropped: 0,
             forward_map: HashMap::new(),
-            host_files: HashMap::new(),
-            next_host_file_id: 1,
+            host: HostManager::new(),
         }
     }
 
@@ -276,463 +208,6 @@ impl Heap {
         self.young.push(Some(obj));
         self.young_top += 1;
         idx
-    }
-
-    /// Opens an input file on the host OS.
-    ///
-    /// # Errors
-    /// Returns `VmError::JavaException` if the file does not exist or an IO error occurs.
-    pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
-        let file = std::fs::File::open(path).map_err(|err| match err.kind() {
-            std::io::ErrorKind::NotFound => VmError::JavaException {
-                class_name: "java/io/FileNotFoundException".to_string(),
-            },
-            _ => VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
-            },
-        })?;
-        let id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files.insert(id, HostFileHandle::Reader(file));
-        Ok(id)
-    }
-
-    /// Opens an output file on the host OS.
-    ///
-    /// # Errors
-    /// Returns `VmError::JavaException` if the file cannot be created.
-    pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
-        let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
-            class_name: "java/io/IOException".to_string(),
-        })?;
-        let id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files.insert(id, HostFileHandle::Writer(file));
-        Ok(id)
-    }
-
-    /// Reads a single byte from a host file.
-    ///
-    /// # Errors
-    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
-    pub fn read_host_file_byte(&mut self, id: i32) -> VmResult<i32> {
-        let Some(handle) = self.host_files.get_mut(&id) else {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
-            });
-        };
-        let reader: &mut dyn Read = match handle {
-            HostFileHandle::Reader(f) => f,
-            HostFileHandle::SocketReader(s) => s,
-            HostFileHandle::ByteBuffer(cursor) => cursor,
-            HostFileHandle::ProcessStdout(stdout) => stdout,
-            HostFileHandle::ProcessStderr(stderr) => stderr,
-            _ => {
-                return Err(VmError::JavaException {
-                    class_name: "java/io/IOException".into(),
-                });
-            }
-        };
-        let mut buf = [0_u8; 1];
-        match reader.read(&mut buf) {
-            Ok(0) => Ok(-1),
-            Ok(_) => Ok(i32::from(buf[0])),
-            Err(_) => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
-    }
-
-    /// Writes a single byte to a host file.
-    ///
-    /// # Errors
-    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> VmResult<()> {
-        let Some(handle) = self.host_files.get_mut(&id) else {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".to_string(),
-            });
-        };
-        let writer: &mut dyn Write = match handle {
-            HostFileHandle::Writer(f) => f,
-            HostFileHandle::SocketWriter(s) => s,
-            HostFileHandle::ProcessStdin(stdin) => stdin,
-            _ => {
-                return Err(VmError::JavaException {
-                    class_name: "java/io/IOException".into(),
-                });
-            }
-        };
-        writer
-            .write_all(&[(value & 0xFF) as u8])
-            .map_err(|_| VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            })
-    }
-
-    /// Closes a host file handle previously opened via the registry.
-    ///
-    /// Silently ignores invalid or already-closed file descriptors.
-    pub fn close_host_file(&mut self, id: i32) {
-        if id > 0 {
-            self.host_files.remove(&id);
-        }
-    }
-
-    const fn next_host_handle_id(&mut self) -> i32 {
-        let id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        id
-    }
-
-    /// Spawns a child process on the host OS with fully piped stdio.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the command is empty, cannot be spawned, or any
-    /// of the expected pipes are unavailable.
-    pub fn spawn_host_process(
-        &mut self,
-        command: &[String],
-        cwd: Option<&std::path::Path>,
-    ) -> VmResult<SpawnedProcessIds> {
-        if command.is_empty() {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        }
-
-        let mut builder = std::process::Command::new(&command[0]);
-        builder.args(&command[1..]);
-        builder.stdin(std::process::Stdio::piped());
-        builder.stdout(std::process::Stdio::piped());
-        builder.stderr(std::process::Stdio::piped());
-        if let Some(cwd) = cwd {
-            builder.current_dir(cwd);
-        }
-
-        let mut child = builder.spawn().map_err(|_| VmError::JavaException {
-            class_name: "java/io/IOException".into(),
-        })?;
-        let Some(stdin) = child.stdin.take() else {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        };
-        let Some(stdout) = child.stdout.take() else {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        };
-        let Some(stderr) = child.stderr.take() else {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        };
-
-        let process_id = self.next_host_handle_id();
-        let stdin_id = self.next_host_handle_id();
-        let stdout_id = self.next_host_handle_id();
-        let stderr_id = self.next_host_handle_id();
-
-        self.host_files.insert(
-            process_id,
-            HostFileHandle::Process(HostProcessHandle {
-                child,
-                exit_code: None,
-            }),
-        );
-        self.host_files
-            .insert(stdin_id, HostFileHandle::ProcessStdin(stdin));
-        self.host_files
-            .insert(stdout_id, HostFileHandle::ProcessStdout(stdout));
-        self.host_files
-            .insert(stderr_id, HostFileHandle::ProcessStderr(stderr));
-
-        Ok(SpawnedProcessIds {
-            process_id,
-            stdin_id,
-            stdout_id,
-            stderr_id,
-        })
-    }
-
-    #[cfg(unix)]
-    fn exit_status_code(status: std::process::ExitStatus) -> i32 {
-        use std::os::unix::process::ExitStatusExt;
-
-        status
-            .code()
-            .unwrap_or_else(|| status.signal().map_or(-1, |signal| 128 + signal))
-    }
-
-    #[cfg(not(unix))]
-    fn exit_status_code(status: std::process::ExitStatus) -> i32 {
-        status.code().unwrap_or(-1)
-    }
-
-    fn process_handle_mut(&mut self, id: i32) -> VmResult<&mut HostProcessHandle> {
-        match self.host_files.get_mut(&id) {
-            Some(HostFileHandle::Process(process)) => Ok(process),
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
-    }
-
-    /// Blocks until the child process exits and returns its cached exit code.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the process id is invalid or waiting fails.
-    pub fn wait_host_process(&mut self, id: i32) -> VmResult<i32> {
-        let process = self.process_handle_mut(id)?;
-        if let Some(code) = process.exit_code {
-            return Ok(code);
-        }
-        let status = process.child.wait().map_err(|_| VmError::JavaException {
-            class_name: "java/io/IOException".into(),
-        })?;
-        let code = Self::exit_status_code(status);
-        process.exit_code = Some(code);
-        Ok(code)
-    }
-
-    /// Returns the child's exit code if it has already terminated.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the process id is invalid or querying status fails.
-    pub fn try_host_process_exit_value(&mut self, id: i32) -> VmResult<Option<i32>> {
-        let process = self.process_handle_mut(id)?;
-        if let Some(code) = process.exit_code {
-            return Ok(Some(code));
-        }
-        let status = process
-            .child
-            .try_wait()
-            .map_err(|_| VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            })?;
-        let Some(status) = status else {
-            return Ok(None);
-        };
-        let code = Self::exit_status_code(status);
-        process.exit_code = Some(code);
-        Ok(Some(code))
-    }
-
-    /// Requests child termination if the process is still alive.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the process id is invalid or the kill operation fails.
-    pub fn destroy_host_process(&mut self, id: i32) -> VmResult<()> {
-        let process = self.process_handle_mut(id)?;
-        if process.exit_code.is_some() {
-            return Ok(());
-        }
-        if let Some(status) = process
-            .child
-            .try_wait()
-            .map_err(|_| VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            })?
-        {
-            process.exit_code = Some(Self::exit_status_code(status));
-            return Ok(());
-        }
-        process.child.kill().map_err(|_| VmError::JavaException {
-            class_name: "java/io/IOException".into(),
-        })
-    }
-
-    /// Opens a ZIP/JAR archive on the host OS, parses and indexes it.
-    ///
-    /// # Errors
-    /// Returns `ZipException` if the file is not a valid ZIP, or
-    /// `FileNotFoundException` if the path does not exist.
-    pub fn open_host_zip(&mut self, path: &std::path::Path) -> VmResult<i32> {
-        let reader = duke_loader::ZipReader::open(path).map_err(|err| match err {
-            duke_loader::LoadError::Io { .. } => VmError::JavaException {
-                class_name: "java/io/FileNotFoundException".to_string(),
-            },
-            _ => VmError::JavaException {
-                class_name: "java/util/zip/ZipException".to_string(),
-            },
-        })?;
-        let id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files
-            .insert(id, HostFileHandle::ZipArchive(reader));
-        Ok(id)
-    }
-
-    /// Returns the number of entries in an opened ZIP archive.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the handle is invalid or not a ZIP archive.
-    pub fn zip_entry_count(&self, id: i32) -> VmResult<usize> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.entry_count()),
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
-    }
-
-    /// Looks up a ZIP entry by name, returning a clone of its metadata.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the handle is invalid or not a ZIP archive.
-    pub fn zip_get_entry_info(
-        &self,
-        id: i32,
-        name: &str,
-    ) -> VmResult<Option<duke_loader::ZipEntryInfo>> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.get_entry(name).cloned()),
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
-    }
-
-    /// Reads and decompresses a ZIP entry's bytes.
-    ///
-    /// # Errors
-    /// Returns `ZipException` on decompression failure, `IOException` for invalid handles.
-    pub fn zip_read_entry(&self, id: i32, name: &str) -> VmResult<Vec<u8>> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => {
-                reader.read_entry(name).map_err(|_| VmError::JavaException {
-                    class_name: "java/util/zip/ZipException".into(),
-                })
-            }
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
-    }
-
-    /// Creates an in-memory byte buffer handle (for reading decompressed data
-    /// as an `InputStream`).
-    pub fn open_host_byte_buffer(&mut self, data: Vec<u8>) -> i32 {
-        let id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files
-            .insert(id, HostFileHandle::ByteBuffer(std::io::Cursor::new(data)));
-        id
-    }
-
-    /// Binds a TCP listener to the given address string (e.g. `"0.0.0.0:8080"`).
-    ///
-    /// # Errors
-    /// Returns `BindException` if the address is already in use, `SocketException` for other errors.
-    pub fn bind_server_socket(&mut self, addr: &str) -> VmResult<i32> {
-        let listener = std::net::TcpListener::bind(addr).map_err(|err| match err.kind() {
-            std::io::ErrorKind::AddrInUse => VmError::JavaException {
-                class_name: "java/net/BindException".into(),
-            },
-            _ => VmError::JavaException {
-                class_name: "java/net/SocketException".into(),
-            },
-        })?;
-        let id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files
-            .insert(id, HostFileHandle::TcpListener(listener));
-        Ok(id)
-    }
-
-    /// Accepts one incoming connection on the given listener id.
-    /// Returns `(reader_id, writer_id)` — two independent OS handles to the same socket.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the id is invalid or the accept fails.
-    ///
-    /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
-    /// programs opening billions of handles would alias at `i32::MAX`. This is a
-    /// known limitation shared with the file I/O implementation.
-    pub fn accept_connection(&mut self, id: i32) -> VmResult<(i32, i32)> {
-        // Validate that the handle exists and is a TcpListener.
-        if !matches!(
-            self.host_files.get(&id),
-            Some(HostFileHandle::TcpListener(_))
-        ) {
-            return Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            });
-        }
-        // Temporarily remove the listener to satisfy the borrow checker, then reinsert.
-        let Some(HostFileHandle::TcpListener(listener)) = self.host_files.remove(&id) else {
-            unreachable!()
-        };
-        let result = listener.accept();
-        self.host_files
-            .insert(id, HostFileHandle::TcpListener(listener));
-        let (stream, _addr) = result.map_err(|_| VmError::JavaException {
-            class_name: "java/io/IOException".into(),
-        })?;
-        let writer = stream.try_clone().map_err(|_| VmError::JavaException {
-            class_name: "java/io/IOException".into(),
-        })?;
-        let reader_id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        let writer_id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files
-            .insert(reader_id, HostFileHandle::SocketReader(stream));
-        self.host_files
-            .insert(writer_id, HostFileHandle::SocketWriter(writer));
-        Ok((reader_id, writer_id))
-    }
-
-    /// Connects a TCP socket to the given address string (e.g. `"127.0.0.1:8080"`).
-    /// Returns `(reader_id, writer_id)` — two independent OS handles to the same socket.
-    ///
-    /// # Errors
-    /// Returns `ConnectException` if connection is refused, `SocketException` for other errors.
-    ///
-    /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
-    /// programs opening billions of handles would alias at `i32::MAX`. This is a
-    /// known limitation shared with the file I/O implementation.
-    pub fn connect_socket(&mut self, addr: &str) -> VmResult<(i32, i32)> {
-        let stream = std::net::TcpStream::connect(addr).map_err(|err| match err.kind() {
-            std::io::ErrorKind::ConnectionRefused => VmError::JavaException {
-                class_name: "java/net/ConnectException".into(),
-            },
-            _ => VmError::JavaException {
-                class_name: "java/net/SocketException".into(),
-            },
-        })?;
-        let writer = stream.try_clone().map_err(|_| VmError::JavaException {
-            class_name: "java/net/SocketException".into(),
-        })?;
-        let reader_id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        let writer_id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files
-            .insert(reader_id, HostFileHandle::SocketReader(stream));
-        self.host_files
-            .insert(writer_id, HostFileHandle::SocketWriter(writer));
-        Ok((reader_id, writer_id))
-    }
-
-    /// Returns the local port of a bound server socket.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the id is invalid.
-    pub fn server_socket_local_port(&self, id: i32) -> VmResult<i32> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::TcpListener(l)) => l
-                .local_addr()
-                .map(|addr| i32::from(addr.port()))
-                .map_err(|_| VmError::JavaException {
-                    class_name: "java/io/IOException".into(),
-                }),
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
     }
 
     /// Promote a young-gen object to old gen. Returns `raw_old_idx | OLD_BIT`.
@@ -1195,7 +670,7 @@ mod tests {
     #[test]
     fn should_return_error_when_reading_closed_or_invalid_file() {
         let mut gc = Heap::new();
-        let err = gc.read_host_file_byte(999).unwrap_err();
+        let err = gc.host.read_host_file_byte(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1204,7 +679,7 @@ mod tests {
     #[test]
     fn should_return_error_when_writing_closed_or_invalid_file() {
         let mut gc = Heap::new();
-        let err = gc.write_host_file_byte(999, 65).unwrap_err();
+        let err = gc.host.write_host_file_byte(999, 65).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1214,12 +689,12 @@ mod tests {
     fn should_return_error_when_reading_from_writer() {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("test_write.txt");
-        let id = gc.open_host_output_file(&path).unwrap();
-        let err = gc.read_host_file_byte(id).unwrap_err();
+        let id = gc.host.open_host_output_file(&path).unwrap();
+        let err = gc.host.read_host_file_byte(id).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        gc.close_host_file(id);
+        gc.host.close_host_file(id);
         let _ = std::fs::remove_file(path);
     }
 
@@ -1228,12 +703,12 @@ mod tests {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("test_read.txt");
         std::fs::write(&path, b"hello").unwrap();
-        let id = gc.open_host_input_file(&path).unwrap();
-        let err = gc.write_host_file_byte(id, 65).unwrap_err();
+        let id = gc.host.open_host_input_file(&path).unwrap();
+        let err = gc.host.write_host_file_byte(id, 65).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        gc.close_host_file(id);
+        gc.host.close_host_file(id);
         let _ = std::fs::remove_file(path);
     }
 
@@ -1241,7 +716,7 @@ mod tests {
     fn should_return_error_when_opening_non_existent_file() {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("definitely_does_not_exist_1234.txt");
-        let err = gc.open_host_input_file(&path).unwrap_err();
+        let err = gc.host.open_host_input_file(&path).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException")
         );
@@ -1250,7 +725,7 @@ mod tests {
     #[test]
     fn should_return_error_when_spawning_empty_command() {
         let mut gc = Heap::new();
-        let err = gc.spawn_host_process(&[], None).unwrap_err();
+        let err = gc.host.spawn_host_process(&[], None).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1260,24 +735,28 @@ mod tests {
     fn should_cache_process_exit_code() {
         let mut gc = Heap::new();
         let process = gc
+            .host
             .spawn_host_process(&["echo".to_string(), "hello".to_string()], None)
             .unwrap();
-        let code = gc.wait_host_process(process.process_id).unwrap();
+        let code = gc.host.wait_host_process(process.process_id).unwrap();
         assert_eq!(code, 0);
         // Should use cache
-        let code2 = gc.wait_host_process(process.process_id).unwrap();
+        let code2 = gc.host.wait_host_process(process.process_id).unwrap();
         assert_eq!(code2, 0);
         // Try wait should use cache
-        let code3 = gc.try_host_process_exit_value(process.process_id).unwrap();
+        let code3 = gc
+            .host
+            .try_host_process_exit_value(process.process_id)
+            .unwrap();
         assert_eq!(code3, Some(0));
         // Destroy on already exited should be ok
-        gc.destroy_host_process(process.process_id).unwrap();
+        gc.host.destroy_host_process(process.process_id).unwrap();
     }
 
     #[test]
     fn should_return_error_when_waiting_invalid_process() {
         let mut gc = Heap::new();
-        let err = gc.wait_host_process(999).unwrap_err();
+        let err = gc.host.wait_host_process(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1286,7 +765,7 @@ mod tests {
     #[test]
     fn should_return_error_when_destroying_invalid_process() {
         let mut gc = Heap::new();
-        let err = gc.destroy_host_process(999).unwrap_err();
+        let err = gc.host.destroy_host_process(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1295,7 +774,7 @@ mod tests {
     #[test]
     fn should_return_error_when_trying_exit_value_invalid_process() {
         let mut gc = Heap::new();
-        let err = gc.try_host_process_exit_value(999).unwrap_err();
+        let err = gc.host.try_host_process_exit_value(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1306,7 +785,7 @@ mod tests {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("definitely_not_a_zip.zip");
         std::fs::write(&path, b"not a zip file content").unwrap();
-        let err = gc.open_host_zip(&path).unwrap_err();
+        let err = gc.host.open_host_zip(&path).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException")
         );
@@ -1316,15 +795,15 @@ mod tests {
     #[test]
     fn should_return_error_when_accessing_invalid_zip_handle() {
         let gc = Heap::new();
-        let err1 = gc.zip_entry_count(999).unwrap_err();
+        let err1 = gc.host.zip_entry_count(999).unwrap_err();
         assert!(
             matches!(err1, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        let err2 = gc.zip_get_entry_info(999, "test").unwrap_err();
+        let err2 = gc.host.zip_get_entry_info(999, "test").unwrap_err();
         assert!(
             matches!(err2, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        let err3 = gc.zip_read_entry(999, "test").unwrap_err();
+        let err3 = gc.host.zip_read_entry(999, "test").unwrap_err();
         assert!(
             matches!(err3, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1333,7 +812,7 @@ mod tests {
     #[test]
     fn should_return_error_when_binding_invalid_socket_address() {
         let mut gc = Heap::new();
-        let err = gc.bind_server_socket("invalid_address").unwrap_err();
+        let err = gc.host.bind_server_socket("invalid_address").unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/net/SocketException")
         );
@@ -1342,7 +821,7 @@ mod tests {
     #[test]
     fn should_return_error_when_accepting_invalid_listener() {
         let mut gc = Heap::new();
-        let err = gc.accept_connection(999).unwrap_err();
+        let err = gc.host.accept_connection(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -2258,251 +1737,6 @@ mod tests {
             "minor_collect_prepare should not collect into an intermediate vector for children"
         );
     }
-
-    // ── TCP socket tests (Task 1) ──────────────────────────────────────────────
-
-    #[test]
-    fn bind_server_socket_returns_valid_id() {
-        let mut heap = Heap::new();
-        let id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
-        assert!(id > 0);
-    }
-
-    #[test]
-    fn bind_server_socket_addr_in_use() {
-        let mut heap = Heap::new();
-        let id = heap
-            .bind_server_socket("127.0.0.1:0")
-            .expect("first bind failed");
-        let port = heap.server_socket_local_port(id).expect("port failed");
-        let err = heap
-            .bind_server_socket(&format!("127.0.0.1:{port}"))
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            duke_runtime::VmError::JavaException { ref class_name }
-            if class_name == "java/net/BindException"
-        ));
-    }
-
-    #[test]
-    fn connect_socket_refused() {
-        // On Windows, WSAECONNREFUSED may not map to ErrorKind::ConnectionRefused in all
-        // Rust versions. Accept either ConnectException or SocketException so the test
-        // passes on all platforms while still verifying no panic occurs.
-        // Bind to get a port, then drop the listener so nothing listens.
-        let mut heap = Heap::new();
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let err = heap
-            .connect_socket(&format!("127.0.0.1:{port}"))
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            duke_runtime::VmError::JavaException { ref class_name }
-            if class_name == "java/net/ConnectException"
-                || class_name == "java/net/SocketException"
-        ));
-    }
-
-    #[test]
-    fn server_socket_local_port() {
-        let mut heap = Heap::new();
-        let id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
-        let port = heap.server_socket_local_port(id).expect("port failed");
-        assert!(port > 0);
-    }
-
-    #[test]
-    fn accept_and_read_roundtrip() {
-        let mut heap = Heap::new();
-        let server_id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
-        let port = heap
-            .server_socket_local_port(server_id)
-            .expect("port failed");
-        let handle = std::thread::spawn(move || {
-            let mut stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
-            std::io::Write::write_all(&mut stream, &[42]).unwrap();
-        });
-        let (reader_id, _writer_id) = heap.accept_connection(server_id).expect("accept failed");
-        let byte = heap.read_host_file_byte(reader_id).expect("read failed");
-        assert_eq!(byte, 42);
-        handle.join().unwrap();
-    }
-
-    #[test]
-    fn connect_and_write_roundtrip() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut buf = [0u8; 1];
-            std::io::Read::read_exact(&mut stream, &mut buf).unwrap();
-            assert_eq!(buf[0], 99);
-        });
-        let mut heap = Heap::new();
-        let (_reader_id, writer_id) = heap
-            .connect_socket(&format!("127.0.0.1:{port}"))
-            .expect("connect failed");
-        heap.write_host_file_byte(writer_id, 99)
-            .expect("write failed");
-        // Drop the writer so the listener's read_exact completes.
-        heap.close_host_file(writer_id);
-        handle.join().unwrap();
-    }
-
-    #[test]
-    fn close_then_read_returns_io_exception() {
-        let mut heap = Heap::new();
-        let server_id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
-        let port = heap
-            .server_socket_local_port(server_id)
-            .expect("port failed");
-        let handle = std::thread::spawn(move || {
-            let _stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
-        });
-        let (reader_id, _writer_id) = heap.accept_connection(server_id).expect("accept failed");
-        handle.join().unwrap();
-        heap.close_host_file(reader_id);
-        let err = heap.read_host_file_byte(reader_id).unwrap_err();
-        assert!(matches!(
-            err,
-            duke_runtime::VmError::JavaException { ref class_name }
-            if class_name == "java/io/IOException"
-        ));
-    }
 }
 #[cfg(test)]
 mod fuzz;
-
-#[test]
-fn test_host_file_operations() {
-    let mut heap = Heap::new();
-    // Use an existing test file from duke-loader tests if possible, or create a dummy
-    let dummy_path = std::env::temp_dir().join("test_host_file_ops.txt");
-    std::fs::write(&dummy_path, b"test").unwrap();
-
-    let fd = heap.open_host_input_file(&dummy_path).unwrap();
-    let b = heap.read_host_file_byte(fd).unwrap();
-    assert_eq!(b, i32::from(b't'));
-    heap.close_host_file(fd);
-
-    // open_host_output_file
-    let out_fd = heap.open_host_output_file(&dummy_path).unwrap();
-    heap.write_host_file_byte(out_fd, i32::from(b'A')).unwrap();
-    heap.close_host_file(out_fd);
-
-    let content = std::fs::read_to_string(&dummy_path).unwrap();
-    assert_eq!(content, "A");
-
-    std::fs::remove_file(dummy_path).unwrap();
-}
-
-#[test]
-fn should_handle_open_read_write_close_cycle() {
-    let mut heap = Heap::new();
-    let dummy_path = std::env::temp_dir().join("test_host_file_ops2.txt");
-
-    let out_fd = heap.open_host_output_file(&dummy_path).unwrap();
-    heap.write_host_file_byte(out_fd, i32::from(b'A')).unwrap();
-    heap.write_host_file_byte(out_fd, i32::from(b'B')).unwrap();
-    heap.close_host_file(out_fd);
-
-    let in_fd = heap.open_host_input_file(&dummy_path).unwrap();
-    let b1 = heap.read_host_file_byte(in_fd).unwrap();
-    let b2 = heap.read_host_file_byte(in_fd).unwrap();
-    let b3 = heap.read_host_file_byte(in_fd).unwrap(); // EOF
-    assert_eq!(b1, i32::from(b'A'));
-    assert_eq!(b2, i32::from(b'B'));
-    assert_eq!(b3, -1);
-
-    heap.close_host_file(in_fd);
-    std::fs::remove_file(dummy_path).unwrap();
-}
-
-#[test]
-fn open_host_input_file_not_found() {
-    let mut heap = Heap::new();
-    let dummy_path = std::env::temp_dir().join("does_not_exist_12345.txt");
-    let result = heap.open_host_input_file(&dummy_path);
-    assert!(
-        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/FileNotFoundException")
-    );
-}
-
-#[test]
-fn spawn_host_process_empty_command() {
-    let mut heap = Heap::new();
-    let result = heap.spawn_host_process(&[], None);
-    assert!(
-        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-}
-
-#[test]
-fn spawn_host_process_invalid_command() {
-    let mut heap = Heap::new();
-    let result = heap.spawn_host_process(&["/does/not/exist/executable".to_string()], None);
-    assert!(
-        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-}
-
-#[test]
-fn read_write_invalid_host_file_handle() {
-    let mut heap = Heap::new();
-    assert!(
-        matches!(heap.read_host_file_byte(999), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-    assert!(
-        matches!(heap.write_host_file_byte(999, 10), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-}
-
-#[test]
-fn process_wait_and_destroy_cycle() {
-    let mut heap = Heap::new();
-    // Spawning an executable command that succeeds immediately. We use "true" (cross-platform way via sh/cmd)
-    let cmd = if cfg!(windows) {
-        vec!["cmd".to_string(), "/C".to_string(), "exit 0".to_string()]
-    } else {
-        vec!["sh".to_string(), "-c".to_string(), "exit 0".to_string()]
-    };
-    let p_ids = heap.spawn_host_process(&cmd, None).unwrap();
-
-    let wait_result = heap.wait_host_process(p_ids.process_id).unwrap();
-    assert_eq!(wait_result, 0);
-
-    // Waiting again should return the cached exit code
-    let wait_result2 = heap.wait_host_process(p_ids.process_id).unwrap();
-    assert_eq!(wait_result2, 0);
-
-    // try_host_process_exit_value should also return the cached code
-    let try_val = heap.try_host_process_exit_value(p_ids.process_id).unwrap();
-    assert_eq!(try_val, Some(0));
-
-    // destroy on a finished process is a no-op
-    heap.destroy_host_process(p_ids.process_id).unwrap();
-}
-
-#[test]
-fn socket_operations() {
-    let mut heap = Heap::new();
-    // connect to an invalid host should fail
-    let res = heap.connect_socket("invalid.host.local:12345");
-    assert!(res.is_err());
-
-    // test operations on a server socket using a random port (0)
-    let server_fd = heap.bind_server_socket("127.0.0.1:0").unwrap();
-    let port = heap.server_socket_local_port(server_fd).unwrap();
-
-    // Cannot accept right away in a blocking manner easily without hanging or starting a client thread,
-    // but we can try opening a client to it
-    let client_fd = heap.connect_socket(&format!("127.0.0.1:{port}")).unwrap();
-
-    // closing sockets
-    heap.close_host_file(client_fd.0);
-    heap.close_host_file(client_fd.1);
-    heap.close_host_file(server_fd);
-}
