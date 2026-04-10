@@ -20,12 +20,24 @@ mod tests {
         let mut heap = crate::Heap::new();
 
         let r = !crate::OLD_BIT;
-        assert!(matches!(heap.get(r), Err(duke_runtime::VmError::InvalidRef { .. })));
-        assert!(matches!(heap.get_mut(r), Err(duke_runtime::VmError::InvalidRef { .. })));
+        assert!(matches!(
+            heap.get(r),
+            Err(duke_runtime::VmError::InvalidRef { .. })
+        ));
+        assert!(matches!(
+            heap.get_mut(r),
+            Err(duke_runtime::VmError::InvalidRef { .. })
+        ));
 
         let old_r = u64::MAX | crate::OLD_BIT;
-        assert!(matches!(heap.get(old_r), Err(duke_runtime::VmError::InvalidRef { .. })));
-        assert!(matches!(heap.get_mut(old_r), Err(duke_runtime::VmError::InvalidRef { .. })));
+        assert!(matches!(
+            heap.get(old_r),
+            Err(duke_runtime::VmError::InvalidRef { .. })
+        ));
+        assert!(matches!(
+            heap.get_mut(old_r),
+            Err(duke_runtime::VmError::InvalidRef { .. })
+        ));
 
         // Test minor_collect_prepare with a huge ref
         let roots = vec![duke_runtime::Slot::Reference(Some(r))];
