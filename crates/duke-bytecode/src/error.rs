@@ -7,6 +7,16 @@
 use thiserror::Error;
 
 /// General error enumeration encompassing both decoding and structural verification errors.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::error::{Error, VerifyError};
+///
+/// let v_err = VerifyError::StackUnderflow { pc: 10 };
+/// let err: Error = v_err.into();
+/// assert_eq!(err.to_string(), "Verify error: stack underflow at pc=10: tried to pop from empty stack");
+/// ```
 #[derive(Debug, Error)]
 pub enum Error {
     /// Wrapping a [`DecodeError`].
@@ -173,6 +183,16 @@ pub enum VerifyError {
 pub type VerifyResult<T> = std::result::Result<T, VerifyError>;
 
 /// A generic result type for operations returning an [`enum@Error`].
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::error::Result;
+///
+/// fn my_func() -> Result<()> {
+///     Ok(())
+/// }
+/// ```
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
