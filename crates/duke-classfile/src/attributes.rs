@@ -1,10 +1,16 @@
 //! JVM Attributes parsing and representations.
 //!
-//! This module defines the structures for attributes found in a `.class` file.
-//! Attributes are used in the `ClassFile`, `field_info`, `method_info`, and `Code_attribute` structures.
+//! In the JVM, attributes are the flexible extensibility mechanism of a `.class` file.
+//! They contain the *actual* bytecode of a method, the source file name, debugging symbols,
+//! or bootstrap methods for `invokedynamic`. If a class file were a book, attributes would
+//! be the footnotes, the appendices, and occasionally the entire plot!
 //!
-//! While there are many attributes defined in the JVM specification, this module
-//! currently parses the following well-known attributes into typed variants:
+//! This module parses known attributes into typed variants (like [`AttributeData::Code`]),
+//! ensuring you can inspect the method's behavior. Unknown attributes are preserved
+//! as [`AttributeData::Raw`] so the runtime won't crash on newer compiler features it
+//! doesn't fully understand yet.
+//!
+//! We support:
 //! - `Code` (§4.7.3)
 //! - `ConstantValue` (§4.7.2)
 //! - `SourceFile` (§4.7.10)
@@ -12,14 +18,30 @@
 //! - `LocalVariableTable` (§4.7.13)
 //! - `Exceptions` (§4.7.5)
 //! - `BootstrapMethods` (§4.7.23)
-//!
-//! Unknown attributes are captured as raw bytes in `AttributeData::Raw` for forward compatibility.
 
 use crate::constant_pool::CpIndex;
 
 /// Generic attribute container (§4.7).
-/// Well-known attributes are parsed into their typed variants; unknown
-/// attributes are captured as raw bytes for forward compatibility.
+///
+/// Every attribute starts with a name (a UTF-8 string in the constant pool) and a length.
+/// We parse this wrapper, and then decode the inner payload into an [`AttributeData`] enum.
+/// If we don't recognize the attribute, it lives on safely as a raw byte vector, allowing
+/// the interpreter to ignore unknown metadata rather than failing to load the class.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::types::{AttributeInfo, AttributeData, CpIndex};
+///
+/// let attr = AttributeInfo {
+///     name_index: CpIndex(1),
+///     data: AttributeData::Raw(vec![0x01, 0x02]),
+/// };
+///
+/// if let AttributeData::Raw(bytes) = attr.data {
+///     assert_eq!(bytes.len(), 2);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct AttributeInfo {
     /// Constant pool index of the name of the attribute.

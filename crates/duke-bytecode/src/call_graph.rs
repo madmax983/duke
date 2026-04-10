@@ -3,7 +3,7 @@
 //! This module provides utilities to build a call graph for a given Java class
 //! using [Mermaid JS](https://mermaid.js.org/).
 
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use duke_classfile::{
@@ -75,9 +75,10 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 /// Generates a Mermaid call graph (CFG) from a class file.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
+/// ⚡ Bolt: Using `BTreeSet<String>` removes the need to collect and sort a `Vec` and avoids cloning `source_id` in the hot loop.
 pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
     let mut cg = String::from("graph TD\n");
-    let mut edges = HashSet::new();
+    let mut edges = BTreeSet::new();
 
     let this_class_name = resolve_class_name(cf, cf.this_class);
 
@@ -107,7 +108,7 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
                     {
                         let target_id =
                             format!("{target_class}::{target_method}{target_descriptor}");
-                        edges.insert((source_id.clone(), target_id));
+                        edges.insert(format!("    \"{source_id}\" --> \"{target_id}\""));
                     }
                 }
             }
@@ -115,11 +116,8 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
     }
 
     // Output unique edges
-    let mut sorted_edges: Vec<_> = edges.into_iter().collect();
-    sorted_edges.sort(); // For deterministic output
-
-    for (caller, callee) in sorted_edges {
-        let _ = writeln!(cg, "    \"{caller}\" --> \"{callee}\"");
+    for edge in edges {
+        let _ = writeln!(cg, "{edge}");
     }
 
     cg

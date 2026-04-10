@@ -6,7 +6,10 @@
 use std::process;
 
 mod analyze;
+mod deps_graph;
 mod html;
+mod jar_analyze;
+mod search;
 mod uml;
 
 use duke_bytecode::{decode, generate_mermaid_call_graph, generate_mermaid_cfg};
@@ -202,6 +205,7 @@ fn extract_telemetry_flag(args: &mut Vec<String>) -> Option<TelemetryDest> {
     result
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
     let telemetry = extract_telemetry_flag(&mut args);
@@ -213,10 +217,13 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke html <classfile.class> [output.html]");
+        eprintln!("       duke deps-graph <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
+        eprintln!("       duke jar-analyze <file.jar>");
+        eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke uml <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
@@ -271,9 +278,28 @@ fn main() {
         return;
     }
 
+    // Dispatch `search`: search for opcodes in class methods.
+    if args.len() >= 4 && args[1] == "search" {
+        search::dump_search(&args[2], &args[3]);
+        return;
+    }
+
     // Dispatch `analyze`: run static analysis on the class.
+
+    if args.len() >= 3 && args[1] == "jar-analyze" {
+        jar_analyze::dump_jar_analyze(&args[2]);
+        return;
+    }
     if args.len() >= 3 && args[1] == "analyze" {
         dump_analyze(&args[2]);
+        return;
+    }
+
+    if args.len() >= 3 && args[1] == "deps-graph" {
+        let bytes = std::fs::read(&args[2]).expect("failed to read class file");
+        let cf = parse(&bytes).expect("failed to parse class file");
+        let graph = deps_graph::generate_deps_graph(&cf);
+        println!("{graph}");
         return;
     }
 

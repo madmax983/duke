@@ -5,6 +5,28 @@ use crate::*;
 use duke_runtime::Slot;
 
 #[allow(clippy::too_many_lines)]
+/// Bootstraps the minimal JDK standard library classes needed for native method support.
+///
+/// This function synthesises minimal core classes (like `java/lang/System`, `java/io/PrintStream`, etc.)
+/// and registers their native method handlers. This allows the JVM to execute basic Java code without
+/// requiring a full `rt.jar` to be loaded. It configures the essential runtime environment.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::ClassRegistry;
+/// use duke_interpreter::stdlib::bootstrap_stdlib;
+/// use duke_gc::Heap;
+///
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+///
+/// // Populate the registry and heap with standard classes and natives.
+/// bootstrap_stdlib(&mut registry, &mut heap);
+///
+/// // Now the JVM can resolve java/lang/System and invoke println.
+/// assert!(registry.contains("java/lang/System"));
+/// ```
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
     let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
