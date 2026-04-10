@@ -827,7 +827,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn jimage_reader_find_resource_returns_none() {
         let reader = make_reader(vec![0; 10], 0, 0);
@@ -845,7 +844,10 @@ mod tests {
         buf[20..24].copy_from_slice(&100u32.to_le_bytes());
         buf[24..28].copy_from_slice(&100u32.to_le_bytes());
 
-        let tmp = std::env::temp_dir().join(format!("duke_test_small_{}.jimage", std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()));
+        let tmp = std::env::temp_dir().join(format!(
+            "duke_test_small_{}.jimage",
+            std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()
+        ));
         std::fs::write(&tmp, &buf).expect("write temp jimage");
         let result = JImageReader::open(&tmp);
         let _ = std::fs::remove_file(&tmp);
