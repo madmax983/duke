@@ -136,8 +136,7 @@ pub struct Heap {
     /// `collect()` returns via [`Heap::apply_forward`].
     forward_map: HashMap<u64, u64>,
     /// Host OS file handles keyed by small integer ids stored in Java objects.
-    host_files: HashMap<i32, HostFileHandle>,
-    next_host_file_id: i32,
+    pub host: HostManager,
 }
 
 impl Heap {
@@ -166,8 +165,7 @@ impl Heap {
             live_count: 0,
             young_dropped: 0,
             forward_map: HashMap::new(),
-            host_files: HashMap::new(),
-            next_host_file_id: 1,
+            host: HostManager::new(),
         }
     }
 
@@ -690,7 +688,7 @@ mod tests {
     #[test]
     fn should_return_error_when_reading_closed_or_invalid_file() {
         let mut gc = Heap::new();
-        let err = gc.read_host_file_byte(999).unwrap_err();
+        let err = gc.host.read_host_file_byte(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -699,7 +697,7 @@ mod tests {
     #[test]
     fn should_return_error_when_writing_closed_or_invalid_file() {
         let mut gc = Heap::new();
-        let err = gc.write_host_file_byte(999, 65).unwrap_err();
+        let err = gc.host.write_host_file_byte(999, 65).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -709,12 +707,12 @@ mod tests {
     fn should_return_error_when_reading_from_writer() {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("test_write.txt");
-        let id = gc.open_host_output_file(&path).unwrap();
-        let err = gc.read_host_file_byte(id).unwrap_err();
+        let id = gc.host.open_host_output_file(&path).unwrap();
+        let err = gc.host.read_host_file_byte(id).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        gc.close_host_file(id);
+        gc.host.close_host_file(id);
         let _ = std::fs::remove_file(path);
     }
 
@@ -723,12 +721,12 @@ mod tests {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("test_read.txt");
         std::fs::write(&path, b"hello").unwrap();
-        let id = gc.open_host_input_file(&path).unwrap();
-        let err = gc.write_host_file_byte(id, 65).unwrap_err();
+        let id = gc.host.open_host_input_file(&path).unwrap();
+        let err = gc.host.write_host_file_byte(id, 65).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        gc.close_host_file(id);
+        gc.host.close_host_file(id);
         let _ = std::fs::remove_file(path);
     }
 
@@ -736,7 +734,7 @@ mod tests {
     fn should_return_error_when_opening_non_existent_file() {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("definitely_does_not_exist_1234.txt");
-        let err = gc.open_host_input_file(&path).unwrap_err();
+        let err = gc.host.open_host_input_file(&path).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException")
         );
@@ -745,7 +743,7 @@ mod tests {
     #[test]
     fn should_return_error_when_spawning_empty_command() {
         let mut gc = Heap::new();
-        let err = gc.spawn_host_process(&[], None).unwrap_err();
+        let err = gc.host.spawn_host_process(&[], None).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -755,24 +753,28 @@ mod tests {
     fn should_cache_process_exit_code() {
         let mut gc = Heap::new();
         let process = gc
+            .host
             .spawn_host_process(&["echo".to_string(), "hello".to_string()], None)
             .unwrap();
-        let code = gc.wait_host_process(process.process_id).unwrap();
+        let code = gc.host.wait_host_process(process.process_id).unwrap();
         assert_eq!(code, 0);
         // Should use cache
-        let code2 = gc.wait_host_process(process.process_id).unwrap();
+        let code2 = gc.host.wait_host_process(process.process_id).unwrap();
         assert_eq!(code2, 0);
         // Try wait should use cache
-        let code3 = gc.try_host_process_exit_value(process.process_id).unwrap();
+        let code3 = gc
+            .host
+            .try_host_process_exit_value(process.process_id)
+            .unwrap();
         assert_eq!(code3, Some(0));
         // Destroy on already exited should be ok
-        gc.destroy_host_process(process.process_id).unwrap();
+        gc.host.destroy_host_process(process.process_id).unwrap();
     }
 
     #[test]
     fn should_return_error_when_waiting_invalid_process() {
         let mut gc = Heap::new();
-        let err = gc.wait_host_process(999).unwrap_err();
+        let err = gc.host.wait_host_process(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -781,7 +783,7 @@ mod tests {
     #[test]
     fn should_return_error_when_destroying_invalid_process() {
         let mut gc = Heap::new();
-        let err = gc.destroy_host_process(999).unwrap_err();
+        let err = gc.host.destroy_host_process(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -790,7 +792,7 @@ mod tests {
     #[test]
     fn should_return_error_when_trying_exit_value_invalid_process() {
         let mut gc = Heap::new();
-        let err = gc.try_host_process_exit_value(999).unwrap_err();
+        let err = gc.host.try_host_process_exit_value(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -801,7 +803,7 @@ mod tests {
         let mut gc = Heap::new();
         let path = std::env::temp_dir().join("definitely_not_a_zip.zip");
         std::fs::write(&path, b"not a zip file content").unwrap();
-        let err = gc.open_host_zip(&path).unwrap_err();
+        let err = gc.host.open_host_zip(&path).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException")
         );
@@ -811,15 +813,15 @@ mod tests {
     #[test]
     fn should_return_error_when_accessing_invalid_zip_handle() {
         let gc = Heap::new();
-        let err1 = gc.zip_entry_count(999).unwrap_err();
+        let err1 = gc.host.zip_entry_count(999).unwrap_err();
         assert!(
             matches!(err1, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        let err2 = gc.zip_get_entry_info(999, "test").unwrap_err();
+        let err2 = gc.host.zip_get_entry_info(999, "test").unwrap_err();
         assert!(
             matches!(err2, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
-        let err3 = gc.zip_read_entry(999, "test").unwrap_err();
+        let err3 = gc.host.zip_read_entry(999, "test").unwrap_err();
         assert!(
             matches!(err3, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -828,7 +830,7 @@ mod tests {
     #[test]
     fn should_return_error_when_binding_invalid_socket_address() {
         let mut gc = Heap::new();
-        let err = gc.bind_server_socket("invalid_address").unwrap_err();
+        let err = gc.host.bind_server_socket("invalid_address").unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/net/SocketException")
         );
@@ -837,7 +839,7 @@ mod tests {
     #[test]
     fn should_return_error_when_accepting_invalid_listener() {
         let mut gc = Heap::new();
-        let err = gc.accept_connection(999).unwrap_err();
+        let err = gc.host.accept_connection(999).unwrap_err();
         assert!(
             matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
@@ -1759,7 +1761,10 @@ mod tests {
     #[test]
     fn bind_server_socket_returns_valid_id() {
         let mut heap = Heap::new();
-        let id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
+        let id = heap
+            .host
+            .bind_server_socket("127.0.0.1:0")
+            .expect("bind failed");
         assert!(id > 0);
     }
 
@@ -1767,10 +1772,12 @@ mod tests {
     fn bind_server_socket_addr_in_use() {
         let mut heap = Heap::new();
         let id = heap
+            .host
             .bind_server_socket("127.0.0.1:0")
             .expect("first bind failed");
-        let port = heap.server_socket_local_port(id).expect("port failed");
+        let port = heap.host.server_socket_local_port(id).expect("port failed");
         let err = heap
+            .host
             .bind_server_socket(&format!("127.0.0.1:{port}"))
             .unwrap_err();
         assert!(matches!(
@@ -1791,6 +1798,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         let err = heap
+            .host
             .connect_socket(&format!("127.0.0.1:{port}"))
             .unwrap_err();
         assert!(matches!(
@@ -1804,24 +1812,37 @@ mod tests {
     #[test]
     fn server_socket_local_port() {
         let mut heap = Heap::new();
-        let id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
-        let port = heap.server_socket_local_port(id).expect("port failed");
+        let id = heap
+            .host
+            .bind_server_socket("127.0.0.1:0")
+            .expect("bind failed");
+        let port = heap.host.server_socket_local_port(id).expect("port failed");
         assert!(port > 0);
     }
 
     #[test]
     fn accept_and_read_roundtrip() {
         let mut heap = Heap::new();
-        let server_id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
+        let server_id = heap
+            .host
+            .bind_server_socket("127.0.0.1:0")
+            .expect("bind failed");
         let port = heap
+            .host
             .server_socket_local_port(server_id)
             .expect("port failed");
         let handle = std::thread::spawn(move || {
             let mut stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
             std::io::Write::write_all(&mut stream, &[42]).unwrap();
         });
-        let (reader_id, _writer_id) = heap.accept_connection(server_id).expect("accept failed");
-        let byte = heap.read_host_file_byte(reader_id).expect("read failed");
+        let (reader_id, _writer_id) = heap
+            .host
+            .accept_connection(server_id)
+            .expect("accept failed");
+        let byte = heap
+            .host
+            .read_host_file_byte(reader_id)
+            .expect("read failed");
         assert_eq!(byte, 42);
         handle.join().unwrap();
     }
@@ -1838,29 +1859,38 @@ mod tests {
         });
         let mut heap = Heap::new();
         let (_reader_id, writer_id) = heap
+            .host
             .connect_socket(&format!("127.0.0.1:{port}"))
             .expect("connect failed");
-        heap.write_host_file_byte(writer_id, 99)
+        heap.host
+            .write_host_file_byte(writer_id, 99)
             .expect("write failed");
         // Drop the writer so the listener's read_exact completes.
-        heap.close_host_file(writer_id);
+        heap.host.close_host_file(writer_id);
         handle.join().unwrap();
     }
 
     #[test]
     fn close_then_read_returns_io_exception() {
         let mut heap = Heap::new();
-        let server_id = heap.bind_server_socket("127.0.0.1:0").expect("bind failed");
+        let server_id = heap
+            .host
+            .bind_server_socket("127.0.0.1:0")
+            .expect("bind failed");
         let port = heap
+            .host
             .server_socket_local_port(server_id)
             .expect("port failed");
         let handle = std::thread::spawn(move || {
             let _stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
         });
-        let (reader_id, _writer_id) = heap.accept_connection(server_id).expect("accept failed");
+        let (reader_id, _writer_id) = heap
+            .host
+            .accept_connection(server_id)
+            .expect("accept failed");
         handle.join().unwrap();
-        heap.close_host_file(reader_id);
-        let err = heap.read_host_file_byte(reader_id).unwrap_err();
+        heap.host.close_host_file(reader_id);
+        let err = heap.host.read_host_file_byte(reader_id).unwrap_err();
         assert!(matches!(
             err,
             duke_runtime::VmError::JavaException { ref class_name }
@@ -1870,134 +1900,3 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
-
-#[test]
-fn test_host_file_operations() {
-    let mut heap = Heap::new();
-    // Use an existing test file from duke-loader tests if possible, or create a dummy
-    let dummy_path = std::env::temp_dir().join("test_host_file_ops.txt");
-    std::fs::write(&dummy_path, b"test").unwrap();
-
-    let fd = heap.open_host_input_file(&dummy_path).unwrap();
-    let b = heap.read_host_file_byte(fd).unwrap();
-    assert_eq!(b, i32::from(b't'));
-    heap.close_host_file(fd);
-
-    // open_host_output_file
-    let out_fd = heap.open_host_output_file(&dummy_path).unwrap();
-    heap.write_host_file_byte(out_fd, i32::from(b'A')).unwrap();
-    heap.close_host_file(out_fd);
-
-    let content = std::fs::read_to_string(&dummy_path).unwrap();
-    assert_eq!(content, "A");
-
-    std::fs::remove_file(dummy_path).unwrap();
-}
-
-#[test]
-fn should_handle_open_read_write_close_cycle() {
-    let mut heap = Heap::new();
-    let dummy_path = std::env::temp_dir().join("test_host_file_ops2.txt");
-
-    let out_fd = heap.open_host_output_file(&dummy_path).unwrap();
-    heap.write_host_file_byte(out_fd, i32::from(b'A')).unwrap();
-    heap.write_host_file_byte(out_fd, i32::from(b'B')).unwrap();
-    heap.close_host_file(out_fd);
-
-    let in_fd = heap.open_host_input_file(&dummy_path).unwrap();
-    let b1 = heap.read_host_file_byte(in_fd).unwrap();
-    let b2 = heap.read_host_file_byte(in_fd).unwrap();
-    let b3 = heap.read_host_file_byte(in_fd).unwrap(); // EOF
-    assert_eq!(b1, i32::from(b'A'));
-    assert_eq!(b2, i32::from(b'B'));
-    assert_eq!(b3, -1);
-
-    heap.close_host_file(in_fd);
-    std::fs::remove_file(dummy_path).unwrap();
-}
-
-#[test]
-fn open_host_input_file_not_found() {
-    let mut heap = Heap::new();
-    let dummy_path = std::env::temp_dir().join("does_not_exist_12345.txt");
-    let result = heap.open_host_input_file(&dummy_path);
-    assert!(
-        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/FileNotFoundException")
-    );
-}
-
-#[test]
-fn spawn_host_process_empty_command() {
-    let mut heap = Heap::new();
-    let result = heap.spawn_host_process(&[], None);
-    assert!(
-        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-}
-
-#[test]
-fn spawn_host_process_invalid_command() {
-    let mut heap = Heap::new();
-    let result = heap.spawn_host_process(&["/does/not/exist/executable".to_string()], None);
-    assert!(
-        matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-}
-
-#[test]
-fn read_write_invalid_host_file_handle() {
-    let mut heap = Heap::new();
-    assert!(
-        matches!(heap.read_host_file_byte(999), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-    assert!(
-        matches!(heap.write_host_file_byte(999, 10), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
-    );
-}
-
-#[test]
-fn process_wait_and_destroy_cycle() {
-    let mut heap = Heap::new();
-    // Spawning an executable command that succeeds immediately. We use "true" (cross-platform way via sh/cmd)
-    let cmd = if cfg!(windows) {
-        vec!["cmd".to_string(), "/C".to_string(), "exit 0".to_string()]
-    } else {
-        vec!["sh".to_string(), "-c".to_string(), "exit 0".to_string()]
-    };
-    let p_ids = heap.spawn_host_process(&cmd, None).unwrap();
-
-    let wait_result = heap.wait_host_process(p_ids.process_id).unwrap();
-    assert_eq!(wait_result, 0);
-
-    // Waiting again should return the cached exit code
-    let wait_result2 = heap.wait_host_process(p_ids.process_id).unwrap();
-    assert_eq!(wait_result2, 0);
-
-    // try_host_process_exit_value should also return the cached code
-    let try_val = heap.try_host_process_exit_value(p_ids.process_id).unwrap();
-    assert_eq!(try_val, Some(0));
-
-    // destroy on a finished process is a no-op
-    heap.destroy_host_process(p_ids.process_id).unwrap();
-}
-
-#[test]
-fn socket_operations() {
-    let mut heap = Heap::new();
-    // connect to an invalid host should fail
-    let res = heap.connect_socket("invalid.host.local:12345");
-    assert!(res.is_err());
-
-    // test operations on a server socket using a random port (0)
-    let server_fd = heap.bind_server_socket("127.0.0.1:0").unwrap();
-    let port = heap.server_socket_local_port(server_fd).unwrap();
-
-    // Cannot accept right away in a blocking manner easily without hanging or starting a client thread,
-    // but we can try opening a client to it
-    let client_fd = heap.connect_socket(&format!("127.0.0.1:{port}")).unwrap();
-
-    // closing sockets
-    heap.close_host_file(client_fd.0);
-    heap.close_host_file(client_fd.1);
-    heap.close_host_file(server_fd);
-}

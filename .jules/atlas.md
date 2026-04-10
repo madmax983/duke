@@ -13,5 +13,5 @@
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
 **[Extract Host IO from GC Heap]
-**Tangle:** The `duke-gc/src/lib.rs` file contained native OS file and process handling mixed directly with the generational garbage collector logic, forming a large Blob.
-**Blueprint:** Extracted the `HostFileHandle`, `HostProcessHandle`, and all native OS interaction methods from `Heap` into a dedicated `host` module to cleanly separate I/O from memory management.
+**Tangle:** The `duke-gc/src/lib.rs` file mixed OS host file and process logic with GC logic within the `Heap` struct, creating a "God Struct" and a 2,500-line Blob.
+**Blueprint:** Extracted host IO into a dedicated `HostManager` struct in `host.rs`. Updated interpreter to call `heap.host.open_host_zip()`.
