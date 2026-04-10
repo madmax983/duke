@@ -17651,11 +17651,13 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
+    // ⚡ Bolt: Use `Vec::with_capacity(params.len())` instead of `Vec::new()` to ensure zero intermediate
+    // heap reallocations while parsing argument type codes. `params.len()` is a safe conservative upper bound.
     let params = descriptor
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
-    let mut types = Vec::new();
+    let mut types = Vec::with_capacity(params.len());
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
@@ -17725,11 +17727,13 @@ fn expand_args_for_desc(args: &[Slot], descriptor: &str) -> Vec<Slot> {
 }
 
 fn parse_arg_descriptors(descriptor: &str) -> Vec<String> {
+    // ⚡ Bolt: Use `Vec::with_capacity(params.len())` instead of `Vec::new()` to ensure zero intermediate
+    // heap reallocations while parsing argument string descriptors. `params.len()` is a safe conservative upper bound.
     let params = descriptor
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
-    let mut descriptors = Vec::new();
+    let mut descriptors = Vec::with_capacity(params.len());
     let mut chars = params.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
