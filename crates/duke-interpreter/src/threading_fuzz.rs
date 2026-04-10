@@ -11,8 +11,8 @@ mod tests {
             let mut out = Vec::new();
             let mut control = NativeControl::default();
 
-            let key_ref = heap.allocate_string(key.clone());
-            let value_ref = heap.allocate_string(value.clone());
+            let key_ref = heap.allocate_string(key);
+            let value_ref = heap.allocate_string(value);
 
             let _ = native_system_set_property(
                 &[Slot::Reference(Some(key_ref)), Slot::Reference(Some(value_ref))],
