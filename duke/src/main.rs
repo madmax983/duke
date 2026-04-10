@@ -513,6 +513,7 @@ fn exec_method(
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
+#[cfg(not(tarpaulin_include))]
 fn run_main(
     args: &[String],
     telemetry: Option<TelemetryDest>,
@@ -595,6 +596,7 @@ fn run_main(
 /// `duke -jar <file.jar> [string-arg...]`
 ///
 /// Reads `META-INF/MANIFEST.MF` to discover `Main-Class`, then executes it.
+#[cfg(not(tarpaulin_include))]
 fn run_jar(
     jar_path: &str,
     string_args: &[&str],
