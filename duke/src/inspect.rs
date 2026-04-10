@@ -1,33 +1,9 @@
-//! `duke::inspect` — JAR Inspection.
-//!
-//! Scans a JAR or ZIP archive, parsing all `.class` files within it to collect aggregate metrics
-//! like instruction counts and cyclomatic complexity.
-
 use duke_bytecode::{cyclomatic_complexity, decode};
 use duke_classfile::{parse, types::AttributeData};
 use duke_loader::ZipReader;
 use std::fs;
 
 #[allow(clippy::cast_precision_loss, clippy::case_sensitive_file_extension_comparisons, clippy::collapsible_if)]
-/// Inspects a JAR file and prints a summary report to stdout.
-///
-/// The report includes counts for classes, methods, fields, instructions, and complexity,
-/// as well as identifying the single most complex method in the archive.
-///
-/// # Arguments
-///
-/// * `path` - A string slice pointing to the JAR file to inspect.
-///
-/// # Panics
-///
-/// * If the JAR file cannot be read from the filesystem or fails to parse as a ZIP archive.
-///
-/// # Examples
-///
-/// ```no_run
-/// use duke::inspect::inspect_jar;
-/// inspect_jar("path/to/my_app.jar");
-/// ```
 pub fn inspect_jar(path: &str) {
     let bytes = fs::read(path).expect("Failed to read JAR file");
     let zip = ZipReader::from_bytes(bytes).expect("Failed to parse JAR/ZIP");

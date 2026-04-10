@@ -1,7 +1,3 @@
-//! `duke::jar_analyze` — JAR Analysis.
-//!
-//! Provides static analysis of a JAR file to determine complexity and code size metrics.
-
 #![allow(clippy::items_after_statements)]
 #![allow(
     clippy::case_sensitive_file_extension_comparisons,
@@ -54,25 +50,6 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
 
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
-/// Dumps a static analysis report for a JAR file.
-///
-/// This function calculates the cyclomatic complexity of all methods in the given JAR file
-/// and outputs a top-10 list of the most complex methods, alongside other aggregate metrics.
-///
-/// # Arguments
-///
-/// * `jar_path` - A string slice pointing to the JAR file on the filesystem.
-///
-/// # Panics
-///
-/// * If the JAR file cannot be opened, this function prints an error and calls `process::exit(1)`.
-///
-/// # Examples
-///
-/// ```no_run
-/// use duke::jar_analyze::dump_jar_analyze;
-/// dump_jar_analyze("path/to/my_app.jar");
-/// ```
 pub fn dump_jar_analyze(jar_path: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         eprintln!("duke: failed to open JAR '{jar_path}': {e}");

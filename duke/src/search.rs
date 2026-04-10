@@ -1,8 +1,3 @@
-//! `duke::search` — Bytecode Search.
-//!
-//! Provides functionality for scanning `.class` files to find occurrences of specific
-//! instruction mnemonics.
-
 use duke_bytecode::decode;
 use duke_classfile::{
     parse,
@@ -23,23 +18,6 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
-/// Searches a `.class` file for a specific bytecode mnemonic and dumps the results.
-///
-/// # Arguments
-///
-/// * `path` - A string slice pointing to the `.class` file on the filesystem.
-/// * `query` - The mnemonic (case-insensitive) to search for.
-///
-/// # Panics
-///
-/// * If the file cannot be read, or fails to parse, this function prints an error and calls `process::exit(1)`.
-///
-/// # Examples
-///
-/// ```no_run
-/// use duke::search::dump_search;
-/// dump_search("HelloWorld.class", "invokevirtual");
-/// ```
 pub fn dump_search(path: &str, query: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
