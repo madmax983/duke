@@ -124,8 +124,60 @@ impl<'a> Cursor<'a> {
 
 #[allow(clippy::too_many_lines)]
 fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruction> {
+    if let Some(res) = decode_constants(c, opcode)? {
+        return Ok(res);
+    }
+    if let Some(res) = decode_loads(c, opcode)? {
+        return Ok(res);
+    }
+    if let Some(res) = decode_stores(c, opcode)? {
+        return Ok(res);
+    }
+    if let Some(res) = decode_stack(opcode) {
+        return Ok(res);
+    }
+    if let Some(res) = decode_arithmetic(c, opcode)? {
+        return Ok(res);
+    }
+    if let Some(res) = decode_conversions(opcode) {
+        return Ok(res);
+    }
+    if let Some(res) = decode_comparisons(opcode) {
+        return Ok(res);
+    }
+    if let Some(res) = decode_branches(c, opcode)? {
+        return Ok(res);
+    }
+    if let Some(res) = decode_returns(opcode) {
+        return Ok(res);
+    }
+    if let Some(res) = decode_field_method(c, opcode, pc)? {
+        return Ok(res);
+    }
+    if let Some(res) = decode_object_array(c, opcode, pc)? {
+        return Ok(res);
+    }
+    if let Some(res) = decode_extended(c, opcode)? {
+        return Ok(res);
+    }
+
+    match opcode {
+        // -- Tableswitch (§6.5 tableswitch) ----------------------------------
+        op::TABLESWITCH => decode_tableswitch(c, pc),
+
+        // -- Lookupswitch (§6.5 lookupswitch) --------------------------------
+        op::LOOKUPSWITCH => decode_lookupswitch(c, pc),
+
+        // -- Wide prefix (§6.5 wide) -----------------------------------------
+        op::WIDE => decode_wide(c, pc),
+
+        // -- Unknown ---------------------------------------------------------
+        other => Err(DecodeError::UnknownOpcode { pc, opcode: other }),
+    }
+}
+
+fn decode_constants(c: &mut Cursor<'_>, opcode: u8) -> DecodeResult<Option<Instruction>> {
     let instr = match opcode {
-        // -- Constants -------------------------------------------------------
         op::NOP => Instruction::Nop,
         op::ACONST_NULL => Instruction::AconstNull,
         op::ICONST_M1 => Instruction::IconstM1,
@@ -148,7 +200,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::LDC_W => Instruction::LdcW(c.read_cp()?),
         op::LDC2_W => Instruction::Ldc2W(c.read_cp()?),
 
-        // -- Loads -----------------------------------------------------------
+        _ => return Ok(None),
+    };
+    Ok(Some(instr))
+}
+
+fn decode_loads(c: &mut Cursor<'_>, opcode: u8) -> DecodeResult<Option<Instruction>> {
+    let instr = match opcode {
         op::ILOAD => Instruction::Iload(c.read_u8()?),
         op::LLOAD => Instruction::Lload(c.read_u8()?),
         op::FLOAD => Instruction::Fload(c.read_u8()?),
@@ -183,7 +241,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::CALOAD => Instruction::Caload,
         op::SALOAD => Instruction::Saload,
 
-        // -- Stores ----------------------------------------------------------
+        _ => return Ok(None),
+    };
+    Ok(Some(instr))
+}
+
+fn decode_stores(c: &mut Cursor<'_>, opcode: u8) -> DecodeResult<Option<Instruction>> {
+    let instr = match opcode {
         op::ISTORE => Instruction::Istore(c.read_u8()?),
         op::LSTORE => Instruction::Lstore(c.read_u8()?),
         op::FSTORE => Instruction::Fstore(c.read_u8()?),
@@ -218,7 +282,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::CASTORE => Instruction::Castore,
         op::SASTORE => Instruction::Sastore,
 
-        // -- Stack -----------------------------------------------------------
+        _ => return Ok(None),
+    };
+    Ok(Some(instr))
+}
+
+const fn decode_stack(opcode: u8) -> Option<Instruction> {
+    let instr = match opcode {
         op::POP => Instruction::Pop,
         op::POP2 => Instruction::Pop2,
         op::DUP => Instruction::Dup,
@@ -229,7 +299,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::DUP2_X2 => Instruction::Dup2X2,
         op::SWAP => Instruction::Swap,
 
-        // -- Arithmetic ------------------------------------------------------
+        _ => return None,
+    };
+    Some(instr)
+}
+
+fn decode_arithmetic(c: &mut Cursor<'_>, opcode: u8) -> DecodeResult<Option<Instruction>> {
+    let instr = match opcode {
         op::IADD => Instruction::Iadd,
         op::LADD => Instruction::Ladd,
         op::FADD => Instruction::Fadd,
@@ -271,7 +347,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             value: c.read_i8()?,
         },
 
-        // -- Conversions -----------------------------------------------------
+        _ => return Ok(None),
+    };
+    Ok(Some(instr))
+}
+
+const fn decode_conversions(opcode: u8) -> Option<Instruction> {
+    let instr = match opcode {
         op::I2L => Instruction::I2l,
         op::I2F => Instruction::I2f,
         op::I2D => Instruction::I2d,
@@ -288,14 +370,26 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::I2C => Instruction::I2c,
         op::I2S => Instruction::I2s,
 
-        // -- Comparisons -----------------------------------------------------
+        _ => return None,
+    };
+    Some(instr)
+}
+
+const fn decode_comparisons(opcode: u8) -> Option<Instruction> {
+    let instr = match opcode {
         op::LCMP => Instruction::Lcmp,
         op::FCMPL => Instruction::Fcmpl,
         op::FCMPG => Instruction::Fcmpg,
         op::DCMPL => Instruction::Dcmpl,
         op::DCMPG => Instruction::Dcmpg,
 
-        // -- Branches --------------------------------------------------------
+        _ => return None,
+    };
+    Some(instr)
+}
+
+fn decode_branches(c: &mut Cursor<'_>, opcode: u8) -> DecodeResult<Option<Instruction>> {
+    let instr = match opcode {
         op::IFEQ => Instruction::Ifeq(c.read_i16()?),
         op::IFNE => Instruction::Ifne(c.read_i16()?),
         op::IFLT => Instruction::Iflt(c.read_i16()?),
@@ -314,13 +408,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::JSR => Instruction::Jsr(c.read_i16()?),
         op::RET => Instruction::Ret(c.read_u8()?),
 
-        // -- Tableswitch (§6.5 tableswitch) ----------------------------------
-        op::TABLESWITCH => decode_tableswitch(c, pc)?,
+        _ => return Ok(None),
+    };
+    Ok(Some(instr))
+}
 
-        // -- Lookupswitch (§6.5 lookupswitch) --------------------------------
-        op::LOOKUPSWITCH => decode_lookupswitch(c, pc)?,
-
-        // -- Returns ---------------------------------------------------------
+const fn decode_returns(opcode: u8) -> Option<Instruction> {
+    let instr = match opcode {
         op::IRETURN => Instruction::Ireturn,
         op::LRETURN => Instruction::Lreturn,
         op::FRETURN => Instruction::Freturn,
@@ -328,7 +422,17 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::ARETURN => Instruction::Areturn,
         op::RETURN => Instruction::Return,
 
-        // -- Field / method --------------------------------------------------
+        _ => return None,
+    };
+    Some(instr)
+}
+
+fn decode_field_method(
+    c: &mut Cursor<'_>,
+    opcode: u8,
+    pc: usize,
+) -> DecodeResult<Option<Instruction>> {
+    let instr = match opcode {
         op::GETSTATIC => Instruction::Getstatic(c.read_cp()?),
         op::PUTSTATIC => Instruction::Putstatic(c.read_cp()?),
         op::GETFIELD => Instruction::Getfield(c.read_cp()?),
@@ -359,7 +463,17 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             Instruction::Invokedynamic(index)
         }
 
-        // -- Object / array --------------------------------------------------
+        _ => return Ok(None),
+    };
+    Ok(Some(instr))
+}
+
+fn decode_object_array(
+    c: &mut Cursor<'_>,
+    opcode: u8,
+    pc: usize,
+) -> DecodeResult<Option<Instruction>> {
+    let instr = match opcode {
         op::NEW => Instruction::New(c.read_cp()?),
         op::NEWARRAY => {
             let t = c.read_u8()?;
@@ -375,10 +489,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::MONITORENTER => Instruction::Monitorenter,
         op::MONITOREXIT => Instruction::Monitorexit,
 
-        // -- Wide prefix (§6.5 wide) -----------------------------------------
-        op::WIDE => decode_wide(c, pc)?,
+        _ => return Ok(None),
+    };
+    Ok(Some(instr))
+}
 
-        // -- Extended --------------------------------------------------------
+fn decode_extended(c: &mut Cursor<'_>, opcode: u8) -> DecodeResult<Option<Instruction>> {
+    let instr = match opcode {
         op::MULTIANEWARRAY => {
             let index = c.read_cp()?;
             let dimensions = c.read_u8()?;
@@ -389,10 +506,9 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::GOTO_W => Instruction::GotoW(c.read_i32()?),
         op::JSR_W => Instruction::JsrW(c.read_i32()?),
 
-        // -- Unknown ---------------------------------------------------------
-        other => return Err(DecodeError::UnknownOpcode { pc, opcode: other }),
+        _ => return Ok(None),
     };
-    Ok(instr)
+    Ok(Some(instr))
 }
 
 // ---------------------------------------------------------------------------
