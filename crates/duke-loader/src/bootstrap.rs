@@ -68,7 +68,9 @@ impl BootstrapLoader {
     /// ```
     pub fn new(modules_path: &Path, classpath_paths: Vec<impl AsRef<Path>>) -> LoadResult<Self> {
         let jimage = JImageReader::open(modules_path)?;
-        let mut classpath = Vec::new();
+        // ⚡ Bolt: Pre-allocate classpath vector based on `classpath_paths.len()`
+        // to avoid multiple heap reallocations when pushing entries.
+        let mut classpath = Vec::with_capacity(classpath_paths.len());
         for p in classpath_paths {
             classpath.push(classpath_entry_for(p.as_ref())?);
         }

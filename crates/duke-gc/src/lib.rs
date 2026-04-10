@@ -1098,14 +1098,13 @@ impl Heap {
                 continue;
             }
             obj.marked = true;
-            // ⚡ Bolt: Extending `worklist` directly from the iterator avoids an intermediate
-            // `.collect::<Vec<_>>()` allocation on the heap inside the hot GC marking loop.
-            worklist.extend(
-                obj.fields
-                    .iter()
-                    .filter_map(Slot::as_reference)
-                    .filter(|c| c & OLD_BIT != 0),
-            );
+            let children: Vec<u64> = obj
+                .fields
+                .iter()
+                .filter_map(Slot::as_reference)
+                .filter(|c| c & OLD_BIT != 0)
+                .collect();
+            worklist.extend(children);
         }
     }
 
