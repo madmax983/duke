@@ -859,4 +859,106 @@ mod tests {
             })
         ));
     }
+#[cfg(test)]
+mod check_locals_coverage_tests {
+    use super::*;
+    use crate::instruction::Instruction;
+
+    #[test]
+    fn test_check_locals_load_store_family() {
+        let max_locals = 2;
+        // Float, Long, Double, Object
+        assert!(check_locals(&Instruction::Lload(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Fload(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Dload(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Aload(1), 0, max_locals).is_ok());
+
+        assert!(check_locals(&Instruction::Istore(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Lstore(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Fstore(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Dstore(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Astore(1), 0, max_locals).is_ok());
+
+        assert!(check_locals(&Instruction::Ret(1), 0, max_locals).is_ok());
+    }
+
+    #[test]
+    fn test_check_locals_load_store_wide_family() {
+        let max_locals = 2;
+        assert!(check_locals(&Instruction::LloadW(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::FloadW(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::DloadW(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::AloadW(1), 0, max_locals).is_ok());
+
+        assert!(check_locals(&Instruction::IstoreW(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::LstoreW(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::FstoreW(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::DstoreW(1), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::AstoreW(1), 0, max_locals).is_ok());
+
+        assert!(check_locals(&Instruction::RetW(1), 0, max_locals).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod check_locals_tests {
+    use super::*;
+    use crate::instruction::Instruction;
+
+    #[test]
+    fn test_check_locals_iload() {
+        let max_locals = 2;
+        // Valid index
+        assert!(check_locals(&Instruction::Iload(0), 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Iload(1), 0, max_locals).is_ok());
+        // Invalid index
+        assert!(matches!(
+            check_locals(&Instruction::Iload(2), 0, max_locals),
+            Err(VerifyError::LocalOutOfBounds { pc: 0, index: 2, max_locals: 2 })
+        ));
+    }
+
+    #[test]
+    fn test_check_locals_iinc() {
+        let max_locals = 3;
+        assert!(check_locals(&Instruction::Iinc { index: 2, value: 1 }, 0, max_locals).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::Iinc { index: 3, value: 1 }, 0, max_locals),
+            Err(VerifyError::LocalOutOfBounds { pc: 0, index: 3, max_locals: 3 })
+        ));
+    }
+
+    #[test]
+    fn test_check_locals_wide() {
+        let max_locals = 4;
+        assert!(check_locals(&Instruction::IloadW(3), 0, max_locals).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::IloadW(4), 0, max_locals),
+            Err(VerifyError::LocalOutOfBounds { pc: 0, index: 4, max_locals: 4 })
+        ));
+
+        assert!(check_locals(&Instruction::IincW { index: 3, value: 1 }, 0, max_locals).is_ok());
+        assert!(matches!(
+            check_locals(&Instruction::IincW { index: 4, value: 1 }, 0, max_locals),
+            Err(VerifyError::LocalOutOfBounds { pc: 0, index: 4, max_locals: 4 })
+        ));
+    }
+
+    #[test]
+    fn test_check_locals_short_form() {
+        let max_locals = 2;
+        assert!(check_locals(&Instruction::Iload0, 0, max_locals).is_ok());
+        assert!(check_locals(&Instruction::Iload1, 0, max_locals).is_ok());
+
+        // Iload2 is index 2, max_locals=2 means 0 and 1 are valid.
+        assert!(matches!(
+            check_locals(&Instruction::Iload2, 0, max_locals),
+            Err(VerifyError::LocalOutOfBounds { pc: 0, index: 2, max_locals: 2 })
+        ));
+        assert!(matches!(
+            check_locals(&Instruction::Iload3, 0, max_locals),
+            Err(VerifyError::LocalOutOfBounds { pc: 0, index: 3, max_locals: 2 })
+        ));
+    }
+}
 }
