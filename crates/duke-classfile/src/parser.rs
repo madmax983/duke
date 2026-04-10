@@ -235,93 +235,91 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
     let mut i = 1usize;
     while i < count {
         let tag = c.read_u8()?;
-        #[allow(clippy::match_same_arms)]
-        let entry = match tag {
-            1 => {
-                let len = c.read_u16()? as usize;
-                let bytes = c.read_bytes(len)?;
-                let s = String::from_utf8(bytes.to_vec())?;
-                CpEntry::Utf8(s)
-            }
-            3 => CpEntry::Integer(c.read_i32()?),
-            4 => CpEntry::Float(c.read_f32()?),
-            5 => {
-                let v = CpEntry::Long(c.read_i64()?);
-                pool.push(Some(v));
-                pool.push(None); // phantom slot
-                i += 2;
-                continue;
-            }
-            6 => {
-                let v = CpEntry::Double(c.read_f64()?);
-                pool.push(Some(v));
-                pool.push(None); // phantom slot
-                i += 2;
-                continue;
-            }
-            7 => CpEntry::Class {
-                name_index: c.read_cp_index()?,
-            },
-            8 => CpEntry::String {
-                string_index: c.read_cp_index()?,
-            },
-            9 => CpEntry::Fieldref {
-                class_index: c.read_cp_index()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            10 => CpEntry::Methodref {
-                class_index: c.read_cp_index()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            11 => CpEntry::InterfaceMethodref {
-                class_index: c.read_cp_index()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            12 => CpEntry::NameAndType {
-                name_index: c.read_cp_index()?,
-                descriptor_index: c.read_cp_index()?,
-            },
-            15 => {
-                let reference_kind = c.read_u8()?;
-                if !(1..=9).contains(&reference_kind) {
-                    return Err(ParseError::InvalidMethodHandleKind {
-                        kind: reference_kind,
-                    });
-                }
-                CpEntry::MethodHandle {
-                    reference_kind,
-                    reference_index: c.read_cp_index()?,
-                }
-            }
-            16 => CpEntry::MethodType {
-                descriptor_index: c.read_cp_index()?,
-            },
-            17 => CpEntry::Dynamic {
-                bootstrap_method_attr_index: c.read_u16()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            18 => CpEntry::InvokeDynamic {
-                bootstrap_method_attr_index: c.read_u16()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            19 => CpEntry::Module {
-                name_index: c.read_cp_index()?,
-            },
-            20 => CpEntry::Package {
-                name_index: c.read_cp_index()?,
-            },
-            other => {
-                return Err(ParseError::UnknownCpTag {
-                    tag: other,
-                    index: u16::try_from(i).unwrap_or(u16::MAX),
-                });
-            }
-        };
+        let (entry, is_wide) = parse_cp_entry(c, tag, i)?;
         pool.push(Some(entry));
-        i += 1;
+        if is_wide {
+            pool.push(None); // phantom slot
+            i += 2;
+        } else {
+            i += 1;
+        }
     }
 
     Ok(pool)
+}
+
+#[allow(clippy::match_same_arms)]
+fn parse_cp_entry(c: &mut Cursor<'_>, tag: u8, index: usize) -> ParseResult<(CpEntry, bool)> {
+    let entry = match tag {
+        1 => {
+            let len = c.read_u16()? as usize;
+            let bytes = c.read_bytes(len)?;
+            let s = String::from_utf8(bytes.to_vec())?;
+            CpEntry::Utf8(s)
+        }
+        3 => CpEntry::Integer(c.read_i32()?),
+        4 => CpEntry::Float(c.read_f32()?),
+        5 => return Ok((CpEntry::Long(c.read_i64()?), true)),
+        6 => return Ok((CpEntry::Double(c.read_f64()?), true)),
+        7 => CpEntry::Class {
+            name_index: c.read_cp_index()?,
+        },
+        8 => CpEntry::String {
+            string_index: c.read_cp_index()?,
+        },
+        9 => CpEntry::Fieldref {
+            class_index: c.read_cp_index()?,
+            name_and_type_index: c.read_cp_index()?,
+        },
+        10 => CpEntry::Methodref {
+            class_index: c.read_cp_index()?,
+            name_and_type_index: c.read_cp_index()?,
+        },
+        11 => CpEntry::InterfaceMethodref {
+            class_index: c.read_cp_index()?,
+            name_and_type_index: c.read_cp_index()?,
+        },
+        12 => CpEntry::NameAndType {
+            name_index: c.read_cp_index()?,
+            descriptor_index: c.read_cp_index()?,
+        },
+        15 => {
+            let reference_kind = c.read_u8()?;
+            if !(1..=9).contains(&reference_kind) {
+                return Err(ParseError::InvalidMethodHandleKind {
+                    kind: reference_kind,
+                });
+            }
+            CpEntry::MethodHandle {
+                reference_kind,
+                reference_index: c.read_cp_index()?,
+            }
+        }
+        16 => CpEntry::MethodType {
+            descriptor_index: c.read_cp_index()?,
+        },
+        17 => CpEntry::Dynamic {
+            bootstrap_method_attr_index: c.read_u16()?,
+            name_and_type_index: c.read_cp_index()?,
+        },
+        18 => CpEntry::InvokeDynamic {
+            bootstrap_method_attr_index: c.read_u16()?,
+            name_and_type_index: c.read_cp_index()?,
+        },
+        19 => CpEntry::Module {
+            name_index: c.read_cp_index()?,
+        },
+        20 => CpEntry::Package {
+            name_index: c.read_cp_index()?,
+        },
+        other => {
+            return Err(ParseError::UnknownCpTag {
+                tag: other,
+                index: u16::try_from(index).unwrap_or(u16::MAX),
+            });
+        }
+    };
+    Ok((entry, false))
 }
 
 // ---------------------------------------------------------------------------
