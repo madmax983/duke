@@ -827,6 +827,110 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn jimage_reader_find_resource_returns_none() {
+        let reader = make_reader(vec![0; 10], 0, 0);
+        assert!(reader.find_resource("/does/not/Exist").is_none());
+    }
+
+    #[test]
+    fn jimage_open_file_too_small() {
+        let mut buf = vec![0u8; 30]; // only 30 bytes total
+        buf[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes());
+        buf[4..8].copy_from_slice(&JIMAGE_VERSION.to_le_bytes());
+        buf[8..12].copy_from_slice(&0u32.to_le_bytes());
+        buf[12..16].copy_from_slice(&1u32.to_le_bytes());
+        buf[16..20].copy_from_slice(&100u32.to_le_bytes());
+        buf[20..24].copy_from_slice(&100u32.to_le_bytes());
+        buf[24..28].copy_from_slice(&100u32.to_le_bytes());
+
+        let tmp = std::env::temp_dir().join(format!("duke_test_small_{}.jimage", std::time::UNIX_EPOCH.elapsed().unwrap().as_micros()));
+        std::fs::write(&tmp, &buf).expect("write temp jimage");
+        let result = JImageReader::open(&tmp);
+        let _ = std::fs::remove_file(&tmp);
+
+        assert!(matches!(result, Err(LoadError::JImageFormat { .. })));
+    }
+
+    #[test]
+    fn jimage_find_class_not_found() {
+        let reader = make_reader(vec![0; 10], 0, 0);
+        let result = reader.find_class("does/not/Exist");
+        assert!(matches!(result, Err(LoadError::NotFound { .. })));
+    }
+
+    #[test]
+    fn jimage_read_resource_not_found() {
+        let reader = make_reader(vec![0; 10], 0, 0);
+        let result = reader.read_resource("/java.base/Missing");
+        assert!(matches!(result, Err(LoadError::NotFound { .. })));
+    }
+
+    #[test]
+    fn jimage_read_resource_offset_overflow() {
+        let mut index = HashMap::new();
+        index.insert(
+            "r".to_string(),
+            ResourceInfo {
+                offset: u64::MAX,
+                compressed: 0,
+                uncompressed: 10,
+            },
+        );
+        let reader = JImageReader {
+            data: vec![0; 100],
+            resource_count: 1,
+            data_offset: 100, // This plus u64::MAX as usize will overflow
+            index,
+        };
+        let result = reader.read_resource("r");
+        assert!(matches!(result, Err(LoadError::JImageFormat { .. })));
+    }
+
+    #[test]
+    fn jimage_read_resource_truncated() {
+        let mut index = HashMap::new();
+        index.insert(
+            "r".to_string(),
+            ResourceInfo {
+                offset: 0,
+                compressed: 0,
+                uncompressed: 1000,
+            },
+        );
+        let reader = JImageReader {
+            data: vec![0; 10],
+            resource_count: 1,
+            data_offset: 0,
+            index,
+        };
+        let result = reader.read_resource("r");
+        assert!(matches!(result, Err(LoadError::JImageFormat { .. })));
+    }
+
+    #[test]
+    fn jimage_read_resource_decompress_error() {
+        let mut index = HashMap::new();
+        index.insert(
+            "r".to_string(),
+            ResourceInfo {
+                offset: 0,
+                compressed: 10,
+                uncompressed: 100,
+            },
+        );
+        let reader = JImageReader {
+            // Invalid deflate data
+            data: vec![0xFF; 10],
+            resource_count: 1,
+            data_offset: 0,
+            index,
+        };
+        let result = reader.read_resource("r");
+        assert!(matches!(result, Err(LoadError::Decompress { .. })));
+    }
+
     #[test]
     fn read_resource_rejects_capacity_overflow() {
         // Attack: Provide an uncompressed size of u64::MAX.
