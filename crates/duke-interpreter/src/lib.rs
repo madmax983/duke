@@ -17912,10 +17912,16 @@ fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> V
             .filter(|f| !f.is_static)
             .position(|f| f.name == name)
         {
-            let super_fields = ctx
-                .super_class
-                .as_deref()
-                .map_or(0, |sc| total_instance_field_count(registry, sc));
+            let mut super_fields = 0;
+            let mut sc = ctx.super_class.as_deref();
+            while let Some(s) = sc {
+                if let Ok(sctx) = registry.get(s) {
+                    super_fields += sctx.instance_field_count;
+                    sc = sctx.super_class.as_deref();
+                } else {
+                    break;
+                }
+            }
             return Ok(super_fields + local_idx);
         }
 
