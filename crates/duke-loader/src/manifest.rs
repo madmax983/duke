@@ -4,6 +4,16 @@
 ///
 /// Returns the class name in internal form (e.g. `"com/example/App"`).
 /// Returns `None` if no `Main-Class` header is found.
+///
+/// # Examples
+///
+/// ```
+/// use duke_loader::parse_main_class;
+///
+/// let manifest = b"Manifest-Version: 1.0\r\nMain-Class: com.example.App\r\n";
+/// let main_class = parse_main_class(manifest).unwrap();
+/// assert_eq!(main_class, "com/example/App");
+/// ```
 #[must_use]
 pub fn parse_main_class(manifest_bytes: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(manifest_bytes).ok()?;

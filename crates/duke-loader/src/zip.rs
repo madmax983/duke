@@ -67,6 +67,18 @@ fn crc32_checksum(data: &[u8]) -> u32 {
 // ───────────────────────────────────────────────────────────────────────────
 
 /// Metadata for a single entry in the ZIP central directory.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use duke_loader::ZipReader;
+///
+/// let reader = ZipReader::open(Path::new("app.jar")).unwrap();
+/// if let Some(info) = reader.get_entry("com/example/Main.class") {
+///     println!("Found {}, compressed size: {}", info.name, info.compressed_size);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct ZipEntryInfo {
     /// Entry name (e.g. `"com/example/Main.class"`).
@@ -84,6 +96,16 @@ pub struct ZipEntryInfo {
 }
 
 /// Read-only ZIP archive reader with index-on-open, lazy decompression.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use duke_loader::ZipReader;
+///
+/// let reader = ZipReader::open(Path::new("app.jar")).expect("failed to open jar");
+/// println!("Found {} entries", reader.entry_count());
+/// ```
 #[derive(Debug)]
 pub struct ZipReader {
     data: Vec<u8>,

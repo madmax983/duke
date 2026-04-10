@@ -8,6 +8,17 @@ use crate::{ClassLoader, LoadError, LoadResult};
 ///
 /// Given `find_class("java/lang/Object")`, looks for
 /// `{root}/java/lang/Object.class`.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::PathBuf;
+/// use duke_loader::{ClassLoader, DirectoryLoader};
+///
+/// let loader = DirectoryLoader::new(PathBuf::from("my_classes"));
+/// // This will look for "my_classes/com/example/Main.class"
+/// let _result = loader.find_class("com/example/Main");
+/// ```
 pub struct DirectoryLoader {
     root: PathBuf,
 }

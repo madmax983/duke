@@ -1,3 +1,5 @@
+//! Tests for Havoc ZIP OOM issues
+
 #[test]
 fn havoc_test_oom() {
     let bad_data = vec![

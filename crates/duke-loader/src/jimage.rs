@@ -60,6 +60,19 @@ const ATTR_UNCOMPRESSED: u8 = 7;
 // ---------------------------------------------------------------------------
 
 /// Metadata about a single resource stored in the jimage.
+///
+/// # Examples
+///
+/// ```
+/// use duke_loader::jimage::ResourceInfo;
+///
+/// let info = ResourceInfo {
+///     offset: 1024,
+///     compressed: 512,
+///     uncompressed: 1024,
+/// };
+/// assert_eq!(info.uncompressed, 1024);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ResourceInfo {
     /// Byte offset into the data section.
@@ -75,6 +88,16 @@ pub struct ResourceInfo {
 /// On [`open`](JImageReader::open), reads the entire file into memory and
 /// scans the locations table to build a path→resource index.  All subsequent
 /// [`JImageReader::find_resource`] and [`JImageReader::read_resource`] calls are O(1) hash lookups.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use duke_loader::JImageReader;
+///
+/// let reader = JImageReader::open(Path::new("/usr/lib/jvm/java-21-openjdk/lib/modules")).unwrap();
+/// println!("Found {} resources", reader.resource_count());
+/// ```
 pub struct JImageReader {
     data: Vec<u8>,
     resource_count: u32,
