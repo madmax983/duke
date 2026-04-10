@@ -338,16 +338,15 @@ impl ClassLoader for ZipLoader {
 }
 
 fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> LoadResult<Vec<ZipLoader>> {
-    let mut nested_entry_names: Vec<String> = reader
+    let mut nested_entry_names: Vec<&str> = reader
         .entry_names()
         .filter(|name| is_nested_boot_inf_lib_archive(name))
-        .map(str::to_owned)
         .collect();
     nested_entry_names.sort_unstable();
 
     let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
     for entry_name in nested_entry_names {
-        let nested_bytes = reader.read_entry(&entry_name)?;
+        let nested_bytes = reader.read_entry(entry_name)?;
         nested_libs.push(ZipLoader::from_reader(ZipReader::from_bytes(
             nested_bytes,
         )?)?);
@@ -442,7 +441,8 @@ fn parse_central_directory(
     cd_size: usize,
     expected_count: usize,
 ) -> LoadResult<HashMap<String, ZipEntryInfo>> {
-    let mut index = HashMap::with_capacity(expected_count);
+    let safe_capacity = expected_count.min(cd_size / 46);
+    let mut index = HashMap::with_capacity(safe_capacity);
     let cd_end = cd_offset + cd_size;
     let mut pos = cd_offset;
 
@@ -816,6 +816,112 @@ mod tests {
         }
     }
 
+    #[test]
+    fn table_driven_eocd_errors() {
+        struct TestCase {
+            name: &'static str,
+            data: Vec<u8>,
+            expected_msg: &'static str,
+        }
+
+        let cases = vec![
+            TestCase {
+                name: "central directory extends past end of file",
+                data: {
+                    let mut data: Vec<u8> = vec![0; 22]; // EOCD size
+                    data[0..4].copy_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+                    // cd_size
+                    data[12..16].copy_from_slice(&100u32.to_le_bytes());
+                    // cd_offset
+                    data[16..20].copy_from_slice(&0u32.to_le_bytes());
+                    data
+                },
+                expected_msg: "central directory extends past end of file",
+            },
+            TestCase {
+                name: "central directory entry truncated",
+                data: {
+                    let mut data: Vec<u8> = vec![0; 40]; // Enough for EOCD + some CD
+                    // EOCD at offset 18
+                    data[18..22].copy_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+                    data[28..30].copy_from_slice(&1u16.to_le_bytes()); // entry_count
+                    data[30..34].copy_from_slice(&46u32.to_le_bytes()); // cd_size (min for 1 entry)
+                    data[34..38].copy_from_slice(&0u32.to_le_bytes()); // cd_offset
+
+                    // CD start
+                    data[0..4].copy_from_slice(&CD_SIGNATURE.to_le_bytes());
+                    // The CD entry is truncated because total size is 40, cd_offset = 0, cd_size = 46.
+                    // Oh wait, if cd_size = 46, cd_offset = 0, then cd_offset + cd_size = 46 > data.len() (40).
+                    // This hits "extends past end of file".
+
+                    // Let's make data bigger: 50 bytes.
+                    let mut data2: Vec<u8> = vec![0; 50];
+                    data2[28..32].copy_from_slice(&EOCD_SIGNATURE.to_le_bytes()); // EOCD at 28
+                    data2[38..40].copy_from_slice(&1u16.to_le_bytes()); // count
+                    data2[40..44].copy_from_slice(&10u32.to_le_bytes()); // cd_size = 10, but count=1.
+                    // cd_offset = 0.
+                    // 0 + 10 <= 50. So it passes EOCD check.
+                    // parse_central_directory expects 1 entry, and size is 10.
+                    // cd_end = 10. pos = 0. pos + 46 (46) > cd_end (10).
+                    data2[0..4].copy_from_slice(&CD_SIGNATURE.to_le_bytes());
+                    data2
+                },
+                expected_msg: "central directory entry truncated",
+            },
+            TestCase {
+                name: "bad cd signature",
+                data: {
+                    let mut data: Vec<u8> = vec![0; 100];
+                    let eocd_pos = 78;
+                    data[eocd_pos..eocd_pos + 4].copy_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+                    data[eocd_pos + 10..eocd_pos + 12].copy_from_slice(&1u16.to_le_bytes()); // count
+                    data[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&50u32.to_le_bytes()); // cd_size
+                    data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&0u32.to_le_bytes()); // cd_offset
+                    // Let's leave CD signature 0.
+                    data
+                },
+                expected_msg: "expected central directory signature",
+            },
+            TestCase {
+                name: "central directory entry filename truncated",
+                data: {
+                    let mut data: Vec<u8> = vec![0; 100];
+                    let eocd_pos = 78;
+                    data[eocd_pos..eocd_pos + 4].copy_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+                    data[eocd_pos + 10..eocd_pos + 12].copy_from_slice(&1u16.to_le_bytes()); // count
+                    data[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&50u32.to_le_bytes()); // cd_size
+                    data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&0u32.to_le_bytes()); // cd_offset
+
+                    data[0..4].copy_from_slice(&CD_SIGNATURE.to_le_bytes());
+                    data[28..30].copy_from_slice(&10u16.to_le_bytes()); // filename_len = 10
+                    // pos + 46 + 10 = 56. cd_end = 50. 56 > 50 -> trunc
+                    data
+                },
+                expected_msg: "central directory entry filename truncated",
+            },
+        ];
+
+        for case in cases {
+            let res = ZipReader::from_bytes(case.data);
+            assert!(res.is_err(), "Test case failed: {}", case.name);
+            let err = res.unwrap_err();
+            if let LoadError::ZipFormat { msg } = err {
+                assert!(
+                    msg.contains(case.expected_msg),
+                    "Case '{}' expected msg containing '{}', got '{}'",
+                    case.name,
+                    case.expected_msg,
+                    msg
+                );
+            } else {
+                panic!(
+                    "Case '{}' expected ZipFormat error, got {:?}",
+                    case.name, err
+                );
+            }
+        }
+    }
+
     // ── ZipReader from bytes ─────────────────────────────────────────────
 
     #[test]
@@ -1027,6 +1133,27 @@ mod tests {
             .expect("should prefer BOOT-INF/classes");
         assert_eq!(bytes, app_class);
         std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_missing_eocd() {
+        let zip_bytes = vec![0u8; 100];
+        let err = ZipReader::from_bytes(zip_bytes).unwrap_err();
+        assert!(
+            matches!(err, LoadError::ZipFormat { ref msg } if msg == "could not find end-of-central-directory record")
+        );
+    }
+
+    #[test]
+    fn test_zip_cd_extends_past_eof() {
+        let mut zip_bytes = build_stored_zip("test.txt", b"hello world");
+        let len = zip_bytes.len();
+        let eocd_pos = len - 22;
+        zip_bytes[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&u32::MAX.to_le_bytes());
+        let err = ZipReader::from_bytes(zip_bytes).unwrap_err();
+        assert!(
+            matches!(err, LoadError::ZipFormat { ref msg } if msg == "central directory extends past end of file")
+        );
     }
 }
 
