@@ -17982,12 +17982,12 @@ pub(crate) fn native_string_lines(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
+    // ⚡ Bolt: Use `unwrap_or_default` with a direct extraction to prevent string borrow-conflict.
     let text = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let lines: Vec<&str> = text.lines().collect();
-    let n = lines.len();
+    let n = text.lines().count();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), n + 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(i32::try_from(n).unwrap_or(0));
-    for (i, line) in lines.iter().enumerate() {
+    for (i, line) in text.lines().enumerate() {
         let s_ref = heap.allocate_string((*line).to_string());
         heap.get_mut(stream_ref)?.fields[i + 1] = Slot::Reference(Some(s_ref));
     }
