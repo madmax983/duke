@@ -9,6 +9,7 @@ mod analyze;
 mod deps_graph;
 mod html;
 mod jar_analyze;
+mod pathfind;
 mod search;
 mod uml;
 
@@ -223,6 +224,7 @@ fn main() {
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
+        eprintln!("       duke pathfind <file.jar> <source_method> <target_method>");
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke uml <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
@@ -288,6 +290,11 @@ fn main() {
 
     if args.len() >= 3 && args[1] == "jar-analyze" {
         jar_analyze::dump_jar_analyze(&args[2]);
+        return;
+    }
+
+    if args.len() >= 5 && args[1] == "pathfind" {
+        pathfind::pathfind(&args[2], &args[3], &args[4]);
         return;
     }
     if args.len() >= 3 && args[1] == "analyze" {
