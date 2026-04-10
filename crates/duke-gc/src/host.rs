@@ -53,26 +53,6 @@ pub enum HostFileHandle {
     ProcessStdin(std::process::ChildStdin),
 }
 
-/// The generational object heap.
-///
-/// Young-gen refs: `r & OLD_BIT == 0`  → index into `young`
-/// Old-gen refs:   `r & OLD_BIT != 0`  → index `(r & !OLD_BIT)` into `old`
-///
-/// # Examples
-///
-/// ```
-/// use duke_gc::Heap;
-/// use duke_runtime::Slot;
-///
-/// let mut heap = Heap::new();
-/// let obj_ref = heap.allocate("MyClass".to_string(), 2);
-///
-/// let obj = heap.get_mut(obj_ref).unwrap();
-/// obj.fields[0] = Slot::Int(42);
-///
-/// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
-/// ```
-
 #[derive(Debug)]
 pub struct HostManager {
     host_files: HashMap<i32, HostFileHandle>,
@@ -698,7 +678,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
 #[test]
 fn test_host_file_operations() {
     let mut heap = Heap::new();
