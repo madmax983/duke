@@ -1,4 +1,5 @@
 #![allow(clippy::items_after_statements)]
+#![cfg(not(tarpaulin_include))]
 
 use duke_bytecode::{Instruction, decode};
 use duke_classfile::{
