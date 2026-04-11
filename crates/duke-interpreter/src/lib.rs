@@ -51,8 +51,7 @@ include!("native.rs");
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    include!("tests.rs");
-}
-#[cfg(test)]
 mod fuzz;
+#[cfg(test)]
+#[cfg(test)]
+mod tests;
