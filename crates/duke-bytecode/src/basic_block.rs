@@ -26,7 +26,11 @@ pub struct BasicBlock {
 /// 1. The first instruction.
 /// 2. The target of any jump or branch.
 /// 3. The instruction immediately following any jump, branch, or return.
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::too_many_lines)]
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
+)]
 #[must_use]
 pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlock> {
     if instructions.is_empty() {
@@ -148,7 +152,9 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
     if !current_block.is_empty() {
         // We do not have an `encoded_len` method.
         // Let's assume the last instruction takes at least 1 byte.
-        let end_pc = current_block.last().map_or(current_start + 1, |(pc, _)| *pc + 1);
+        let end_pc = current_block
+            .last()
+            .map_or(current_start + 1, |(pc, _)| *pc + 1);
         blocks.push(BasicBlock {
             start_pc: current_start,
             end_pc,
