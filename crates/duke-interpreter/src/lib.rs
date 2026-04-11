@@ -13782,30 +13782,53 @@ fn join_java_thread(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
     thread_id: i32,
 ) -> VmResult<()> {
-    loop {
-        let handle = {
-            let mut runtime = runtime.lock().unwrap();
-            let is_finished = runtime
-                .threads
-                .records()
-                .iter()
-                .find(|record| record.thread_id == thread_id)
-                .is_none_or(|record| record.finished);
-            if is_finished {
-                return Ok(());
-            }
-            runtime.handles.remove(&thread_id)
-        };
+    let (handle, rx, is_finished) = {
+        let mut runtime = runtime.lock().unwrap();
+        let is_finished = runtime
+            .threads
+            .records()
+            .iter()
+            .find(|record| record.thread_id == thread_id)
+            .is_none_or(|record| record.finished);
 
-        if let Some(handle) = handle {
-            return match handle.join() {
-                Ok(result) => result,
-                Err(payload) => std::panic::resume_unwind(payload),
+        if is_finished {
+            (None, None, true)
+        } else {
+            let handle_opt = runtime.handles.remove(&thread_id);
+            let rx = if handle_opt.is_none() {
+                let (tx, rx) = std::sync::mpsc::channel();
+                if let Some(record) = runtime
+                    .threads
+                    .records_mut()
+                    .iter_mut()
+                    .find(|record| record.thread_id == thread_id)
+                {
+                    record.add_joiner(tx);
+                }
+                Some(rx)
+            } else {
+                None
             };
+            drop(runtime);
+            (handle_opt, rx, false)
         }
+    };
 
-        std::thread::yield_now();
+    if is_finished {
+        return Ok(());
     }
+
+    if let Some(handle) = handle {
+        return match handle.join() {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        };
+    }
+
+    if let Some(rx) = rx {
+        let _ = rx.recv();
+    }
+    Ok(())
 }
 
 fn wait_for_all_java_threads(
@@ -15768,8 +15791,7 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
 fn total_instance_field_count(registry: &ClassRegistry, class_name: &str) -> usize {
     let mut count = registry
         .get(class_name)
-        .map(|c| c.instance_field_count)
-        .unwrap_or(0);
+        .map_or(0, |c| c.instance_field_count);
     let mut sc = registry
         .get(class_name)
         .ok()
@@ -24701,6 +24723,45 @@ mod tests {
     // ---- Phase 28: Threading ----
 
     #[test]
+    fn threading_havoc_concurrent_join_spin_loop() {
+        let ctx = load_class_context("HavocJoin.class");
+        let entry_class = ctx.class_name.clone();
+        let mut registry = ClassRegistry::new();
+        registry.register(ctx);
+        registry.register(load_class_context("HavocJoin$Worker.class"));
+        registry.register(load_class_context("HavocJoin$Joiner.class"));
+        let mut heap = duke_gc::Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+        let loader = fixtures_loader();
+        let mut out: Vec<u8> = Vec::new();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = execute_class_to_completion(
+                    &mut registry,
+                    loader,
+                    &mut heap,
+                    &mut out,
+                    &entry_class,
+                    "main",
+                    "()I",
+                    &[],
+                );
+            }));
+            let _ = tx.send(result);
+        });
+
+        match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(result) => println!("Got result: {result:?}"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!("VULNERABILITY: Concurrent join caused a spin-loop deadlock!");
+            }
+            Err(e) => println!("Got error: {e:?}"),
+        }
+    }
+
+    #[test]
     fn threading_havoc_fast_fail_slow_thread_does_not_panic() {
         static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let ctx = load_class_context("ThreadingTest.class");
@@ -24742,6 +24803,7 @@ mod tests {
             &[],
         );
 
+        println!("RESULT IS: {result:?}");
         assert!(matches!(
             result,
             Err(VmError::Unimplemented {

@@ -36,12 +36,13 @@ impl SharedOutput {
 }
 
 /// Minimal metadata for a Java thread record.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Default)]
 pub struct ThreadRecord {
     pub java_ref: u64,
     pub thread_id: i32,
     pub finished: bool,
     pub daemon: bool,
+    pub joiners: Vec<std::sync::mpsc::Sender<()>>,
 }
 
 impl ThreadRecord {
@@ -52,16 +53,28 @@ impl ThreadRecord {
             thread_id,
             finished: false,
             daemon: false,
+            joiners: Vec::new(),
         }
     }
 
     /// Mark this record as finished and report whether the state changed.
-    pub const fn mark_finished(&mut self) -> bool {
+    pub fn mark_finished(&mut self) -> bool {
         if self.finished {
             return false;
         }
         self.finished = true;
+        for sender in self.joiners.drain(..) {
+            let _ = sender.send(());
+        }
         true
+    }
+
+    pub fn add_joiner(&mut self, sender: std::sync::mpsc::Sender<()>) {
+        if self.finished {
+            let _ = sender.send(());
+        } else {
+            self.joiners.push(sender);
+        }
     }
 }
 
@@ -94,6 +107,10 @@ impl ThreadRuntime {
     #[must_use]
     pub fn records(&self) -> &[ThreadRecord] {
         &self.records
+    }
+
+    pub fn records_mut(&mut self) -> &mut [ThreadRecord] {
+        &mut self.records
     }
 
     #[must_use]
