@@ -338,16 +338,17 @@ impl ClassLoader for ZipLoader {
 }
 
 fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> LoadResult<Vec<ZipLoader>> {
-    let mut nested_entry_names: Vec<String> = reader
+    // ⚡ Bolt: Collecting `&str` instead of owned `String` avoids unnecessary heap allocations
+    // for every nested jar name prior to sorting and processing them.
+    let mut nested_entry_names: Vec<&str> = reader
         .entry_names()
         .filter(|name| is_nested_boot_inf_lib_archive(name))
-        .map(str::to_owned)
         .collect();
     nested_entry_names.sort_unstable();
 
     let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
     for entry_name in nested_entry_names {
-        let nested_bytes = reader.read_entry(&entry_name)?;
+        let nested_bytes = reader.read_entry(entry_name)?;
         nested_libs.push(ZipLoader::from_reader(ZipReader::from_bytes(
             nested_bytes,
         )?)?);
