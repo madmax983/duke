@@ -185,21 +185,21 @@ fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
 
     // interfaces
     let interfaces_count = c.read_u16()?;
-    let mut interfaces = Vec::with_capacity(interfaces_count as usize);
+    let mut interfaces = Vec::with_capacity((interfaces_count as usize).min(c.remaining() / 2));
     for _ in 0..interfaces_count {
         interfaces.push(c.read_cp_index()?);
     }
 
     // fields
     let fields_count = c.read_u16()?;
-    let mut fields = Vec::with_capacity(fields_count as usize);
+    let mut fields = Vec::with_capacity((fields_count as usize).min(c.remaining() / 8));
     for _ in 0..fields_count {
         fields.push(parse_field(c, cp_len)?);
     }
 
     // methods
     let methods_count = c.read_u16()?;
-    let mut methods = Vec::with_capacity(methods_count as usize);
+    let mut methods = Vec::with_capacity((methods_count as usize).min(c.remaining() / 8));
     for _ in 0..methods_count {
         methods.push(parse_method(c, cp_len)?);
     }
@@ -229,7 +229,7 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
     let count = c.read_u16()? as usize;
     // Index 0 is unused; spec uses 1-based indexing.
     // `count` is one more than the actual number of entries.
-    let mut pool: Vec<Option<CpEntry>> = Vec::with_capacity(count);
+    let mut pool: Vec<Option<CpEntry>> = Vec::with_capacity(count.min(1 + c.remaining()));
     pool.push(None); // slot 0 — reserved
 
     let mut i = 1usize;
@@ -360,7 +360,7 @@ fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<MethodInfo> {
 
 fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<Vec<AttributeInfo>> {
     let count = c.read_u16()?;
-    let mut attributes = Vec::with_capacity(count as usize);
+    let mut attributes = Vec::with_capacity((count as usize).min(c.remaining() / 6));
     for _ in 0..count {
         attributes.push(parse_attribute(c, cp_len)?);
     }
@@ -429,7 +429,7 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
         "Code" => AttributeData::Code(parse_code_attribute(&mut c)?),
         "LineNumberTable" => {
             let len = c.read_u16()? as usize;
-            let mut entries = Vec::with_capacity(len);
+            let mut entries = Vec::with_capacity(len.min(c.remaining() / 4));
             for _ in 0..len {
                 entries.push(LineNumberEntry {
                     start_pc: c.read_u16()?,
@@ -440,7 +440,7 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
         }
         "LocalVariableTable" => {
             let len = c.read_u16()? as usize;
-            let mut entries = Vec::with_capacity(len);
+            let mut entries = Vec::with_capacity(len.min(c.remaining() / 10));
             for _ in 0..len {
                 entries.push(LocalVariableEntry {
                     start_pc: c.read_u16()?,
@@ -454,7 +454,7 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
         }
         "Exceptions" => {
             let num = c.read_u16()? as usize;
-            let mut table = Vec::with_capacity(num);
+            let mut table = Vec::with_capacity(num.min(c.remaining() / 2));
             for _ in 0..num {
                 table.push(c.read_cp_index()?);
             }
@@ -464,11 +464,11 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
         }
         "BootstrapMethods" => {
             let num = c.read_u16()? as usize;
-            let mut entries = Vec::with_capacity(num);
+            let mut entries = Vec::with_capacity(num.min(c.remaining() / 4));
             for _ in 0..num {
                 let method_ref = c.read_cp_index()?;
                 let num_args = c.read_u16()? as usize;
-                let mut arguments = Vec::with_capacity(num_args);
+                let mut arguments = Vec::with_capacity(num_args.min(c.remaining() / 2));
                 for _ in 0..num_args {
                     arguments.push(c.read_cp_index()?);
                 }
@@ -492,7 +492,7 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
     let code = c.read_bytes(code_len)?.to_vec();
 
     let ex_count = c.read_u16()? as usize;
-    let mut exception_table = Vec::with_capacity(ex_count);
+    let mut exception_table = Vec::with_capacity(ex_count.min(c.remaining() / 8));
     for _ in 0..ex_count {
         exception_table.push(ExceptionTableEntry {
             start_pc: c.read_u16()?,
@@ -505,7 +505,7 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
     // Code sub-attributes (LineNumberTable etc.) — stored as Raw for now;
     // resolve_attributes will decode them.
     let attr_count = c.read_u16()? as usize;
-    let mut attributes = Vec::with_capacity(attr_count);
+    let mut attributes = Vec::with_capacity(attr_count.min(c.remaining() / 6));
     for _ in 0..attr_count {
         let name_index = c.read_cp_index()?;
         let attr_len = c.read_u32()? as usize;

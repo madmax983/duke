@@ -415,7 +415,7 @@ fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction
         return Err(DecodeError::InvalidTableswitch { pc, low, high });
     }
     let count = usize::try_from(count_i64).unwrap_or(0);
-    let mut offsets = Vec::with_capacity(count);
+    let mut offsets = Vec::with_capacity(count.min(c.data.len().saturating_sub(c.pos) / 4));
     for _ in 0..count {
         offsets.push(c.read_i32()?);
     }
@@ -439,7 +439,7 @@ fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instructio
         return Err(DecodeError::InvalidLookupswitch { pc, npairs });
     }
     let npairs_usize = usize::try_from(npairs).unwrap_or(0);
-    let mut pairs = Vec::with_capacity(npairs_usize);
+    let mut pairs = Vec::with_capacity(npairs_usize.min(c.data.len().saturating_sub(c.pos) / 8));
     for _ in 0..npairs_usize {
         let match_val = c.read_i32()?;
         let offset = c.read_i32()?;
