@@ -8,6 +8,8 @@
 //! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
+#[cfg(feature = "nova")]
+pub mod basic_block;
 pub mod call_graph;
 pub mod cfg;
 pub mod decoder;
@@ -16,6 +18,8 @@ pub mod instruction;
 pub mod opcodes;
 pub mod verifier;
 
+#[cfg(feature = "nova")]
+pub use basic_block::{BasicBlock, build_basic_blocks};
 pub use call_graph::generate_mermaid_call_graph;
 pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
