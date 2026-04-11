@@ -1,0 +1,3 @@
+## 2026-04-10 - Havoc Deadlock in wait_for_all_java_threads
+**Confusion:** The `wait_for_all_java_threads` method was using `runtime.handles.drain()` which removed all `JoinHandle` instances for the background threads. If one of those threads subsequently tried to call `join_java_thread` on another thread (via `Thread.join()`), it couldn't find the target's `JoinHandle` and spun infinitely yielding to the OS.
+**Clarification:** Don't `drain()` the `handles`. Instead, pop the handles one by one by getting `keys().next()` and then `remove(&key)`. If another thread has grabbed the handle for a `join`, we just observe `handle_opt` as `None` and fall back to waiting/yielding until `live_workers() == 0`.

@@ -13733,19 +13733,13 @@ fn wait_for_all_java_threads(
 ) -> VmResult<()> {
     let mut first_error = None;
     loop {
-        let handles = {
-            let mut runtime = runtime.lock().unwrap();
-            if runtime.handles.is_empty() {
-                return first_error.unwrap_or(Ok(()));
-            }
-            runtime
-                .handles
-                .drain()
-                .map(|(_, handle)| handle)
-                .collect::<Vec<_>>()
+        let handle_opt = {
+            let mut rt = runtime.lock().unwrap();
+            let key = { rt.handles.keys().next().copied() };
+            key.map_or_else(|| None, |k| rt.handles.remove(&k))
         };
 
-        for handle in handles {
+        if let Some(handle) = handle_opt {
             match handle.join() {
                 Ok(result) => {
                     if let Err(e) = result {
@@ -13754,6 +13748,15 @@ fn wait_for_all_java_threads(
                 }
                 Err(payload) => std::panic::resume_unwind(payload),
             }
+        } else {
+            // If there are still live workers but no handles, it means
+            // another thread stole the handle and is currently joining it.
+            // We should just yield until the threads registry shows 0 live workers.
+            let live_workers = runtime.lock().unwrap().threads.live_workers();
+            if live_workers == 0 {
+                return first_error.unwrap_or(Ok(()));
+            }
+            std::thread::yield_now();
         }
     }
 }
