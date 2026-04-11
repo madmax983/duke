@@ -73,6 +73,22 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 }
 
 /// Generates a Mermaid call graph (CFG) from a class file.
+///
+/// **Why it exists:** Navigating method invocations across a codebase manually is
+/// error-prone. This function automates the creation of a visual Call Graph by tracing
+/// all `invoke*` instructions, making it easier to see dependencies and side effects.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::call_graph::generate_mermaid_call_graph;
+/// use duke_classfile::ClassFile;
+///
+/// // Suppose `cf` is a valid `ClassFile` structure
+/// // let cf = parse_class_file_somehow();
+/// // let graph = generate_mermaid_call_graph(&cf);
+/// // println!("{}", graph);
+/// ```
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
 /// ⚡ Bolt: Using `BTreeSet<String>` removes the need to collect and sort a `Vec` and avoids cloning `source_id` in the hot loop.

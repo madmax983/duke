@@ -4,6 +4,23 @@ use duke_loader::ZipReader;
 use std::fs;
 
 #[allow(clippy::cast_precision_loss, clippy::case_sensitive_file_extension_comparisons, clippy::collapsible_if)]
+/// Prints a static analysis report of a JAR file to standard output.
+///
+/// **Why it exists:** Provides developers with a high-level overview of a JAR's
+/// contents and complexity, allowing them to quickly identify bloated archives or
+/// heavily complex codebases before attempting deeper analysis or debugging.
+///
+/// This counts total classes, methods, fields, instructions, and calculates
+/// cyclomatic complexity for the given JAR.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Assumes 'app.jar' exists on the filesystem
+/// use duke::inspect::inspect_jar;
+///
+/// inspect_jar("app.jar");
+/// ```
 pub fn inspect_jar(path: &str) {
     let bytes = fs::read(path).expect("Failed to read JAR file");
     let zip = ZipReader::from_bytes(bytes).expect("Failed to parse JAR/ZIP");

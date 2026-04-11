@@ -48,6 +48,24 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     }
 }
 
+/// Prints a static analysis summary of an entire JAR file to standard output.
+///
+/// **Why it exists:** When auditing large third-party JARs or legacy codebases,
+/// it's crucial to identify the most problematic areas. This function acts as a
+/// "heatmap" by finding and highlighting the most complex methods across the entire archive.
+///
+/// This iterates over all classes and methods in the JAR, computing code size
+/// and cyclomatic complexity, then prints a summary including the top 10 most
+/// complex methods.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Assumes 'legacy_lib.jar' is available on disk
+/// use duke::jar_analyze::dump_jar_analyze;
+///
+/// dump_jar_analyze("legacy_lib.jar");
+/// ```
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 pub fn dump_jar_analyze(jar_path: &str) {

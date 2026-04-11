@@ -18,6 +18,25 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
+/// Searches for a specific bytecode mnemonic string in all methods of a class file.
+///
+/// **Why it exists:** When debugging compiled Java applications, it is often necessary
+/// to find exactly where a specific instruction (like `invokedynamic` or `getfield`)
+/// is being used without decompiling the entire JAR. This function provides a quick
+/// `grep`-like experience specifically tailored for JVM bytecode.
+///
+/// This command-line utility prints out the method names and instructions that
+/// match the given `query` (case-insensitive).
+///
+/// # Examples
+///
+/// ```ignore
+/// // Example assumes a valid .class file path exists
+/// use duke::search::dump_search;
+///
+/// // Find all usages of 'invokevirtual' in MyClass.class
+/// dump_search("MyClass.class", "invokevirtual");
+/// ```
 pub fn dump_search(path: &str, query: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");

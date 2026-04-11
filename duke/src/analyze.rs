@@ -34,7 +34,24 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
 }
 
 /// Generates a static analysis report for the given class file.
+///
+/// **Why it exists:** Provides a quick, text-based overview of a specific class's
+/// internal complexity. Instead of guessing which method is the most convoluted,
+/// this generates a clean table of code sizes and cyclomatic complexities to
+/// guide refactoring efforts.
+///
 /// Iterates over all methods, calculating code size and cyclomatic complexity.
+///
+/// # Examples
+///
+/// ```ignore
+/// use duke::analyze::generate_analysis_report;
+/// use duke_classfile::ClassFile;
+///
+/// let cf: ClassFile = get_parsed_class_somehow();
+/// let report_string = generate_analysis_report(&cf);
+/// println!("{}", report_string);
+/// ```
 #[must_use]
 pub fn generate_analysis_report(cf: &ClassFile) -> String {
     let mut out = String::new();
