@@ -63,6 +63,26 @@ const fn method_visibility(flags: MethodAccessFlags) -> &'static str {
 }
 
 /// Generates a Mermaid class diagram from a `ClassFile`.
+///
+/// **Why it exists:** Looking at raw class structures or decompiled bytecode is tedious.
+/// This function translates the structural metadata of a class file into a visual
+/// diagram, bridging the gap between machine code and human-readable architecture models.
+///
+/// This provides a visual representation of the class's fields, methods,
+/// and its inheritance hierarchy (superclass and implemented interfaces) using
+/// Mermaid JS `classDiagram` syntax.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Assumes a `ClassFile` structure exists.
+/// use duke::uml::generate_mermaid_uml;
+/// use duke_classfile::ClassFile;
+///
+/// let cf: ClassFile = get_parsed_class_somehow();
+/// let diagram_string = generate_mermaid_uml(&cf);
+/// println!("{}", diagram_string);
+/// ```
 #[must_use]
 pub fn generate_mermaid_uml(cf: &ClassFile) -> String {
     let mut out = String::from("classDiagram\n");

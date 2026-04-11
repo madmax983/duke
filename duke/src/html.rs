@@ -248,7 +248,24 @@ fn write_methods(out: &mut String, cf: &ClassFile) {
 }
 
 /// Generates a complete, interactive HTML report of the given class file.
+///
+/// **Why it exists:** Console outputs and raw JSON dumps are hard to navigate.
+/// This generates a beautifully formatted, interactive HTML document that allows
+/// developers to visually explore the class constants, fields, and even see
+/// embedded Mermaid control flow graphs for every method in their browser.
+///
 /// Includes constants, fields, methods, and embedded Mermaid control flow graphs.
+///
+/// # Examples
+///
+/// ```ignore
+/// use duke::html::generate_html_report;
+/// use duke_classfile::ClassFile;
+///
+/// let cf: ClassFile = get_parsed_class_somehow();
+/// let html_string = generate_html_report(&cf);
+/// std::fs::write("report.html", html_string).unwrap();
+/// ```
 #[must_use]
 pub fn generate_html_report(cf: &ClassFile) -> String {
     let mut out = String::new();

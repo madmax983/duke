@@ -2,6 +2,10 @@
 
 /// Parse the `Main-Class` attribute from a `META-INF/MANIFEST.MF` file.
 ///
+/// **Why it exists:** When executing a JAR file via `java -jar`, the JVM needs to
+/// know the entry point of the application. This function isolates the logic required
+/// to quickly scan the manifest and extract this critical routing information.
+///
 /// Returns the class name in internal form (e.g. `"com/example/App"`).
 /// Returns `None` if no `Main-Class` header is found.
 ///
