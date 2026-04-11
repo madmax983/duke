@@ -1040,7 +1040,7 @@ impl Heap {
             // if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
-                    .get(usize::try_from(r).unwrap())
+                    .get(usize::try_from(r).unwrap_or(usize::MAX))
                     .and_then(|s| s.as_ref())
                     .and_then(|o| o.forward)
             });
@@ -1250,6 +1250,18 @@ mod tests {
 
         let err_mut = heap.get_mut(bad_ref).unwrap_err();
         assert!(matches!(err_mut, VmError::InvalidRef { address: u64::MAX }));
+    }
+
+    #[test]
+    fn apply_forward_ignores_large_ref_safely() {
+        let heap = Heap::new();
+        let mut slot = Slot::Reference(Some(u64::MAX)); // young gen large ref
+        let original_slot = slot.clone();
+
+        heap.apply_forward(&mut slot);
+
+        // Ensure no panic occurred and slot is unchanged since it can't find a forward pointer
+        assert_eq!(slot, original_slot);
     }
 
     #[test]
