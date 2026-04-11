@@ -6954,10 +6954,12 @@ pub(crate) fn native_class_get_declared_methods(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let mut method_refs = Vec::with_capacity(reflected.methods.len());
-    for method in reflected.methods {
-        if method.name != "<init>" && method.name != "<clinit>" {
-            method_refs.push(allocate_reflection_member_object(
+    let method_refs = reflected
+        .methods
+        .into_iter()
+        .filter(|method| method.name != "<init>" && method.name != "<clinit>")
+        .map(|method| {
+            allocate_reflection_member_object(
                 heap,
                 "java/lang/reflect/Method",
                 &class_key,
@@ -6965,9 +6967,9 @@ pub(crate) fn native_class_get_declared_methods(
                 &method.descriptor,
                 method.is_public,
                 method.is_static,
-            )?);
-        }
-    }
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
@@ -6982,19 +6984,20 @@ pub(crate) fn native_class_get_declared_constructors(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let constructors = reflected_constructors(reflected, false);
-    let mut constructor_refs = Vec::with_capacity(constructors.len());
-    for constructor in constructors {
-        constructor_refs.push(allocate_reflection_member_object(
-            heap,
-            "java/lang/reflect/Constructor",
-            &class_key,
-            &constructor.name,
-            &constructor.descriptor,
-            constructor.is_public,
-            constructor.is_static,
-        )?);
-    }
+    let constructor_refs = reflected_constructors(reflected, false)
+        .into_iter()
+        .map(|constructor| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Constructor",
+                &class_key,
+                &constructor.name,
+                &constructor.descriptor,
+                constructor.is_public,
+                constructor.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
     let array_ref =
         allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
@@ -7009,19 +7012,20 @@ pub(crate) fn native_class_get_methods(
 ) -> VmResult<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let methods = collect_public_reflected_methods(ops, &class_key)?;
-    let mut method_refs = Vec::with_capacity(methods.len());
-    for (declaring_class, method) in methods {
-        method_refs.push(allocate_reflection_member_object(
-            heap,
-            "java/lang/reflect/Method",
-            &declaring_class,
-            &method.name,
-            &method.descriptor,
-            method.is_public,
-            method.is_static,
-        )?);
-    }
+    let method_refs = collect_public_reflected_methods(ops, &class_key)?
+        .into_iter()
+        .map(|(declaring_class, method)| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Method",
+                &declaring_class,
+                &method.name,
+                &method.descriptor,
+                method.is_public,
+                method.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
@@ -7036,19 +7040,20 @@ pub(crate) fn native_class_get_constructors(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let constructors = reflected_constructors(reflected, true);
-    let mut constructor_refs = Vec::with_capacity(constructors.len());
-    for constructor in constructors {
-        constructor_refs.push(allocate_reflection_member_object(
-            heap,
-            "java/lang/reflect/Constructor",
-            &class_key,
-            &constructor.name,
-            &constructor.descriptor,
-            constructor.is_public,
-            constructor.is_static,
-        )?);
-    }
+    let constructor_refs = reflected_constructors(reflected, true)
+        .into_iter()
+        .map(|constructor| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Constructor",
+                &class_key,
+                &constructor.name,
+                &constructor.descriptor,
+                constructor.is_public,
+                constructor.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
     let array_ref =
         allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
@@ -7064,18 +7069,21 @@ pub(crate) fn native_class_get_declared_fields(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let mut field_refs = Vec::with_capacity(reflected.fields.len());
-    for field in reflected.fields {
-        field_refs.push(allocate_reflection_member_object(
-            heap,
-            "java/lang/reflect/Field",
-            &class_key,
-            &field.name,
-            &field.descriptor,
-            field.is_public,
-            field.is_static,
-        )?);
-    }
+    let field_refs = reflected
+        .fields
+        .into_iter()
+        .map(|field| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Field",
+                &class_key,
+                &field.name,
+                &field.descriptor,
+                field.is_public,
+                field.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
@@ -7089,19 +7097,20 @@ pub(crate) fn native_class_get_fields(
 ) -> VmResult<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let fields = collect_public_reflected_fields(ops, &class_key)?;
-    let mut field_refs = Vec::with_capacity(fields.len());
-    for (declaring_class, field) in fields {
-        field_refs.push(allocate_reflection_member_object(
-            heap,
-            "java/lang/reflect/Field",
-            &declaring_class,
-            &field.name,
-            &field.descriptor,
-            field.is_public,
-            field.is_static,
-        )?);
-    }
+    let field_refs = collect_public_reflected_fields(ops, &class_key)?
+        .into_iter()
+        .map(|(declaring_class, field)| {
+            allocate_reflection_member_object(
+                heap,
+                "java/lang/reflect/Field",
+                &declaring_class,
+                &field.name,
+                &field.descriptor,
+                field.is_public,
+                field.is_static,
+            )
+        })
+        .collect::<VmResult<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
