@@ -330,9 +330,8 @@ impl ClassLoader for ZipLoader {
         entry_name.push_str(name);
         entry_name.push_str(".class");
         match self.reader.read_entry(&entry_name) {
-            Ok(bytes) => return Ok(bytes),
             Err(LoadError::NotFound { .. }) => {}
-            Err(other) => return Err(other),
+            result => return result,
         }
 
         // Try BOOT-INF path: BOOT-INF/classes/{name}.class
@@ -341,16 +340,14 @@ impl ClassLoader for ZipLoader {
         entry_name.push_str(name);
         entry_name.push_str(".class");
         match self.reader.read_entry(&entry_name) {
-            Ok(bytes) => return Ok(bytes),
             Err(LoadError::NotFound { .. }) => {}
-            Err(other) => return Err(other),
+            result => return result,
         }
 
         for nested_lib in &self.nested_libs {
             match nested_lib.find_class(name) {
-                Ok(bytes) => return Ok(bytes),
                 Err(LoadError::NotFound { .. }) => {}
-                Err(other) => return Err(other),
+                result => return result,
             }
         }
         Err(LoadError::NotFound {
