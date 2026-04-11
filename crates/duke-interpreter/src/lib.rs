@@ -9926,15 +9926,27 @@ fn join_java_thread(
     loop {
         let handle = {
             let mut runtime = runtime.lock().unwrap();
-            let is_finished = runtime
+
+            let record = runtime
                 .threads
                 .records()
                 .iter()
-                .find(|record| record.thread_id == thread_id)
-                .is_none_or(|record| record.finished);
+                .find(|record| record.thread_id == thread_id);
+
+            let is_finished = record.is_none_or(|r| r.finished);
             if is_finished {
                 return Ok(());
             }
+
+            // Avoid joining ourselves
+            if let Some(rec) = record
+                && rec.rust_thread_id == Some(std::thread::current().id())
+            {
+                return Err(VmError::Unimplemented {
+                    mnemonic: "deadlock: thread joined itself",
+                });
+            }
+
             runtime.handles.remove(&thread_id)
         };
 
@@ -10086,6 +10098,9 @@ fn spawn_java_thread(
     let runtime_clone = std::sync::Arc::clone(runtime);
     let loader_clone = std::sync::Arc::clone(loader);
     let handle = std::thread::spawn(move || {
+        let my_id = std::thread::current().id();
+        runtime_clone.lock().unwrap().threads.set_rust_thread_id(thread_ref, my_id);
+
         let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
         {
             let mut shared = shared_clone.lock().unwrap();

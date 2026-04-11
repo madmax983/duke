@@ -183,3 +183,4 @@ mod tests {
 
 #[cfg(test)]
 mod proptest_open;
+pub mod proptest_crash;

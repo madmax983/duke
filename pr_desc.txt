@@ -1,4 +1,32 @@
-📖 Chapter: The `duke-runtime` and `duke-loader` error modules.
-🔦 Insight: Explained the runtime execution state concepts (Frame, Slot) at the module level. Clarified exactly what each variant of `LoadError` means and when it might be encountered by a user.
-🧪 Example: N/A for these specific changes (error enum variants and module docs).
-🖼️ Preview: N/A
+👹 Havoc: Prevent Thread Deadlocks on Self-Join
+
+🧨 **The Trigger:**
+A Java thread calling `Thread.currentThread().join()` (or joining itself through a reference) causes the Duke interpreter to deadlock. The interpreter spawns a Rust thread, which pulls its own `JoinHandle` from the shared `runtime.handles` and attempts to `join()` it. The Rust standard library explicitly forbids a thread from joining itself and panics, but because the handle was removed from the list, the main `CompletionRuntime` thread waiting for all Java threads to complete busy-waits forever, resulting in an unresponsive VM.
+
+📉 **The Stack Trace:**
+```text
+thread '<unnamed>' panicked at library/std/src/thread/mod.rs:1754:29:
+thread joined itself
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+```
+
+🧪 **Reproduction:**
+```java
+class ThreadBug {
+    static class MyThread extends Thread {
+        public void run() {
+            try { this.join(); } catch(Exception e) {}
+        }
+    }
+    public static void main(String[] args) throws Exception {
+        MyThread t = new MyThread();
+        t.start();
+        t.join();
+    }
+}
+```
+
+😈 **Comment:**
+"A thread joining itself should raise a logical exception or return, not crash the entire VM runtime by busy-looping indefinitely in Rust space. You assumed threads wouldn't behave irrationally. You were wrong."
+
+*(Assumption: To avoid adding extra Java fixture files to the repository history, I did not commit the standalone ThreadBug.java test. The fix itself stands on its own and is confirmed to prevent the Rust-level panic.)*

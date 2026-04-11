@@ -42,6 +42,7 @@ pub struct ThreadRecord {
     pub thread_id: i32,
     pub finished: bool,
     pub daemon: bool,
+    pub rust_thread_id: Option<std::thread::ThreadId>,
 }
 
 impl ThreadRecord {
@@ -52,6 +53,7 @@ impl ThreadRecord {
             thread_id,
             finished: false,
             daemon: false,
+            rust_thread_id: None,
         }
     }
 
@@ -131,6 +133,12 @@ impl ThreadRuntime {
             return false;
         };
         record.mark_finished()
+    }
+
+    pub fn set_rust_thread_id(&mut self, java_ref: u64, id: std::thread::ThreadId) {
+        if let Some(record) = self.records.iter_mut().find(|r| r.java_ref == java_ref) {
+            record.rust_thread_id = Some(id);
+        }
     }
 }
 
