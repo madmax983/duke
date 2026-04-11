@@ -12,3 +12,7 @@
 **[Split ClassFile types]
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+
+**Refactoring the Native API Blob**
+**Tangle:** The `crates/duke-interpreter/src/native.rs` file was an enormous 25,000+ line "Blob" anti-pattern containing all standard library native handlers, mixed domain logic, and helper functions in a single, hard-to-maintain file.
+**Blueprint:** Extracted the file into domain-specific modules inside a new `crates/duke-interpreter/src/native/` directory (`lang.rs`, `io.rs`, `stream.rs`, `collections.rs`, `time.rs`, `util.rs`, `helpers.rs`, `misc.rs`). Glued them together using `include!("...");` in `crates/duke-interpreter/src/native/mod.rs` to maintain the original internal visibility and API facade while improving source code maintainability.

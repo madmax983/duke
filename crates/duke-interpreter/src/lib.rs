@@ -1,3 +1,19 @@
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::float_cmp)]
+#![allow(clippy::used_underscore_binding)]
+#![allow(clippy::option_if_let_else)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::option_option)]
+#![allow(clippy::missing_const_for_fn)]
+#![allow(clippy::cast_lossless)]
+#![allow(clippy::unnecessary_wraps)]
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(unused_braces)]
+#![allow(clippy::empty_line_after_outer_attr)]
 //! Switch-dispatch JVM bytecode interpreter for Duke Phase 4.
 //!
 //! Executes decoded instruction streams for methods containing integer, long,
@@ -44,7 +60,7 @@ use duke_runtime::{Frame, Slot, VmError, VmResult};
 //
 // Creates synthetic `java/lang/System` and `java/io/PrintStream` classes and
 // registers native `println` handlers for `(Ljava/lang/String;)V`, `(I)V`,
-include!("native.rs");
+include!("native/mod.rs");
 
 // ---------------------------------------------------------------------------
 // Tests
