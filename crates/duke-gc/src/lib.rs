@@ -777,7 +777,7 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -812,7 +812,7 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(VmError::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -1237,6 +1237,19 @@ mod tests {
         let heap = Heap::new();
         assert!(heap.get(0).is_err());
         assert!(heap.get(999).is_err());
+    }
+
+    #[test]
+    fn get_on_large_ref_returns_error_safely() {
+        let mut heap = Heap::new();
+        heap.allocate("MyClass".to_string(), 1);
+
+        let bad_ref = u64::MAX;
+        let err = heap.get(bad_ref).unwrap_err();
+        assert!(matches!(err, VmError::InvalidRef { address: u64::MAX }));
+
+        let err_mut = heap.get_mut(bad_ref).unwrap_err();
+        assert!(matches!(err_mut, VmError::InvalidRef { address: u64::MAX }));
     }
 
     #[test]
