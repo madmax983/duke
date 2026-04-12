@@ -7,6 +7,7 @@ use std::process;
 
 mod analyze;
 mod deps_graph;
+mod histogram;
 mod html;
 mod jar_analyze;
 mod search;
@@ -223,6 +224,7 @@ fn main() {
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
+        eprintln!("       duke histogram <file.jar>");
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke uml <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
@@ -286,6 +288,10 @@ fn main() {
 
     // Dispatch `analyze`: run static analysis on the class.
 
+    if args.len() >= 3 && args[1] == "histogram" {
+        histogram::dump_histogram(&args[2]);
+        return;
+    }
     if args.len() >= 3 && args[1] == "jar-analyze" {
         jar_analyze::dump_jar_analyze(&args[2]);
         return;
