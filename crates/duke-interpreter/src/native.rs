@@ -13503,14 +13503,6 @@ fn join_java_thread(
         };
 
         if let Some(handle) = handle {
-            if handle.thread().id() == std::thread::current().id() {
-                // To avoid a Rust panic (`thread joined itself`), we restore the handle
-                // and park indefinitely to mirror genuine JVM deadlock behavior.
-                runtime.lock().unwrap().handles.insert(thread_id, handle);
-                loop {
-                    std::thread::park();
-                }
-            }
             return match handle.join() {
                 Ok(result) => result,
                 Err(payload) => std::panic::resume_unwind(payload),
@@ -13534,16 +13526,11 @@ fn wait_for_all_java_threads(
             runtime
                 .handles
                 .drain()
+                .map(|(_, handle)| handle)
                 .collect::<Vec<_>>()
         };
 
-        for (thread_id, handle) in handles {
-            if handle.thread().id() == std::thread::current().id() {
-                // Do not attempt to join ourselves during shutdown.
-                // Restore the handle so it remains attached to the runtime context.
-                runtime.lock().unwrap().handles.insert(thread_id, handle);
-                continue;
-            }
+        for handle in handles {
             match handle.join() {
                 Ok(result) => {
                     if let Err(e) = result {
