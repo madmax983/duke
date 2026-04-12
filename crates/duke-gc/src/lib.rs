@@ -2487,6 +2487,39 @@ fn process_wait_and_destroy_cycle() {
 }
 
 #[test]
+fn process_destroy_running() {
+    let mut heap = Heap::new();
+    let cmd = if cfg!(windows) {
+        vec!["cmd".to_string(), "/C".to_string(), "pause".to_string()]
+    } else {
+        vec!["cat".to_string()]
+    };
+    let p_ids = heap.spawn_host_process(&cmd, None).unwrap();
+    heap.destroy_host_process(p_ids.process_id).unwrap();
+}
+
+#[test]
+fn should_return_error_when_waiting_invalid_process() {
+    let mut gc = Heap::new();
+    let err = gc.wait_host_process(999).unwrap_err();
+    assert!(matches!(err, duke_runtime::VmError::JavaException { .. }));
+}
+
+#[test]
+fn should_return_error_when_trying_exit_value_invalid_process() {
+    let mut gc = Heap::new();
+    let err = gc.try_host_process_exit_value(999).unwrap_err();
+    assert!(matches!(err, duke_runtime::VmError::JavaException { .. }));
+}
+
+#[test]
+fn should_return_error_when_destroying_invalid_process() {
+    let mut gc = Heap::new();
+    let err = gc.destroy_host_process(999).unwrap_err();
+    assert!(matches!(err, duke_runtime::VmError::JavaException { .. }));
+}
+
+#[test]
 fn socket_operations() {
     let mut heap = Heap::new();
     // connect to an invalid host should fail
