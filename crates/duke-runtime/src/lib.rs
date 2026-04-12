@@ -11,6 +11,7 @@
 pub mod error;
 pub mod frame;
 pub mod slot;
+pub mod slot_ext;
 
 pub use error::{Error, Result, VmError, VmResult};
 pub use frame::Frame;
