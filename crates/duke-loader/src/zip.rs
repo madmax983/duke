@@ -199,14 +199,25 @@ impl ZipReader {
         let decompressed = match info.compression_method {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
-                let mut decoder = flate2::read::DeflateDecoder::new(compressed);
+                let decoder = flate2::read::DeflateDecoder::new(compressed);
                 let cap = info.uncompressed_size as usize;
+                let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+                if cap > max_size {
+                    return Err(LoadError::ZipFormat {
+                        msg: format!(
+                            "entry '{}' uncompressed size {} exceeds limit {}",
+                            info.name, cap, max_size
+                        ),
+                    });
+                }
                 let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32));
                 decoder
+                    .take(max_size as u64)
                     .read_to_end(&mut buf)
                     .map_err(|_| LoadError::ZipFormat {
                         msg: format!("failed to deflate entry '{}'", info.name),
                     })?;
+
                 buf
             }
             other => {
