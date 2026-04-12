@@ -78,16 +78,34 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 /// error-prone. This function automates the creation of a visual Call Graph by tracing
 /// all `invoke*` instructions, making it easier to see dependencies and side effects.
 ///
+/// Generates a Mermaid call graph (CFG) from a given Java class file.
+///
 /// # Examples
 ///
 /// ```
 /// use duke_bytecode::call_graph::generate_mermaid_call_graph;
-/// use duke_classfile::ClassFile;
+/// use duke_classfile::{parse, types::ClassFile};
 ///
-/// // Suppose `cf` is a valid `ClassFile` structure
-/// // let cf = parse_class_file_somehow();
-/// // let graph = generate_mermaid_call_graph(&cf);
-/// // println!("{}", graph);
+/// // Create a dummy ClassFile from valid dummy bytecode:
+/// let mut v: Vec<u8> = Vec::new();
+/// v.extend_from_slice(&[0xCA, 0xFE, 0xBA, 0xBE]); // magic
+/// v.extend_from_slice(&[0x00, 0x00, 0x00, 0x41]); // Java 21
+/// v.extend_from_slice(&[0x00, 0x03]); // cp_count = 3
+/// // #1: Class { name_index = 2 }
+/// v.push(7);
+/// v.extend_from_slice(&[0x00, 0x02]);
+/// // #2: Utf8 "Foo"
+/// v.push(1);
+/// v.extend_from_slice(&[0x00, 0x03]);
+/// v.extend_from_slice(b"Foo");
+/// v.extend_from_slice(&[0x00, 0x21, 0x00, 0x01, 0x00, 0x00]); // this=1, super=0
+/// v.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // no fields, methods, or attrs
+///
+/// let cf = parse(&v).unwrap();
+/// let graph = generate_mermaid_call_graph(&cf);
+/// assert!(graph.contains("graph TD"));
+/// // Since we didn't add any methods, the graph will be just "graph TD\n" or similar,
+/// // but it shouldn't crash.
 /// ```
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
