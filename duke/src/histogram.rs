@@ -9,7 +9,12 @@ use std::path::Path;
 /// **Why it exists:** Provides developers with insights into what instructions
 /// are most commonly used in their codebase, helping identify potential areas
 /// for bytecode optimization or analyzing compiler behavior.
-#[allow(clippy::cast_precision_loss, clippy::collapsible_if, clippy::case_sensitive_file_extension_comparisons, clippy::cast_lossless)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::collapsible_if,
+    clippy::case_sensitive_file_extension_comparisons,
+    clippy::cast_lossless
+)]
 pub fn dump_histogram(jar_path: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         panic!("duke: failed to open JAR '{jar_path}': {e}");
