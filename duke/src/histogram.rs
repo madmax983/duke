@@ -15,6 +15,8 @@ use std::path::Path;
     clippy::case_sensitive_file_extension_comparisons,
     clippy::cast_lossless
 )]
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
 pub fn dump_histogram(jar_path: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         panic!("duke: failed to open JAR '{jar_path}': {e}");
