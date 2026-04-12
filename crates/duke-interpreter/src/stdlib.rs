@@ -3,7 +3,6 @@ use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 use duke_runtime::Slot;
-use duke_runtime::slot_ext::SlotExt;
 
 #[allow(clippy::too_many_lines)]
 /// Bootstraps the minimal JDK standard library classes needed for native method support.
@@ -9537,7 +9536,7 @@ pub(crate) fn native_identity_function_apply(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     // args[0] = this (the IdentityFunction proxy), args[1] = the element
-    Ok(Some(args.get(1).unwrap_or_ref()))
+    Ok(Some(args.get(1).copied().unwrap_or(Slot::Reference(None))))
 }
 
 // ─── Phase 100 natives ───────────────────────────────────────────────────────
@@ -9549,7 +9548,7 @@ pub(crate) fn native_collectors_summarizing_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let fn_slot = args.first().unwrap_or_ref();
+    let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     let r = heap.allocate("duke/util/SummarizingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
     Ok(Some(Slot::Reference(Some(r))))

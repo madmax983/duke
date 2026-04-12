@@ -1,6 +1,5 @@
-use duke_runtime::slot_ext::SlotExt;
 fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
-    args.get(idx).unwrap_or_ref()
+    args.get(idx).copied().unwrap_or(Slot::Reference(None))
 }
 
 #[inline]
@@ -13,7 +12,7 @@ fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
 
 #[inline]
 fn extract_field_arg(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<Slot> {
-    Ok(heap.get(obj_ref)?.fields.get(idx).unwrap_or_ref())
+    Ok(heap.get(obj_ref)?.fields.get(idx).copied().unwrap_or(Slot::Reference(None)))
 }
 
 #[inline]
@@ -5020,10 +5019,10 @@ pub(crate) fn native_optional_int_or_else(
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if present {
         Ok(Some(
-            heap.get(r)?.fields.first().unwrap_or_int(),
+            heap.get(r)?.fields.first().copied().unwrap_or(Slot::Int(0)),
         ))
     } else {
-        Ok(Some(args.get(1).unwrap_or_int()))
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Int(0))))
     }
 }
 
@@ -5034,7 +5033,7 @@ pub(crate) fn native_optional_int_of(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
-    let value = args.first().unwrap_or_int();
+    let value = args.first().copied().unwrap_or(Slot::Int(0));
     let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
     heap.get_mut(r)?.fields[0] = value;
     heap.get_mut(r)?.fields[1] = Slot::Int(1); // present = true
@@ -5073,7 +5072,7 @@ pub(crate) fn native_optional_long_or_else(
                 .unwrap_or(Slot::Long(0)),
         ))
     } else {
-        Ok(Some(args.get(1).unwrap_or_long()))
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Long(0))))
     }
 }
 
@@ -5095,7 +5094,7 @@ pub(crate) fn native_optional_double_or_else(
                 .unwrap_or(Slot::Double(0.0)),
         ))
     } else {
-        Ok(Some(args.get(1).unwrap_or_double()))
+        Ok(Some(args.get(1).copied().unwrap_or(Slot::Double(0.0))))
     }
 }
 
@@ -8689,7 +8688,7 @@ pub(crate) fn native_collections_unmodifiable_list(
     };
     let (size, elems) = {
         let src = heap.get(src_ref)?;
-        let size = src.fields.first().unwrap_or_int();
+        let size = src.fields.first().copied().unwrap_or(Slot::Int(0));
         let elems = src.fields[1..].to_vec();
         (size, elems)
     };
@@ -17158,7 +17157,7 @@ pub(crate) fn native_arrays_copyof_int(
     let dst_ref = heap.allocate("[I".to_string(), new_len);
     let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).unwrap_or_int();
+        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Int(0));
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -17180,7 +17179,7 @@ pub(crate) fn native_arrays_copyof_object(
     let dst_ref = heap.allocate("[Ljava/lang/Object;".to_string(), new_len);
     let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).unwrap_or_ref();
+        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Reference(None));
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -17246,7 +17245,7 @@ pub(crate) fn native_arrays_copy_of_range_int(
     let dst_ref = heap.allocate("[I".to_string(), new_len);
     for i in 0..new_len {
         heap.get_mut(dst_ref)?.fields[i] =
-            src_fields.get(from + i).unwrap_or_int();
+            src_fields.get(from + i).copied().unwrap_or(Slot::Int(0));
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -17988,7 +17987,7 @@ pub(crate) fn native_matcher_find(
     let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
         return Ok(Some(Slot::Int(0)));
     };
-    let input_slot = fields.get(1).unwrap_or_ref();
+    let input_slot = fields.get(1).copied().unwrap_or(Slot::Reference(None));
     let Slot::Reference(Some(input_ref)) = input_slot else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -18509,7 +18508,7 @@ pub(crate) fn native_hashmap_merge(
     let fields = heap.get(this_ref)?.fields.clone();
     let old_ki = hashmap_find_key(&fields, key, heap);
     if let Some(ki) = old_ki {
-        let old_value = fields.get(ki + 1).unwrap_or_ref();
+        let old_value = fields.get(ki + 1).copied().unwrap_or(Slot::Reference(None));
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Ok(Some(old_value));
         };
@@ -18733,13 +18732,13 @@ pub(crate) fn native_stringjoiner_tostring(
     // elements start at index 4
     let elems: Vec<Slot> = fields.get(4..).map(<[Slot]>::to_vec).unwrap_or_default();
     if elems.is_empty() {
-        let empty_slot = fields.get(3).unwrap_or_ref();
+        let empty_slot = fields.get(3).copied().unwrap_or(Slot::Reference(None));
         let prefix = slot_to_string(
-            fields.get(1).unwrap_or_ref(),
+            fields.get(1).copied().unwrap_or(Slot::Reference(None)),
             heap,
         );
         let suffix = slot_to_string(
-            fields.get(2).unwrap_or_ref(),
+            fields.get(2).copied().unwrap_or(Slot::Reference(None)),
             heap,
         );
         let empty = slot_to_string(empty_slot, heap);
@@ -18753,15 +18752,15 @@ pub(crate) fn native_stringjoiner_tostring(
         return Ok(Some(Slot::Reference(Some(r))));
     }
     let delim = slot_to_string(
-        fields.first().unwrap_or_ref(),
+        fields.first().copied().unwrap_or(Slot::Reference(None)),
         heap,
     );
     let prefix = slot_to_string(
-        fields.get(1).unwrap_or_ref(),
+        fields.get(1).copied().unwrap_or(Slot::Reference(None)),
         heap,
     );
     let suffix = slot_to_string(
-        fields.get(2).unwrap_or_ref(),
+        fields.get(2).copied().unwrap_or(Slot::Reference(None)),
         heap,
     );
     // ⚡ Bolt: Eliminate intermediate Vec<String> allocation and format! macro overhead
@@ -24939,7 +24938,7 @@ pub(crate) fn native_localdatetime_plus_days(
     let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
     heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
     for i in 1..5 {
-        heap.get_mut(r)?.fields[i] = fields.get(i).unwrap_or_int();
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
     }
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -24956,7 +24955,7 @@ pub(crate) fn native_localdatetime_with_hour(
     let fields = heap.get(this_ref)?.fields.clone();
     let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
     for i in 0..5 {
-        heap.get_mut(r)?.fields[i] = fields.get(i).unwrap_or_int();
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
     }
     heap.get_mut(r)?.fields[1] = Slot::Int(hour);
     Ok(Some(Slot::Reference(Some(r))))
