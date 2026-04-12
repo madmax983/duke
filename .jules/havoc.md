@@ -1,3 +1,3 @@
-## 2025-04-12 - [Panic on Thread Join Deadlock]
-**Confusion:** The native implementation of `Thread.join()` allowed a thread to join its own underlying OS thread, which causes a Rust panic ("thread joined itself") because `std::thread::JoinHandle::join` does not permit self-joining.
-**Clarification:** Before attempting to call `join()` on a `JoinHandle`, check if `std::thread::current().id() == handle.thread().id()`. If it matches, we immediately return a `VmError::IllegalThreadState` error to gracefully prevent the Rust panic and correctly model JVM behavior (or at least fail safely in the VM context). This prevents arbitrary Java code from crashing the entire host VM process.
+**[Title]
+**Tangle:** Tried to crash duke_classfile, duke_loader, duke_gc, and duke_interpreter with garbage data and fuzz tests using proptest.
+**Blueprint:** Found no panics. The codebase correctly uses `try_from`, `min()`, `checked_add`, `unwrap_or`, and proper Error returning instead of unwrapping blindly on untrusted inputs. I'll summarize these findings and submit.

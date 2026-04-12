@@ -7733,11 +7733,6 @@ pub(crate) fn native_thread_join(
         control.request(NativeThreadAction::Join {
             thread_id: *thread_id,
         });
-    } else {
-        // Main thread joining itself
-        return Err(duke_runtime::VmError::IllegalThreadState {
-            message: "Thread attempted to join itself".to_string(),
-        });
     }
     Ok(None)
 }
@@ -13508,12 +13503,6 @@ fn join_java_thread(
         };
 
         if let Some(handle) = handle {
-            if std::thread::current().id() == handle.thread().id() {
-                runtime.lock().unwrap().handles.insert(thread_id, handle);
-                return Err(duke_runtime::VmError::IllegalThreadState {
-                    message: "Thread attempted to join itself".to_string(),
-                });
-            }
             return match handle.join() {
                 Ok(result) => result,
                 Err(payload) => std::panic::resume_unwind(payload),
@@ -13759,7 +13748,7 @@ where
     let shared = std::sync::Arc::new(std::sync::Mutex::new(vm));
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(CompletionRuntime::default()));
 
-    let mut run_result: VmResult<Option<Slot>> = loop {
+    let run_result: VmResult<Option<Slot>> = loop {
         let mut shared_guard = shared.lock().unwrap();
         let CompletionVm {
             registry,
@@ -13781,9 +13770,7 @@ where
         match outcome {
             ExecutionOutcome::Returned(result) => break Ok(result),
             ExecutionOutcome::ThreadAction(action) => {
-                if let Err(e) = handle_thread_action(action, &shared, &runtime, &loader) {
-                    break Err(e);
-                }
+                handle_thread_action(action, &shared, &runtime, &loader)?;
             }
             ExecutionOutcome::Yield => {
                 // See comment in run_thread_to_completion — brief sleep
@@ -13793,13 +13780,7 @@ where
         }
     };
 
-    let mut wait_result = wait_for_all_java_threads(&runtime);
-    if run_result.is_ok() && wait_result.is_err() {
-        run_result = Err(wait_result.err().unwrap());
-        wait_result = Ok(());
-    } else if run_result.is_err() && wait_result.is_err() {
-        wait_result = Ok(()); // keep the main thread's run_result
-    }
+    let wait_result = wait_for_all_java_threads(&runtime);
     let Ok(shared) = std::sync::Arc::try_unwrap(shared) else {
         panic!("completion runtime released shared VM state")
     };
