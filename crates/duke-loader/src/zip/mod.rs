@@ -4,11 +4,11 @@
 //! [`super::jimage::JImageReader`].  Used both by the internal classloader
 //! (`ZipLoader`) and by the Java-space `ZipFile` native bridges.
 
-pub mod reader;
 pub mod loader;
+pub mod reader;
 
-pub use reader::{ZipEntryInfo, ZipReader};
 pub use loader::ZipLoader;
+pub use reader::{ZipEntryInfo, ZipReader};
 
 // ───────────────────────────────────────────────────────────────────────────
 // Tests
@@ -17,11 +17,11 @@ pub use loader::ZipLoader;
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use super::*;
-    use crate::{ClassLoader, LoadError};
     use super::reader::*;
-        use std::path::Path;
-    use crate::zip::reader::{METHOD_DEFLATED, LOCAL_SIGNATURE};
+    use super::*;
+    use crate::zip::reader::{LOCAL_SIGNATURE, METHOD_DEFLATED};
+    use crate::{ClassLoader, LoadError};
+    use std::path::Path;
 
     #[test]
     fn test_zip_loader_reader() {
@@ -675,7 +675,7 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     use super::*;
-    use crate::zip::reader::{METHOD_DEFLATED, LOCAL_SIGNATURE};
+    use crate::zip::reader::{LOCAL_SIGNATURE, METHOD_DEFLATED};
     use proptest::prelude::*;
     use std::collections::HashMap;
 

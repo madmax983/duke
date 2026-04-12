@@ -1,7 +1,7 @@
 use std::path::Path;
 
+use super::reader::ZipReader;
 use crate::{ClassLoader, LoadError, LoadResult};
-use super::reader::{ZipReader};
 // ───────────────────────────────────────────────────────────────────────────
 // ZipLoader — ClassLoader over a JAR/ZIP
 // ───────────────────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ impl ZipLoader {
     ///
     /// ```no_run
     /// use std::path::Path;
-/// use duke_loader::{ZipLoader};
+    /// use duke_loader::{ZipLoader};
     ///
     /// let loader = ZipLoader::open(Path::new("app.jar")).unwrap();
     /// let manifest_bytes = loader.reader().read_entry("META-INF/MANIFEST.MF")

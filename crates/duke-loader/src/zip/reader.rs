@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::path::Path;
 use std::io::Read;
+use std::path::Path;
 
 use crate::{LoadError, LoadResult};
 
