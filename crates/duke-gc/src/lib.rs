@@ -948,7 +948,8 @@ impl Heap {
         }
 
         // Scan remembered-set old-gen objects for young refs.
-        // ⚡ Bolt: Avoid intermediate vector allocation by iterating directly
+        // ⚡ Bolt: Avoids intermediate `Vec` allocation by directly extending the
+        // `worklist` with an iterator, rather than calling `.collect::<Vec<_>>()` first.
         for &old_idx in &self.remembered_set {
             if let Some(Some(obj)) = self.old.get(old_idx) {
                 worklist.extend(
@@ -1082,6 +1083,8 @@ impl Heap {
         self.sweep_old();
     }
 
+    /// ⚡ Bolt: Avoids intermediate vector allocation when pushing children to the worklist
+    /// by iterating and extending directly.
     fn mark_old(&mut self, roots: &[Slot]) {
         let mut worklist: Vec<u64> = roots
             .iter()
@@ -1098,13 +1101,12 @@ impl Heap {
                 continue;
             }
             obj.marked = true;
-            let children: Vec<u64> = obj
-                .fields
-                .iter()
-                .filter_map(Slot::as_reference)
-                .filter(|c| c & OLD_BIT != 0)
-                .collect();
-            worklist.extend(children);
+            worklist.extend(
+                obj.fields
+                    .iter()
+                    .filter_map(Slot::as_reference)
+                    .filter(|c| c & OLD_BIT != 0),
+            );
         }
     }
 

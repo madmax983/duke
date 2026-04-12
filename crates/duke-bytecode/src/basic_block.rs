@@ -32,6 +32,9 @@ pub struct BasicBlock {
     clippy::too_many_lines
 )]
 #[must_use]
+///
+/// ⚡ Bolt: Pre-allocates vector capacities using `Vec::with_capacity` based on the
+/// number of leaders to avoid repeated reallocation during basic block construction.
 pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlock> {
     if instructions.is_empty() {
         return Vec::new();
@@ -132,8 +135,13 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
         }
     }
 
-    let mut blocks = Vec::new();
-    let mut current_block = Vec::new();
+    let num_leaders = leaders.len();
+    let mut blocks = Vec::with_capacity(num_leaders);
+
+    // Estimate instructions per block to avoid reallocations.
+    // leaders.len() is at least 1 (the first instruction).
+    let est_instr_per_block = instructions.len() / num_leaders.max(1);
+    let mut current_block = Vec::with_capacity(est_instr_per_block);
     let mut current_start = instructions[0].0;
 
     for (pc, instr) in instructions {
@@ -143,7 +151,7 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
                 end_pc: *pc,
                 instructions: current_block,
             });
-            current_block = Vec::new();
+            current_block = Vec::with_capacity(est_instr_per_block);
             current_start = *pc;
         }
         current_block.push((*pc, instr.clone()));

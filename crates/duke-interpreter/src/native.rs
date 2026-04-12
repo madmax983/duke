@@ -13513,32 +13513,30 @@ fn join_java_thread(
     }
 }
 
+/// ⚡ Bolt: Avoids intermediate `Vec` allocation and granularly yields the lock
+/// when joining threads by extracting and joining handles iteratively instead of
+/// collecting them via `.drain().collect()`.
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
 ) -> VmResult<()> {
     let mut first_error = None;
     loop {
-        let handles = {
+        let handle = {
             let mut runtime = runtime.lock().unwrap();
             if runtime.handles.is_empty() {
                 return first_error.unwrap_or(Ok(()));
             }
-            runtime
-                .handles
-                .drain()
-                .map(|(_, handle)| handle)
-                .collect::<Vec<_>>()
+            let first_key = runtime.handles.keys().next().copied().unwrap();
+            runtime.handles.remove(&first_key).unwrap()
         };
 
-        for handle in handles {
-            match handle.join() {
-                Ok(result) => {
-                    if let Err(e) = result {
-                        first_error.get_or_insert(Err(e));
-                    }
+        match handle.join() {
+            Ok(result) => {
+                if let Err(e) = result {
+                    first_error.get_or_insert(Err(e));
                 }
-                Err(payload) => std::panic::resume_unwind(payload),
             }
+            Err(payload) => std::panic::resume_unwind(payload),
         }
     }
 }
