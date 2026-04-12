@@ -12,3 +12,6 @@
 **Extract Common Boilerplate**
 **Learning:** Repeated extraction of arguments and fields via unwrapping `unwrap_or(Slot::Reference(None))` cluttered `native.rs` and added unnecessary cognitive load. Creating inline helpers (`extract_slot_arg`, `extract_field_arg`) simplified hundreds of call sites.
 **Action:** Identify repeated primitive boilerplate and condense it into named helper functions.
+**[Extracted Attribute Parsers]
+**Learning:** `decode_known_attribute` in `crates/duke-classfile/src/parser.rs` contained a massively deep `match` statement allocating and populating logic for every attribute type. This "God Function" approach breaks readability and cognitive boundaries.
+**Action:** Always extract the internal logic of large `match` arms into strictly-typed helper functions (e.g. `decode_line_number_table`) to flatten code and keep functions short.
