@@ -6,3 +6,7 @@
 
 **Confusion:** Functions inside a binary crate like `duke/src/search.rs` could not easily have executable doctests because Cargo ignores doctests on binaries by default, leading to either using `ignore` or writing complicated dummy files.
 **Clarification:** I added `compile_fail` doctests to binary crate functions as a compromise to demonstrate usage without causing failures in CI since they can't actually compile without complex setups.
+## 2024-04-12 - Core execution loop documentation missing
+
+**Confusion:** The central bytecode execution loop (`run_execution` in `duke-interpreter/src/execution.rs`) had no module-level or function-level documentation, making it a "Black Box" for developers navigating the interpreter codebase.
+**Clarification:** Added module docs (`//!`) explaining the stack-based machine model and function docs (`///`) detailing the run-loop behavior, along with an ignored doctest example.
