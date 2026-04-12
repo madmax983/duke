@@ -176,6 +176,13 @@ pub enum Error {
         /// The method name.
         method_name: String,
     },
+
+    /// Thread state is illegal for this operation.
+    #[error("IllegalThreadState: {message}")]
+    IllegalThreadState {
+        /// Reason for failure.
+        message: String,
+    },
 }
 
 /// Convenience alias for `Result<T, VmError>`.
