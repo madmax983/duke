@@ -5192,7 +5192,7 @@ mod tests {
         )
     }
 
-    fn run_bootstrap_with_output(
+    pub fn run_bootstrap_with_output(
         class_name: &str,
         method_name: &str,
         descriptor: &str,
@@ -29690,3 +29690,29 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+
+#[cfg(test)]
+mod havoc_thread_self_join_test {
+
+
+    #[test]
+    fn threading_havoc_join_self_deadlocks_instead_of_panic() {
+        let handle = std::thread::spawn(|| {
+            let result = std::panic::catch_unwind(|| {
+                crate::tests::run_bootstrap_with_output("JoinSelf.class", "main", "([Ljava/lang/String;)V")
+            });
+            result
+        });
+
+        let timeout = std::time::Duration::from_millis(500);
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if handle.is_finished() {
+                let res = handle.join().unwrap();
+                assert!(res.is_ok(), "Thread panicked!");
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+}
