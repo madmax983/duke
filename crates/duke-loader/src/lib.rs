@@ -41,6 +41,21 @@ mod tests {
     use super::*;
 
     fn jdk_modules_path() -> std::path::PathBuf {
+        // First try JAVA_HOME
+        if let Ok(java_home) = std::env::var("JAVA_HOME") {
+            let modules_path = std::path::PathBuf::from(java_home).join("lib").join("modules");
+            if modules_path.exists() {
+                return modules_path;
+            }
+        }
+
+        // Then try a common Linux path
+        let linux_path = std::path::PathBuf::from("/usr/lib/jvm/java-21-openjdk-amd64/lib/modules");
+        if linux_path.exists() {
+            return linux_path;
+        }
+
+        // Fallback to original hardcoded windows path
         std::path::PathBuf::from(
             r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
         )

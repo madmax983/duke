@@ -76,4 +76,10 @@ mod tests {
             Some("org/apache/tools/Main".to_string())
         );
     }
+
+    #[test]
+    fn returns_none_on_invalid_utf8() {
+        let manifest = b"\xFF\xFE\xFD";
+        assert_eq!(parse_main_class(manifest), None);
+    }
 }
