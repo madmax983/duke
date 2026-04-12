@@ -12,3 +12,6 @@
 **[Split ClassFile types]
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+**[Split zip.rs Blob Anti-Pattern]
+**Tangle:** `crates/duke-loader/src/zip.rs` was a 1,200+ line Blob that mixed generic ZIP archive parsing (`ZipReader`) with JVM-specific classloading semantics (`ZipLoader`).
+**Blueprint:** Extracted into a proper `zip/` submodule directory with `reader.rs` and `loader.rs`. Explicitly resolved the module visibility (e.g., using `pub(crate)` for constants and fields) to ensure proper Rust module encapsulation, rather than relying on the `include!` macro which acts as a preprocessor and defeats architecture boundaries.
