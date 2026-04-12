@@ -2,13 +2,12 @@ use duke_interpreter::execute_class_to_completion;
 use duke_interpreter::registry::ClassRegistry;
 use duke_loader::DirectoryLoader;
 use duke_runtime::Slot;
-use std::path::PathBuf;
 
 #[test]
 fn havoc_thread_join_deadlock() {
     let mut registry = ClassRegistry::new();
     let loader = DirectoryLoader::new(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures"),
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures"),
     );
     let mut heap = duke_gc::Heap::new();
     let mut stdout = Vec::<u8>::new();
