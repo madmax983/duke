@@ -41,16 +41,6 @@ mod tests {
     use super::*;
 
     fn jdk_modules_path() -> std::path::PathBuf {
-        if let Ok(home) = std::env::var("JAVA_HOME") {
-            let path = std::path::Path::new(&home).join("lib/modules");
-            if path.exists() {
-                return path;
-            }
-        }
-        let linux_path = std::path::PathBuf::from("/usr/lib/jvm/java-21-openjdk-amd64/lib/modules");
-        if linux_path.exists() {
-            return linux_path;
-        }
         std::path::PathBuf::from(
             r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
         )

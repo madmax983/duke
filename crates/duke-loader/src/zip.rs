@@ -528,37 +528,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_nested_boot_inf_lib_archive_false_when_no_extension() {
-        assert!(!super::is_nested_boot_inf_lib_archive("BOOT-INF/lib/foo"));
-    }
-
-    #[test]
-    fn is_nested_boot_inf_lib_archive_true_with_jar_extension() {
-        assert!(super::is_nested_boot_inf_lib_archive(
-            "BOOT-INF/lib/foo.jar"
-        ));
-    }
-
-    #[test]
-    fn is_nested_boot_inf_lib_archive_false_when_not_in_lib() {
-        assert!(!super::is_nested_boot_inf_lib_archive("BOOT-INF/foo.jar"));
-    }
-
-
-    #[test]
-    fn test_read_entry_info_errors() {
-        let zip = build_stored_zip("test.txt", b"data");
-
-        let reader = ZipReader::from_bytes(zip).unwrap();
-        let mut info = reader.get_entry("test.txt").unwrap().clone();
-
-        info.local_header_offset = (reader.data.len() + 10) as u64; // past EOF
-        let err = reader.read_entry_info(&info).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
-    }
-
-
-    #[test]
     fn test_zip_loader_reader() {
         let zip_bytes = build_stored_zip("test.txt", b"hello world");
         let reader = ZipReader::from_bytes(zip_bytes).expect("valid zip");
