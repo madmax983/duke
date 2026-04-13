@@ -18,3 +18,6 @@
 **Basic Block Vec Reallocation**
 **Learning:** `Vec::new()` inside looping parser instructions causes multi-level heap reallocations. For small arrays where capacity is known from slice bounds (like basic blocks bounds / leader offsets), `Vec::with_capacity` drastically minimizes heap allocation traffic.
 **Action:** When constructing `Vec` from parsed instruction iterators, pre-compute rough capacity based on slice metrics or known leaders array length.
+## 2026-04-13 - [Avoid Chained Iterators with Collect]
+**Learning:** Replaced `.drain().map().collect::<Vec<_>>().` pattern on a `HashMap` with an explicit `Vec::with_capacity()` and a for-loop. The chained iterators drop the size hint, causing unnecessary heap reallocations. Also, explicit `drop()` on lock guards avoids clippy warnings `clippy::significant_drop_tightening` when used immediately before long-running operations.
+**Action:** Use pre-allocated vectors and loops instead of chained iterator `collect`s when the size is known, especially around lock-managed states.
