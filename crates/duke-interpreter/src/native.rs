@@ -2662,8 +2662,8 @@ pub(crate) fn native_stream_filter(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied();
-    let Slot::Reference(Some(pred_ref)) = pred_slot.unwrap_or(Slot::Reference(None)) else {
+    let pred_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -2704,8 +2704,8 @@ pub(crate) fn native_stream_map(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = args.get(1).copied();
-    let Slot::Reference(Some(fn_ref)) = fn_slot.unwrap_or(Slot::Reference(None)) else {
+    let fn_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -2746,8 +2746,8 @@ pub(crate) fn native_stream_for_each(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = args.get(1).copied();
-    let Slot::Reference(Some(consumer_ref)) = consumer_slot.unwrap_or(Slot::Reference(None)) else {
+    let consumer_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -2787,16 +2787,13 @@ pub(crate) fn native_stream_collect(
         heap.get(stream_ref)?.fields[1..=usize::try_from(size).unwrap_or(0)].to_vec();
 
     // Dispatch on collector type.
-    let collector_class = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.class_name.clone(),
-        _ => "duke/util/ToListCollector".to_string(),
+    let collector_class = match extract_ref_arg(args, 1) {
+        Ok(r) => heap.get(r)?.class_name.clone(),
+        Err(_) => "duke/util/ToListCollector".to_string(),
     };
 
     if collector_class == "duke/util/JoiningCollector" {
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let read_str_field = |heap: &duke_gc::Heap, idx: usize| -> String {
             match heap
                 .get(collector_ref)
@@ -2831,10 +2828,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(boxed))))
     } else if collector_class == "duke/util/GroupingByCollector" {
         // GroupingByCollector: fields[0] = key function slot
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Ok(Some(Slot::Reference(None)));
@@ -2919,10 +2913,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(set_ref))))
     } else if collector_class == "duke/util/ToMapCollector" {
         // Collect into HashMap using key/val extractor functions.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let key_fn = extract_first_field_arg(heap, collector_ref)?;
         let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
@@ -2970,10 +2961,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/ToUnmodifiableMapCollector" {
         // Same as ToMapCollector but produces an UnmodifiableMap.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let key_fn = extract_first_field_arg(heap, collector_ref)?;
         let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
@@ -3020,10 +3008,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/ToMapMergeCollector" {
         // Collect into HashMap with merge function for duplicate keys.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let key_fn = extract_first_field_arg(heap, collector_ref)?;
         let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let merge_fn = extract_field_arg(heap, collector_ref, 2)?;
@@ -3090,10 +3075,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/PartitioningByCollector" {
         // Collect into a Map<Boolean, List> partitioned by predicate.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let pred_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(pred_ref)) = pred_slot else {
             return Err(VmError::NullPointerException);
@@ -3144,10 +3126,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/PartitioningByDownstreamCollector" {
         // partitioningBy(pred, downstream): partition then apply downstream to each group.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let pred_slot = extract_first_field_arg(heap, collector_ref)?;
         let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -3232,10 +3211,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(map_ref))))
     } else if collector_class == "duke/util/SummingIntCollector" {
         // Sum via applyAsInt(elem) for each element.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
@@ -3261,10 +3237,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(boxed))))
     } else if collector_class == "duke/util/AveragingIntCollector" {
         // Average via applyAsInt(elem) for each element.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
@@ -3298,10 +3271,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(boxed))))
     } else if collector_class == "duke/util/SummarizingIntCollector" {
         // IntSummaryStatistics via applyAsInt(elem) for each element.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
@@ -3344,10 +3314,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(stats))))
     } else if collector_class == "duke/util/SummingLongCollector" {
         // Sum via applyAsLong(elem) for each element.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
@@ -3375,10 +3342,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(boxed))))
     } else if collector_class == "duke/util/AveragingDoubleCollector" {
         // Average via applyAsDouble(elem) for each element.
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
@@ -3419,10 +3383,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(boxed))))
     } else if collector_class == "duke/util/MappingCollector" {
         // MappingCollector: fields[0]=mapper fn, fields[1]=downstream collector
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let mapper_slot = extract_first_field_arg(heap, collector_ref)?;
         let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
@@ -3455,10 +3416,7 @@ pub(crate) fn native_stream_collect(
         native_stream_collect(&tmp_args, heap, out, control, ops)
     } else if collector_class == "duke/util/GroupingBy2Collector" {
         // groupingBy(keyFn, downstream): fields[0]=keyFn, fields[1]=downstream collector
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -3567,10 +3525,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(result_map))))
     } else if collector_class == "duke/util/MinByCollector" {
         // minBy(comparator): fields[0] = comparator
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let cmp_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
             let r = make_optional(heap, None);
@@ -3602,10 +3557,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(r))))
     } else if collector_class == "duke/util/MaxByCollector" {
         // maxBy(comparator): fields[0] = comparator
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let cmp_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
             let r = make_optional(heap, None);
@@ -3637,10 +3589,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(r))))
     } else if collector_class == "duke/util/SummingDoubleCollector" {
         // summingDouble: fields[0] = ToDoubleFunction
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
@@ -3668,10 +3617,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(boxed))))
     } else if collector_class == "duke/util/AveragingLongCollector" {
         // averagingLong: fields[0] = ToLongFunction
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Err(VmError::NullPointerException);
@@ -3711,10 +3657,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(boxed))))
     } else if collector_class == "duke/util/ReducingNoIdentityCollector" {
         // reducing(BinaryOperator) → Optional<T>
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let op_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(bop_ref)) = op_slot else {
             return Err(VmError::NullPointerException);
@@ -3742,10 +3685,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(Slot::Reference(Some(opt_ref))))
     } else if collector_class == "duke/util/ReducingCollector" {
         // reducing(identity, BinaryOperator) → T
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let identity_slot = extract_first_field_arg(heap, collector_ref)?;
         let op_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(bop_ref)) = op_slot else {
@@ -3768,10 +3708,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(acc))
     } else if collector_class == "duke/util/ReducingMappingCollector" {
         // reducing(identity, mapper, BinaryOperator) → U
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let identity_slot = extract_first_field_arg(heap, collector_ref)?;
         let mapper_slot = extract_field_arg(heap, collector_ref, 1)?;
         let op_slot = extract_field_arg(heap, collector_ref, 2)?;
@@ -3809,10 +3746,7 @@ pub(crate) fn native_stream_collect(
         Ok(Some(acc))
     } else if collector_class == "duke/util/CollectingAndThenCollector" {
         // collectingAndThen(downstream, finisher): fields[0]=downstream, fields[1]=finisher
-        let collector_ref = match args.get(1) {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
-        };
+        let collector_ref = extract_ref_arg(args, 1)?;
         let downstream_slot = extract_first_field_arg(heap, collector_ref)?;
         let finisher_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(finisher_ref)) = finisher_slot else {
@@ -3939,8 +3873,8 @@ pub(crate) fn native_stream_any_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied();
-    let Slot::Reference(Some(pred_ref)) = pred_slot.unwrap_or(Slot::Reference(None)) else {
+    let pred_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -3974,8 +3908,8 @@ pub(crate) fn native_stream_all_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied();
-    let Slot::Reference(Some(pred_ref)) = pred_slot.unwrap_or(Slot::Reference(None)) else {
+    let pred_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -4009,8 +3943,8 @@ pub(crate) fn native_stream_none_match(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let pred_slot = args.get(1).copied();
-    let Slot::Reference(Some(pred_ref)) = pred_slot.unwrap_or(Slot::Reference(None)) else {
+    let pred_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -4067,8 +4001,8 @@ pub(crate) fn native_stream_reduce(
     ops: &mut dyn CallbackOps,
 ) -> VmResult<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let op_slot = args.get(1).copied();
-    let Slot::Reference(Some(op_ref)) = op_slot.unwrap_or(Slot::Reference(None)) else {
+    let op_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(op_ref)) = op_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
@@ -11338,6 +11272,13 @@ fn format_java_double(v: f64) -> String {
 ///
 /// # Examples
 ///
+/// Executes a sequence of instructions (bytecode) independently.
+///
+/// This is used heavily internally by the `MethodHandle` resolution and native implementation
+/// logic to run standalone bytecodes (e.g., dynamically generated stubs).
+///
+/// # Examples
+///
 /// ```
 /// use duke_bytecode::Instruction;
 /// use duke_runtime::Slot;
@@ -11351,6 +11292,11 @@ fn format_java_double(v: f64) -> String {
 /// let result = execute(&instructions, &cp, vec![], 1, 0).unwrap();
 /// assert_eq!(result, Some(Slot::Int(5)));
 /// ```
+///
+/// # Errors
+///
+/// Returns a `VmError` if bytecode invariants are broken or if an exception is raised
+/// internally.
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,

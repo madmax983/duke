@@ -10,3 +10,11 @@
 **[Eliminate HashMap Read Heap Allocations]
 **Learning:** [Replacing `.clone()` with `&` references for large collection reads (like `HashMap` queries `&heap.get(this_ref)?.fields`) eliminates O(N) heap allocations, but caution is required to ensure it doesn't create overlapping mutable borrows if the lookup function subsequently calls into the VM (e.g. `equals` invoking a method). Here it was safe as the lookup (`slots_equal`) did not mutate.]
 **Action:** [Prefer immutable borrows when querying heap structures like HashMaps in the interpreter, verifying first that the inner matching function `slots_equal` doesn't require a mutable reference to the `Heap`.]
+
+**Reduced String.clone() in Registry**
+**Learning:** `clone()` operations on large string keys or options inside tight loops (like class registry checks and super_class/interface iterations) unnecessarily allocate memory even when immutable references `&str` or simple value drops are perfectly valid.
+**Action:** Replace `clone()` with `.as_deref()` or borrow references (`&ctx.super_class`, `&ctx.interfaces`) when calling external methods, and limit string copies strictly to hash map insertion via moving or single string duplication.
+
+**Basic Block Vec Reallocation**
+**Learning:** `Vec::new()` inside looping parser instructions causes multi-level heap reallocations. For small arrays where capacity is known from slice bounds (like basic blocks bounds / leader offsets), `Vec::with_capacity` drastically minimizes heap allocation traffic.
+**Action:** When constructing `Vec` from parsed instruction iterators, pre-compute rough capacity based on slice metrics or known leaders array length.
