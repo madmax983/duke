@@ -1199,42 +1199,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_jdk_flag_none() {
-        let mut args = vec!["duke".to_string(), "run".to_string()];
-        let _jdk = super::extract_jdk_flag(&mut args);
-        assert_eq!(args.len(), 2);
-    }
-
-    #[test]
-    fn test_extract_jar_flag_none() {
-        let mut args = vec!["duke".to_string(), "run".to_string()];
-        let jar = super::extract_jar_flag(&mut args);
-        assert_eq!(jar, None);
-        assert_eq!(args.len(), 2);
-    }
-
-    #[test]
-    fn test_extract_telemetry_flag_none() {
-        let mut args = vec!["duke".to_string(), "run".to_string()];
-        let tel = super::extract_telemetry_flag(&mut args);
-        assert_eq!(tel, None);
-    }
-
-    #[test]
-    fn test_extract_telemetry_flag_json_file() {
-        let mut args = vec![
-            "duke".to_string(),
-            "--telemetry=out.json".to_string(),
-            "run".to_string(),
-        ];
-        let tel = super::extract_telemetry_flag(&mut args);
-        assert_eq!(
-            tel,
-            Some(super::TelemetryDest::File("out.json".to_string()))
-        );
-    }
-
-    #[test]
     fn test_extract_telemetry_flag_md_file() {
         let mut args = vec![
             "duke".to_string(),

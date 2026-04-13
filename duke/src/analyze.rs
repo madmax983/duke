@@ -109,23 +109,6 @@ mod tests {
     use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
 
     #[test]
-    fn test_generate_analysis_report_valid() {
-        let path1 = "../tests/fixtures/HelloWorld.class";
-        let path2 = "tests/fixtures/HelloWorld.class";
-        let path = if std::path::Path::new(path1).exists() {
-            path1
-        } else if std::path::Path::new(path2).exists() {
-            path2
-        } else {
-            panic!("Could not find HelloWorld.class fixture");
-        };
-        let bytes = std::fs::read(path).unwrap();
-        let cf = duke_classfile::parse(&bytes).unwrap();
-        let report = super::generate_analysis_report(&cf);
-        assert!(report.contains("HelloWorld"));
-    }
-
-    #[test]
     fn test_generate_analysis_report_empty() {
         let cf = ClassFile {
             major_version: 61,

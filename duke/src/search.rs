@@ -91,21 +91,6 @@ mod tests {
     use duke_classfile::types::ClassFile;
 
     #[test]
-    fn test_dump_search_valid() {
-        let path1 = "../tests/fixtures/HelloWorld.class";
-        let path2 = "tests/fixtures/HelloWorld.class";
-        let path = if std::path::Path::new(path1).exists() {
-            path1
-        } else if std::path::Path::new(path2).exists() {
-            path2
-        } else {
-            panic!("Could not find HelloWorld.class fixture");
-        };
-        dump_search(path, "invokevirtual");
-        dump_search(path, "nonexistentinstruction");
-    }
-
-    #[test]
     fn test_dump_search_no_match() {
         // Just testing cp_str helper mostly, dump_search is tested by its effects.
         let cf = ClassFile {

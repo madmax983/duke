@@ -41,28 +41,9 @@ mod tests {
     use super::*;
 
     fn jdk_modules_path() -> std::path::PathBuf {
-        if let Ok(jh) = std::env::var("JAVA_HOME") {
-            let p = std::path::PathBuf::from(jh).join("lib").join("modules");
-            if p.exists() {
-                return p;
-            }
-        }
-
-        let paths = [
-            "/usr/lib/jvm/java-21-openjdk-amd64/lib/modules",
-            "/usr/lib/jvm/default-java/lib/modules",
-            "/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home/lib/modules",
-            r"C:\Program Files\Java\jdk-21\lib\modules",
-        ];
-
-        for path in paths {
-            let p = std::path::PathBuf::from(path);
-            if p.exists() {
-                return p;
-            }
-        }
-
-        std::path::PathBuf::from("nonexistent_path")
+        std::path::PathBuf::from(
+            r"C:\Users\markm\Downloads\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\java-21-openjdk-21.0.4.0.7-1.win.jdk.x86_64\lib\modules",
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -184,7 +165,11 @@ mod tests {
         let bytes = loader.find_class("java/lang/Object").expect("load Object");
         let cf = duke_classfile::parse(&bytes).expect("parse Object.class");
 
-        assert!(cf.major_version >= 52, "JDK 8 uses class version 52, found {}", cf.major_version);
+        assert!(
+            cf.major_version >= 52,
+            "JDK 8 uses class version 52, found {}",
+            cf.major_version
+        );
         assert_eq!(cf.super_class.0, 0, "java.lang.Object has no super");
     }
 

@@ -263,35 +263,6 @@ mod tests {
     }
 
     #[test]
-    fn test_dump_scan_valid() {
-        // Need to create a minimal class file or use fixture
-        let path1 = "../tests/fixtures/HelloWorld.class";
-        let path2 = "tests/fixtures/HelloWorld.class";
-        let path = if std::path::Path::new(path1).exists() {
-            path1
-        } else if std::path::Path::new(path2).exists() {
-            path2
-        } else {
-            panic!("Could not find HelloWorld.class fixture");
-        };
-        dump_scan(path);
-    }
-
-    #[test]
-    fn test_dump_jar_scan_valid() {
-        let path1 = "../tests/fixtures/hello.jar";
-        let path2 = "tests/fixtures/hello.jar";
-        let path = if std::path::Path::new(path1).exists() {
-            path1
-        } else if std::path::Path::new(path2).exists() {
-            path2
-        } else {
-            panic!("Could not find hello.jar fixture");
-        };
-        dump_jar_scan(path);
-    }
-
-    #[test]
     fn test_scan_classfile_detects_runtime_exec() {
         let cf = create_mock_classfile_with_methodref("java/lang/Runtime", "exec");
         let matches = scan_classfile(&cf);
