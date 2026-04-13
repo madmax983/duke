@@ -414,74 +414,86 @@ pub(crate) fn resolve_attributes(
 fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> {
     let mut c = Cursor::new(raw);
     let data = match name {
-        "ConstantValue" => {
-            let idx = c.read_cp_index()?;
-            AttributeData::ConstantValue {
-                constant_value_index: idx,
-            }
-        }
-        "SourceFile" => {
-            let idx = c.read_cp_index()?;
-            AttributeData::SourceFile {
-                sourcefile_index: idx,
-            }
-        }
+        "ConstantValue" => AttributeData::ConstantValue {
+            constant_value_index: decode_constant_value(&mut c)?,
+        },
+        "SourceFile" => AttributeData::SourceFile {
+            sourcefile_index: decode_source_file(&mut c)?,
+        },
         "Code" => AttributeData::Code(parse_code_attribute(&mut c)?),
-        "LineNumberTable" => {
-            let len = c.read_u16()? as usize;
-            let mut entries = Vec::with_capacity(len.min(c.remaining() / 4));
-            for _ in 0..len {
-                entries.push(LineNumberEntry {
-                    start_pc: c.read_u16()?,
-                    line_number: c.read_u16()?,
-                });
-            }
-            AttributeData::LineNumberTable(entries)
-        }
+        "LineNumberTable" => AttributeData::LineNumberTable(decode_line_number_table(&mut c)?),
         "LocalVariableTable" => {
-            let len = c.read_u16()? as usize;
-            let mut entries = Vec::with_capacity(len.min(c.remaining() / 10));
-            for _ in 0..len {
-                entries.push(LocalVariableEntry {
-                    start_pc: c.read_u16()?,
-                    length: c.read_u16()?,
-                    name_index: c.read_cp_index()?,
-                    descriptor_index: c.read_cp_index()?,
-                    index: c.read_u16()?,
-                });
-            }
-            AttributeData::LocalVariableTable(entries)
+            AttributeData::LocalVariableTable(decode_local_variable_table(&mut c)?)
         }
-        "Exceptions" => {
-            let num = c.read_u16()? as usize;
-            let mut table = Vec::with_capacity(num.min(c.remaining() / 2));
-            for _ in 0..num {
-                table.push(c.read_cp_index()?);
-            }
-            AttributeData::Exceptions {
-                exception_index_table: table,
-            }
-        }
-        "BootstrapMethods" => {
-            let num = c.read_u16()? as usize;
-            let mut entries = Vec::with_capacity(num.min(c.remaining() / 4));
-            for _ in 0..num {
-                let method_ref = c.read_cp_index()?;
-                let num_args = c.read_u16()? as usize;
-                let mut arguments = Vec::with_capacity(num_args.min(c.remaining() / 2));
-                for _ in 0..num_args {
-                    arguments.push(c.read_cp_index()?);
-                }
-                entries.push(BootstrapMethodEntry {
-                    method_ref,
-                    arguments,
-                });
-            }
-            AttributeData::BootstrapMethods(entries)
-        }
+        "Exceptions" => AttributeData::Exceptions {
+            exception_index_table: decode_exceptions(&mut c)?,
+        },
+        "BootstrapMethods" => AttributeData::BootstrapMethods(decode_bootstrap_methods(&mut c)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
+}
+
+fn decode_constant_value(c: &mut Cursor<'_>) -> ParseResult<CpIndex> {
+    c.read_cp_index()
+}
+
+fn decode_source_file(c: &mut Cursor<'_>) -> ParseResult<CpIndex> {
+    c.read_cp_index()
+}
+
+fn decode_line_number_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LineNumberEntry>> {
+    let len = c.read_u16()? as usize;
+    let mut entries = Vec::with_capacity(len.min(c.remaining() / 4));
+    for _ in 0..len {
+        entries.push(LineNumberEntry {
+            start_pc: c.read_u16()?,
+            line_number: c.read_u16()?,
+        });
+    }
+    Ok(entries)
+}
+
+fn decode_local_variable_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LocalVariableEntry>> {
+    let len = c.read_u16()? as usize;
+    let mut entries = Vec::with_capacity(len.min(c.remaining() / 10));
+    for _ in 0..len {
+        entries.push(LocalVariableEntry {
+            start_pc: c.read_u16()?,
+            length: c.read_u16()?,
+            name_index: c.read_cp_index()?,
+            descriptor_index: c.read_cp_index()?,
+            index: c.read_u16()?,
+        });
+    }
+    Ok(entries)
+}
+
+fn decode_exceptions(c: &mut Cursor<'_>) -> ParseResult<Vec<CpIndex>> {
+    let num = c.read_u16()? as usize;
+    let mut table = Vec::with_capacity(num.min(c.remaining() / 2));
+    for _ in 0..num {
+        table.push(c.read_cp_index()?);
+    }
+    Ok(table)
+}
+
+fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> ParseResult<Vec<BootstrapMethodEntry>> {
+    let num = c.read_u16()? as usize;
+    let mut entries = Vec::with_capacity(num.min(c.remaining() / 4));
+    for _ in 0..num {
+        let method_ref = c.read_cp_index()?;
+        let num_args = c.read_u16()? as usize;
+        let mut arguments = Vec::with_capacity(num_args.min(c.remaining() / 2));
+        for _ in 0..num_args {
+            arguments.push(c.read_cp_index()?);
+        }
+        entries.push(BootstrapMethodEntry {
+            method_ref,
+            arguments,
+        });
+    }
+    Ok(entries)
 }
 
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
