@@ -1174,6 +1174,19 @@ mod tests {
             matches!(err, LoadError::ZipFormat { ref msg } if msg == "central directory extends past end of file")
         );
     }
+
+    #[test]
+    fn test_zip_loader_try_nested_read_entry_error() {
+        let mut nested_jar = build_stored_zip("Bad.class", b"data");
+        nested_jar[0] ^= 0xFF;
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+        let tmp = std::env::temp_dir().join("duke_test_zip_nested_err.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+        let err = loader.find_class("Bad").unwrap_err();
+        assert!(matches!(err, super::LoadError::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
 }
 
 #[cfg(test)]
