@@ -862,6 +862,12 @@ mod tests {
             "should safely fail decompression, not panic with capacity overflow"
         );
     }
+
+    #[test]
+    fn test_jimage_parse_header_too_small() {
+        let err = super::parse_header(&[0; 10]).unwrap_err();
+        assert!(matches!(err, super::LoadError::JImageFormat { .. }));
+    }
 }
 
 #[cfg(test)]

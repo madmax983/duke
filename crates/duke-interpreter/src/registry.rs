@@ -545,17 +545,17 @@ impl ClassRegistry {
             return Ok(false);
         };
         let mut ctx = crate::build_class_context(&cf);
-        let resolved_super_class = if let Some(super_class) = ctx.super_class.clone() {
-            let _ = self.ensure_loaded_inner(&super_class, loader, code_source, runtime_loader)?;
-            Some(self.class_key_from_provenance(&super_class, code_source, runtime_loader))
+        let resolved_super_class = if let Some(super_class) = &ctx.super_class {
+            let _ = self.ensure_loaded_inner(super_class, loader, code_source, runtime_loader)?;
+            Some(self.class_key_from_provenance(super_class, code_source, runtime_loader))
         } else {
             None
         };
         let mut resolved_interfaces = Vec::with_capacity(ctx.interfaces.len());
-        for interface in ctx.interfaces.clone() {
-            let _ = self.ensure_loaded_inner(&interface, loader, code_source, runtime_loader)?;
+        for interface in &ctx.interfaces {
+            let _ = self.ensure_loaded_inner(interface, loader, code_source, runtime_loader)?;
             resolved_interfaces.push(self.class_key_from_provenance(
-                &interface,
+                interface,
                 code_source,
                 runtime_loader,
             ));

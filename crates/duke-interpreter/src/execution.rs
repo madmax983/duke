@@ -1,3 +1,14 @@
+//! The Core JVM Execution Engine.
+//!
+//! This module contains the main interpretation loop for the JVM.
+//! It is responsible for taking a decoded stream of bytecodes and
+//! executing them sequentially against the current thread's frame stack
+//! and the global garbage-collected heap.
+//!
+//! The engine implements a stack-based machine model, handling everything
+//! from basic arithmetic to complex method dispatch, object allocation,
+//! and garbage collection safe points.
+
 use std::io::Write;
 
 use duke_bytecode::Instruction;
@@ -10,6 +21,33 @@ use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
+/// Executes the active method's bytecode instructions to completion or exception.
+///
+/// This is the central run-loop of the interpreter. It continually fetches the
+/// next instruction pointed to by the active frame's Program Counter (PC),
+/// executes its operational semantics (modifying the local variables, operand stack,
+/// or global heap), and advances the PC.
+///
+/// If a method invokes another Java method, a new [`Frame`] is pushed onto the
+/// call stack and execution jumps to the callee. Native methods are dispatched
+/// to their Rust implementations directly.
+///
+/// # Examples
+///
+/// ```ignore
+/// use duke_interpreter::{ExecutionState, ClassRegistry, run_execution};
+/// use duke_gc::Heap;
+/// use duke_loader::BootstrapLoader;
+///
+/// let mut registry = ClassRegistry::new();
+/// let loader = BootstrapLoader::new(vec![]);
+/// let mut heap = Heap::new();
+/// let mut state = ExecutionState::new();
+/// let mut stdout = std::io::stdout();
+///
+/// // Start the execution loop (assuming state has an active frame)
+/// let result = run_execution(&mut state, &mut registry, &loader, &mut heap, &mut stdout);
+/// ```
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,

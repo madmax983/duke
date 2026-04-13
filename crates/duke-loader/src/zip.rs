@@ -199,14 +199,25 @@ impl ZipReader {
         let decompressed = match info.compression_method {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
-                let mut decoder = flate2::read::DeflateDecoder::new(compressed);
+                let decoder = flate2::read::DeflateDecoder::new(compressed);
                 let cap = info.uncompressed_size as usize;
+                let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+                if cap > max_size {
+                    return Err(LoadError::ZipFormat {
+                        msg: format!(
+                            "entry '{}' uncompressed size {} exceeds limit {}",
+                            info.name, cap, max_size
+                        ),
+                    });
+                }
                 let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32));
                 decoder
+                    .take(max_size as u64)
                     .read_to_end(&mut buf)
                     .map_err(|_| LoadError::ZipFormat {
                         msg: format!("failed to deflate entry '{}'", info.name),
                     })?;
+
                 buf
             }
             other => {
@@ -1173,6 +1184,19 @@ mod tests {
         assert!(
             matches!(err, LoadError::ZipFormat { ref msg } if msg == "central directory extends past end of file")
         );
+    }
+
+    #[test]
+    fn test_zip_loader_try_nested_read_entry_error() {
+        let mut nested_jar = build_stored_zip("Bad.class", b"data");
+        nested_jar[0] ^= 0xFF;
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+        let tmp = std::env::temp_dir().join("duke_test_zip_nested_err.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+        let err = loader.find_class("Bad").unwrap_err();
+        assert!(matches!(err, super::LoadError::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
     }
 }
 

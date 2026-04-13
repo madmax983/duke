@@ -118,4 +118,11 @@ mod tests {
             "Vulnerability triggered! Got {result:?}"
         );
     }
+
+    #[test]
+    fn directory_loader_returns_not_found_on_empty_component() {
+        let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
+        let err = loader.find_class("java//lang/Object").unwrap_err();
+        assert!(matches!(err, LoadError::NotFound { .. }));
+    }
 }
