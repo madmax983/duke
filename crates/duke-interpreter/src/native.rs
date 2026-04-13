@@ -11272,6 +11272,13 @@ fn format_java_double(v: f64) -> String {
 ///
 /// # Examples
 ///
+/// Executes a sequence of instructions (bytecode) independently.
+///
+/// This is used heavily internally by the `MethodHandle` resolution and native implementation
+/// logic to run standalone bytecodes (e.g., dynamically generated stubs).
+///
+/// # Examples
+///
 /// ```
 /// use duke_bytecode::Instruction;
 /// use duke_runtime::Slot;
@@ -11285,6 +11292,11 @@ fn format_java_double(v: f64) -> String {
 /// let result = execute(&instructions, &cp, vec![], 1, 0).unwrap();
 /// assert_eq!(result, Some(Slot::Int(5)));
 /// ```
+///
+/// # Errors
+///
+/// Returns a `VmError` if bytecode invariants are broken or if an exception is raised
+/// internally.
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
