@@ -26,6 +26,27 @@ pub struct BasicBlock {
 /// 1. The first instruction.
 /// 2. The target of any jump or branch.
 /// 3. The instruction immediately following any jump, branch, or return.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, basic_block::{build_basic_blocks, BasicBlock}};
+///
+/// let instructions = vec![
+///     (0, Instruction::Iload1),
+///     (1, Instruction::Ifeq(5)), // Branch to PC 6 (1 + 5)
+///     (4, Instruction::Iconst1),
+///     (5, Instruction::Ireturn),
+///     (6, Instruction::Iconst2), // Target of the branch
+///     (7, Instruction::Ireturn),
+/// ];
+///
+/// let blocks = build_basic_blocks(&instructions);
+/// assert_eq!(blocks.len(), 3);
+/// assert_eq!(blocks[0].start_pc, 0); // Contains Iload1, Ifeq
+/// assert_eq!(blocks[1].start_pc, 4); // Contains Iconst1, Ireturn
+/// assert_eq!(blocks[2].start_pc, 6); // Contains Iconst2, Ireturn
+/// ```
 #[allow(
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
@@ -132,8 +153,8 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
         }
     }
 
-    let mut blocks = Vec::new();
-    let mut current_block = Vec::new();
+    let mut blocks = Vec::with_capacity(leaders.len());
+    let mut current_block = Vec::with_capacity(instructions.len() / leaders.len().max(1));
     let mut current_start = instructions[0].0;
 
     for (pc, instr) in instructions {
@@ -143,7 +164,7 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
                 end_pc: *pc,
                 instructions: current_block,
             });
-            current_block = Vec::new();
+            current_block = Vec::with_capacity(instructions.len() / leaders.len().max(1));
             current_start = *pc;
         }
         current_block.push((*pc, instr.clone()));

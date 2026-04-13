@@ -10,3 +10,9 @@
 
 **Confusion:** The central bytecode execution loop (`run_execution` in `duke-interpreter/src/execution.rs`) had no module-level or function-level documentation, making it a "Black Box" for developers navigating the interpreter codebase.
 **Clarification:** Added module docs (`//!`) explaining the stack-based machine model and function docs (`///`) detailing the run-loop behavior, along with an ignored doctest example.
+## 2024-04-12 - The Value of Dummy Bytecode in Doctests
+**Confusion:** It is hard to write executable doctests for things that require `ClassFile`s because parsing them from real `.class` files introduces external dependencies and I/O.
+**Clarification:** You can construct a tiny, valid `ClassFile` directly from bytes (`0xCA, 0xFE, 0xBA, 0xBE...`) right in the doctest string so `duke_classfile::parse` succeeds cleanly.
+## 2024-04-11 - Doc tests should be complete compiling examples
+**Confusion:** I used `compile_fail` blocks to show pseudo code and avoid compiler errors when missing setup code. Code reviewer correctly noted that we must use full working code in Examples, not broken code.
+**Clarification:** Rewrote doc-test code snippets in `execution.rs` and `native.rs` to mock necessary elements (e.g., `ExecutionState::default()`) rather than rely on `compile_fail` with pseudo-code.
