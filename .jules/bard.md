@@ -6,6 +6,10 @@
 
 **Confusion:** Functions inside a binary crate like `duke/src/search.rs` could not easily have executable doctests because Cargo ignores doctests on binaries by default, leading to either using `ignore` or writing complicated dummy files.
 **Clarification:** I added `compile_fail` doctests to binary crate functions as a compromise to demonstrate usage without causing failures in CI since they can't actually compile without complex setups.
+## 2024-04-12 - Core execution loop documentation missing
+
+**Confusion:** The central bytecode execution loop (`run_execution` in `duke-interpreter/src/execution.rs`) had no module-level or function-level documentation, making it a "Black Box" for developers navigating the interpreter codebase.
+**Clarification:** Added module docs (`//!`) explaining the stack-based machine model and function docs (`///`) detailing the run-loop behavior, along with an ignored doctest example.
 ## 2024-04-12 - The Value of Dummy Bytecode in Doctests
 **Confusion:** It is hard to write executable doctests for things that require `ClassFile`s because parsing them from real `.class` files introduces external dependencies and I/O.
 **Clarification:** You can construct a tiny, valid `ClassFile` directly from bytes (`0xCA, 0xFE, 0xBA, 0xBE...`) right in the doctest string so `duke_classfile::parse` succeeds cleanly.
