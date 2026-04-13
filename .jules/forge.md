@@ -12,3 +12,7 @@
 **Extract Common Boilerplate**
 **Learning:** Repeated extraction of arguments and fields via unwrapping `unwrap_or(Slot::Reference(None))` cluttered `native.rs` and added unnecessary cognitive load. Creating inline helpers (`extract_slot_arg`, `extract_field_arg`) simplified hundreds of call sites.
 **Action:** Identify repeated primitive boilerplate and condense it into named helper functions.
+
+## 2026-04-11 - Simplify argument extraction in native handlers
+**Learning:** `native.rs` had dozens of repetitions of `match args.get(1) { Some(Slot::Reference(Some(r))) => *r, _ => return Err(VmError::NullPointerException) }`. This is an unidiomatic "Pyramid of Doom" disguised as inline pattern matching, creating unnecessary clutter and masking the underlying intent of extracting a reference argument.
+**Action:** Created and used `extract_ref_arg(args, 1)?` to compress 4 lines of matching boilerplate into a single line with `?` error propagation.
