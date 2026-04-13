@@ -91,6 +91,16 @@ mod tests {
     use duke_classfile::types::ClassFile;
 
     #[test]
+    fn test_dump_search_valid() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/HelloWorld.class");
+        let path = path.to_str().unwrap();
+
+        super::dump_search(path, "invokevirtual");
+        super::dump_search(path, "nonexistentinstruction");
+    }
+
+    #[test]
     fn test_dump_search_no_match() {
         // Just testing cp_str helper mostly, dump_search is tested by its effects.
         let cf = ClassFile {
