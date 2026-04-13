@@ -7,6 +7,29 @@
 //!
 //! These types are entirely decoupled from the actual bytecode instruction set, ensuring that
 //! memory and execution state semantics are strictly isolated from the decoding and interpretation logic.
+//!
+//! # Examples
+//!
+//! Setting up a basic execution frame and manipulating the operand stack:
+//!
+//! ```
+//! use duke_runtime::{Frame, Slot, VmError};
+//!
+//! // Create a new frame with max_stack = 4, max_locals = 2, and 0 arguments
+//! let mut frame = Frame::new(4, 2, vec![]).unwrap();
+//!
+//! // Push values onto the operand stack
+//! frame.push(Slot::Int(10)).unwrap();
+//! frame.push(Slot::Int(20)).unwrap();
+//!
+//! // Pop values and perform operations
+//! let b = frame.pop_int().unwrap();
+//! let a = frame.pop_int().unwrap();
+//!
+//! // Push the result back
+//! frame.push(Slot::Int(a + b)).unwrap();
+//! assert_eq!(frame.pop_int().unwrap(), 30);
+//! ```
 
 pub mod error;
 pub mod frame;

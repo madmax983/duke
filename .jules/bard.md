@@ -16,3 +16,7 @@
 ## 2024-04-11 - Doc tests should be complete compiling examples
 **Confusion:** I used `compile_fail` blocks to show pseudo code and avoid compiler errors when missing setup code. Code reviewer correctly noted that we must use full working code in Examples, not broken code.
 **Clarification:** Rewrote doc-test code snippets in `execution.rs` and `native.rs` to mock necessary elements (e.g., `ExecutionState::default()`) rather than rely on `compile_fail` with pseudo-code.
+## 2024-04-14 - Test and Fuzz files missing docs
+
+**Confusion:** Running `cargo check` with `RUSTFLAGS="-D missing_docs"` fails on integration tests (`tests/*.rs`) and fuzzing targets because they don't have crate-level documentation.
+**Clarification:** Added `#![allow(missing_docs)]` to the top of test files and fuzzing binaries to ignore these lints while maintaining strict documentation standards for the actual library codebase.
