@@ -12,3 +12,7 @@
 **Extract Common Boilerplate**
 **Learning:** Repeated extraction of arguments and fields via unwrapping `unwrap_or(Slot::Reference(None))` cluttered `native.rs` and added unnecessary cognitive load. Creating inline helpers (`extract_slot_arg`, `extract_field_arg`) simplified hundreds of call sites.
 **Action:** Identify repeated primitive boilerplate and condense it into named helper functions.
+
+**Extract God Module (tests)**
+**Learning:** The inline `mod tests` block in `crates/duke-interpreter/src/lib.rs` was over 29,600 lines long, which completely buried the actual logic of the library module and drastically reduced readability.
+**Action:** Always extract enormous `mod tests` blocks into their own separate `tests.rs` files, linking them via `#[cfg(test)] mod tests;` to keep the parent file small, focused, and maintainable.
