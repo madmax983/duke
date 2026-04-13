@@ -677,3 +677,57 @@ mod tests {
         heap.close_host_file(server_fd);
     }
 }
+
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+
+    #[test]
+    fn open_host_byte_buffer_and_read() {
+        let mut heap = Heap::new();
+        let id = heap.open_host_byte_buffer(vec![10, 20, 30]);
+        assert_eq!(heap.read_host_file_byte(id).unwrap(), 10);
+        assert_eq!(heap.read_host_file_byte(id).unwrap(), 20);
+        assert_eq!(heap.read_host_file_byte(id).unwrap(), 30);
+        assert_eq!(heap.read_host_file_byte(id).unwrap(), -1);
+    }
+
+    #[test]
+    fn test_try_host_process_exit_value_running() {
+        let mut heap = Heap::new();
+        // Spawning an executable command that succeeds immediately. We use "true" (cross-platform way via sh/cmd)
+        let cmd = if cfg!(windows) {
+            vec!["cmd".to_string(), "/C".to_string(), "pause".to_string()]
+        } else {
+            vec!["cat".to_string()]
+        };
+        let p_ids = heap.spawn_host_process(&cmd, None).unwrap();
+        // Should return None if still running
+        let try_val = heap.try_host_process_exit_value(p_ids.process_id).unwrap();
+        assert_eq!(try_val, None);
+
+        heap.destroy_host_process(p_ids.process_id).unwrap();
+    }
+
+    #[test]
+    fn spawn_host_process_with_cwd() {
+        let mut heap = Heap::new();
+        let cmd = if cfg!(windows) {
+            vec!["cmd".to_string(), "/C".to_string(), "cd".to_string()]
+        } else {
+            vec!["pwd".to_string()]
+        };
+        let cwd = std::env::temp_dir();
+        let p_ids = heap.spawn_host_process(&cmd, Some(&cwd)).unwrap();
+        heap.wait_host_process(p_ids.process_id).unwrap();
+    }
+}
+
+    #[test]
+    fn spawn_host_process_io_error() {
+        let mut heap = Heap::new();
+        // Should trigger an io error and map to IOException
+        let result = heap.spawn_host_process(&["/definitely/invalid/command".to_string()], None);
+        assert!(matches!(result, Err(VmError::JavaException { class_name }) if class_name == "java/io/IOException"));
+    }
