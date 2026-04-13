@@ -7,3 +7,6 @@
 **Eliminate intermediate Vec allocation in StringJoiner**
 **Learning:** We identified a hot path string concatenation in `native_stringjoiner_tostring` where it was unnecessarily accumulating string representations into an intermediate `Vec<String>` before joining them.
 **Action:** Replaced `.collect::<Vec<_>>()` and `.join()` with a pre-allocated single String buffer and `.push_str()` direct appending. This eliminates overhead for allocating vector buffers and extra formatting strings.
+**[Eliminate HashMap Read Heap Allocations]
+**Learning:** [Replacing `.clone()` with `&` references for large collection reads (like `HashMap` queries `&heap.get(this_ref)?.fields`) eliminates O(N) heap allocations, but caution is required to ensure it doesn't create overlapping mutable borrows if the lookup function subsequently calls into the VM (e.g. `equals` invoking a method). Here it was safe as the lookup (`slots_equal`) did not mutate.]
+**Action:** [Prefer immutable borrows when querying heap structures like HashMaps in the interpreter, verifying first that the inner matching function `slots_equal` doesn't require a mutable reference to the `Heap`.]
