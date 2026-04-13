@@ -7,3 +7,11 @@
 **Eliminate intermediate Vec allocation in StringJoiner**
 **Learning:** We identified a hot path string concatenation in `native_stringjoiner_tostring` where it was unnecessarily accumulating string representations into an intermediate `Vec<String>` before joining them.
 **Action:** Replaced `.collect::<Vec<_>>()` and `.join()` with a pre-allocated single String buffer and `.push_str()` direct appending. This eliminates overhead for allocating vector buffers and extra formatting strings.
+
+**Reduced String.clone() in Registry**
+**Learning:** `clone()` operations on large string keys or options inside tight loops (like class registry checks and super_class/interface iterations) unnecessarily allocate memory even when immutable references `&str` or simple value drops are perfectly valid.
+**Action:** Replace `clone()` with `.as_deref()` or borrow references (`&ctx.super_class`, `&ctx.interfaces`) when calling external methods, and limit string copies strictly to hash map insertion via moving or single string duplication.
+
+**Basic Block Vec Reallocation**
+**Learning:** `Vec::new()` inside looping parser instructions causes multi-level heap reallocations. For small arrays where capacity is known from slice bounds (like basic blocks bounds / leader offsets), `Vec::with_capacity` drastically minimizes heap allocation traffic.
+**Action:** When constructing `Vec` from parsed instruction iterators, pre-compute rough capacity based on slice metrics or known leaders array length.

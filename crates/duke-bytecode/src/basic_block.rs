@@ -153,8 +153,8 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
         }
     }
 
-    let mut blocks = Vec::new();
-    let mut current_block = Vec::new();
+    let mut blocks = Vec::with_capacity(leaders.len());
+    let mut current_block = Vec::with_capacity(instructions.len() / leaders.len().max(1));
     let mut current_start = instructions[0].0;
 
     for (pc, instr) in instructions {
@@ -164,7 +164,7 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
                 end_pc: *pc,
                 instructions: current_block,
             });
-            current_block = Vec::new();
+            current_block = Vec::with_capacity(instructions.len() / leaders.len().max(1));
             current_start = *pc;
         }
         current_block.push((*pc, instr.clone()));
