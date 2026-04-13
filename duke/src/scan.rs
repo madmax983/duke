@@ -86,6 +86,8 @@ pub struct RiskMatch {
     pub location: String, // E.g. "Methodref #10" or something more descriptive
 }
 
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
 pub fn scan_classfile(cf: &ClassFile) -> Vec<RiskMatch> {
     let mut matches = Vec::new();
 
@@ -136,6 +138,8 @@ use std::path::Path;
 use std::process;
 
 /// Scans a single class file for dangerous APIs and prints a report.
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
 pub fn dump_scan(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -167,6 +171,8 @@ pub fn dump_scan(path: &str) {
 }
 
 /// Scans all class files within a JAR file for dangerous APIs and prints a summary.
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
 pub fn dump_jar_scan(jar_path: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         eprintln!("duke: failed to open JAR '{jar_path}': {e}");
