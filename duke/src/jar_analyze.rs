@@ -159,6 +159,20 @@ mod tests {
     use duke_classfile::types::ClassFile;
 
     #[test]
+    fn test_dump_jar_analyze_valid() {
+        let path1 = "../tests/fixtures/hello.jar";
+        let path2 = "tests/fixtures/hello.jar";
+        let path = if std::path::Path::new(path1).exists() {
+            path1
+        } else if std::path::Path::new(path2).exists() {
+            path2
+        } else {
+            panic!("Could not find hello.jar fixture");
+        };
+        dump_jar_analyze(path);
+    }
+
+    #[test]
     fn test_resolve_class_name_invalid_index() {
         let cf = ClassFile {
             major_version: 61,
