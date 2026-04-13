@@ -273,6 +273,7 @@ dependencies = [
 name = "duke-loader"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "duke-classfile",
  "flate2",
  "proptest",
