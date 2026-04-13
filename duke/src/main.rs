@@ -9,6 +9,7 @@ mod analyze;
 mod deps_graph;
 mod html;
 mod jar_analyze;
+mod scan;
 mod search;
 mod uml;
 
@@ -224,6 +225,8 @@ fn main() {
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
         eprintln!("       duke search <classfile.class> <opcode>");
+        eprintln!("       duke scan <classfile.class>");
+        eprintln!("       duke jar-scan <file.jar>");
         eprintln!("       duke uml <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
@@ -281,6 +284,16 @@ fn main() {
     // Dispatch `search`: search for opcodes in class methods.
     if args.len() >= 4 && args[1] == "search" {
         search::dump_search(&args[2], &args[3]);
+        return;
+    }
+
+    if args.len() >= 3 && args[1] == "scan" {
+        scan::dump_scan(&args[2]);
+        return;
+    }
+
+    if args.len() >= 3 && args[1] == "jar-scan" {
+        scan::dump_jar_scan(&args[2]);
         return;
     }
 
