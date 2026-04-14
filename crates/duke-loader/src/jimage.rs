@@ -244,7 +244,7 @@ impl JImageReader {
             let max_size = 1024 * 1024 * 256;
             if cap > max_size {
                 return Err(LoadError::JImageFormat {
-                    msg: format!("entry '{}' uncompressed size {} exceeds limit {}", path, cap, max_size),
+                    msg: format!("entry '{path}' uncompressed size {cap} exceeds limit {max_size}"),
                 });
             }
             let decoder = DeflateDecoder::new(raw);
@@ -865,7 +865,7 @@ mod tests {
         let reader = make_reader(vec![0xFF, 0xFF, 0, 0, 0], 2, u64::MAX);
         let result = reader.read_resource("r");
         assert!(
-            matches!(result, Err(LoadError::JImageFormat { .. }) | Err(LoadError::Decompress { .. })),
+            matches!(result, Err(LoadError::JImageFormat { .. } | LoadError::Decompress { .. })),
             "should safely fail decompression, not panic with capacity overflow"
         );
     }

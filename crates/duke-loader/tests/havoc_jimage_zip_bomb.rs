@@ -61,6 +61,6 @@ fn havoc_crash_jimage_zip_bomb() {
         Err(LoadError::JImageFormat { msg }) if msg.contains("exceeds limit") => {
             // Expected failure after our fix
         }
-        Err(e) => panic!("Expected JImageFormat limit error, got {:?}", e),
+        Err(e) => panic!("Expected JImageFormat limit error, got {e:?}"),
     }
 }
