@@ -367,7 +367,8 @@ impl TelemetryStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    #[cfg(feature = "telemetry")]
+    use crate::TelemetryStore;
 
 
     #[test]
