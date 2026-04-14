@@ -23,3 +23,6 @@
 ## 2026-04-11 - Simplify argument extraction in native handlers
 **Learning:** `native.rs` had dozens of repetitions of `match args.get(1) { Some(Slot::Reference(Some(r))) => *r, _ => return Err(VmError::NullPointerException) }`. This is an unidiomatic "Pyramid of Doom" disguised as inline pattern matching, creating unnecessary clutter and masking the underlying intent of extracting a reference argument.
 **Action:** Created and used `extract_ref_arg(args, 1)?` to compress 4 lines of matching boilerplate into a single line with `?` error propagation.
+**Extract Constant Pool Parsing**
+**Learning:** `parse_constant_pool` in `crates/duke-classfile/src/parser.rs` contained a massive `match` statement allocating and populating logic for every constant pool tag, taking up over 90 lines. This "God Function" approach breaks readability and cognitive boundaries.
+**Action:** Always extract the internal logic of large `match` arms into strictly-typed helper functions (e.g. `parse_constant_pool_entry`) to flatten code and keep functions short.
