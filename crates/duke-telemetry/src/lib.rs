@@ -370,7 +370,6 @@ mod tests {
     #[cfg(feature = "telemetry")]
     use crate::TelemetryStore;
 
-
     #[test]
     #[cfg(feature = "telemetry")]
     fn telemetry_store_to_markdown_report() {
