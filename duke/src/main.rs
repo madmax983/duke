@@ -7,7 +7,6 @@ use std::process;
 
 mod analyze;
 mod deps_graph;
-mod diff;
 mod histogram;
 mod html;
 mod jar_analyze;
@@ -227,9 +226,7 @@ fn main() {
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
         eprintln!("       duke histogram <file.jar>");
-        eprintln!(
-            "       duke search <classfile.class> <opcode>\n       duke diff <classfile1.class> <classfile2.class>"
-        );
+        eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke scan <classfile.class>");
         eprintln!("       duke jar-scan <file.jar>");
         eprintln!("       duke uml <classfile.class>");
@@ -287,11 +284,6 @@ fn main() {
     }
 
     // Dispatch `search`: search for opcodes in class methods.
-    if args.len() >= 4 && args[1] == "diff" {
-        diff::dump_diff(&args[2], &args[3]);
-        return;
-    }
-
     if args.len() >= 4 && args[1] == "search" {
         search::dump_search(&args[2], &args[3]);
         return;
