@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_lossless)]
 use duke_loader::zip::ZipReader;
