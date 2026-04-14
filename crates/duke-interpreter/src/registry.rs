@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use duke_loader::ClassLoader;
-use duke_runtime::{Slot, VmError, VmResult};
+use duke_runtime::Slot;
 
 use crate::context::ClassContext;
 
@@ -384,11 +384,11 @@ impl ClassRegistry {
     /// Get a reference to a loaded class.
     ///
     /// # Errors
-    /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
-    pub fn get(&self, name: &str) -> VmResult<&ClassContext> {
+    /// Returns [`crate::Error::ClassNotFound`] if the class is not loaded.
+    pub fn get(&self, name: &str) -> crate::Result<&ClassContext> {
         self.classes
             .get(name)
-            .ok_or_else(|| VmError::ClassNotFound {
+            .ok_or_else(|| crate::Error::ClassNotFound {
                 name: name.to_string(),
             })
     }
@@ -396,11 +396,11 @@ impl ClassRegistry {
     /// Get a mutable reference to a loaded class.
     ///
     /// # Errors
-    /// Returns [`VmError::ClassNotFound`] if the class is not loaded.
-    pub fn get_mut(&mut self, name: &str) -> VmResult<&mut ClassContext> {
+    /// Returns [`crate::Error::ClassNotFound`] if the class is not loaded.
+    pub fn get_mut(&mut self, name: &str) -> crate::Result<&mut ClassContext> {
         self.classes
             .get_mut(name)
-            .ok_or_else(|| VmError::ClassNotFound {
+            .ok_or_else(|| crate::Error::ClassNotFound {
                 name: name.to_string(),
             })
     }
@@ -463,21 +463,21 @@ impl ClassRegistry {
     /// ```
     ///
     /// # Errors
-    /// Returns [`VmError`] if the class bytes are malformed or if loading the superclass chain fails unexpectedly.
-    pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> VmResult<bool> {
+    /// Returns [`crate::Error`] if the class bytes are malformed or if loading the superclass chain fails unexpectedly.
+    pub fn ensure_loaded(&mut self, name: &str, loader: &dyn ClassLoader) -> crate::Result<bool> {
         self.ensure_loaded_inner(name, loader, None, None)
     }
 
     /// Ensure a class is loaded using the same archive/classpath provenance as `source_class`.
     ///
     /// # Errors
-    /// Returns [`VmError`] if the selected loader fails to parse, link, or resolve the requested class.
+    /// Returns [`crate::Error`] if the selected loader fails to parse, link, or resolve the requested class.
     pub fn ensure_loaded_from(
         &mut self,
         name: &str,
         source_class: Option<&str>,
         fallback_loader: &dyn ClassLoader,
-    ) -> VmResult<bool> {
+    ) -> crate::Result<bool> {
         if let Some(source_class) = source_class
             && let Some(path) = self
                 .explicit_code_source_for_class(source_class)
@@ -495,21 +495,25 @@ impl ClassRegistry {
     /// Ensure a class is loaded from a specific archive path and record that provenance.
     ///
     /// # Errors
-    /// Returns [`VmError`] if the selected archive loader fails to parse, link, or resolve the requested class.
-    pub fn ensure_loaded_with_code_source(&mut self, name: &str, path: &str) -> VmResult<bool> {
+    /// Returns [`crate::Error`] if the selected archive loader fails to parse, link, or resolve the requested class.
+    pub fn ensure_loaded_with_code_source(
+        &mut self,
+        name: &str,
+        path: &str,
+    ) -> crate::Result<bool> {
         self.ensure_loaded_with_provenance(name, path, None)
     }
 
     /// Ensure a class is loaded from a specific archive path and runtime loader.
     ///
     /// # Errors
-    /// Returns [`VmError`] if the selected archive loader fails to parse, link, or resolve the requested class.
+    /// Returns [`crate::Error`] if the selected archive loader fails to parse, link, or resolve the requested class.
     pub fn ensure_loaded_with_provenance(
         &mut self,
         name: &str,
         path: &str,
         runtime_loader: Option<u64>,
-    ) -> VmResult<bool> {
+    ) -> crate::Result<bool> {
         let Some(loader) = self.zip_loader_for_path(path) else {
             return Ok(false);
         };
@@ -522,7 +526,7 @@ impl ClassRegistry {
         loader: &dyn ClassLoader,
         code_source: Option<&str>,
         runtime_loader: Option<u64>,
-    ) -> VmResult<bool> {
+    ) -> crate::Result<bool> {
         let internal_name = class_internal_name_fragment(name).to_string();
         let class_key = self.class_key_from_provenance(&internal_name, code_source, runtime_loader);
         if self.classes.contains_key(&class_key) {
@@ -586,10 +590,10 @@ impl ClassRegistry {
     /// loaded class matches that internal name.
     ///
     /// # Errors
-    /// Returns [`VmError::ClassNotFound`] when no loaded class matches, or
-    /// [`VmError::AmbiguousClassName`] when multiple loaded classes share the same
+    /// Returns [`crate::Error::ClassNotFound`] when no loaded class matches, or
+    /// [`crate::Error::AmbiguousClassName`] when multiple loaded classes share the same
     /// internal name.
-    pub fn resolve_loaded_class_key(&self, name: &str) -> VmResult<String> {
+    pub fn resolve_loaded_class_key(&self, name: &str) -> crate::Result<String> {
         if self.classes.contains_key(name) {
             return Ok(name.to_string());
         }
@@ -601,11 +605,11 @@ impl ClassRegistry {
             .cloned()
             .collect();
         match matches.as_slice() {
-            [] => Err(VmError::ClassNotFound {
+            [] => Err(crate::Error::ClassNotFound {
                 name: name.to_string(),
             }),
             [only] => Ok(only.clone()),
-            _ => Err(VmError::AmbiguousClassName {
+            _ => Err(crate::Error::AmbiguousClassName {
                 name: internal_name.to_string(),
                 matches,
             }),
@@ -637,8 +641,12 @@ impl Default for ClassRegistry {
 /// - `&mut Heap`: the object heap for reading/writing objects
 /// - `&mut dyn Write`: output sink (stdout in production, `Vec<u8>` in tests)
 /// - `&mut NativeControl`: side channel for blocking/thread actions
-pub type NativeHandler =
-    fn(&[Slot], &mut duke_gc::Heap, &mut dyn Write, &mut NativeControl) -> VmResult<Option<Slot>>;
+pub type NativeHandler = fn(
+    &[Slot],
+    &mut duke_gc::Heap,
+    &mut dyn Write,
+    &mut NativeControl,
+) -> crate::Result<Option<Slot>>;
 
 /// Mutable helper surface exposed to callback natives.
 ///
@@ -658,19 +666,19 @@ pub trait CallbackOps {
         method: &str,
         descriptor: &str,
         args: Vec<Slot>,
-    ) -> VmResult<Option<Slot>>;
+    ) -> crate::Result<Option<Slot>>;
 
     /// Ensure the named class is available to the current runtime.
     ///
     /// # Errors
     /// Returns an error if the class cannot be loaded or linked.
-    fn ensure_loaded(&mut self, class: &str) -> VmResult<()>;
+    fn ensure_loaded(&mut self, class: &str) -> crate::Result<()>;
 
     /// Read reflection metadata for a loaded or loadable class.
     ///
     /// # Errors
     /// Returns an error if the class cannot be inspected.
-    fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo>;
+    fn inspect_class(&mut self, class: &str) -> crate::Result<ReflectedClassInfo>;
 
     /// Ensure the named class has completed initialization, including `<clinit>`.
     ///
@@ -681,7 +689,7 @@ pub trait CallbackOps {
         _heap: &mut duke_gc::Heap,
         _output: &mut dyn Write,
         class: &str,
-    ) -> VmResult<()> {
+    ) -> crate::Result<()> {
         self.ensure_loaded(class)
     }
 
@@ -692,7 +700,7 @@ pub trait CallbackOps {
     ///
     /// # Errors
     /// Returns an error if class provenance lookup fails.
-    fn code_source_for_class(&mut self, _class: &str) -> VmResult<Option<String>> {
+    fn code_source_for_class(&mut self, _class: &str) -> crate::Result<Option<String>> {
         Ok(None)
     }
 
@@ -705,7 +713,7 @@ pub trait CallbackOps {
         _heap: &duke_gc::Heap,
         _loader_ref: u64,
         class: &str,
-    ) -> VmResult<()> {
+    ) -> crate::Result<()> {
         self.ensure_loaded(class)
     }
 
@@ -713,8 +721,8 @@ pub trait CallbackOps {
     ///
     /// # Errors
     /// Returns an error if the field cannot be resolved.
-    fn instance_field_slot(&mut self, _class: &str, _field_name: &str) -> VmResult<usize> {
-        Err(VmError::InvalidFieldref { index: 0 })
+    fn instance_field_slot(&mut self, _class: &str, _field_name: &str) -> crate::Result<usize> {
+        Err(crate::Error::InvalidFieldref { index: 0 })
     }
 
     /// Read an instance field from `object_ref`, validating it against the declaring class.
@@ -727,8 +735,8 @@ pub trait CallbackOps {
         _object_ref: u64,
         _declaring_class: &str,
         _field_name: &str,
-    ) -> VmResult<Slot> {
-        Err(VmError::InvalidFieldref { index: 0 })
+    ) -> crate::Result<Slot> {
+        Err(crate::Error::InvalidFieldref { index: 0 })
     }
 
     /// Write an instance field on `object_ref`, validating it against the declaring class.
@@ -742,16 +750,16 @@ pub trait CallbackOps {
         _declaring_class: &str,
         _field_name: &str,
         _value: Slot,
-    ) -> VmResult<()> {
-        Err(VmError::InvalidFieldref { index: 0 })
+    ) -> crate::Result<()> {
+        Err(crate::Error::InvalidFieldref { index: 0 })
     }
 
     /// Read a static field from the named class.
     ///
     /// # Errors
     /// Returns an error if the field cannot be resolved or read.
-    fn read_static_field(&mut self, _class: &str, _field_name: &str) -> VmResult<Slot> {
-        Err(VmError::InvalidFieldref { index: 0 })
+    fn read_static_field(&mut self, _class: &str, _field_name: &str) -> crate::Result<Slot> {
+        Err(crate::Error::InvalidFieldref { index: 0 })
     }
 
     /// Write a static field on the named class.
@@ -763,15 +771,15 @@ pub trait CallbackOps {
         _class: &str,
         _field_name: &str,
         _value: Slot,
-    ) -> VmResult<()> {
-        Err(VmError::InvalidFieldref { index: 0 })
+    ) -> crate::Result<()> {
+        Err(crate::Error::InvalidFieldref { index: 0 })
     }
 
     /// Return the runtime `java/lang/ClassLoader` object for `class`, if known.
     ///
     /// # Errors
     /// Returns an error if runtime loader provenance lookup fails.
-    fn runtime_loader_for_class(&mut self, _class: &str) -> VmResult<Option<u64>> {
+    fn runtime_loader_for_class(&mut self, _class: &str) -> crate::Result<Option<u64>> {
         Ok(None)
     }
 
@@ -779,7 +787,7 @@ pub trait CallbackOps {
     ///
     /// # Errors
     /// Returns an error if class identity resolution fails.
-    fn class_key_for_loaded_class(&mut self, class: &str) -> VmResult<String> {
+    fn class_key_for_loaded_class(&mut self, class: &str) -> crate::Result<String> {
         Ok(class.to_string())
     }
 
@@ -792,7 +800,7 @@ pub trait CallbackOps {
         _heap: &duke_gc::Heap,
         _loader_ref: u64,
         class: &str,
-    ) -> VmResult<String> {
+    ) -> crate::Result<String> {
         self.class_key_for_loaded_class(class)
     }
 
@@ -804,7 +812,7 @@ pub trait CallbackOps {
         &mut self,
         class: &str,
         _source_class: Option<&str>,
-    ) -> VmResult<String> {
+    ) -> crate::Result<String> {
         self.class_key_for_loaded_class(class)
     }
 
@@ -817,8 +825,8 @@ pub trait CallbackOps {
         _heap: &mut duke_gc::Heap,
         _output: &mut dyn Write,
         _class: &str,
-    ) -> VmResult<u64> {
-        Err(VmError::Unimplemented {
+    ) -> crate::Result<u64> {
+        Err(crate::Error::Unimplemented {
             mnemonic: "reflection constructor allocation",
         })
     }
@@ -832,7 +840,7 @@ pub type CallbackNativeHandler = fn(
     output: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>>;
+) -> crate::Result<Option<Slot>>;
 
 /// Stored in `NativeRegistry` — all existing handlers stay `Simple`.
 #[derive(Copy, Clone, Debug)]
@@ -963,7 +971,7 @@ mod tests {
         let mut registry = ClassRegistry::default();
         let result = registry.get_mut("MissingClass");
         match result {
-            Err(duke_runtime::VmError::ClassNotFound { name }) => assert_eq!(name, "MissingClass"),
+            Err(crate::Error::ClassNotFound { name }) => assert_eq!(name, "MissingClass"),
             _ => panic!("Expected ClassNotFound error"),
         }
     }

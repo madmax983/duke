@@ -14,7 +14,7 @@ use std::io::Write;
 use duke_bytecode::Instruction;
 use duke_classfile::types::CpEntry;
 use duke_loader::ClassLoader;
-use duke_runtime::{Frame, Slot, VmError, VmResult};
+use duke_runtime::{Frame, Slot};
 
 use crate::CachedDispatch;
 use crate::registry::ClassRegistry;
@@ -70,7 +70,7 @@ pub fn run_execution(
     stdout: &mut dyn Write,
     gc_allowed: bool,
     quantum: Option<usize>,
-) -> VmResult<ExecutionOutcome> {
+) -> crate::Result<ExecutionOutcome> {
     let ExecutionState {
         current_class,
         method_idx,
@@ -97,7 +97,7 @@ pub fn run_execution(
 
         let (pc, instr) = {
             let Some(&(pc, ref instr)) = instructions.get(*idx) else {
-                return Err(VmError::FellOffEnd);
+                return Err(crate::Error::FellOffEnd);
             };
             (pc, instr.clone())
         };
@@ -123,7 +123,7 @@ pub fn run_execution(
                 let target = (pc as i64).wrapping_add(i64::from($offset)) as usize;
                 *idx = *pc_to_idx
                     .get(&target)
-                    .ok_or(VmError::InvalidBranchTarget { pc: target })?;
+                    .ok_or(crate::Error::InvalidBranchTarget { pc: target })?;
                 continue;
             }};
         }
@@ -205,7 +205,7 @@ pub fn run_execution(
                     frame.clear_stack();
                     frame.push(Slot::Reference(Some(exception_ref)))?;
                     *idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
-                        VmError::InvalidBranchTarget {
+                        crate::Error::InvalidBranchTarget {
                             pc: handler_pc as usize,
                         },
                     )?;
@@ -215,7 +215,7 @@ pub fn run_execution(
                 loop {
                     match call_stack.pop() {
                         None => {
-                            return Err(VmError::JavaException {
+                            return Err(crate::Error::JavaException {
                                 class_name: exc_class_name,
                             });
                         }
@@ -277,7 +277,7 @@ pub fn run_execution(
                                 frame.clear_stack();
                                 frame.push(Slot::Reference(Some(exception_ref)))?;
                                 *idx = *pc_to_idx.get(&(handler_pc as usize)).ok_or(
-                                    VmError::InvalidBranchTarget {
+                                    crate::Error::InvalidBranchTarget {
                                         pc: handler_pc as usize,
                                     },
                                 )?;
@@ -320,7 +320,7 @@ pub fn run_execution(
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(cached.max_locals, Slot::Int(0));
                     if cached.arg_count > cached.max_locals {
-                        return Err(VmError::LocalOutOfBounds {
+                        return Err(crate::Error::LocalOutOfBounds {
                             index: cached.arg_count,
                             max_locals: cached.max_locals,
                         });
@@ -347,7 +347,7 @@ pub fn run_execution(
                         current_method,
                     ) {
                         Ok(()) => {}
-                        Err(VmError::JavaException { class_name }) => {
+                        Err(crate::Error::JavaException { class_name }) => {
                             throw_java!(class_name);
                         }
                         Err(other) => return Err(other),
@@ -420,7 +420,7 @@ pub fn run_execution(
                             let (mut locals_buf, stack_buf) = frame_pool.acquire();
                             locals_buf.resize(max_locals, Slot::Int(0));
                             if arg_count > max_locals {
-                                return Err(VmError::LocalOutOfBounds {
+                                return Err(crate::Error::LocalOutOfBounds {
                                     index: arg_count,
                                     max_locals,
                                 });
@@ -453,7 +453,7 @@ pub fn run_execution(
                             current_method,
                         ) {
                             Ok(()) => {}
-                            Err(VmError::JavaException { class_name }) => {
+                            Err(crate::Error::JavaException { class_name }) => {
                                 throw_java!(class_name);
                             }
                             Err(other) => return Err(other),
@@ -494,7 +494,7 @@ pub fn run_execution(
                                 );
                                 let result = match result {
                                     Ok(result) => result,
-                                    Err(VmError::JavaException { class_name }) => {
+                                    Err(crate::Error::JavaException { class_name }) => {
                                         let exception_ref = materialize_java_exception_object(
                                             registry,
                                             loader,
@@ -505,17 +505,19 @@ pub fn run_execution(
                                     }
                                     Err(err) => {
                                         let class_name = match err {
-                                            VmError::NullPointerException => {
+                                            crate::Error::NullPointerException => {
                                                 "java/lang/NullPointerException".to_string()
                                             }
-                                            VmError::ClassCastException { .. } => {
+                                            crate::Error::ClassCastException { .. } => {
                                                 "java/lang/ClassCastException".to_string()
                                             }
-                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                            crate::Error::ArrayIndexOutOfBounds { .. } => {
                                                 "java/lang/ArrayIndexOutOfBoundsException"
                                                     .to_string()
                                             }
-                                            VmError::JavaException { class_name } => class_name,
+                                            crate::Error::JavaException { class_name } => {
+                                                class_name
+                                            }
                                             other => return Err(other),
                                         };
                                         let exception_ref = materialize_java_exception_object(
@@ -566,7 +568,7 @@ pub fn run_execution(
                                 );
                                 let result = match result {
                                     Ok(result) => result,
-                                    Err(VmError::JavaException { class_name }) => {
+                                    Err(crate::Error::JavaException { class_name }) => {
                                         let exception_ref = materialize_java_exception_object(
                                             registry,
                                             loader,
@@ -577,17 +579,19 @@ pub fn run_execution(
                                     }
                                     Err(err) => {
                                         let class_name = match err {
-                                            VmError::NullPointerException => {
+                                            crate::Error::NullPointerException => {
                                                 "java/lang/NullPointerException".to_string()
                                             }
-                                            VmError::ClassCastException { .. } => {
+                                            crate::Error::ClassCastException { .. } => {
                                                 "java/lang/ClassCastException".to_string()
                                             }
-                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                            crate::Error::ArrayIndexOutOfBounds { .. } => {
                                                 "java/lang/ArrayIndexOutOfBoundsException"
                                                     .to_string()
                                             }
-                                            VmError::JavaException { class_name } => class_name,
+                                            crate::Error::JavaException { class_name } => {
+                                                class_name
+                                            }
                                             other => return Err(other),
                                         };
                                         let exception_ref = materialize_java_exception_object(
@@ -607,7 +611,7 @@ pub fn run_execution(
                                 continue;
                             }
                             None => {
-                                return Err(VmError::MethodNotFound {
+                                return Err(crate::Error::MethodNotFound {
                                     name: format!(
                                         "{}.{callee_name}",
                                         registry.internal_name_for_class(&callee_class_key)
@@ -668,7 +672,7 @@ pub fn run_execution(
                         let si = string_index.0 as usize;
                         let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
                             Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                            _ => return Err(crate::Error::InvalidCpIndex { index: si }),
                         };
                         Some(s)
                     } else {
@@ -731,7 +735,7 @@ pub fn run_execution(
                         let si = string_index.0 as usize;
                         let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
                             Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                            _ => return Err(crate::Error::InvalidCpIndex { index: si }),
                         };
                         Some(s)
                     } else {
@@ -1471,7 +1475,7 @@ pub fn run_execution(
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(cached.max_locals, Slot::Int(0));
                     if cached.arg_count + 1 > cached.max_locals {
-                        return Err(VmError::LocalOutOfBounds {
+                        return Err(crate::Error::LocalOutOfBounds {
                             index: cached.arg_count + 1,
                             max_locals: cached.max_locals,
                         });
@@ -1499,7 +1503,7 @@ pub fn run_execution(
                         current_method,
                     ) {
                         Ok(()) => {}
-                        Err(VmError::JavaException { class_name }) => {
+                        Err(crate::Error::JavaException { class_name }) => {
                             throw_java!(class_name);
                         }
                         Err(other) => return Err(other),
@@ -1552,7 +1556,7 @@ pub fn run_execution(
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(cached.max_locals, Slot::Int(0));
                     if cached.arg_count + 1 > cached.max_locals {
-                        return Err(VmError::LocalOutOfBounds {
+                        return Err(crate::Error::LocalOutOfBounds {
                             index: cached.arg_count + 1,
                             max_locals: cached.max_locals,
                         });
@@ -1580,7 +1584,7 @@ pub fn run_execution(
                         current_method,
                     ) {
                         Ok(()) => {}
-                        Err(VmError::JavaException { class_name }) => {
+                        Err(crate::Error::JavaException { class_name }) => {
                             throw_java!(class_name);
                         }
                         Err(other) => return Err(other),
@@ -1648,7 +1652,7 @@ pub fn run_execution(
                                 let this_slot = frame.pop()?;
                                 let this_ref = match &this_slot {
                                     Slot::Reference(Some(r)) => *r,
-                                    _ => return Err(VmError::NullPointerException),
+                                    _ => return Err(crate::Error::NullPointerException),
                                 };
 
                                 let obj = heap.get(this_ref)?;
@@ -1722,7 +1726,7 @@ pub fn run_execution(
                                         current_method,
                                     ) {
                                         Ok(()) => {}
-                                        Err(VmError::JavaException { class_name }) => {
+                                        Err(crate::Error::JavaException { class_name }) => {
                                             throw_java!(class_name);
                                         }
                                         Err(other) => return Err(other),
@@ -1829,7 +1833,7 @@ pub fn run_execution(
                                 }
                                 let result = match result {
                                     Ok(result) => result,
-                                    Err(VmError::JavaException { class_name }) => {
+                                    Err(crate::Error::JavaException { class_name }) => {
                                         let exception_ref = materialize_java_exception_object(
                                             registry,
                                             loader,
@@ -1840,17 +1844,19 @@ pub fn run_execution(
                                     }
                                     Err(err) => {
                                         let class_name = match err {
-                                            VmError::NullPointerException => {
+                                            crate::Error::NullPointerException => {
                                                 "java/lang/NullPointerException".to_string()
                                             }
-                                            VmError::ClassCastException { .. } => {
+                                            crate::Error::ClassCastException { .. } => {
                                                 "java/lang/ClassCastException".to_string()
                                             }
-                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                            crate::Error::ArrayIndexOutOfBounds { .. } => {
                                                 "java/lang/ArrayIndexOutOfBoundsException"
                                                     .to_string()
                                             }
-                                            VmError::JavaException { class_name } => class_name,
+                                            crate::Error::JavaException { class_name } => {
+                                                class_name
+                                            }
                                             other => return Err(other),
                                         };
                                         let exception_ref = materialize_java_exception_object(
@@ -1913,7 +1919,7 @@ pub fn run_execution(
                                 }
                                 let result = match result {
                                     Ok(result) => result,
-                                    Err(VmError::JavaException { class_name }) => {
+                                    Err(crate::Error::JavaException { class_name }) => {
                                         let exception_ref = materialize_java_exception_object(
                                             registry,
                                             loader,
@@ -1924,17 +1930,19 @@ pub fn run_execution(
                                     }
                                     Err(err) => {
                                         let class_name = match err {
-                                            VmError::NullPointerException => {
+                                            crate::Error::NullPointerException => {
                                                 "java/lang/NullPointerException".to_string()
                                             }
-                                            VmError::ClassCastException { .. } => {
+                                            crate::Error::ClassCastException { .. } => {
                                                 "java/lang/ClassCastException".to_string()
                                             }
-                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                            crate::Error::ArrayIndexOutOfBounds { .. } => {
                                                 "java/lang/ArrayIndexOutOfBoundsException"
                                                     .to_string()
                                             }
-                                            VmError::JavaException { class_name } => class_name,
+                                            crate::Error::JavaException { class_name } => {
+                                                class_name
+                                            }
                                             other => return Err(other),
                                         };
                                         let exception_ref = materialize_java_exception_object(
@@ -1964,7 +1972,7 @@ pub fn run_execution(
                                     *idx += 1;
                                     continue;
                                 }
-                                return Err(VmError::MethodNotFound {
+                                return Err(crate::Error::MethodNotFound {
                                     name: format!(
                                         "{}.{callee_name}",
                                         registry.internal_name_for_class(
@@ -2037,7 +2045,7 @@ pub fn run_execution(
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
-                        return Err(VmError::LocalOutOfBounds {
+                        return Err(crate::Error::LocalOutOfBounds {
                             index: arg_count + 1,
                             max_locals,
                         });
@@ -2072,7 +2080,7 @@ pub fn run_execution(
                     current_method,
                 ) {
                     Ok(()) => {}
-                    Err(VmError::JavaException { class_name }) => {
+                    Err(crate::Error::JavaException { class_name }) => {
                         throw_java!(class_name);
                     }
                     Err(other) => return Err(other),
@@ -2093,7 +2101,7 @@ pub fn run_execution(
             Instruction::Newarray(array_type) => {
                 let count = frame.pop_int()?;
                 if count < 0 {
-                    return Err(VmError::NegativeArraySize { size: count });
+                    return Err(crate::Error::NegativeArraySize { size: count });
                 }
                 let class_name = match array_type {
                     ArrayType::Boolean => "[Z",
@@ -2143,7 +2151,7 @@ pub fn run_execution(
                 let array_type = format!("[L{element_type};");
                 let count = frame.pop_int()?;
                 if count < 0 {
-                    return Err(VmError::NegativeArraySize { size: count });
+                    return Err(crate::Error::NegativeArraySize { size: count });
                 }
                 let r = heap.allocate(array_type, count as usize);
                 // Fix elements to Reference(None).
@@ -2422,7 +2430,7 @@ pub fn run_execution(
                         }
                     }
                     _ => {
-                        return Err(VmError::TypeMismatch {
+                        return Err(crate::Error::TypeMismatch {
                             expected: "reference",
                             got: "non-reference",
                         });
@@ -2451,7 +2459,7 @@ pub fn run_execution(
                         frame.push(Slot::Int(result))?;
                     }
                     _ => {
-                        return Err(VmError::TypeMismatch {
+                        return Err(crate::Error::TypeMismatch {
                             expected: "reference",
                             got: "non-reference",
                         });
@@ -2486,7 +2494,7 @@ pub fn run_execution(
                                 resolve_name_and_type(cp, name_and_type_index.0 as usize)?;
                             (*bootstrap_method_attr_index as usize, name, desc)
                         }
-                        _ => return Err(VmError::InvalidCpIndex { index: cp_idx_val }),
+                        _ => return Err(crate::Error::InvalidCpIndex { index: cp_idx_val }),
                     }
                 };
 
@@ -2496,7 +2504,7 @@ pub fn run_execution(
                     let bsm_entry = ctx
                         .bootstrap_methods
                         .get(bsm_idx)
-                        .ok_or(VmError::InvalidCpIndex { index: bsm_idx })?;
+                        .ok_or(crate::Error::InvalidCpIndex { index: bsm_idx })?;
                     let (_kind, class, _name, _desc) =
                         resolve_method_handle(&ctx.constant_pool, bsm_entry.method_ref.0 as usize)?;
                     let args: Vec<duke_classfile::types::CpIndex> = bsm_entry.arguments.clone();
@@ -2552,7 +2560,7 @@ pub fn run_execution(
                         let ctx = registry.get(current_class)?;
                         let cp = &ctx.constant_pool;
                         if bsm_args.len() < 3 {
-                            return Err(VmError::Unimplemented {
+                            return Err(crate::Error::Unimplemented {
                                 mnemonic: "LambdaMetafactory requires 3 bootstrap args",
                             });
                         }
@@ -2570,14 +2578,14 @@ pub fn run_execution(
                                 match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
                                     Some(CpEntry::Utf8(s)) => s.clone(),
                                     _ => {
-                                        return Err(VmError::InvalidCpIndex {
+                                        return Err(crate::Error::InvalidCpIndex {
                                             index: descriptor_index.0 as usize,
                                         });
                                     }
                                 }
                             }
                             _ => {
-                                return Err(VmError::InvalidCpIndex {
+                                return Err(crate::Error::InvalidCpIndex {
                                     index: bsm_args[0].0 as usize,
                                 });
                             }
@@ -2757,7 +2765,7 @@ pub fn run_execution(
                                 }
                                 let result = match result {
                                     Ok(result) => result,
-                                    Err(VmError::JavaException { class_name }) => {
+                                    Err(crate::Error::JavaException { class_name }) => {
                                         let exception_ref = materialize_java_exception_object(
                                             registry,
                                             loader,
@@ -2768,17 +2776,19 @@ pub fn run_execution(
                                     }
                                     Err(err) => {
                                         let class_name = match err {
-                                            VmError::NullPointerException => {
+                                            crate::Error::NullPointerException => {
                                                 "java/lang/NullPointerException".to_string()
                                             }
-                                            VmError::ClassCastException { .. } => {
+                                            crate::Error::ClassCastException { .. } => {
                                                 "java/lang/ClassCastException".to_string()
                                             }
-                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                            crate::Error::ArrayIndexOutOfBounds { .. } => {
                                                 "java/lang/ArrayIndexOutOfBoundsException"
                                                     .to_string()
                                             }
-                                            VmError::JavaException { class_name } => class_name,
+                                            crate::Error::JavaException { class_name } => {
+                                                class_name
+                                            }
                                             other => return Err(other),
                                         };
                                         let exception_ref = materialize_java_exception_object(
@@ -2838,7 +2848,7 @@ pub fn run_execution(
                                 }
                                 let result = match result {
                                     Ok(result) => result,
-                                    Err(VmError::JavaException { class_name }) => {
+                                    Err(crate::Error::JavaException { class_name }) => {
                                         let exception_ref = materialize_java_exception_object(
                                             registry,
                                             loader,
@@ -2849,17 +2859,19 @@ pub fn run_execution(
                                     }
                                     Err(err) => {
                                         let class_name = match err {
-                                            VmError::NullPointerException => {
+                                            crate::Error::NullPointerException => {
                                                 "java/lang/NullPointerException".to_string()
                                             }
-                                            VmError::ClassCastException { .. } => {
+                                            crate::Error::ClassCastException { .. } => {
                                                 "java/lang/ClassCastException".to_string()
                                             }
-                                            VmError::ArrayIndexOutOfBounds { .. } => {
+                                            crate::Error::ArrayIndexOutOfBounds { .. } => {
                                                 "java/lang/ArrayIndexOutOfBoundsException"
                                                     .to_string()
                                             }
-                                            VmError::JavaException { class_name } => class_name,
+                                            crate::Error::JavaException { class_name } => {
+                                                class_name
+                                            }
                                             other => return Err(other),
                                         };
                                         let exception_ref = materialize_java_exception_object(
@@ -2897,7 +2909,7 @@ pub fn run_execution(
                             callee_args.insert(0, this_slot);
                             let this_ref = match &callee_args[0] {
                                 Slot::Reference(Some(r)) => *r,
-                                _ => return Err(VmError::NullPointerException),
+                                _ => return Err(crate::Error::NullPointerException),
                             };
                             let obj = heap.get(this_ref)?;
                             let mut impl_args: Vec<Slot> = Vec::new();
@@ -2972,7 +2984,7 @@ pub fn run_execution(
                                         current_method,
                                     ) {
                                         Ok(()) => {}
-                                        Err(VmError::JavaException { class_name }) => {
+                                        Err(crate::Error::JavaException { class_name }) => {
                                             throw_java!(class_name);
                                         }
                                         Err(other) => return Err(other),
@@ -3040,7 +3052,7 @@ pub fn run_execution(
                                         current_method,
                                     ) {
                                         Ok(()) => {}
-                                        Err(VmError::JavaException { class_name }) => {
+                                        Err(crate::Error::JavaException { class_name }) => {
                                             throw_java!(class_name);
                                         }
                                         Err(other) => return Err(other),
@@ -3071,7 +3083,7 @@ pub fn run_execution(
                                         );
                                         let result = match result {
                                             Ok(result) => result,
-                                            Err(VmError::JavaException { class_name }) => {
+                                            Err(crate::Error::JavaException { class_name }) => {
                                                 let exception_ref =
                                                     materialize_java_exception_object(
                                                         registry,
@@ -3087,17 +3099,17 @@ pub fn run_execution(
                                             }
                                             Err(err) => {
                                                 let class_name = match err {
-                                                    VmError::NullPointerException => {
+                                                    crate::Error::NullPointerException => {
                                                         "java/lang/NullPointerException".to_string()
                                                     }
-                                                    VmError::ClassCastException { .. } => {
+                                                    crate::Error::ClassCastException { .. } => {
                                                         "java/lang/ClassCastException".to_string()
                                                     }
-                                                    VmError::ArrayIndexOutOfBounds { .. } => {
-                                                        "java/lang/ArrayIndexOutOfBoundsException"
-                                                            .to_string()
-                                                    }
-                                                    VmError::JavaException { class_name } => {
+                                                    crate::Error::ArrayIndexOutOfBounds {
+                                                        ..
+                                                    } => "java/lang/ArrayIndexOutOfBoundsException"
+                                                        .to_string(),
+                                                    crate::Error::JavaException { class_name } => {
                                                         class_name
                                                     }
                                                     other => return Err(other),
@@ -3156,7 +3168,7 @@ pub fn run_execution(
                                         );
                                         let result = match result {
                                             Ok(result) => result,
-                                            Err(VmError::JavaException { class_name }) => {
+                                            Err(crate::Error::JavaException { class_name }) => {
                                                 let exception_ref =
                                                     materialize_java_exception_object(
                                                         registry,
@@ -3172,17 +3184,17 @@ pub fn run_execution(
                                             }
                                             Err(err) => {
                                                 let class_name = match err {
-                                                    VmError::NullPointerException => {
+                                                    crate::Error::NullPointerException => {
                                                         "java/lang/NullPointerException".to_string()
                                                     }
-                                                    VmError::ClassCastException { .. } => {
+                                                    crate::Error::ClassCastException { .. } => {
                                                         "java/lang/ClassCastException".to_string()
                                                     }
-                                                    VmError::ArrayIndexOutOfBounds { .. } => {
-                                                        "java/lang/ArrayIndexOutOfBoundsException"
-                                                            .to_string()
-                                                    }
-                                                    VmError::JavaException { class_name } => {
+                                                    crate::Error::ArrayIndexOutOfBounds {
+                                                        ..
+                                                    } => "java/lang/ArrayIndexOutOfBoundsException"
+                                                        .to_string(),
+                                                    crate::Error::JavaException { class_name } => {
                                                         class_name
                                                     }
                                                     other => return Err(other),
@@ -3239,7 +3251,7 @@ pub fn run_execution(
                                     &init_args,
                                 ) {
                                     Ok(_) => {}
-                                    Err(VmError::JavaException { class_name }) => {
+                                    Err(crate::Error::JavaException { class_name }) => {
                                         throw_java!(class_name);
                                     }
                                     Err(other) => return Err(other),
@@ -3262,7 +3274,7 @@ pub fn run_execution(
                             *idx += 1;
                             continue;
                         }
-                        return Err(VmError::MethodNotFound {
+                        return Err(crate::Error::MethodNotFound {
                             name: format!("{actual_class}.{callee_name}"),
                             descriptor: callee_desc,
                         });
@@ -3285,7 +3297,7 @@ pub fn run_execution(
                     let (mut locals_buf, stack_buf) = frame_pool.acquire();
                     locals_buf.resize(max_locals, Slot::Int(0));
                     if arg_count + 1 > max_locals {
-                        return Err(VmError::LocalOutOfBounds {
+                        return Err(crate::Error::LocalOutOfBounds {
                             index: arg_count + 1,
                             max_locals,
                         });
@@ -3320,7 +3332,7 @@ pub fn run_execution(
                     current_method,
                 ) {
                     Ok(()) => {}
-                    Err(VmError::JavaException { class_name }) => {
+                    Err(crate::Error::JavaException { class_name }) => {
                         throw_java!(class_name);
                     }
                     Err(other) => return Err(other),
@@ -3351,7 +3363,7 @@ pub fn run_execution(
                 // Check for negative sizes.
                 for &d in &dims {
                     if d < 0 {
-                        return Err(VmError::NegativeArraySize { size: d });
+                        return Err(crate::Error::NegativeArraySize { size: d });
                     }
                 }
 
@@ -3361,7 +3373,7 @@ pub fn run_execution(
                     dims: &[i32],
                     depth: usize,
                     type_name: &str,
-                ) -> VmResult<u64> {
+                ) -> crate::Result<u64> {
                     let size = dims[depth] as usize;
                     let r = heap.allocate(type_name.to_string(), size);
                     if depth < dims.len() - 1 {
@@ -3390,7 +3402,7 @@ pub fn run_execution(
             }
 
             other => {
-                return Err(VmError::Unimplemented {
+                return Err(crate::Error::Unimplemented {
                     mnemonic: other.mnemonic(),
                 });
             }

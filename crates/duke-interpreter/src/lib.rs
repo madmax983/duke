@@ -9,6 +9,7 @@
 
 /// Core execution context types for methods and classes.
 pub mod context;
+pub mod error;
 pub(crate) mod execution;
 /// Repositories for loaded classes and registered native methods.
 pub mod registry;
@@ -17,6 +18,7 @@ pub mod stdlib;
 pub mod threading;
 
 pub use context::*;
+pub use error::*;
 pub use registry::*;
 pub use stdlib::bootstrap_stdlib;
 
@@ -27,7 +29,7 @@ use duke_bytecode::Instruction;
 use duke_bytecode::instruction::ArrayType;
 use duke_classfile::types::CpEntry;
 use duke_loader::ClassLoader;
-use duke_runtime::{Frame, Slot, VmError, VmResult};
+use duke_runtime::{Frame, Slot};
 
 // Registry of loaded classes — maps class name to its `ClassContext`.
 //

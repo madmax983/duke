@@ -9456,7 +9456,7 @@ pub(crate) fn native_bitset_init_with_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Long(0);
     Ok(None)
@@ -9468,7 +9468,7 @@ pub(crate) fn native_bitset_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Long(0);
     Ok(None)
@@ -9480,12 +9480,12 @@ pub(crate) fn native_bitset_set(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let n = match args.get(1) {
         Some(Slot::Int(v)) => *v,
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "int",
                 got: "other",
             });
@@ -9506,7 +9506,7 @@ pub(crate) fn native_bitset_cardinality(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let bits = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(b)) => *b,
@@ -9522,7 +9522,7 @@ pub(crate) fn native_function_identity(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/IdentityFunction".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -9534,7 +9534,7 @@ pub(crate) fn native_identity_function_apply(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // args[0] = this (the IdentityFunction proxy), args[1] = the element
     Ok(Some(args.get(1).copied().unwrap_or(Slot::Reference(None))))
 }
@@ -9547,7 +9547,7 @@ pub(crate) fn native_collectors_summarizing_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = args.first().copied().unwrap_or(Slot::Reference(None));
     let r = heap.allocate("duke/util/SummarizingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -9560,7 +9560,7 @@ pub(crate) fn native_int_summary_stats_get_count(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let count = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -9575,7 +9575,7 @@ pub(crate) fn native_int_summary_stats_get_sum(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let sum = match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Long(v)) => *v,
@@ -9590,7 +9590,7 @@ pub(crate) fn native_int_summary_stats_get_min(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let min = match heap.get(this_ref)?.fields.get(2) {
         Some(Slot::Int(v)) => *v,
@@ -9605,7 +9605,7 @@ pub(crate) fn native_int_summary_stats_get_max(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let max = match heap.get(this_ref)?.fields.get(3) {
         Some(Slot::Int(v)) => *v,
@@ -9620,7 +9620,7 @@ pub(crate) fn native_int_summary_stats_get_average(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let count = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,

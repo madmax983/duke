@@ -7,7 +7,7 @@ macro_rules! wrap_simple_native_for_tests {
                 args: &[Slot],
                 heap: &mut duke_gc::Heap,
                 out: &mut dyn std::io::Write,
-            ) -> VmResult<Option<Slot>> {
+            ) -> crate::Result<Option<Slot>> {
                 super::$name(args, heap, out, &mut NativeControl::default())
             }
         )*
@@ -65,7 +65,7 @@ fn array_list_sort(
     heap: &mut duke_gc::Heap,
     out: &mut dyn std::io::Write,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     super::array_list_sort(args, heap, out, &mut NativeControl::default(), ops)
 }
 
@@ -80,15 +80,15 @@ impl CallbackOps for NoopCallbackOps {
         _method: &str,
         _descriptor: &str,
         _args: Vec<Slot>,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(None)
     }
 
-    fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+    fn ensure_loaded(&mut self, _class: &str) -> crate::Result<()> {
         Ok(())
     }
 
-    fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+    fn inspect_class(&mut self, _class: &str) -> crate::Result<ReflectedClassInfo> {
         Ok(ReflectedClassInfo {
             internal_name: String::new(),
             binary_name: String::new(),
@@ -113,15 +113,15 @@ impl CallbackOps for FixedCodeSourceOps {
         _method: &str,
         _descriptor: &str,
         _args: Vec<Slot>,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(None)
     }
 
-    fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+    fn ensure_loaded(&mut self, _class: &str) -> crate::Result<()> {
         Ok(())
     }
 
-    fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+    fn inspect_class(&mut self, _class: &str) -> crate::Result<ReflectedClassInfo> {
         Ok(ReflectedClassInfo {
             internal_name: String::new(),
             binary_name: String::new(),
@@ -132,7 +132,7 @@ impl CallbackOps for FixedCodeSourceOps {
         })
     }
 
-    fn code_source_for_class(&mut self, _class: &str) -> VmResult<Option<String>> {
+    fn code_source_for_class(&mut self, _class: &str) -> crate::Result<Option<String>> {
         Ok(self.code_source.clone())
     }
 }
@@ -153,18 +153,18 @@ fn native_hashset_init_from_collection_copies_to_array_elements() {
             method: &str,
             descriptor: &str,
             _args: Vec<Slot>,
-        ) -> VmResult<Option<Slot>> {
+        ) -> crate::Result<Option<Slot>> {
             assert_eq!(class, self.collection_class);
             assert_eq!(method, "toArray");
             assert_eq!(descriptor, "()[Ljava/lang/Object;");
             Ok(Some(Slot::Reference(Some(self.array_ref))))
         }
 
-        fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+        fn ensure_loaded(&mut self, _class: &str) -> crate::Result<()> {
             Ok(())
         }
 
-        fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+        fn inspect_class(&mut self, _class: &str) -> crate::Result<ReflectedClassInfo> {
             Ok(ReflectedClassInfo {
                 internal_name: String::new(),
                 binary_name: String::new(),
@@ -228,7 +228,7 @@ fn native_registry_register_callback_can_be_looked_up() {
         _out: &mut dyn std::io::Write,
         _control: &mut NativeControl,
         _ops: &mut dyn CallbackOps,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(None)
     }
     let mut reg = NativeRegistry::new();
@@ -247,7 +247,7 @@ fn native_registry_register_simple_stays_simple() {
         _heap: &mut duke_gc::Heap,
         _out: &mut dyn std::io::Write,
         _control: &mut NativeControl,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(None)
     }
     let mut reg = NativeRegistry::new();
@@ -320,7 +320,7 @@ fn hand_coded_div_by_zero() {
         (3, Instruction::Ireturn),
     ];
     let err = execute(&instrs, &[], vec![Slot::Int(10), Slot::Int(0)], 2, 2).unwrap_err();
-    assert!(matches!(err, VmError::DivisionByZero));
+    assert!(matches!(err, crate::Error::DivisionByZero));
 }
 
 #[test]
@@ -692,7 +692,7 @@ fn class_method_not_found() {
         &[],
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::MethodNotFound { .. }));
+    assert!(matches!(err, crate::Error::MethodNotFound { .. }));
 }
 
 #[test]
@@ -771,7 +771,7 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
     assert!(
         matches!(
             err,
-            VmError::MethodNotFound { ref name, ref descriptor }
+            crate::Error::MethodNotFound { ref name, ref descriptor }
             if name == "java/lang/Class.missingMethod"
                 && descriptor == "()Ljava/lang/Object;"
         ),
@@ -990,7 +990,7 @@ fn registered_native_overrides_loaded_bytecode_method() {
         _heap: &mut duke_gc::Heap,
         _out: &mut dyn Write,
         _control: &mut NativeControl,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(Some(Slot::Int(42)))
     }
 
@@ -1110,7 +1110,7 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         _out: &mut dyn Write,
         _control: &mut NativeControl,
         _ops: &mut dyn CallbackOps,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(Some(Slot::Int(42)))
     }
 
@@ -1291,14 +1291,14 @@ fn resolve_methodref_valid() {
 fn resolve_methodref_invalid_index() {
     let cp = make_cp(vec![]);
     let err = resolve_methodref(&cp, 99).unwrap_err();
-    assert!(matches!(err, VmError::InvalidMethodref { index: 99 }));
+    assert!(matches!(err, crate::Error::InvalidMethodref { index: 99 }));
 }
 
 #[test]
 fn resolve_methodref_not_a_methodref() {
     let cp = make_cp(vec![Some(CpEntry::Utf8("not a methodref".to_string()))]);
     let err = resolve_methodref(&cp, 1).unwrap_err();
-    assert!(matches!(err, VmError::InvalidMethodref { .. }));
+    assert!(matches!(err, crate::Error::InvalidMethodref { .. }));
 }
 
 #[test]
@@ -1613,7 +1613,7 @@ fn resolve_fieldref_valid() {
 fn resolve_fieldref_invalid() {
     let cp = make_cp(vec![Some(CpEntry::Utf8("not a fieldref".to_string()))]);
     let err = resolve_fieldref(&cp, 1).unwrap_err();
-    assert!(matches!(err, VmError::InvalidFieldref { .. }));
+    assert!(matches!(err, crate::Error::InvalidFieldref { .. }));
 }
 
 // ---- Phase 7: Arrays ----
@@ -1777,7 +1777,7 @@ fn newarray_int_bounds_error() {
     let err = execute(&instrs, &[], vec![], 3, 0).unwrap_err();
     assert!(matches!(
         err,
-        VmError::ArrayIndexOutOfBounds {
+        crate::Error::ArrayIndexOutOfBounds {
             index: 5,
             length: 1
         }
@@ -1789,7 +1789,7 @@ fn test_extract_int_arg_missing() {
     let args = vec![];
     assert!(matches!(
         extract_int_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Int",
             got: "other"
         }
@@ -1806,7 +1806,7 @@ fn newarray_negative_size() {
         (4, Ireturn),
     ];
     let err = execute(&instrs, &[], vec![], 2, 0).unwrap_err();
-    assert!(matches!(err, VmError::NegativeArraySize { size: -1 }));
+    assert!(matches!(err, crate::Error::NegativeArraySize { size: -1 }));
 }
 
 #[test]
@@ -1814,7 +1814,7 @@ fn athrow_propagates_as_java_exception() {
     use duke_bytecode::Instruction::*;
     let instrs = vec![(0, Iconst1), (1, Newarray(ArrayType::Int)), (3, Athrow)];
     let err = execute(&instrs, &[], vec![], 2, 0).unwrap_err();
-    assert!(matches!(err, VmError::JavaException { .. }));
+    assert!(matches!(err, crate::Error::JavaException { .. }));
 }
 
 // ---- Phase 8: Exceptions ----
@@ -1855,7 +1855,7 @@ fn exception_uncaught_propagates() {
         &[],
     );
     let err = result.unwrap_err();
-    assert!(matches!(err, VmError::JavaException { .. }));
+    assert!(matches!(err, crate::Error::JavaException { .. }));
 }
 
 #[test]
@@ -2264,7 +2264,7 @@ fn native_registry_stores_and_retrieves() {
         _heap: &mut duke_gc::Heap,
         _out: &mut dyn std::io::Write,
         _control: &mut NativeControl,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(Some(Slot::Int(99)))
     }
     let mut natives = NativeRegistry::new();
@@ -2946,7 +2946,7 @@ fn test_archive_ref_from_slot_type_mismatch() {
     heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(42);
     assert!(matches!(
         archive_ref_from_slot(&heap, obj_ref, 0),
-        Err(VmError::TypeMismatch {
+        Err(crate::Error::TypeMismatch {
             expected: "Reference",
             ..
         })
@@ -5101,7 +5101,7 @@ fn run_bootstrap_with_string_args(
     method_name: &str,
     descriptor: &str,
     args: &[String],
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let ctx = load_class_context(class_name);
     let entry_class = ctx.class_name.clone();
     let mut registry = ClassRegistry::new();
@@ -5130,7 +5130,7 @@ fn run_bootstrap_with_output(
     class_name: &str,
     method_name: &str,
     descriptor: &str,
-) -> VmResult<(Option<Slot>, Vec<String>)> {
+) -> crate::Result<(Option<Slot>, Vec<String>)> {
     let ctx = load_class_context(class_name);
     let entry_class = ctx.class_name.clone();
     let mut registry = ClassRegistry::new();
@@ -7088,7 +7088,7 @@ fn interpreter_callback_ops_can_invoke_registered_virtual_lambda_classes() {
         "(I)I",
         |args, _heap, _out, _control| match args {
             [Slot::Reference(Some(_)), Slot::Int(value)] => Ok(Some(Slot::Int(value + 1))),
-            _ => Err(VmError::TypeMismatch {
+            _ => Err(crate::Error::TypeMismatch {
                 expected: "reference,int",
                 got: "other",
             }),
@@ -7174,9 +7174,9 @@ fn callback_fires_via_invokestatic_bytecode() {
                     .ok()
                     .and_then(|o| o.string_value.clone())
                     .unwrap_or_default(),
-                _ => return Err(VmError::NullPointerException),
+                _ => return Err(crate::Error::NullPointerException),
             };
-            let n: i32 = s.parse().map_err(|_| VmError::NullPointerException)?;
+            let n: i32 = s.parse().map_err(|_| crate::Error::NullPointerException)?;
             Ok(Some(Slot::Int(n)))
         },
     );
@@ -7235,7 +7235,7 @@ fn callback_fires_via_invokevirtual_bytecode() {
             CALLED.store(true, Ordering::SeqCst);
             // args[0] is `this` (the Integer object); fields[0] holds the int.
             let Slot::Reference(Some(r)) = &args[0] else {
-                return Err(VmError::NullPointerException);
+                return Err(crate::Error::NullPointerException);
             };
             let val = heap.get(*r)?.fields[0];
             Ok(Some(val))
@@ -7381,7 +7381,7 @@ fn callback_fires_via_lambda_sam_fallback() {
             CALLED.store(true, Ordering::SeqCst);
             // args[0] is `this` (the captured String reference).
             let Slot::Reference(Some(r)) = &args[0] else {
-                return Err(VmError::NullPointerException);
+                return Err(crate::Error::NullPointerException);
             };
             let len = i32::try_from(heap.get(*r)?.string_value.as_deref().unwrap_or("").len())
                 .unwrap_or(i32::MAX);
@@ -7946,7 +7946,7 @@ fn collections_sort_null_list_raises_npe() {
         &[Slot::Reference(None)],
     );
     assert!(
-        matches!(result, Err(VmError::NullPointerException)),
+        matches!(result, Err(crate::Error::NullPointerException)),
         "expected NullPointerException, got {result:?}"
     );
 }
@@ -8233,7 +8233,7 @@ fn threading_havoc_fast_fail_slow_thread_does_not_panic() {
             let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if count == 0 {
                 // First thread to call sleep fails immediately
-                Err(VmError::Unimplemented {
+                Err(crate::Error::Unimplemented {
                     mnemonic: "Test early failure",
                 })
             } else {
@@ -8257,7 +8257,7 @@ fn threading_havoc_fast_fail_slow_thread_does_not_panic() {
 
     assert!(matches!(
         result,
-        Err(VmError::Unimplemented {
+        Err(crate::Error::Unimplemented {
             mnemonic: "Test early failure"
         })
     ));
@@ -8277,7 +8277,7 @@ fn threading_havoc_wait_for_all_java_threads_error_path() {
     registry
         .natives_mut()
         .register("java/lang/Thread", "sleep", "(J)V", |_, _, _, _| {
-            Err(VmError::Unimplemented {
+            Err(crate::Error::Unimplemented {
                 mnemonic: "Test panic simulation",
             })
         });
@@ -8295,7 +8295,7 @@ fn threading_havoc_wait_for_all_java_threads_error_path() {
 
     assert!(matches!(
         result,
-        Err(VmError::Unimplemented {
+        Err(crate::Error::Unimplemented {
             mnemonic: "Test panic simulation"
         })
     ));
@@ -8519,7 +8519,7 @@ fn class_registry_natives_returns_registry() {
         _heap: &mut duke_gc::Heap,
         _out: &mut dyn std::io::Write,
         _control: &mut NativeControl,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         Ok(Some(Slot::Int(99)))
     }
     let mut reg = ClassRegistry::new();
@@ -8875,7 +8875,7 @@ fn native_print_int_type_mismatch() {
         &mut control,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::TypeMismatch { .. }));
+    assert!(matches!(err, crate::Error::TypeMismatch { .. }));
 }
 
 #[test]
@@ -8905,7 +8905,7 @@ fn native_println_int_type_mismatch() {
         &mut control,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::TypeMismatch { .. }));
+    assert!(matches!(err, crate::Error::TypeMismatch { .. }));
 }
 
 #[test]
@@ -9060,7 +9060,7 @@ fn native_system_exit_returns_system_exit_error() {
     let mut out: Vec<u8> = Vec::new();
     let err = native_system_exit(&[Slot::Int(42)], &mut heap, &mut out).unwrap_err();
     assert!(
-        matches!(err, VmError::SystemExit { code: 42 }),
+        matches!(err, crate::Error::SystemExit { code: 42 }),
         "expected SystemExit(42), got {err:?}"
     );
 }
@@ -9071,7 +9071,7 @@ fn native_system_exit_non_int_arg_uses_code_1() {
     let mut out: Vec<u8> = Vec::new();
     let err = native_system_exit(&[], &mut heap, &mut out).unwrap_err();
     assert!(
-        matches!(err, VmError::SystemExit { code: 1 }),
+        matches!(err, crate::Error::SystemExit { code: 1 }),
         "empty args → SystemExit(1), got {err:?}"
     );
 }
@@ -9197,7 +9197,7 @@ fn native_string_substring_out_of_bounds_returns_error() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -9233,7 +9233,7 @@ fn native_string_substring_range_out_of_bounds() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -9724,7 +9724,7 @@ fn native_string_indexof_null_target_raises_npe() {
         &mut out,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 #[test]
@@ -9738,7 +9738,7 @@ fn native_string_contains_null_target_raises_npe() {
         &mut out,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 // ---------------------------------------------------------------------------
@@ -9751,7 +9751,7 @@ fn native_integer_parseint_null_raises_npe() {
     let mut heap = duke_gc::Heap::new();
     let mut out: Vec<u8> = Vec::new();
     let err = native_integer_parseint(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 #[test]
@@ -9770,7 +9770,7 @@ fn native_long_parselong_null_raises_npe() {
     let mut heap = duke_gc::Heap::new();
     let mut out: Vec<u8> = Vec::new();
     let err = native_long_parselong(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 #[test]
@@ -9789,7 +9789,7 @@ fn native_double_parsedouble_null_raises_npe() {
     let mut heap = duke_gc::Heap::new();
     let mut out: Vec<u8> = Vec::new();
     let err = native_double_parsedouble(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 #[test]
@@ -9820,7 +9820,7 @@ fn native_float_parsefloat_null_raises_npe() {
     let mut heap = duke_gc::Heap::new();
     let mut out: Vec<u8> = Vec::new();
     let err = native_float_parsefloat(&[Slot::Reference(None)], &mut heap, &mut out).unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 #[test]
@@ -9914,7 +9914,7 @@ fn native_string_concat_null_other_raises_npe() {
         &mut out,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 #[test]
@@ -9933,7 +9933,7 @@ fn native_string_replace_charsequence_null_target_raises_npe() {
         &mut out,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 #[test]
@@ -9947,7 +9947,7 @@ fn native_string_split_null_delimiter_raises_npe() {
         &mut out,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NullPointerException));
+    assert!(matches!(err, crate::Error::NullPointerException));
 }
 
 // ---------------------------------------------------------------------------
@@ -10999,7 +10999,7 @@ fn execute_laload_out_of_bounds_raises_error() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -11072,7 +11072,7 @@ fn execute_faload_out_of_bounds_raises_error() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -11095,7 +11095,7 @@ fn execute_daload_out_of_bounds_raises_error() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -11682,7 +11682,7 @@ fn native_arrays_copyof_int_negative_length_raises_nsa() {
         &mut out,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NegativeArraySize { size: -1 }));
+    assert!(matches!(err, crate::Error::NegativeArraySize { size: -1 }));
 }
 
 #[test]
@@ -11729,7 +11729,7 @@ fn native_arrays_copyof_object_negative_length_raises_nsa() {
         &mut out,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NegativeArraySize { size: -2 }));
+    assert!(matches!(err, crate::Error::NegativeArraySize { size: -2 }));
 }
 
 #[test]
@@ -12106,7 +12106,7 @@ fn execute_class_synthetic(
     max_stack: u16,
     max_locals: u16,
     descriptor: &str,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     use std::sync::Arc;
     let pc_to_idx: std::collections::HashMap<usize, usize> = instructions
         .iter()
@@ -13194,7 +13194,7 @@ fn test_extract_ref_arg_null() {
     let args = vec![Slot::Reference(None)];
     assert!(matches!(
         extract_ref_arg(&args, 0).unwrap_err(),
-        VmError::NullPointerException
+        crate::Error::NullPointerException
     ));
 }
 
@@ -13203,7 +13203,7 @@ fn test_extract_ref_arg_type_mismatch() {
     let args = vec![Slot::Int(1)];
     assert!(matches!(
         extract_ref_arg(&args, 0).unwrap_err(),
-        VmError::NullPointerException
+        crate::Error::NullPointerException
     ));
 }
 
@@ -13218,7 +13218,7 @@ fn test_extract_int_arg_type_mismatch() {
     let args = vec![Slot::Reference(Some(1))];
     assert!(matches!(
         extract_int_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Int",
             got: "other"
         }
@@ -13230,7 +13230,7 @@ fn test_extract_long_arg_missing() {
     let args = vec![];
     assert!(matches!(
         extract_long_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Long",
             got: "other"
         }
@@ -13248,7 +13248,7 @@ fn test_extract_long_arg_type_mismatch() {
     let args = vec![Slot::Reference(Some(1))];
     assert!(matches!(
         extract_long_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Long",
             got: "other"
         }
@@ -13260,7 +13260,7 @@ fn test_extract_float_arg_missing() {
     let args = vec![];
     assert!(matches!(
         extract_float_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Float",
             got: "other"
         }
@@ -13278,7 +13278,7 @@ fn test_extract_float_arg_type_mismatch() {
     let args = vec![Slot::Reference(Some(1))];
     assert!(matches!(
         extract_float_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Float",
             got: "other"
         }
@@ -13290,7 +13290,7 @@ fn test_extract_double_arg_missing() {
     let args = vec![];
     assert!(matches!(
         extract_double_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Double",
             got: "other"
         }
@@ -13308,7 +13308,7 @@ fn test_extract_double_arg_type_mismatch() {
     let args = vec![Slot::Reference(Some(1))];
     assert!(matches!(
         extract_double_arg(&args, 0).unwrap_err(),
-        VmError::TypeMismatch {
+        crate::Error::TypeMismatch {
             expected: "Double",
             got: "other"
         }
@@ -13330,7 +13330,7 @@ fn test_extract_io_fd_type_mismatch() {
     heap.get_mut(r).unwrap().fields[0] = Slot::Reference(Some(1));
     assert!(matches!(
         extract_io_fd(&heap, r).unwrap_err(),
-        VmError::JavaException { .. }
+        crate::Error::JavaException { .. }
     ));
 }
 
@@ -13349,7 +13349,7 @@ fn test_extract_io_fd_at_type_mismatch() {
     heap.get_mut(r).unwrap().fields[1] = Slot::Reference(Some(1));
     assert!(matches!(
         extract_io_fd_at(&heap, r, 1).unwrap_err(),
-        VmError::JavaException { .. }
+        crate::Error::JavaException { .. }
     ));
 }
 
@@ -13509,7 +13509,7 @@ fn ec_iaload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13539,7 +13539,7 @@ fn ec_iastore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13619,7 +13619,7 @@ fn ec_laload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13649,7 +13649,7 @@ fn ec_lastore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13702,7 +13702,7 @@ fn ec_faload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13731,7 +13731,7 @@ fn ec_fastore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13808,7 +13808,7 @@ fn ec_daload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13837,7 +13837,7 @@ fn ec_dastore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -13977,7 +13977,7 @@ fn execute_ldiv_by_zero_errors() {
         (3, Instruction::Lreturn),
     ];
     let err = execute(&instructions, &[], vec![], 4, 1).unwrap_err();
-    assert!(matches!(err, VmError::DivisionByZero));
+    assert!(matches!(err, crate::Error::DivisionByZero));
 }
 
 #[test]
@@ -13989,7 +13989,7 @@ fn execute_lrem_by_zero_errors() {
         (3, Instruction::Lreturn),
     ];
     let err = execute(&instructions, &[], vec![], 4, 1).unwrap_err();
-    assert!(matches!(err, VmError::DivisionByZero));
+    assert!(matches!(err, crate::Error::DivisionByZero));
 }
 
 // ---- execute(): Lor |→^ ----
@@ -14122,7 +14122,7 @@ fn execute_newarray_negative_count_errors() {
         (3, Instruction::Areturn),
     ];
     let err = execute(&instructions, &[], vec![], 2, 1).unwrap_err();
-    assert!(matches!(err, VmError::NegativeArraySize { .. }));
+    assert!(matches!(err, crate::Error::NegativeArraySize { .. }));
 }
 
 #[test]
@@ -14196,7 +14196,7 @@ fn execute_iaload_oob_at_length_errors() {
     let err = execute(&instructions, &[], vec![], 4, 2).unwrap_err();
     assert!(matches!(
         err,
-        VmError::ArrayIndexOutOfBounds {
+        crate::Error::ArrayIndexOutOfBounds {
             index: 2,
             length: 2
         }
@@ -14258,7 +14258,7 @@ fn execute_iastore_oob_at_length_errors() {
     ];
     let err = execute(&instructions, &[], vec![], 4, 2).unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14317,7 +14317,7 @@ fn execute_laload_oob_at_length_errors() {
     ];
     let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14371,7 +14371,7 @@ fn execute_lastore_oob_at_length_errors() {
     ];
     let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14430,7 +14430,7 @@ fn execute_faload_oob_at_length_errors() {
     ];
     let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14484,7 +14484,7 @@ fn execute_fastore_oob_at_length_errors() {
     ];
     let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14543,7 +14543,7 @@ fn execute_daload_oob_at_length_errors() {
     ];
     let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14597,7 +14597,7 @@ fn execute_dastore_oob_at_length_errors() {
     ];
     let err = execute(&instructions, &[], vec![], 6, 2).unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14792,7 +14792,7 @@ fn native_substring_range_begin_greater_than_end_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -14943,7 +14943,7 @@ fn execute_anewarray_negative_count_errors() {
         1,
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NegativeArraySize { .. }));
+    assert!(matches!(err, crate::Error::NegativeArraySize { .. }));
 }
 
 // ---- execute(): Aaload bounds (line 4663: || → &&, < → ==, < → >, < → <=) ----
@@ -15038,7 +15038,7 @@ fn execute_aaload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15139,7 +15139,7 @@ fn execute_aastore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15206,7 +15206,7 @@ fn execute_baload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15283,7 +15283,7 @@ fn execute_bastore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15350,7 +15350,7 @@ fn execute_caload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15427,7 +15427,7 @@ fn execute_castore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15494,7 +15494,7 @@ fn execute_saload_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15571,7 +15571,7 @@ fn execute_sastore_oob_at_length_errors() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, VmError::ArrayIndexOutOfBounds { .. }),
+        matches!(err, crate::Error::ArrayIndexOutOfBounds { .. }),
         "expected ArrayIndexOutOfBounds, got {err:?}"
     );
 }
@@ -15658,7 +15658,7 @@ fn ec_aaload_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -15677,7 +15677,7 @@ fn ec_aastore_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -15728,7 +15728,7 @@ fn ec_baload_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -15789,7 +15789,7 @@ fn ec_bastore_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -15808,7 +15808,7 @@ fn ec_caload_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -15869,7 +15869,7 @@ fn ec_castore_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -15920,7 +15920,7 @@ fn ec_saload_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 4, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -15981,7 +15981,7 @@ fn ec_sastore_oob_at_length_errors() {
     ];
     let err = execute_class_synthetic(instructions, vec![], 6, 0, "()I").unwrap_err();
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ArrayIndexOutOfBoundsException"),
         "expected ArrayIndexOutOfBoundsException, got {err:?}"
     );
 }
@@ -16106,7 +16106,7 @@ fn ec_multianewarray_negative_dim_errors() {
         &[],
     )
     .unwrap_err();
-    assert!(matches!(err, VmError::NegativeArraySize { .. }));
+    assert!(matches!(err, crate::Error::NegativeArraySize { .. }));
 }
 
 #[test]
@@ -16751,7 +16751,7 @@ fn array_list_sort_negative_size_returns_error() {
     let mut ops = NoopCallbackOps;
     let err = array_list_sort(&args, &mut heap, &mut sink, &mut ops).unwrap_err();
     assert!(
-        matches!(err, VmError::NegativeArraySize { .. }),
+        matches!(err, crate::Error::NegativeArraySize { .. }),
         "expected NegativeArraySize, got {err:?}"
     );
 }
@@ -18136,7 +18136,7 @@ fn run_bootstrap_with_slots(
     method_name: &str,
     descriptor: &str,
     args: &[Slot],
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let ctx = load_class_context(class_name);
     let entry_class = ctx.class_name.clone();
     let mut registry = ClassRegistry::new();
@@ -19236,7 +19236,7 @@ fn native_boot_jar_file_archive_get_class_path_urls_uses_include_predicate() {
             method: &str,
             descriptor: &str,
             args: Vec<Slot>,
-        ) -> VmResult<Option<Slot>> {
+        ) -> crate::Result<Option<Slot>> {
             assert_eq!(method, "test");
             assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
             let entry_ref = match args.get(1) {
@@ -19256,11 +19256,11 @@ fn native_boot_jar_file_archive_get_class_path_urls_uses_include_predicate() {
             Ok(Some(Slot::Int(i32::from(accepted))))
         }
 
-        fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+        fn ensure_loaded(&mut self, _class: &str) -> crate::Result<()> {
             Ok(())
         }
 
-        fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+        fn inspect_class(&mut self, _class: &str) -> crate::Result<ReflectedClassInfo> {
             unreachable!("inspect_class should not be used")
         }
     }
@@ -19407,7 +19407,7 @@ fn native_boot_exploded_archive_get_class_path_urls_uses_search_predicate() {
             method: &str,
             descriptor: &str,
             args: Vec<Slot>,
-        ) -> VmResult<Option<Slot>> {
+        ) -> crate::Result<Option<Slot>> {
             assert_eq!(method, "test");
             assert_eq!(descriptor, "(Ljava/lang/Object;)Z");
             let entry_ref = match args.get(1) {
@@ -19429,11 +19429,11 @@ fn native_boot_exploded_archive_get_class_path_urls_uses_search_predicate() {
             Ok(Some(Slot::Int(i32::from(accepted))))
         }
 
-        fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+        fn ensure_loaded(&mut self, _class: &str) -> crate::Result<()> {
             Ok(())
         }
 
-        fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+        fn inspect_class(&mut self, _class: &str) -> crate::Result<ReflectedClassInfo> {
             unreachable!("inspect_class should not be used")
         }
     }
@@ -19576,16 +19576,16 @@ fn native_class_for_name_with_loader_uses_binary_name() {
             _method: &str,
             _descriptor: &str,
             _args: Vec<Slot>,
-        ) -> VmResult<Option<Slot>> {
+        ) -> crate::Result<Option<Slot>> {
             Ok(None)
         }
 
-        fn ensure_loaded(&mut self, class: &str) -> VmResult<()> {
+        fn ensure_loaded(&mut self, class: &str) -> crate::Result<()> {
             self.loaded.push(class.to_string());
             Ok(())
         }
 
-        fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+        fn inspect_class(&mut self, _class: &str) -> crate::Result<ReflectedClassInfo> {
             unreachable!("inspect_class should not be used")
         }
     }
@@ -19728,7 +19728,7 @@ fn native_class_for_name_with_loader_uses_loader_archive_not_global_default_code
     assert!(
         matches!(
             result,
-            Err(VmError::JavaException { ref class_name })
+            Err(crate::Error::JavaException { ref class_name })
                 if class_name == "java/lang/ClassNotFoundException"
         ),
         "wrong launched loader should not fall back to registry default code source: {result:?}"
@@ -19918,15 +19918,15 @@ fn native_class_get_declared_method_matches_parameter_class_array() {
             _method: &str,
             _descriptor: &str,
             _args: Vec<Slot>,
-        ) -> VmResult<Option<Slot>> {
+        ) -> crate::Result<Option<Slot>> {
             Ok(None)
         }
 
-        fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+        fn ensure_loaded(&mut self, _class: &str) -> crate::Result<()> {
             Ok(())
         }
 
-        fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo> {
+        fn inspect_class(&mut self, class: &str) -> crate::Result<ReflectedClassInfo> {
             Ok(ReflectedClassInfo {
                 internal_name: class.to_string(),
                 binary_name: class.replace('/', "."),
@@ -20298,7 +20298,7 @@ fn execute_class_plain_name_rejects_ambiguous_loaded_duplicate_binary_name() {
     assert!(
         matches!(
             err,
-            VmError::AmbiguousClassName { ref name, ref matches }
+            crate::Error::AmbiguousClassName { ref name, ref matches }
                 if name == "HelloWorld" && matches.len() == 2
         ),
         "expected AmbiguousClassName for duplicate loaded HelloWorld, got {err:?}"
@@ -20366,7 +20366,7 @@ fn native_class_for_name_rejects_ambiguous_loaded_duplicate_binary_name() {
     assert!(
         matches!(
             err,
-            VmError::AmbiguousClassName { ref name, ref matches }
+            crate::Error::AmbiguousClassName { ref name, ref matches }
                 if name == "HelloWorld" && matches.len() == 2
         ),
         "expected AmbiguousClassName for duplicate Class.forName lookup, got {err:?}"
@@ -20466,7 +20466,7 @@ fn loader_qualified_checkcast_uses_current_class_provenance() {
     std::fs::remove_file(&jar_path_two).ok();
 
     assert!(
-        matches!(&err, VmError::JavaException { class_name } if class_name == "java/lang/ClassCastException"),
+        matches!(&err, crate::Error::JavaException { class_name } if class_name == "java/lang/ClassCastException"),
         "expected ClassCastException from loader-qualified checkcast, got {err:?}"
     );
 }
@@ -20521,7 +20521,7 @@ fn loader_qualified_catch_type_uses_current_class_provenance() {
     assert!(
         matches!(
             err,
-            VmError::JavaException { ref class_name } if class_name == &class_key_two
+            crate::Error::JavaException { ref class_name } if class_name == &class_key_two
         ),
         "expected uncaught JavaException from loader-two object, got {err:?}"
     );

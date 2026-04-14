@@ -3,48 +3,48 @@ fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
 }
 
 #[inline]
-fn extract_ref_arg(args: &[Slot], idx: usize) -> VmResult<u64> {
+fn extract_ref_arg(args: &[Slot], idx: usize) -> crate::Result<u64> {
     match args.get(idx) {
         Some(Slot::Reference(Some(r))) => Ok(*r),
-        _ => Err(VmError::NullPointerException),
+        _ => Err(crate::Error::NullPointerException),
     }
 }
 
 #[inline]
-fn extract_field_arg(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<Slot> {
+fn extract_field_arg(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> crate::Result<Slot> {
     Ok(heap.get(obj_ref)?.fields.get(idx).copied().unwrap_or(Slot::Reference(None)))
 }
 
 #[inline]
-fn extract_first_field_arg(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<Slot> {
+fn extract_first_field_arg(heap: &duke_gc::Heap, obj_ref: u64) -> crate::Result<Slot> {
     extract_field_arg(heap, obj_ref, 0)
 }
 
 #[inline]
-fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<i32> {
+fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> crate::Result<i32> {
     match heap.get(obj_ref)?.fields.first() {
         Some(Slot::Int(id)) => Ok(*id),
-        _ => Err(VmError::JavaException {
+        _ => Err(crate::Error::JavaException {
             class_name: "java/io/IOException".into(),
         }),
     }
 }
 
 #[inline]
-fn extract_io_fd_at(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<i32> {
+fn extract_io_fd_at(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> crate::Result<i32> {
     match heap.get(obj_ref)?.fields.get(idx) {
         Some(Slot::Int(id)) => Ok(*id),
-        _ => Err(VmError::JavaException {
+        _ => Err(crate::Error::JavaException {
             class_name: "java/io/IOException".into(),
         }),
     }
 }
 
 #[inline]
-fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
+fn extract_int_arg(args: &[Slot], idx: usize) -> crate::Result<i32> {
     match args.get(idx) {
         Some(Slot::Int(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Int",
             got: "other",
         }),
@@ -90,10 +90,10 @@ fn box_primitive_slot(slot: Slot, heap: &mut duke_gc::Heap) -> Slot {
 }
 
 #[inline]
-fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
+fn extract_long_arg(args: &[Slot], idx: usize) -> crate::Result<i64> {
     match args.get(idx) {
         Some(Slot::Long(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Long",
             got: "other",
         }),
@@ -101,10 +101,10 @@ fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
 }
 
 #[inline]
-fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
+fn extract_float_arg(args: &[Slot], idx: usize) -> crate::Result<f32> {
     match args.get(idx) {
         Some(Slot::Float(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Float",
             got: "other",
         }),
@@ -112,10 +112,10 @@ fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
 }
 
 #[inline]
-fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
+fn extract_double_arg(args: &[Slot], idx: usize) -> crate::Result<f64> {
     match args.get(idx) {
         Some(Slot::Double(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Double",
             got: "other",
         }),
@@ -127,7 +127,7 @@ macro_rules! extract_print_arg {
         match $args.get(1) {
             Some($pat) => $expr,
             _ => {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: $expected,
                     got: "other",
                 });
@@ -141,7 +141,7 @@ pub(crate) fn native_println_string(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let string_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         Some(Slot::Reference(None)) => {
@@ -149,7 +149,7 @@ pub(crate) fn native_println_string(
             return Ok(None);
         }
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -166,7 +166,7 @@ pub(crate) fn native_println_int(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Int(v) => *v, "Int");
     writeln!(out, "{val}").ok();
     Ok(None)
@@ -178,7 +178,7 @@ pub(crate) fn native_println_void(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     writeln!(out).ok();
     Ok(None)
 }
@@ -187,34 +187,34 @@ fn path_from_string_slot(
     args: &[Slot],
     idx: usize,
     heap: &duke_gc::Heap,
-) -> VmResult<std::path::PathBuf> {
+) -> crate::Result<std::path::PathBuf> {
     let path_ref = extract_ref_arg(args, idx)?;
     let path = heap
         .get(path_ref)?
         .string_value
         .clone()
-        .ok_or(VmError::NullPointerException)?;
+        .ok_or(crate::Error::NullPointerException)?;
     Ok(std::path::PathBuf::from(path))
 }
 
-fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> VmResult<String> {
+fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> crate::Result<String> {
     heap.get(string_ref)?
         .string_value
         .clone()
-        .ok_or(VmError::NullPointerException)
+        .ok_or(crate::Error::NullPointerException)
 }
 
-fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> VmResult<std::path::PathBuf> {
+fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> crate::Result<std::path::PathBuf> {
     let path_ref = match heap.get(file_ref)?.fields.first() {
         Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
+        _ => return Err(crate::Error::NullPointerException),
     };
     Ok(std::path::PathBuf::from(string_value_from_ref(
         heap, path_ref,
     )?))
 }
 
-fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<std::path::PathBuf> {
+fn file_path_from_this(args: &[Slot], heap: &duke_gc::Heap) -> crate::Result<std::path::PathBuf> {
     let this_ref = extract_ref_arg(args, 0)?;
     file_path_from_ref(this_ref, heap)
 }
@@ -223,7 +223,7 @@ fn archive_path_from_slot(
     heap: &duke_gc::Heap,
     archive_ref: u64,
     slot_idx: usize,
-) -> VmResult<Option<String>> {
+) -> crate::Result<Option<String>> {
     let Some(file_ref) = archive_ref_from_slot(heap, archive_ref, slot_idx)? else {
         return Ok(None);
     };
@@ -238,7 +238,7 @@ fn boot_archive_path_from_ref(
     registry: &ClassRegistry,
     heap: &duke_gc::Heap,
     archive_ref: u64,
-) -> VmResult<Option<String>> {
+) -> crate::Result<Option<String>> {
     let archive_class = heap.get(archive_ref)?.class_name.clone();
     match archive_class.as_str() {
         "org/springframework/boot/loader/launch/JarFileArchive" => {
@@ -257,7 +257,7 @@ fn launched_class_loader_archive_path(
     registry: &ClassRegistry,
     heap: &duke_gc::Heap,
     loader_ref: u64,
-) -> VmResult<Option<String>> {
+) -> crate::Result<Option<String>> {
     if heap.get(loader_ref)?.class_name
         != "org/springframework/boot/loader/launch/LaunchedClassLoader"
     {
@@ -278,11 +278,11 @@ fn archive_ref_from_slot(
     heap: &duke_gc::Heap,
     obj_ref: u64,
     slot_idx: usize,
-) -> VmResult<Option<u64>> {
+) -> crate::Result<Option<u64>> {
     match heap.get(obj_ref)?.fields.get(slot_idx).copied() {
         Some(Slot::Reference(Some(r))) => Ok(Some(r)),
         Some(Slot::Reference(None)) | None => Ok(None),
-        Some(_) => Err(VmError::TypeMismatch {
+        Some(_) => Err(crate::Error::TypeMismatch {
             expected: "Reference",
             got: "other",
         }),
@@ -294,12 +294,12 @@ pub(crate) fn native_file_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path_slot = extract_slot_arg(args, 1);
     let file_obj = heap.get_mut(this_ref)?;
     let Some(path_field) = file_obj.fields.first_mut() else {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     };
     *path_field = path_slot;
     Ok(None)
@@ -310,7 +310,7 @@ pub(crate) fn native_file_exists(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let path = file_path_from_this(args, heap)?;
     Ok(Some(Slot::Int(i32::from(path.exists()))))
 }
@@ -320,7 +320,7 @@ pub(crate) fn native_file_is_file(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let path = file_path_from_this(args, heap)?;
     Ok(Some(Slot::Int(i32::from(path.is_file()))))
 }
@@ -330,16 +330,16 @@ pub(crate) fn native_file_is_directory(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let path = file_path_from_this(args, heap)?;
     Ok(Some(Slot::Int(i32::from(path.is_dir()))))
 }
 
-fn file_stream_id_from_this(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i32> {
+fn file_stream_id_from_this(args: &[Slot], heap: &duke_gc::Heap) -> crate::Result<i32> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => Ok(*id),
-        _ => Err(VmError::JavaException {
+        _ => Err(crate::Error::JavaException {
             class_name: "java/io/IOException".to_string(),
         }),
     }
@@ -350,13 +350,13 @@ pub(crate) fn native_file_input_stream_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path = path_from_string_slot(args, 1, heap)?;
     let file_id = heap.open_host_input_file(&path)?;
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     };
     *fd_field = Slot::Int(file_id);
     Ok(None)
@@ -367,7 +367,7 @@ pub(crate) fn native_file_input_stream_read(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     Ok(Some(Slot::Int(heap.read_host_file_byte(file_id)?)))
 }
@@ -377,7 +377,7 @@ pub(crate) fn native_file_input_stream_read_bytes(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let array_ref = extract_ref_arg(args, 1)?;
     let len = heap.get(array_ref)?.fields.len();
@@ -407,13 +407,13 @@ pub(crate) fn native_file_input_stream_close(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let file_id = extract_io_fd(heap, this_ref)?;
     heap.close_host_file(file_id);
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     };
     *fd_field = Slot::Int(0);
     Ok(None)
@@ -424,13 +424,13 @@ pub(crate) fn native_file_output_stream_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path = path_from_string_slot(args, 1, heap)?;
     let file_id = heap.open_host_output_file(&path)?;
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     };
     *fd_field = Slot::Int(file_id);
     Ok(None)
@@ -441,7 +441,7 @@ pub(crate) fn native_file_output_stream_write(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let value = extract_int_arg(args, 1)?;
     heap.write_host_file_byte(file_id, value)?;
@@ -453,13 +453,13 @@ pub(crate) fn native_file_output_stream_write_bytes(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let array_ref = extract_ref_arg(args, 1)?;
     let bytes = heap.get(array_ref)?.fields.clone();
     for byte in bytes {
         let Slot::Int(value) = byte else {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Int",
                 got: "other",
             });
@@ -474,13 +474,13 @@ pub(crate) fn native_file_output_stream_close(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let file_id = extract_io_fd(heap, this_ref)?;
     heap.close_host_file(file_id);
     let stream_obj = heap.get_mut(this_ref)?;
     let Some(fd_field) = stream_obj.fields.first_mut() else {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     };
     *fd_field = Slot::Int(0);
     Ok(None)
@@ -494,7 +494,7 @@ pub(crate) fn native_server_socket_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let port = extract_int_arg(args, 1)?;
     let addr = format!("0.0.0.0:{port}");
@@ -502,7 +502,7 @@ pub(crate) fn native_server_socket_init(
     let actual_port = heap.server_socket_local_port(server_id)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.len() < 2 {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     }
     obj.fields[0] = Slot::Int(server_id);
     obj.fields[1] = Slot::Int(actual_port);
@@ -515,12 +515,12 @@ pub(crate) fn native_server_socket_accept(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let server_fd = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => *id,
         _ => {
-            return Err(VmError::JavaException {
+            return Err(crate::Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         }
@@ -539,11 +539,11 @@ pub(crate) fn native_server_socket_get_local_port(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(port)) => Ok(Some(Slot::Int(*port))),
-        _ => Err(VmError::JavaException {
+        _ => Err(crate::Error::JavaException {
             class_name: "java/io/IOException".into(),
         }),
     }
@@ -555,13 +555,13 @@ pub(crate) fn native_server_socket_close(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => *id,
         Some(Slot::Int(_)) => return Ok(None), // already closed — idempotent
         _ => {
-            return Err(VmError::JavaException {
+            return Err(crate::Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         }
@@ -579,20 +579,20 @@ pub(crate) fn native_socket_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let host_ref = extract_ref_arg(args, 1)?;
     let host = heap
         .get(host_ref)?
         .string_value
         .clone()
-        .ok_or(VmError::NullPointerException)?;
+        .ok_or(crate::Error::NullPointerException)?;
     let port = extract_int_arg(args, 2)?;
     let addr = format!("{host}:{port}");
     let (reader_id, writer_id) = heap.connect_socket(&addr)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.len() < 2 {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     }
     obj.fields[0] = Slot::Int(reader_id);
     obj.fields[1] = Slot::Int(writer_id);
@@ -605,12 +605,12 @@ pub(crate) fn native_socket_get_input_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd_read = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => *id,
         _ => {
-            return Err(VmError::JavaException {
+            return Err(crate::Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         }
@@ -626,12 +626,12 @@ pub(crate) fn native_socket_get_output_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd_write = match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(id)) if *id > 0 => *id,
         _ => {
-            return Err(VmError::JavaException {
+            return Err(crate::Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         }
@@ -647,7 +647,7 @@ pub(crate) fn native_socket_close(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd_read = extract_io_fd(heap, this_ref)?;
     let fd_write = extract_io_fd_at(heap, this_ref, 1)?;
@@ -667,14 +667,14 @@ pub(crate) fn native_zip_file_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path_ref = extract_ref_arg(args, 1)?;
     let path_str = heap
         .get(path_ref)?
         .string_value
         .as_deref()
-        .ok_or(VmError::NullPointerException)?
+        .ok_or(crate::Error::NullPointerException)?
         .to_string();
     let fd = heap.open_host_zip(std::path::Path::new(&path_str))?;
     let obj = heap.get_mut(this_ref)?;
@@ -688,7 +688,7 @@ pub(crate) fn native_jar_file_init_from_file(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let file_ref = extract_ref_arg(args, 1)?;
     let path = file_path_from_ref(file_ref, heap)?;
@@ -703,11 +703,11 @@ pub(crate) fn native_jar_file_init_with_mode_and_version(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let forwarded_args = match args {
         [this_slot, file_slot, ..] => [*this_slot, *file_slot],
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "this,file",
                 got: "other",
             });
@@ -721,7 +721,7 @@ pub(crate) fn native_jar_file_get_manifest(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = extract_io_fd(heap, this_ref)?;
     let Ok(manifest_bytes) = heap.zip_read_entry(fd, "META-INF/MANIFEST.MF") else {
@@ -736,7 +736,7 @@ pub(crate) fn native_boot_nested_jar_file_get_manifest(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_jar_file_get_manifest(args, heap, out, control)
 }
 
@@ -744,7 +744,7 @@ const BOOT_JAR_FILE_ARCHIVE_JAR_FILE_SLOT: usize = 1;
 const BOOT_EXPLODED_ARCHIVE_ROOT_DIRECTORY_SLOT: usize = 0;
 const BOOT_EXPLODED_ARCHIVE_MANIFEST_SLOT: usize = 2;
 
-fn allocate_manifest_from_bytes(heap: &mut duke_gc::Heap, bytes: &[u8]) -> VmResult<u64> {
+fn allocate_manifest_from_bytes(heap: &mut duke_gc::Heap, bytes: &[u8]) -> crate::Result<u64> {
     let raw_ref = heap.allocate_string(String::from_utf8_lossy(bytes).into_owned());
     let manifest_ref = heap.allocate("java/util/jar/Manifest".to_string(), 1);
     heap.get_mut(manifest_ref)?.fields[0] = Slot::Reference(Some(raw_ref));
@@ -756,7 +756,7 @@ pub(crate) fn native_boot_jar_file_archive_get_manifest(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let jar_file_ref = match heap
         .get(this_ref)?
@@ -765,9 +765,9 @@ pub(crate) fn native_boot_jar_file_archive_get_manifest(
         .copied()
     {
         Some(Slot::Reference(Some(jar_file_ref))) => jar_file_ref,
-        Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) | None => return Err(crate::Error::NullPointerException),
         Some(_) => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "reference",
                 got: "other",
             });
@@ -781,7 +781,7 @@ pub(crate) fn native_boot_archive_get_manifest(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.class_name.as_str() {
         "org/springframework/boot/loader/launch/JarFileArchive" => {
@@ -790,7 +790,7 @@ pub(crate) fn native_boot_archive_get_manifest(
         "org/springframework/boot/loader/launch/ExplodedArchive" => {
             native_boot_exploded_archive_get_manifest(args, heap, out, control)
         }
-        _ => Err(VmError::MethodNotFound {
+        _ => Err(crate::Error::MethodNotFound {
             name: format!("{}.getManifest", heap.get(this_ref)?.class_name),
             descriptor: "()Ljava/util/jar/Manifest;".to_string(),
         }),
@@ -802,7 +802,7 @@ pub(crate) fn native_boot_exploded_archive_get_manifest(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     if let Some(slot @ Slot::Reference(Some(_))) = heap
         .get(this_ref)?
@@ -820,9 +820,9 @@ pub(crate) fn native_boot_exploded_archive_get_manifest(
         .copied()
     {
         Some(Slot::Reference(Some(root_directory_ref))) => root_directory_ref,
-        Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) | None => return Err(crate::Error::NullPointerException),
         Some(_) => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "reference",
                 got: "other",
             });
@@ -835,7 +835,7 @@ pub(crate) fn native_boot_exploded_archive_get_manifest(
             return Ok(Some(Slot::Reference(None)));
         }
         Err(_) => {
-            return Err(VmError::JavaException {
+            return Err(crate::Error::JavaException {
                 class_name: "java/io/IOException".to_string(),
             });
         }
@@ -853,7 +853,7 @@ pub(crate) fn native_zip_file_get_entry(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
     let fd = extract_io_fd(heap, this_ref)?;
@@ -861,7 +861,7 @@ pub(crate) fn native_zip_file_get_entry(
         .get(name_ref)?
         .string_value
         .as_deref()
-        .ok_or(VmError::NullPointerException)?
+        .ok_or(crate::Error::NullPointerException)?
         .to_string();
     let info = heap.zip_get_entry_info(fd, &entry_name)?;
     let Some(info) = info else {
@@ -886,20 +886,20 @@ pub(crate) fn native_zip_file_get_input_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let entry_ref = extract_ref_arg(args, 1)?;
     let fd = extract_io_fd(heap, this_ref)?;
     // Get entry name from the ZipEntry object.
     let name_slot_ref = match heap.get(entry_ref)?.fields.first() {
         Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(VmError::NullPointerException),
+        _ => return Err(crate::Error::NullPointerException),
     };
     let entry_name = heap
         .get(name_slot_ref)?
         .string_value
         .as_deref()
-        .ok_or(VmError::NullPointerException)?
+        .ok_or(crate::Error::NullPointerException)?
         .to_string();
     // Decompress the entry and wrap in a ByteBuffer.
     let data = heap.zip_read_entry(fd, &entry_name)?;
@@ -916,7 +916,7 @@ pub(crate) fn native_zip_file_close(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(id)) => *id,
@@ -935,7 +935,7 @@ pub(crate) fn native_zip_file_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = extract_io_fd(heap, this_ref)?;
     let count = heap.zip_entry_count(fd)?;
@@ -948,7 +948,7 @@ pub(crate) fn native_zip_entry_get_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(heap.get(this_ref)?.fields[0]))
 }
@@ -959,7 +959,7 @@ pub(crate) fn native_zip_entry_get_compressed_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fields = &heap.get(this_ref)?.fields;
     let lo = match fields[1] {
@@ -980,7 +980,7 @@ pub(crate) fn native_zip_entry_get_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fields = &heap.get(this_ref)?.fields;
     let lo = match fields[3] {
@@ -1001,7 +1001,7 @@ pub(crate) fn native_zip_entry_get_method(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(heap.get(this_ref)?.fields[5]))
 }
@@ -1013,7 +1013,7 @@ pub(crate) fn native_string_length(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     let len = obj.string_value.as_ref().map_or(0, String::len);
@@ -1026,7 +1026,7 @@ pub(crate) fn native_string_equals(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let Ok(other_ref) = extract_ref_arg(args, 1) else {
         return Ok(Some(Slot::Int(0)));
@@ -1046,7 +1046,7 @@ pub(crate) fn native_string_char_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let index = extract_int_arg(args, 1)?;
     let obj = heap.get(this_ref)?;
@@ -1054,7 +1054,7 @@ pub(crate) fn native_string_char_at(
     let ch = s
         .chars()
         .nth(index as usize)
-        .ok_or(VmError::ArrayIndexOutOfBounds {
+        .ok_or(crate::Error::ArrayIndexOutOfBounds {
             index,
             length: s.len(),
         })?;
@@ -1067,7 +1067,7 @@ pub(crate) fn native_object_init(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let _ = extract_ref_arg(args, 0)?;
     Ok(None)
 }
@@ -1078,7 +1078,7 @@ pub(crate) fn native_object_get_class(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let class_name = heap.get(this_ref)?.class_name.clone();
     let class_ref = allocate_class_object(heap, &class_name)?;
@@ -1091,7 +1091,7 @@ pub(crate) fn native_object_equals(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let equal = extract_ref_arg(args, 1) == Ok(this_ref);
     Ok(Some(Slot::Int(i32::from(equal))))
@@ -1103,11 +1103,11 @@ pub(crate) fn native_object_hashcode(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         Some(Slot::Reference(Some(r))) => Ok(Some(Slot::Int(*r as i32))),
-        _ => Err(VmError::NullPointerException),
+        _ => Err(crate::Error::NullPointerException),
     }
 }
 
@@ -1118,7 +1118,7 @@ pub(crate) fn native_object_tostring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap_object_to_string(heap.get(this_ref)?, this_ref);
     let r = heap.allocate_string(s);
@@ -1131,7 +1131,7 @@ pub(crate) fn native_object_clone(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     let cloned_class = obj.class_name.clone();
@@ -1157,7 +1157,7 @@ pub(crate) fn native_throwable_add_suppressed(
     _heap: &mut duke_gc::Heap,
     _stdout: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(None)
 }
 
@@ -1167,7 +1167,7 @@ pub(crate) fn native_throwable_init_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let msg = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
@@ -1183,7 +1183,7 @@ pub(crate) fn native_throwable_init_string_cause(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let msg = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
@@ -1207,7 +1207,7 @@ pub(crate) fn native_throwable_get_cause(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
             let cause = extract_first_field_arg(heap, *r)?;
@@ -1224,7 +1224,7 @@ pub(crate) fn native_throwable_get_message(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
             let msg = heap.get(*r)?.string_value.clone();
@@ -1243,7 +1243,7 @@ pub(crate) fn native_throwable_tostring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     let class_name = obj.class_name.replace('/', ".");
@@ -1264,7 +1264,7 @@ fn make_list_from_slots(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(list_ref))], heap, out, control)?;
     for &elem in elems {
@@ -1281,7 +1281,7 @@ pub(crate) fn native_list_of(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Varargs form: single arg that is an Object[] array.
     let elems: Vec<Slot> = if args.len() == 1 {
         if let Some(Slot::Reference(Some(arr_ref))) = args.first() {
@@ -1309,7 +1309,7 @@ fn make_set_from_slots(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
     native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
     for &elem in elems {
@@ -1327,7 +1327,7 @@ pub(crate) fn native_set_of_factory(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let elems: Vec<Slot> = if args.len() == 1 {
         if let Some(Slot::Reference(Some(arr_ref))) = args.first() {
             let obj = heap.get(*arr_ref)?;
@@ -1354,7 +1354,7 @@ pub(crate) fn native_map_of(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
     native_hashmap_init(&[Slot::Reference(Some(map_ref))], heap, out, control)?;
     let mut i = 0;
@@ -1375,7 +1375,7 @@ pub(crate) fn native_optional_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("java/util/Optional".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Reference(None);
     Ok(Some(Slot::Reference(Some(r))))
@@ -1387,10 +1387,10 @@ pub(crate) fn native_optional_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_slot_arg(args, 0);
     if matches!(val, Slot::Reference(None)) {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     }
     let r = heap.allocate("java/util/Optional".to_string(), 1);
     heap.get_mut(r)?.fields[0] = val;
@@ -1403,7 +1403,7 @@ pub(crate) fn native_optional_of_nullable(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_slot_arg(args, 0);
     let r = heap.allocate("java/util/Optional".to_string(), 1);
     heap.get_mut(r)?.fields[0] = val;
@@ -1416,11 +1416,11 @@ pub(crate) fn native_optional_get(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_first_field_arg(heap, this_ref)?;
     if matches!(val, Slot::Reference(None)) {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -1434,7 +1434,7 @@ pub(crate) fn native_optional_is_present(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let present = !matches!(
         heap.get(this_ref)?.fields.first(),
@@ -1450,7 +1450,7 @@ pub(crate) fn native_optional_is_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let empty = matches!(
         heap.get(this_ref)?.fields.first(),
@@ -1466,7 +1466,7 @@ pub(crate) fn native_optional_or_else(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_first_field_arg(heap, this_ref)?;
     let result = if matches!(val, Slot::Reference(None)) {
@@ -1483,7 +1483,7 @@ pub(crate) fn native_optional_or_else_throw(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_optional_get(args, heap, out, control)
 }
 
@@ -1495,7 +1495,7 @@ pub(crate) fn native_arraylist_add_all(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let src_ref = extract_ref_arg(args, 1)?;
     let src_size = match heap.get(src_ref)?.fields.first() {
@@ -1516,7 +1516,7 @@ pub(crate) fn native_hashmap_put_all(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let src_ref = extract_ref_arg(args, 1)?;
     let fields = heap.get(src_ref)?.fields.clone();
@@ -1538,7 +1538,7 @@ pub(crate) fn native_hashmap_compute_if_absent(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     // Check if key already present.
@@ -1581,7 +1581,7 @@ pub(crate) fn native_linked_list_init(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_init(args, heap, out, control)
 }
 
@@ -1591,7 +1591,7 @@ pub(crate) fn native_linked_list_init_collection(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let src_ref = extract_ref_arg(args, 1)?;
     let src_size = match heap.get(src_ref)?.fields.first() {
@@ -1613,7 +1613,7 @@ pub(crate) fn native_linked_list_size(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_size(args, heap, out, control)
 }
 
@@ -1623,7 +1623,7 @@ pub(crate) fn native_linked_list_add(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_add(args, heap, out, control)
 }
 
@@ -1633,7 +1633,7 @@ pub(crate) fn native_linked_list_get(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_get(args, heap, out, control)
 }
 
@@ -1644,7 +1644,7 @@ pub(crate) fn native_linked_list_add_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
@@ -1664,7 +1664,7 @@ pub(crate) fn native_linked_list_add_last(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_add(args, heap, out, control)?;
     Ok(None)
 }
@@ -1675,7 +1675,7 @@ pub(crate) fn native_linked_list_peek_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => *n,
@@ -1693,7 +1693,7 @@ pub(crate) fn native_linked_list_peek_last(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -1711,14 +1711,14 @@ pub(crate) fn native_linked_list_remove_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -1734,14 +1734,14 @@ pub(crate) fn native_linked_list_remove_last(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -1757,7 +1757,7 @@ pub(crate) fn native_linked_list_poll(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -1778,7 +1778,7 @@ pub(crate) fn native_linked_list_offer(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_add(args, heap, out, control)
 }
 
@@ -1788,7 +1788,7 @@ pub(crate) fn native_linked_list_is_empty(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_is_empty(args, heap, out, control)
 }
 
@@ -1798,7 +1798,7 @@ pub(crate) fn native_linked_list_iterator(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_iterator(args, heap, out, control)
 }
 
@@ -1811,7 +1811,7 @@ pub(crate) fn native_hashmap_for_each(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let consumer_ref = extract_ref_arg(args, 1)?;
     let size = match heap.get(this_ref)?.fields.first() {
@@ -1855,7 +1855,7 @@ pub(crate) fn native_hashmap_replace_all(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fn_ref = extract_ref_arg(args, 1)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -1950,7 +1950,7 @@ pub(crate) fn native_treemap_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
     Ok(None)
@@ -1962,7 +1962,7 @@ pub(crate) fn native_treemap_put(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let val = extract_slot_arg(args, 2);
@@ -2003,7 +2003,7 @@ pub(crate) fn native_treemap_get(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
@@ -2026,7 +2026,7 @@ pub(crate) fn native_treemap_contains_key(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let found = !matches!(
         native_treemap_get(args, heap, out, control)?,
         Some(Slot::Reference(None)) | None
@@ -2040,7 +2040,7 @@ pub(crate) fn native_treemap_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => Slot::Int(*n),
@@ -2054,14 +2054,14 @@ pub(crate) fn native_treemap_first_key(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => *n,
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -2074,14 +2074,14 @@ pub(crate) fn native_treemap_last_key(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -2094,7 +2094,7 @@ pub(crate) fn native_treemap_remove(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
@@ -2120,7 +2120,7 @@ pub(crate) fn native_treemap_is_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(Slot::Int(match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(0)) | None => 1,
@@ -2134,7 +2134,7 @@ pub(crate) fn native_treemap_head_map(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let to_key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
@@ -2163,7 +2163,7 @@ pub(crate) fn native_treemap_tail_map(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let from_key = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
@@ -2194,7 +2194,7 @@ pub(crate) fn native_stack_init(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_init(args, heap, out, control)
 }
 
@@ -2204,7 +2204,7 @@ pub(crate) fn native_stack_push(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let elem = extract_slot_arg(args, 1);
     native_arraylist_add(args, heap, out, control)?;
     Ok(Some(elem))
@@ -2216,7 +2216,7 @@ pub(crate) fn native_stack_pop(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_linked_list_remove_last(args, heap, out, control)
 }
 
@@ -2226,7 +2226,7 @@ pub(crate) fn native_stack_peek(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_linked_list_peek_last(args, heap, out, control)
 }
 
@@ -2236,7 +2236,7 @@ pub(crate) fn native_stack_empty(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_is_empty(args, heap, out, control)
 }
 
@@ -2246,7 +2246,7 @@ pub(crate) fn native_stack_size(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_size(args, heap, out, control)
 }
 
@@ -2259,7 +2259,7 @@ pub(crate) fn native_treeset_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
     Ok(None)
@@ -2318,7 +2318,7 @@ pub(crate) fn native_treeset_add(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let elem_key = treeset_slot_sort_key(elem, heap);
@@ -2361,7 +2361,7 @@ pub(crate) fn native_treeset_contains(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let elem_str = match &elem {
@@ -2393,7 +2393,7 @@ pub(crate) fn native_treeset_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => Slot::Int(*n),
@@ -2407,10 +2407,10 @@ pub(crate) fn native_treeset_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first().copied() {
-        Some(Slot::Int(0)) | None => Err(VmError::JavaException {
+        Some(Slot::Int(0)) | None => Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         }),
         _ => Ok(Some(heap.get(this_ref)?.fields[1])),
@@ -2423,14 +2423,14 @@ pub(crate) fn native_treeset_last(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -2443,7 +2443,7 @@ pub(crate) fn native_treeset_is_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(Slot::Int(match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(0)) | None => 1,
@@ -2457,7 +2457,7 @@ pub(crate) fn native_treeset_iterator(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_iterator(args, heap, out, control)
 }
 
@@ -2470,14 +2470,14 @@ pub(crate) fn native_collections_min(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let coll_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(coll_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -2515,14 +2515,14 @@ pub(crate) fn native_collections_max(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let coll_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(coll_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -2560,7 +2560,7 @@ pub(crate) fn native_collections_shuffle(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(None)
 }
 
@@ -2571,7 +2571,7 @@ pub(crate) fn native_collections_shuffle_random(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(None)
 }
 
@@ -2581,7 +2581,7 @@ pub(crate) fn native_collections_fill(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let value = extract_slot_arg(args, 1);
     let size = match heap.get(list_ref)?.fields.first() {
@@ -2603,7 +2603,7 @@ pub(crate) fn native_stream_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let elems: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
     let n = i32::try_from(elems.len()).unwrap_or(0);
@@ -2621,7 +2621,7 @@ pub(crate) fn native_arraylist_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(list_ref)?.fields.first() {
         Some(Slot::Int(n)) => *n,
@@ -2644,7 +2644,7 @@ pub(crate) fn native_stream_count(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let n = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => i64::from(*n),
@@ -2660,7 +2660,7 @@ pub(crate) fn native_stream_filter(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -2702,7 +2702,7 @@ pub(crate) fn native_stream_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -2744,7 +2744,7 @@ pub(crate) fn native_stream_for_each(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
@@ -2777,7 +2777,7 @@ pub(crate) fn native_stream_collect(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => *n,
@@ -2917,10 +2917,10 @@ pub(crate) fn native_stream_collect(
         let key_fn = extract_first_field_arg(heap, collector_ref)?;
         let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let Slot::Reference(Some(val_ref)) = val_fn else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let key_class = heap.get(key_ref)?.class_name.clone();
         let val_class = heap.get(val_ref)?.class_name.clone();
@@ -2965,10 +2965,10 @@ pub(crate) fn native_stream_collect(
         let key_fn = extract_first_field_arg(heap, collector_ref)?;
         let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let Slot::Reference(Some(val_ref)) = val_fn else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let key_class = heap.get(key_ref)?.class_name.clone();
         let val_class = heap.get(val_ref)?.class_name.clone();
@@ -3013,13 +3013,13 @@ pub(crate) fn native_stream_collect(
         let val_fn = extract_field_arg(heap, collector_ref, 1)?;
         let merge_fn = extract_field_arg(heap, collector_ref, 2)?;
         let Slot::Reference(Some(key_ref)) = key_fn else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let Slot::Reference(Some(val_ref)) = val_fn else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let Slot::Reference(Some(merge_ref)) = merge_fn else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let key_class = heap.get(key_ref)?.class_name.clone();
         let val_class = heap.get(val_ref)?.class_name.clone();
@@ -3078,7 +3078,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let pred_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(pred_ref)) = pred_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let pred_class = heap.get(pred_ref)?.class_name.clone();
         // Create two lists and the result map.
@@ -3130,7 +3130,7 @@ pub(crate) fn native_stream_collect(
         let pred_slot = extract_first_field_arg(heap, collector_ref)?;
         let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(pred_ref)) = pred_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let pred_class = heap.get(pred_ref)?.class_name.clone();
         let mut true_elems: Vec<Slot> = Vec::new();
@@ -3154,7 +3154,7 @@ pub(crate) fn native_stream_collect(
         let apply_downstream = |elems_sub: Vec<Slot>,
                                 heap: &mut duke_gc::Heap,
                                 downstream: Slot|
-         -> VmResult<Option<Slot>> {
+         -> crate::Result<Option<Slot>> {
             let n = elems_sub.len();
             let downstream_class = match downstream {
                 Slot::Reference(Some(r)) => heap.get(r)?.class_name.clone(),
@@ -3214,7 +3214,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         let mut sum = 0_i32;
@@ -3240,7 +3240,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         let mut sum = 0_i64;
@@ -3274,7 +3274,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         let mut sum = 0_i64;
@@ -3317,7 +3317,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         let mut sum = 0_i64;
@@ -3345,7 +3345,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         let mut sum = 0.0_f64;
@@ -3387,7 +3387,7 @@ pub(crate) fn native_stream_collect(
         let mapper_slot = extract_first_field_arg(heap, collector_ref)?;
         let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let mapper_class = heap.get(mapper_ref)?.class_name.clone();
         // Map each element through the mapper function
@@ -3420,7 +3420,7 @@ pub(crate) fn native_stream_collect(
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let downstream_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         // First pass: group raw elements by key into HashMap<key, ArrayList<elem>>
@@ -3592,7 +3592,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         let mut sum = 0.0_f64;
@@ -3620,7 +3620,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let fn_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
         let mut sum = 0_i64;
@@ -3660,7 +3660,7 @@ pub(crate) fn native_stream_collect(
         let collector_ref = extract_ref_arg(args, 1)?;
         let op_slot = extract_first_field_arg(heap, collector_ref)?;
         let Slot::Reference(Some(bop_ref)) = op_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let op_class = heap.get(bop_ref)?.class_name.clone();
         let result = if elems.is_empty() {
@@ -3689,7 +3689,7 @@ pub(crate) fn native_stream_collect(
         let identity_slot = extract_first_field_arg(heap, collector_ref)?;
         let op_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(bop_ref)) = op_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let op_class = heap.get(bop_ref)?.class_name.clone();
         let mut acc = identity_slot;
@@ -3713,10 +3713,10 @@ pub(crate) fn native_stream_collect(
         let mapper_slot = extract_field_arg(heap, collector_ref, 1)?;
         let op_slot = extract_field_arg(heap, collector_ref, 2)?;
         let Slot::Reference(Some(mapper_ref)) = mapper_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let Slot::Reference(Some(bop_ref)) = op_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let mapper_class = heap.get(mapper_ref)?.class_name.clone();
         let op_class = heap.get(bop_ref)?.class_name.clone();
@@ -3750,7 +3750,7 @@ pub(crate) fn native_stream_collect(
         let downstream_slot = extract_first_field_arg(heap, collector_ref)?;
         let finisher_slot = extract_field_arg(heap, collector_ref, 1)?;
         let Slot::Reference(Some(finisher_ref)) = finisher_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         let finisher_class = heap.get(finisher_ref)?.class_name.clone();
         // First collect with downstream
@@ -3792,7 +3792,7 @@ pub(crate) fn native_stream_distinct(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -3821,7 +3821,7 @@ pub(crate) fn native_stream_sorted(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -3871,7 +3871,7 @@ pub(crate) fn native_stream_any_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -3906,7 +3906,7 @@ pub(crate) fn native_stream_all_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -3941,7 +3941,7 @@ pub(crate) fn native_stream_none_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -3976,7 +3976,7 @@ pub(crate) fn native_stream_find_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -3999,7 +3999,7 @@ pub(crate) fn native_stream_reduce(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let op_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(op_ref)) = op_slot else {
@@ -4041,7 +4041,7 @@ pub(crate) fn native_stream_reduce_with_identity(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let identity = extract_slot_arg(args, 1);
     let fn_slot = extract_slot_arg(args, 2);
@@ -4098,7 +4098,7 @@ pub(crate) fn native_stream_to_list(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_stream_collect(args, heap, out, control, ops)
 }
 
@@ -4127,7 +4127,7 @@ pub(crate) fn native_collectors_joining(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let delim = match args.first() {
         Some(Slot::Reference(Some(r))) => heap
             .get(*r)
@@ -4147,7 +4147,7 @@ pub(crate) fn native_collectors_joining_no_arg(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let collector_ref = make_joining_collector(heap, "", "", "");
     Ok(Some(Slot::Reference(Some(collector_ref))))
 }
@@ -4159,7 +4159,7 @@ pub(crate) fn native_collectors_joining_full(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let read_str = |heap: &duke_gc::Heap, idx: usize| -> String {
         match args.get(idx) {
             Some(Slot::Reference(Some(r))) => heap
@@ -4184,7 +4184,7 @@ pub(crate) fn native_collectors_to_list(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let collector_ref = heap.allocate("duke/util/ToListCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(collector_ref))))
 }
@@ -4196,7 +4196,7 @@ pub(crate) fn native_collectors_counting(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/CountingCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -4209,7 +4209,7 @@ pub(crate) fn native_collectors_grouping_by(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/GroupingByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -4223,7 +4223,7 @@ pub(crate) fn native_stream_peek(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
@@ -4260,7 +4260,7 @@ pub(crate) fn native_stream_to_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -4286,7 +4286,7 @@ pub(crate) fn native_stream_limit(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let max_size = match args.get(1).copied() {
         Some(Slot::Long(n)) => usize::try_from(n.max(0)).unwrap_or(0),
@@ -4367,7 +4367,7 @@ pub(crate) fn native_stream_skip(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let skip_n = match args.get(1).copied() {
         Some(Slot::Long(n)) => usize::try_from(n.max(0)).unwrap_or(0),
@@ -4396,7 +4396,7 @@ pub(crate) fn native_stream_flat_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -4496,7 +4496,7 @@ pub(crate) fn native_int_stream_range(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let start = match args.first().copied() {
         Some(Slot::Int(n)) => n,
         _ => 0,
@@ -4516,7 +4516,7 @@ pub(crate) fn native_int_stream_range_closed(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let start = match args.first().copied() {
         Some(Slot::Int(n)) => n,
         _ => 0,
@@ -4536,7 +4536,7 @@ pub(crate) fn native_int_stream_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // args[0] is the int[] array ref
     let arr_ref = extract_ref_arg(args, 0)?;
     let values: Vec<i32> = heap
@@ -4555,7 +4555,7 @@ pub(crate) fn native_int_stream_iterate(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     const MAX: usize = 4096;
     let seed = match args.first().copied() {
         Some(Slot::Int(n)) => n,
@@ -4598,7 +4598,7 @@ pub(crate) fn native_int_stream_count(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match heap.get(r)?.fields.first() {
         Some(Slot::Int(n)) => i64::from(*n),
@@ -4614,7 +4614,7 @@ pub(crate) fn native_int_stream_sum(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let sum: i32 = int_stream_elems(heap, r)
         .iter()
@@ -4629,7 +4629,7 @@ pub(crate) fn native_int_stream_min(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
     // OptionalInt: fields[0]=Int(value), fields[1]=Int(1=present/0=empty)
@@ -4649,7 +4649,7 @@ pub(crate) fn native_int_stream_max(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
     let opt_ref = heap.allocate("duke/util/OptionalInt".to_string(), 2);
@@ -4668,7 +4668,7 @@ pub(crate) fn native_int_stream_average(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
     // OptionalDouble: fields[0]=Double(value), fields[1]=Int(1=present/0=empty)
@@ -4691,7 +4691,7 @@ pub(crate) fn native_int_stream_to_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
     let arr_ref = heap.allocate("[I".to_string(), elems.len());
@@ -4708,7 +4708,7 @@ pub(crate) fn native_int_stream_filter(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -4740,7 +4740,7 @@ pub(crate) fn native_int_stream_peek(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let elems = int_stream_elems(heap, r);
@@ -4767,7 +4767,7 @@ pub(crate) fn native_int_stream_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -4800,7 +4800,7 @@ pub(crate) fn native_int_stream_for_each(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
@@ -4827,7 +4827,7 @@ pub(crate) fn native_int_stream_boxed(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
     let n = i32::try_from(elems.len()).unwrap_or(0);
@@ -4850,7 +4850,7 @@ pub(crate) fn native_int_stream_map_to_obj(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -4886,7 +4886,7 @@ pub(crate) fn native_int_stream_distinct(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
     let mut seen: Vec<i32> = Vec::new();
@@ -4904,7 +4904,7 @@ pub(crate) fn native_string_init_copy(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let src_val = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
@@ -4920,7 +4920,7 @@ pub(crate) fn native_optional_int_get_as_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let v = match heap.get(r)?.fields.first().copied() {
         Some(Slot::Int(n)) => n,
@@ -4936,7 +4936,7 @@ pub(crate) fn native_optional_int_is_present(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     Ok(Some(Slot::Int(i32::from(present))))
@@ -4948,7 +4948,7 @@ pub(crate) fn native_optional_int_or_else(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if present {
@@ -4966,7 +4966,7 @@ pub(crate) fn native_optional_int_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let value = args.first().copied().unwrap_or(Slot::Int(0));
     let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
     heap.get_mut(r)?.fields[0] = value;
@@ -4981,7 +4981,7 @@ pub(crate) fn native_optional_int_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/OptionalInt".to_string(), 2);
     heap.get_mut(r)?.fields[0] = Slot::Int(0);
     heap.get_mut(r)?.fields[1] = Slot::Int(0); // present = false
@@ -4994,7 +4994,7 @@ pub(crate) fn native_optional_long_or_else(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if present {
@@ -5016,7 +5016,7 @@ pub(crate) fn native_optional_double_or_else(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if present {
@@ -5038,7 +5038,7 @@ pub(crate) fn native_optional_double_get_as_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let v = match heap.get(r)?.fields.first().copied() {
         Some(Slot::Double(d)) => d,
@@ -5056,7 +5056,7 @@ pub(crate) fn native_arraydeque_init(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_init(args, heap, out, control)
 }
 
@@ -5066,7 +5066,7 @@ pub(crate) fn native_arraydeque_push(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
@@ -5085,14 +5085,14 @@ pub(crate) fn native_arraydeque_pop(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     if size == 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
         });
     }
@@ -5108,7 +5108,7 @@ pub(crate) fn native_arraydeque_offer(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_add(args, heap, out, control)?;
     Ok(Some(Slot::Int(1))) // always succeeds
 }
@@ -5119,7 +5119,7 @@ pub(crate) fn native_arraydeque_add(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_add(args, heap, out, control)?;
     Ok(Some(Slot::Int(1)))
 }
@@ -5130,7 +5130,7 @@ pub(crate) fn native_arraydeque_poll(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -5151,7 +5151,7 @@ pub(crate) fn native_arraydeque_peek(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -5169,7 +5169,7 @@ pub(crate) fn native_arraydeque_size(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_size(args, heap, out, control)
 }
 
@@ -5179,7 +5179,7 @@ pub(crate) fn native_arraydeque_is_empty(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_is_empty(args, heap, out, control)
 }
 
@@ -5192,7 +5192,7 @@ pub(crate) fn native_priorityqueue_init(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_init(args, heap, out, control)
 }
 
@@ -5203,7 +5203,7 @@ pub(crate) fn native_priorityqueue_offer(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     // Append, then sift up.
@@ -5256,7 +5256,7 @@ pub(crate) fn native_priorityqueue_add(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_priorityqueue_offer(args, heap, out, control, ops)
 }
 
@@ -5267,7 +5267,7 @@ pub(crate) fn native_priorityqueue_peek(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -5286,7 +5286,7 @@ pub(crate) fn native_priorityqueue_poll(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -5379,7 +5379,7 @@ pub(crate) fn native_priorityqueue_size(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_size(args, heap, out, control)
 }
 
@@ -5389,7 +5389,7 @@ pub(crate) fn native_priorityqueue_is_empty(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_is_empty(args, heap, out, control)
 }
 
@@ -5402,7 +5402,7 @@ pub(crate) fn native_comparator_natural_order(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/NaturalOrderComparator".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -5414,7 +5414,7 @@ pub(crate) fn native_comparator_reverse_order(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/ReverseOrderComparator".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -5426,7 +5426,7 @@ pub(crate) fn native_natural_order_compare(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // args: [this, o1, o2]
     let o1 = extract_slot_arg(args, 1);
     let o2 = extract_slot_arg(args, 2);
@@ -5453,7 +5453,7 @@ pub(crate) fn native_reverse_order_compare(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let result = native_natural_order_compare(args, heap, out, control, ops)?;
     Ok(Some(match result {
         Some(Slot::Int(v)) => Slot::Int(-v),
@@ -5468,7 +5468,7 @@ pub(crate) fn native_comparator_comparing_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_ref = extract_ref_arg(args, 0)?;
     let r = heap.allocate("duke/util/ComparingIntComparator".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Reference(Some(fn_ref));
@@ -5482,7 +5482,7 @@ pub(crate) fn native_comparing_int_compare(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -5526,7 +5526,7 @@ pub(crate) fn native_collections_sort_with_comparator(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let comparator = extract_slot_arg(args, 1);
     let class_name = heap.get(list_ref)?.class_name.clone();
@@ -5548,7 +5548,7 @@ pub(crate) fn native_enum_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let name_slot = extract_slot_arg(args, 1);
     let ordinal = match args.get(2) {
@@ -5569,7 +5569,7 @@ pub(crate) fn native_enum_ordinal(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.get(1) {
@@ -5584,7 +5584,7 @@ pub(crate) fn native_enum_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.first() {
@@ -5601,7 +5601,7 @@ pub(crate) fn native_enum_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
     let target_name = heap.get(name_ref)?.string_value.clone().unwrap_or_default();
@@ -5624,7 +5624,7 @@ pub(crate) fn native_enum_valueof(
         }
     }
 
-    Err(VmError::JavaException {
+    Err(crate::Error::JavaException {
         class_name: "java/lang/IllegalArgumentException".to_string(),
     })
 }
@@ -5638,7 +5638,7 @@ pub(crate) fn native_class_get_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     let name_ref = heap.allocate_string(internal_name_to_binary_name(&internal_name));
@@ -5650,7 +5650,7 @@ pub(crate) fn native_class_get_package_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     let package_name = if internal_name.starts_with('[') {
@@ -5670,7 +5670,7 @@ pub(crate) fn native_class_desired_assertion_status(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let _ = extract_ref_arg(args, 0)?;
     Ok(Some(Slot::Int(0)))
 }
@@ -5681,7 +5681,7 @@ pub(crate) fn native_false_boolean(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(Some(Slot::Int(0)))
 }
 
@@ -5691,7 +5691,7 @@ pub(crate) fn native_zero_long(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(Some(Slot::Long(0)))
 }
 
@@ -5701,7 +5701,7 @@ pub(crate) fn native_void_noop(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(None)
 }
 
@@ -5711,13 +5711,13 @@ pub(crate) fn native_class_for_name(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let name_ref = extract_ref_arg(args, 0)?;
     let binary_name = heap
         .get(name_ref)?
         .string_value
         .clone()
-        .ok_or(VmError::NullPointerException)?;
+        .ok_or(crate::Error::NullPointerException)?;
     let internal_name = binary_name_to_internal_name(&binary_name);
     match ops.ensure_loaded(&internal_name) {
         Ok(()) => {
@@ -5725,7 +5725,7 @@ pub(crate) fn native_class_for_name(
             let class_ref = allocate_class_object(heap, &class_key)?;
             Ok(Some(Slot::Reference(Some(class_ref))))
         }
-        Err(VmError::ClassNotFound { .. }) => Err(VmError::JavaException {
+        Err(crate::Error::ClassNotFound { .. }) => Err(crate::Error::JavaException {
             class_name: "java/lang/ClassNotFoundException".to_string(),
         }),
         Err(err) => Err(err),
@@ -5738,13 +5738,13 @@ pub(crate) fn native_class_for_name_with_loader(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let name_ref = extract_ref_arg(args, 0)?;
     let binary_name = heap
         .get(name_ref)?
         .string_value
         .clone()
-        .ok_or(VmError::NullPointerException)?;
+        .ok_or(crate::Error::NullPointerException)?;
     let internal_name = binary_name_to_internal_name(&binary_name);
     let (load_result, class_key) = match args.get(2) {
         Some(Slot::Reference(Some(loader_ref))) => (
@@ -5756,7 +5756,7 @@ pub(crate) fn native_class_for_name_with_loader(
             ops.class_key_for_loaded_class(&internal_name)?,
         ),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -5767,7 +5767,7 @@ pub(crate) fn native_class_for_name_with_loader(
             let class_ref = allocate_class_object(heap, &class_key)?;
             Ok(Some(Slot::Reference(Some(class_ref))))
         }
-        Err(VmError::ClassNotFound { .. }) => Err(VmError::JavaException {
+        Err(crate::Error::ClassNotFound { .. }) => Err(crate::Error::JavaException {
             class_name: "java/lang/ClassNotFoundException".to_string(),
         }),
         Err(err) => Err(err),
@@ -5780,7 +5780,7 @@ pub(crate) fn native_class_get_class_loader(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     Ok(Some(Slot::Reference(
@@ -5794,7 +5794,7 @@ pub(crate) fn native_class_loader_register_as_parallel_capable(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(Some(Slot::Int(1)))
 }
 
@@ -5802,24 +5802,24 @@ fn allocate_string_backed_object(
     heap: &mut duke_gc::Heap,
     class_name: &str,
     value: String,
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     let obj_ref = heap.allocate(class_name.to_string(), 1);
     let value_ref = heap.allocate_string(value);
     heap.get_mut(obj_ref)?.fields[0] = Slot::Reference(Some(value_ref));
     Ok(obj_ref)
 }
 
-fn first_reference_field(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<Option<u64>> {
+fn first_reference_field(heap: &duke_gc::Heap, obj_ref: u64) -> crate::Result<Option<u64>> {
     match heap.get(obj_ref)?.fields.first() {
         Some(Slot::Reference(Some(r))) => Ok(Some(*r)),
         Some(Slot::Reference(None)) => Ok(None),
-        _ => Err(VmError::NullPointerException),
+        _ => Err(crate::Error::NullPointerException),
     }
 }
 
-fn string_backed_object_value(heap: &duke_gc::Heap, obj_ref: u64) -> VmResult<String> {
+fn string_backed_object_value(heap: &duke_gc::Heap, obj_ref: u64) -> crate::Result<String> {
     let Some(value_ref) = first_reference_field(heap, obj_ref)? else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     string_value_from_ref(heap, value_ref)
 }
@@ -5868,9 +5868,9 @@ fn percent_decode(input: &str) -> String {
     out
 }
 
-fn file_url_to_path(url: &str) -> VmResult<std::path::PathBuf> {
+fn file_url_to_path(url: &str) -> crate::Result<std::path::PathBuf> {
     let Some(rest) = url.strip_prefix("file://") else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalArgumentException".to_string(),
         });
     };
@@ -5889,7 +5889,7 @@ pub(crate) fn native_class_get_protection_domain(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let pd_ref = heap.allocate("java/security/ProtectionDomain".to_string(), 1);
@@ -5914,11 +5914,11 @@ pub(crate) fn native_protection_domain_get_code_source(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(slot @ Slot::Reference(_)) => Ok(Some(*slot)),
-        _ => Err(VmError::NullPointerException),
+        _ => Err(crate::Error::NullPointerException),
     }
 }
 
@@ -5927,11 +5927,11 @@ pub(crate) fn native_code_source_get_location(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(slot @ Slot::Reference(_)) => Ok(Some(*slot)),
-        _ => Err(VmError::NullPointerException),
+        _ => Err(crate::Error::NullPointerException),
     }
 }
 
@@ -5940,7 +5940,7 @@ pub(crate) fn native_url_to_uri(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let spec = string_backed_object_value(heap, this_ref)?;
     let uri_ref = allocate_string_backed_object(heap, "java/net/URI", spec)?;
@@ -5953,7 +5953,7 @@ pub(crate) fn native_url_set_url_stream_handler_factory(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(None)
 }
 
@@ -5962,7 +5962,7 @@ pub(crate) fn native_path_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let uri_ref = extract_ref_arg(args, 0)?;
     let uri = string_backed_object_value(heap, uri_ref)?;
     let path = file_url_to_path(&uri)?;
@@ -5979,14 +5979,14 @@ pub(crate) fn native_path_to_file(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path_slot = heap
         .get(this_ref)?
         .fields
         .first()
         .copied()
-        .ok_or(VmError::NullPointerException)?;
+        .ok_or(crate::Error::NullPointerException)?;
     let file_ref = heap.allocate("java/io/File".to_string(), 1);
     heap.get_mut(file_ref)?.fields[0] = path_slot;
     Ok(Some(Slot::Reference(Some(file_ref))))
@@ -5997,7 +5997,7 @@ pub(crate) fn native_paths_get(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let first_ref = extract_ref_arg(args, 0)?;
     let mut path = std::path::PathBuf::from(string_value_from_ref(heap, first_ref)?);
     let more_slot = extract_slot_arg(args, 1);
@@ -6006,14 +6006,14 @@ pub(crate) fn native_paths_get(
             let segments = heap.get(array_ref)?.fields.clone();
             for segment in segments {
                 let Slot::Reference(Some(segment_ref)) = segment else {
-                    return Err(VmError::NullPointerException);
+                    return Err(crate::Error::NullPointerException);
                 };
                 path.push(string_value_from_ref(heap, segment_ref)?);
             }
         }
         Slot::Reference(None) => {}
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -6033,7 +6033,7 @@ pub(crate) fn native_posix_file_permissions_as_file_attribute(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let attribute_ref = heap.allocate("java/nio/file/attribute/FileAttribute".to_string(), 0);
     Ok(Some(Slot::Reference(Some(attribute_ref))))
 }
@@ -6055,11 +6055,11 @@ pub(crate) fn native_manifest_get_main_attributes(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let manifest_ref = extract_ref_arg(args, 0)?;
     let Some(Slot::Reference(Some(raw_ref))) = heap.get(manifest_ref)?.fields.first().copied()
     else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     let attributes_ref = heap.allocate("java/util/jar/Attributes".to_string(), 1);
     heap.get_mut(attributes_ref)?.fields[0] = Slot::Reference(Some(raw_ref));
@@ -6071,12 +6071,12 @@ pub(crate) fn native_attributes_get_value(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let attributes_ref = extract_ref_arg(args, 0)?;
     let key_ref = extract_ref_arg(args, 1)?;
     let Some(Slot::Reference(Some(raw_ref))) = heap.get(attributes_ref)?.fields.first().copied()
     else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     let manifest_text = string_value_from_ref(heap, raw_ref)?;
     let key = string_value_from_ref(heap, key_ref)?;
@@ -6091,19 +6091,19 @@ const BOOT_ARCHIVE_ENTRY_NAME_SLOT: usize = 0;
 const BOOT_ARCHIVE_ENTRY_DIRECTORY_SLOT: usize = 1;
 
 #[cfg(test)]
-fn boot_archive_entry_name(heap: &duke_gc::Heap, entry_ref: u64) -> VmResult<String> {
+fn boot_archive_entry_name(heap: &duke_gc::Heap, entry_ref: u64) -> crate::Result<String> {
     let Some(Slot::Reference(Some(name_ref))) = heap
         .get(entry_ref)?
         .fields
         .get(BOOT_ARCHIVE_ENTRY_NAME_SLOT)
         .copied()
     else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     string_value_from_ref(heap, name_ref)
 }
 
-fn boot_archive_entry_is_directory_flag(heap: &duke_gc::Heap, entry_ref: u64) -> VmResult<bool> {
+fn boot_archive_entry_is_directory_flag(heap: &duke_gc::Heap, entry_ref: u64) -> crate::Result<bool> {
     match heap
         .get(entry_ref)?
         .fields
@@ -6111,7 +6111,7 @@ fn boot_archive_entry_is_directory_flag(heap: &duke_gc::Heap, entry_ref: u64) ->
         .copied()
     {
         Some(Slot::Int(value)) => Ok(value != 0),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Int",
             got: "other",
         }),
@@ -6123,7 +6123,7 @@ pub(crate) fn native_boot_archive_entry_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let entry_ref = extract_ref_arg(args, 0)?;
     let Some(slot @ Slot::Reference(Some(_))) = heap
         .get(entry_ref)?
@@ -6131,7 +6131,7 @@ pub(crate) fn native_boot_archive_entry_name(
         .get(BOOT_ARCHIVE_ENTRY_NAME_SLOT)
         .copied()
     else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     Ok(Some(slot))
 }
@@ -6141,7 +6141,7 @@ pub(crate) fn native_boot_archive_entry_is_directory(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let entry_ref = extract_ref_arg(args, 0)?;
     Ok(Some(Slot::Int(i32::from(
         boot_archive_entry_is_directory_flag(heap, entry_ref)?,
@@ -6154,7 +6154,7 @@ fn boot_archive_hashset_add_url(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     let url_ref = allocate_string_backed_object(heap, "java/net/URL", url_spec)?;
     native_hashset_add(
         &[
@@ -6172,7 +6172,7 @@ fn allocate_boot_archive_entry(
     heap: &mut duke_gc::Heap,
     entry_name: &str,
     is_directory: bool,
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     let entry_ref = heap.allocate("duke/boot/ArchiveEntry".to_string(), 2);
     let name_ref = heap.allocate_string(entry_name.to_string());
     let entry = heap.get_mut(entry_ref)?;
@@ -6188,7 +6188,7 @@ fn boot_archive_predicate_accepts(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-) -> VmResult<bool> {
+) -> crate::Result<bool> {
     let predicate_class = heap.get(predicate_ref)?.class_name.clone();
     let entry_ref = allocate_boot_archive_entry(heap, entry_name, is_directory)?;
     match ops.invoke(
@@ -6203,7 +6203,7 @@ fn boot_archive_predicate_accepts(
         ],
     )? {
         Some(Slot::Int(value)) => Ok(value != 0),
-        Some(other) => Err(VmError::TypeMismatch {
+        Some(other) => Err(crate::Error::TypeMismatch {
             expected: "Int",
             got: match other {
                 Slot::Long(_) => "Long",
@@ -6218,22 +6218,22 @@ fn boot_archive_predicate_accepts(
     }
 }
 
-fn open_boot_archive_reader(path: &std::path::Path) -> VmResult<duke_loader::ZipReader> {
+fn open_boot_archive_reader(path: &std::path::Path) -> crate::Result<duke_loader::ZipReader> {
     duke_loader::ZipReader::open(path).map_err(|err| match err {
-        duke_loader::LoadError::Io { .. } => VmError::JavaException {
+        duke_loader::LoadError::Io { .. } => crate::Error::JavaException {
             class_name: "java/io/IOException".to_string(),
         },
-        _ => VmError::JavaException {
+        _ => crate::Error::JavaException {
             class_name: "java/util/zip/ZipException".to_string(),
         },
     })
 }
 
-fn archive_file_ref_at(heap: &duke_gc::Heap, archive_ref: u64, slot: usize) -> VmResult<u64> {
+fn archive_file_ref_at(heap: &duke_gc::Heap, archive_ref: u64, slot: usize) -> crate::Result<u64> {
     match heap.get(archive_ref)?.fields.get(slot).copied() {
         Some(Slot::Reference(Some(file_ref))) => Ok(file_ref),
-        Some(Slot::Reference(None)) => Err(VmError::NullPointerException),
-        _ => Err(VmError::TypeMismatch {
+        Some(Slot::Reference(None)) => Err(crate::Error::NullPointerException),
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Reference",
             got: "other",
         }),
@@ -6260,7 +6260,7 @@ pub(crate) fn native_boot_jar_file_archive_get_class_path_urls(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let archive_ref = extract_ref_arg(args, 0)?;
     let include_predicate_ref = extract_ref_arg(args, 1)?;
     let _ = extract_ref_arg(args, 2)?;
@@ -6291,13 +6291,13 @@ pub(crate) fn native_boot_jar_file_archive_get_class_path_urls(
     Ok(Some(Slot::Reference(Some(set_ref))))
 }
 
-fn list_directory_children_sorted(path: &std::path::Path) -> VmResult<Vec<std::path::PathBuf>> {
-    let iter = std::fs::read_dir(path).map_err(|_| VmError::JavaException {
+fn list_directory_children_sorted(path: &std::path::Path) -> crate::Result<Vec<std::path::PathBuf>> {
+    let iter = std::fs::read_dir(path).map_err(|_| crate::Error::JavaException {
         class_name: "java/io/IOException".to_string(),
     })?;
     let mut children = Vec::new();
     for entry in iter {
-        let entry = entry.map_err(|_| VmError::JavaException {
+        let entry = entry.map_err(|_| crate::Error::JavaException {
             class_name: "java/io/IOException".to_string(),
         })?;
         children.push(entry.path());
@@ -6332,7 +6332,7 @@ pub(crate) fn native_boot_exploded_archive_get_class_path_urls(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let archive_ref = extract_ref_arg(args, 0)?;
     let include_predicate_ref = extract_ref_arg(args, 1)?;
     let search_predicate_ref = extract_ref_arg(args, 2)?;
@@ -6392,7 +6392,7 @@ pub(crate) fn native_boot_launched_class_loader_init(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let exploded = extract_int_arg(args, 1)?;
     let archive_ref = extract_ref_arg(args, 2)?;
@@ -6412,7 +6412,7 @@ pub(crate) fn native_boot_launched_class_loader_init(
             loader_obj.fields[root_archive_slot] = Slot::Reference(Some(archive_ref));
             Ok(None)
         }
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Reference",
             got: "other",
         }),
@@ -6425,7 +6425,7 @@ pub(crate) fn native_class_get_declared_method(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
@@ -6438,7 +6438,7 @@ pub(crate) fn native_class_get_declared_method(
         method.name == method_name
             && descriptor_parameter_part(&method.descriptor) == parameter_descriptor
     }) else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NoSuchMethodException".to_string(),
         });
     };
@@ -6461,7 +6461,7 @@ pub(crate) fn native_class_get_method(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
@@ -6472,7 +6472,7 @@ pub(crate) fn native_class_get_method(
     let Some((declaring_class, method)) =
         lookup_public_reflected_method(ops, &class_key, &method_name, &parameter_descriptor)?
     else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NoSuchMethodException".to_string(),
         });
     };
@@ -6518,7 +6518,7 @@ pub(crate) fn native_class_get_declared_field(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
@@ -6530,7 +6530,7 @@ pub(crate) fn native_class_get_declared_field(
         .into_iter()
         .find(|field| field.name == field_name)
     else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NoSuchFieldException".to_string(),
         });
     };
@@ -6553,7 +6553,7 @@ pub(crate) fn native_class_get_declared_constructor(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
@@ -6562,7 +6562,7 @@ pub(crate) fn native_class_get_declared_constructor(
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, false)
     else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NoSuchMethodException".to_string(),
         });
     };
@@ -6585,7 +6585,7 @@ pub(crate) fn native_class_get_field(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
@@ -6594,7 +6594,7 @@ pub(crate) fn native_class_get_field(
     let Some((declaring_class, field)) =
         lookup_public_reflected_field(ops, &class_key, &field_name)?
     else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NoSuchFieldException".to_string(),
         });
     };
@@ -6617,7 +6617,7 @@ pub(crate) fn native_class_get_constructor(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
@@ -6626,7 +6626,7 @@ pub(crate) fn native_class_get_constructor(
 
     let Some(constructor) = lookup_reflected_constructor(reflected, &parameter_descriptor, true)
     else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NoSuchMethodException".to_string(),
         });
     };
@@ -6649,7 +6649,7 @@ pub(crate) fn native_class_new_instance(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
@@ -6659,12 +6659,12 @@ pub(crate) fn native_class_new_instance(
         .find(|constructor| constructor.descriptor == "()V")
         .cloned()
     else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/InstantiationException".to_string(),
         });
     };
     if !constructor.is_public {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
     }
@@ -6689,7 +6689,7 @@ pub(crate) fn native_class_get_declared_methods(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
@@ -6708,7 +6708,7 @@ pub(crate) fn native_class_get_declared_methods(
                 method.is_static,
             )
         })
-        .collect::<VmResult<Vec<_>>>()?;
+        .collect::<crate::Result<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
@@ -6719,7 +6719,7 @@ pub(crate) fn native_class_get_declared_constructors(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
@@ -6736,7 +6736,7 @@ pub(crate) fn native_class_get_declared_constructors(
                 constructor.is_static,
             )
         })
-        .collect::<VmResult<Vec<_>>>()?;
+        .collect::<crate::Result<Vec<_>>>()?;
     let array_ref =
         allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
@@ -6748,7 +6748,7 @@ pub(crate) fn native_class_get_methods(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let method_refs = collect_public_reflected_methods(ops, &class_key)?
@@ -6764,7 +6764,7 @@ pub(crate) fn native_class_get_methods(
                 method.is_static,
             )
         })
-        .collect::<VmResult<Vec<_>>>()?;
+        .collect::<crate::Result<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
@@ -6775,7 +6775,7 @@ pub(crate) fn native_class_get_constructors(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
@@ -6792,7 +6792,7 @@ pub(crate) fn native_class_get_constructors(
                 constructor.is_static,
             )
         })
-        .collect::<VmResult<Vec<_>>>()?;
+        .collect::<crate::Result<Vec<_>>>()?;
     let array_ref =
         allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
@@ -6804,7 +6804,7 @@ pub(crate) fn native_class_get_declared_fields(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
@@ -6822,7 +6822,7 @@ pub(crate) fn native_class_get_declared_fields(
                 field.is_static,
             )
         })
-        .collect::<VmResult<Vec<_>>>()?;
+        .collect::<crate::Result<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
@@ -6833,7 +6833,7 @@ pub(crate) fn native_class_get_fields(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let field_refs = collect_public_reflected_fields(ops, &class_key)?
@@ -6849,7 +6849,7 @@ pub(crate) fn native_class_get_fields(
                 field.is_static,
             )
         })
-        .collect::<VmResult<Vec<_>>>()?;
+        .collect::<crate::Result<Vec<_>>>()?;
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
@@ -6859,7 +6859,7 @@ pub(crate) fn native_reflect_method_get_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_name_slot(heap, method_ref)?))
 }
@@ -6869,7 +6869,7 @@ pub(crate) fn native_reflect_constructor_get_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let constructor_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_declaring_class_name_slot(
         heap,
@@ -6883,7 +6883,7 @@ pub(crate) fn native_reflect_method_get_return_type(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
     let method = reflected_method_handle(heap, method_ref)?;
     Ok(Some(descriptor_class_slot_from_source(
@@ -6900,7 +6900,7 @@ pub(crate) fn native_reflect_field_get_type(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
     let field = reflected_field_handle(heap, field_ref)?;
     Ok(Some(descriptor_class_slot_from_source(
@@ -6916,7 +6916,7 @@ pub(crate) fn native_reflection_member_get_declaring_class(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let member_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_declaring_class_slot(
         heap, member_ref,
@@ -6928,7 +6928,7 @@ pub(crate) fn native_reflect_method_get_parameter_count(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
     let method = reflected_method_handle(heap, method_ref)?;
     let count = i32::try_from(parse_arg_count(&method.descriptor)).unwrap_or(i32::MAX);
@@ -6941,7 +6941,7 @@ pub(crate) fn native_reflect_executable_get_parameter_types(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let member_ref = extract_ref_arg(args, 0)?;
     let member = reflected_method_handle(heap, member_ref)?;
     let parameter_descriptors = parse_arg_descriptors(&member.descriptor);
@@ -6954,7 +6954,7 @@ pub(crate) fn native_reflect_executable_get_parameter_types(
             Some(member.declaring_class_key.as_str()),
         )?
         else {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "class reference",
                 got: "other",
             });
@@ -6970,7 +6970,7 @@ pub(crate) fn native_reflect_field_get_name(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_name_slot(heap, field_ref)?))
 }
@@ -6980,7 +6980,7 @@ pub(crate) fn native_reflection_member_set_accessible(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let member_ref = extract_ref_arg(args, 0)?;
     let accessible = extract_int_arg(args, 1)? != 0;
     heap.write_field(
@@ -6997,13 +6997,13 @@ pub(crate) fn native_reflect_field_get(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
     let target_slot = extract_slot_arg(args, 1);
     let field = reflected_field_handle(heap, field_ref)?;
 
     if !field.is_public && !field.is_accessible {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
     }
@@ -7014,7 +7014,7 @@ pub(crate) fn native_reflect_field_get(
         ops.read_static_field(&field.declaring_class_key, &field.field_name)?
     } else {
         let Slot::Reference(Some(target_ref)) = target_slot else {
-            return Err(VmError::NullPointerException);
+            return Err(crate::Error::NullPointerException);
         };
         ops.read_instance_field(
             heap,
@@ -7037,14 +7037,14 @@ pub(crate) fn native_reflect_field_set(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
     let target_slot = extract_slot_arg(args, 1);
     let value_slot = extract_slot_arg(args, 2);
     let field = reflected_field_handle(heap, field_ref)?;
 
     if !field.is_public && !field.is_accessible {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
     }
@@ -7059,7 +7059,7 @@ pub(crate) fn native_reflect_field_set(
     }
 
     let Slot::Reference(Some(target_ref)) = target_slot else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     ops.write_instance_field(
         heap,
@@ -7077,14 +7077,14 @@ pub(crate) fn native_reflect_method_invoke(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
     let target_slot = extract_slot_arg(args, 1);
     let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 2))?;
     let method = reflected_method_handle(heap, method_ref)?;
 
     if !method.is_public && !method.is_accessible {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
     }
@@ -7111,7 +7111,7 @@ pub(crate) fn native_reflect_method_invoke(
             descriptor_return_type(&method.descriptor),
             result,
         )?)),
-        Err(VmError::JavaException { .. }) => Err(VmError::JavaException {
+        Err(crate::Error::JavaException { .. }) => Err(crate::Error::JavaException {
             class_name: "java/lang/reflect/InvocationTargetException".to_string(),
         }),
         Err(err) => Err(err),
@@ -7124,13 +7124,13 @@ pub(crate) fn native_reflect_constructor_new_instance(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let constructor_ref = extract_ref_arg(args, 0)?;
     let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 1))?;
     let constructor = reflected_method_handle(heap, constructor_ref)?;
 
     if !constructor.is_public && !constructor.is_accessible {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
     }
@@ -7153,7 +7153,7 @@ pub(crate) fn native_reflect_constructor_new_instance(
         invoke_args,
     ) {
         Ok(_) => Ok(Some(Slot::Reference(Some(instance_ref)))),
-        Err(VmError::JavaException { .. }) => Err(VmError::JavaException {
+        Err(crate::Error::JavaException { .. }) => Err(crate::Error::JavaException {
             class_name: "java/lang/reflect/InvocationTargetException".to_string(),
         }),
         Err(err) => Err(err),
@@ -7166,7 +7166,7 @@ pub(crate) fn native_string_value_of_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_int_arg(args, 0)?;
     let s = val.to_string();
     let r = heap.allocate_string(s);
@@ -7179,7 +7179,7 @@ pub(crate) fn native_print_string(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let string_ref = match args.get(1) {
         Some(Slot::Reference(Some(r))) => *r,
         Some(Slot::Reference(None)) => {
@@ -7187,7 +7187,7 @@ pub(crate) fn native_print_string(
             return Ok(None);
         }
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -7206,7 +7206,7 @@ pub(crate) fn native_print_int(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Int(v) => *v, "Int");
     write!(out, "{val}").ok();
     Ok(None)
@@ -7221,7 +7221,7 @@ pub(crate) fn native_println_long(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Long(v) => *v, "Long");
     writeln!(out, "{val}").ok();
     Ok(None)
@@ -7232,7 +7232,7 @@ pub(crate) fn native_println_float(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Float(v) => *v, "Float");
     writeln!(out, "{val}").ok();
     Ok(None)
@@ -7243,7 +7243,7 @@ pub(crate) fn native_println_double(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Double(v) => *v, "Double");
     writeln!(out, "{val}").ok();
     Ok(None)
@@ -7254,7 +7254,7 @@ pub(crate) fn native_println_boolean(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Int(v) => *v != 0, "Int(boolean)");
     writeln!(out, "{val}").ok();
     Ok(None)
@@ -7265,7 +7265,7 @@ pub(crate) fn native_println_char(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Int(v) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'), "Int(char)");
     writeln!(out, "{val}").ok();
     Ok(None)
@@ -7325,7 +7325,7 @@ pub(crate) fn native_println_object(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
             let s = heap_object_to_string(heap.get(*r)?, *r);
@@ -7350,7 +7350,7 @@ pub(crate) fn native_print_long(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Long(v) => *v, "Long");
     write!(out, "{val}").ok();
     Ok(None)
@@ -7361,7 +7361,7 @@ pub(crate) fn native_print_float(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Float(v) => *v, "Float");
     write!(out, "{val}").ok();
     Ok(None)
@@ -7372,7 +7372,7 @@ pub(crate) fn native_print_double(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Double(v) => *v, "Double");
     write!(out, "{val}").ok();
     Ok(None)
@@ -7383,7 +7383,7 @@ pub(crate) fn native_print_boolean(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Int(v) => *v != 0, "Int(boolean)");
     write!(out, "{val}").ok();
     Ok(None)
@@ -7394,7 +7394,7 @@ pub(crate) fn native_print_char(
     _heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_print_arg!(args, Slot::Int(v) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'), "Int(char)");
     write!(out, "{val}").ok();
     Ok(None)
@@ -7406,7 +7406,7 @@ pub(crate) fn native_print_object(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
             let s = heap_object_to_string(heap.get(*r)?, *r);
@@ -7431,12 +7431,12 @@ pub(crate) fn native_system_exit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let code = match args.first() {
         Some(Slot::Int(v)) => *v,
         _ => 1,
     };
-    Err(VmError::SystemExit { code })
+    Err(crate::Error::SystemExit { code })
 }
 
 static SYSTEM_PROPERTY_OVERRIDES: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
@@ -7489,7 +7489,7 @@ pub(crate) fn native_system_get_property(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let key_ref = extract_ref_arg(args, 0)?;
     let key = string_value_from_ref(heap, key_ref)?;
     let result = system_property_value(&key).map_or(Slot::Reference(None), |value| {
@@ -7503,7 +7503,7 @@ pub(crate) fn native_system_set_property(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let key_ref = extract_ref_arg(args, 0)?;
     let value_ref = extract_ref_arg(args, 1)?;
     let key = string_value_from_ref(heap, key_ref)?;
@@ -7524,7 +7524,7 @@ pub(crate) fn native_system_get_property_with_default(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let key_ref = extract_ref_arg(args, 0)?;
     let key = string_value_from_ref(heap, key_ref)?;
     let result = system_property_value(&key).map_or_else(
@@ -7541,7 +7541,7 @@ pub(crate) fn native_system_line_separator(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate_string("\n".to_string());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -7553,7 +7553,7 @@ pub(crate) fn native_system_identity_hash_code(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     #[allow(clippy::cast_possible_truncation)]
     let hash = match args.first() {
         Some(Slot::Reference(Some(r))) => (*r & 0x7FFF_FFFF) as i32,
@@ -7575,7 +7575,7 @@ pub(crate) fn native_system_current_time_millis(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(Some(Slot::Long(system_time_to_epoch_millis(
         std::time::SystemTime::now(),
     ))))
@@ -7594,7 +7594,7 @@ pub(crate) fn native_system_nano_time(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(Some(Slot::Long(monotonic_nano_time_now())))
 }
 
@@ -7606,7 +7606,7 @@ pub(crate) fn native_thread_current_thread(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let thread_ref = heap.allocate("java/lang/Thread".to_string(), 2);
     let thread = heap.get_mut(thread_ref)?;
     thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
@@ -7619,7 +7619,7 @@ pub(crate) fn native_thread_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
@@ -7632,7 +7632,7 @@ pub(crate) fn native_thread_init_runnable(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let this = heap.get_mut(this_ref)?;
@@ -7646,7 +7646,7 @@ pub(crate) fn native_thread_start(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let thread_ref = extract_ref_arg(args, 0)?;
     control.request(NativeThreadAction::Start { thread_ref });
     Ok(None)
@@ -7657,7 +7657,7 @@ pub(crate) fn native_thread_join(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let thread_ref = extract_ref_arg(args, 0)?;
     let thread = heap.get(thread_ref)?;
     let Some(Slot::Int(thread_id)) = thread.fields.get(THREAD_ID_SLOT) else {
@@ -7676,11 +7676,11 @@ pub(crate) fn native_thread_sleep(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let millis = match args.first() {
         Some(Slot::Long(value)) => *value,
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "long",
                 got: "other",
             });
@@ -7700,7 +7700,7 @@ pub(crate) fn native_string_substring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
     let begin = extract_int_arg(args, 1)? as usize;
@@ -7708,7 +7708,7 @@ pub(crate) fn native_string_substring(
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
         if begin > s.len() {
-            return Err(VmError::ArrayIndexOutOfBounds {
+            return Err(crate::Error::ArrayIndexOutOfBounds {
                 index: i32::try_from(begin).unwrap_or(i32::MAX),
                 length: s.len(),
             });
@@ -7727,7 +7727,7 @@ pub(crate) fn native_string_substring_range(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
     let begin = extract_int_arg(args, 1)? as usize;
@@ -7736,7 +7736,7 @@ pub(crate) fn native_string_substring_range(
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
         if begin > end || end > s.len() {
-            return Err(VmError::ArrayIndexOutOfBounds {
+            return Err(crate::Error::ArrayIndexOutOfBounds {
                 index: i32::try_from(end).unwrap_or(i32::MAX),
                 length: s.len(),
             });
@@ -7754,7 +7754,7 @@ pub(crate) fn native_string_indexof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
     let target_ref = extract_ref_arg(args, 1)?;
@@ -7775,7 +7775,7 @@ pub(crate) fn native_string_indexof_from(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target_ref = extract_ref_arg(args, 1)?;
     #[allow(clippy::cast_sign_loss)] // .max(0) guarantees non-negative
@@ -7796,7 +7796,7 @@ pub(crate) fn native_string_last_indexof_from(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let sub_ref = extract_ref_arg(args, 1)?;
     #[allow(clippy::cast_sign_loss)] // .max(0) guarantees non-negative
@@ -7819,7 +7819,7 @@ pub(crate) fn native_string_contains(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
 
     let target_ref = extract_ref_arg(args, 1)?;
@@ -7838,7 +7838,7 @@ pub(crate) fn native_string_isempty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     let s = obj.string_value.as_deref().unwrap_or_default();
@@ -7869,7 +7869,7 @@ pub(crate) fn native_string_compareto(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_string_compareto_object(args, heap, out, control)
 }
 
@@ -7879,18 +7879,18 @@ pub(crate) fn native_string_compareto_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let str_val = |s: &Slot| -> VmResult<String> {
+) -> crate::Result<Option<Slot>> {
+    let str_val = |s: &Slot| -> crate::Result<String> {
         match s {
             Slot::Reference(Some(r)) => Ok(heap.get(*r)?.string_value.clone().unwrap_or_default()),
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => str_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = str_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = str_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
 }
 
@@ -7900,7 +7900,7 @@ pub(crate) fn native_string_startswith(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let prefix_ref = extract_ref_arg(args, 1)?;
@@ -7918,7 +7918,7 @@ pub(crate) fn native_string_endswith(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let suffix_ref = extract_ref_arg(args, 1)?;
@@ -7936,7 +7936,7 @@ pub(crate) fn native_string_trim(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let trimmed = s.trim().to_string();
@@ -7951,7 +7951,7 @@ pub(crate) fn native_string_tochararray(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let chars: Vec<char> = s.chars().collect();
@@ -7970,7 +7970,7 @@ pub(crate) fn native_integer_parseint(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_arg(args, heap, i32::MIN, i32::MAX)?;
     Ok(Some(Slot::Int(val)))
 }
@@ -7981,7 +7981,7 @@ pub(crate) fn native_integer_parseint_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_and_radix_args(args, heap, i32::MIN, i32::MAX)?;
     Ok(Some(Slot::Int(val)))
 }
@@ -7992,7 +7992,7 @@ pub(crate) fn native_integer_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Int(val);
@@ -8005,7 +8005,7 @@ pub(crate) fn native_integer_valueof_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_arg(args, heap, i32::MIN, i32::MAX)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
@@ -8018,7 +8018,7 @@ pub(crate) fn native_integer_valueof_string_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_and_radix_args(args, heap, i32::MIN, i32::MAX)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
@@ -8031,7 +8031,7 @@ pub(crate) fn native_integer_decode(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_i32_decode_from_string_arg(args, heap)?;
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
@@ -8044,7 +8044,7 @@ pub(crate) fn native_integer_intvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -8056,7 +8056,7 @@ pub(crate) fn native_integer_tostring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_int_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
@@ -8068,7 +8068,7 @@ pub(crate) fn native_integer_tohexstring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     let r = heap.allocate_string(format!("{val:x}"));
     Ok(Some(Slot::Reference(Some(r))))
@@ -8080,7 +8080,7 @@ pub(crate) fn native_integer_tooctalstring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     let r = heap.allocate_string(format!("{val:o}"));
     Ok(Some(Slot::Reference(Some(r))))
@@ -8092,7 +8092,7 @@ pub(crate) fn native_integer_tobinarystring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     let r = heap.allocate_string(format!("{val:b}"));
     Ok(Some(Slot::Reference(Some(r))))
@@ -8104,7 +8104,7 @@ pub(crate) fn native_integer_tounsignedlong_static(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     Ok(Some(Slot::Long(i64::from(val))))
 }
@@ -8115,7 +8115,7 @@ pub(crate) fn native_integer_compareunsigned_static(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = u32::from_ne_bytes(extract_int_arg(args, 0)?.to_ne_bytes());
     let b = u32::from_ne_bytes(extract_int_arg(args, 1)?.to_ne_bytes());
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
@@ -8127,21 +8127,21 @@ pub(crate) fn native_integer_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let int_val = |s: &Slot| -> VmResult<i32> {
+) -> crate::Result<Option<Slot>> {
+    let int_val = |s: &Slot| -> crate::Result<i32> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Int(n)) => Ok(*n),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => int_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = int_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = int_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -8154,7 +8154,7 @@ pub(crate) fn native_integer_bitcount(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)? as u32;
     Ok(Some(Slot::Int(v.count_ones() as i32)))
 }
@@ -8166,7 +8166,7 @@ pub(crate) fn native_integer_leading_zeros(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)? as u32;
     Ok(Some(Slot::Int(v.leading_zeros() as i32)))
 }
@@ -8178,7 +8178,7 @@ pub(crate) fn native_integer_trailing_zeros(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)? as u32;
     Ok(Some(Slot::Int(v.trailing_zeros() as i32)))
 }
@@ -8190,7 +8190,7 @@ pub(crate) fn native_integer_highest_one_bit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)? as u32;
     let result = if v == 0 { 0u32 } else { 1u32 << v.ilog2() };
     Ok(Some(Slot::Int(result as i32)))
@@ -8203,7 +8203,7 @@ pub(crate) fn native_integer_lowest_one_bit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)?;
     Ok(Some(Slot::Int(v & v.wrapping_neg())))
 }
@@ -8215,7 +8215,7 @@ pub(crate) fn native_integer_reverse(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)? as u32;
     Ok(Some(Slot::Int(v.reverse_bits() as i32)))
 }
@@ -8227,7 +8227,7 @@ pub(crate) fn native_integer_reverse_bytes(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)? as u32;
     Ok(Some(Slot::Int(v.swap_bytes() as i32)))
 }
@@ -8238,7 +8238,7 @@ pub(crate) fn native_integer_signum(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)?;
     Ok(Some(Slot::Int(v.signum())))
 }
@@ -8249,7 +8249,7 @@ pub(crate) fn native_integer_compare_static(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
@@ -8261,7 +8261,7 @@ pub(crate) fn native_integer_sum(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(a.wrapping_add(b))))
@@ -8273,7 +8273,7 @@ pub(crate) fn native_integer_max_static(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(a.max(b))))
@@ -8285,7 +8285,7 @@ pub(crate) fn native_integer_min_static(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(a.min(b))))
@@ -8304,7 +8304,7 @@ pub(crate) fn native_long_bitcount(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)? as u64;
     Ok(Some(Slot::Int(v.count_ones() as i32)))
 }
@@ -8320,7 +8320,7 @@ pub(crate) fn native_long_leading_zeros(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)? as u64;
     Ok(Some(Slot::Int(v.leading_zeros() as i32)))
 }
@@ -8336,7 +8336,7 @@ pub(crate) fn native_long_trailing_zeros(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)? as u64;
     Ok(Some(Slot::Int(v.trailing_zeros() as i32)))
 }
@@ -8348,7 +8348,7 @@ pub(crate) fn native_long_highest_one_bit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)? as u64;
     let result = if v == 0 { 0u64 } else { 1u64 << v.ilog2() };
     Ok(Some(Slot::Long(result as i64)))
@@ -8360,7 +8360,7 @@ pub(crate) fn native_long_lowest_one_bit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)?;
     Ok(Some(Slot::Long(v & v.wrapping_neg())))
 }
@@ -8372,7 +8372,7 @@ pub(crate) fn native_long_reverse(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)? as u64;
     Ok(Some(Slot::Long(v.reverse_bits() as i64)))
 }
@@ -8384,7 +8384,7 @@ pub(crate) fn native_long_reverse_bytes(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)? as u64;
     Ok(Some(Slot::Long(v.swap_bytes() as i64)))
 }
@@ -8395,7 +8395,7 @@ pub(crate) fn native_long_signum(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)?;
     Ok(Some(Slot::Int(v.signum() as i32)))
 }
@@ -8406,7 +8406,7 @@ pub(crate) fn native_long_compare_static(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_long_arg(args, 0)?;
     let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
@@ -8418,7 +8418,7 @@ pub(crate) fn native_long_sum(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_long_arg(args, 0)?;
     let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.wrapping_add(b))))
@@ -8433,7 +8433,7 @@ pub(crate) fn native_objects_is_null(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let is_null = matches!(args.first(), Some(Slot::Reference(None)) | None);
     Ok(Some(Slot::Int(i32::from(is_null))))
 }
@@ -8445,7 +8445,7 @@ pub(crate) fn native_objects_non_null(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let is_null = matches!(args.first(), Some(Slot::Reference(None)) | None);
     Ok(Some(Slot::Int(i32::from(!is_null))))
 }
@@ -8456,9 +8456,9 @@ pub(crate) fn native_objects_require_non_null(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
-        Some(Slot::Reference(None)) | None => Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) | None => Err(crate::Error::NullPointerException),
         Some(s) => Ok(Some(*s)),
     }
 }
@@ -8469,9 +8469,9 @@ pub(crate) fn native_objects_require_non_null_msg(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
-        Some(Slot::Reference(None)) | None => Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) | None => Err(crate::Error::NullPointerException),
         Some(s) => Ok(Some(*s)),
     }
 }
@@ -8483,7 +8483,7 @@ pub(crate) fn native_objects_equals(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_slot_arg(args, 0);
     let b = extract_slot_arg(args, 1);
     let equal = slots_equal(&a, &b, heap);
@@ -8496,7 +8496,7 @@ pub(crate) fn native_objects_tostring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let s = match args.first() {
         Some(Slot::Reference(None)) | None => heap.allocate_string("null".to_string()),
         Some(Slot::Reference(Some(r))) => {
@@ -8521,7 +8521,7 @@ pub(crate) fn native_objects_tostring_default(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(None)) | None => {
             // null → return the default string (args[1])
@@ -8559,7 +8559,7 @@ pub(crate) fn native_objects_hashcode(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let hash = match args.first() {
         Some(Slot::Reference(Some(r))) => (*r & 0x7FFF_FFFF) as i32,
         _ => 0,
@@ -8575,7 +8575,7 @@ pub(crate) fn native_collections_empty_list(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Return an immutable empty UnmodifiableList (same field layout as ArrayList)
     let r = heap.allocate("java/util/UnmodifiableList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(r))], heap, out, control)?;
@@ -8588,7 +8588,7 @@ pub(crate) fn native_collections_empty_set(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("java/util/HashSet".to_string(), 1);
     native_hashset_init(&[Slot::Reference(Some(r))], heap, out, control)?;
     Ok(Some(Slot::Reference(Some(r))))
@@ -8600,7 +8600,7 @@ pub(crate) fn native_collections_empty_map(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("java/util/HashMap".to_string(), 1);
     native_hashmap_init(&[Slot::Reference(Some(r))], heap, out, control)?;
     Ok(Some(Slot::Reference(Some(r))))
@@ -8613,7 +8613,7 @@ pub(crate) fn native_collections_unmodifiable_list(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Create an UnmodifiableList backed by the source list's elements.
     // Mutation methods on this class throw UnsupportedOperationException.
     let src_ref = match args.first() {
@@ -8644,8 +8644,8 @@ pub(crate) fn native_unmodifiable_list_mutation(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    Err(VmError::JavaException {
+) -> crate::Result<Option<Slot>> {
+    Err(crate::Error::JavaException {
         class_name: "java/lang/UnsupportedOperationException".to_string(),
     })
 }
@@ -8657,7 +8657,7 @@ pub(crate) fn native_math_random(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Use a simple deterministic seed based on stack pointer heuristic
     // For a JVM interpreter we just use a fixed-seed LCG for reproducibility
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -8676,7 +8676,7 @@ pub(crate) fn native_arrays_stream_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     // int[] layout: fields = Int elements directly (no length header); arraylength = fields.len()
     let arr_obj = heap.get(arr_ref)?;
@@ -8695,7 +8695,7 @@ pub(crate) fn native_arrays_stream_int_range(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let from = match args.get(1) {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -8722,7 +8722,7 @@ pub(crate) fn native_arrays_stream_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let elems: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
     let n = i32::try_from(elems.len()).unwrap_or(0);
@@ -8742,7 +8742,7 @@ pub(crate) fn native_comparator_comparing(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/ComparingComparator".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -8756,7 +8756,7 @@ pub(crate) fn native_comparing_comparator_compare(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let a = extract_slot_arg(args, 1);
     let b = extract_slot_arg(args, 2);
@@ -8802,7 +8802,7 @@ pub(crate) fn native_collectors_to_set(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/ToSetCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -8814,7 +8814,7 @@ pub(crate) fn native_collectors_to_map(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let key_fn = extract_slot_arg(args, 0);
     let val_fn = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ToMapCollector".to_string(), 2);
@@ -8830,7 +8830,7 @@ pub(crate) fn native_stream_map_to_int(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -8877,7 +8877,7 @@ pub(crate) fn native_int_stream_reduce_identity(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let identity = match args.get(1) {
         Some(Slot::Int(n)) => *n,
@@ -8916,7 +8916,7 @@ pub(crate) fn native_int_stream_reduce_optional(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -8959,7 +8959,7 @@ pub(crate) fn native_stream_min_comparator(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     stream_min_max_by_comparator(args, heap, out, ops, false)
 }
 
@@ -8970,7 +8970,7 @@ pub(crate) fn native_stream_max_comparator(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     stream_min_max_by_comparator(args, heap, out, ops, true)
 }
 
@@ -8980,7 +8980,7 @@ fn stream_min_max_by_comparator(
     out: &mut dyn Write,
     ops: &mut dyn CallbackOps,
     want_max: bool,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let cmp_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(cmp_ref)) = cmp_slot else {
@@ -9033,7 +9033,7 @@ pub(crate) fn native_arrays_sort_objects(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let len = heap.get(arr_ref)?.fields.len();
     // Insertion sort with compareTo callbacks
@@ -9060,7 +9060,7 @@ fn compare_slots_natural(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-) -> VmResult<i32> {
+) -> crate::Result<i32> {
     match (a, b) {
         (Slot::Reference(Some(ra)), Slot::Reference(Some(_rb))) => {
             let a_class = heap.get(ra)?.class_name.clone();
@@ -9090,7 +9090,7 @@ pub(crate) fn native_string_init_from_chars(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let Some(Slot::Reference(Some(arr_ref))) = args.get(1).copied() else {
         heap.get_mut(this_ref)?.string_value = Some(String::new());
@@ -9115,7 +9115,7 @@ pub(crate) fn native_string_value_of_char_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
         _ => {
@@ -9142,7 +9142,7 @@ pub(crate) fn native_collections_singleton_list(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let element = extract_slot_arg(args, 0);
     let r = heap.allocate("java/util/ArrayList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(r))], heap, out, control)?;
@@ -9156,7 +9156,7 @@ pub(crate) fn native_collections_reverse(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(list_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -9174,7 +9174,7 @@ pub(crate) fn native_collections_frequency(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let coll_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let size = match heap.get(coll_ref)?.fields.first() {
@@ -9197,7 +9197,7 @@ pub(crate) fn native_string_value_of_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_long_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
@@ -9209,7 +9209,7 @@ pub(crate) fn native_string_value_of_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_double_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
@@ -9221,7 +9221,7 @@ pub(crate) fn native_string_value_of_float(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_float_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
@@ -9233,11 +9233,11 @@ pub(crate) fn native_string_value_of_boolean(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => *v != 0,
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Int(boolean)",
                 got: "other",
             });
@@ -9253,11 +9253,11 @@ pub(crate) fn native_string_value_of_char(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('?'),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Int(char)",
                 got: "other",
             });
@@ -9273,7 +9273,7 @@ pub(crate) fn native_string_value_of_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
             let s = heap_object_to_string(heap.get(*r)?, *r);
@@ -9284,7 +9284,7 @@ pub(crate) fn native_string_value_of_object(
             let r = heap.allocate_string("null".to_string());
             Ok(Some(Slot::Reference(Some(r))))
         }
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Reference",
             got: "other",
         }),
@@ -9299,7 +9299,7 @@ pub(crate) fn native_string_concat(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s1 = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let other_ref = extract_ref_arg(args, 1)?;
@@ -9342,7 +9342,7 @@ fn format_arg(
     precision: Option<usize>,
     slot: &Slot,
     heap: &duke_gc::Heap,
-) -> VmResult<String> {
+) -> crate::Result<String> {
     let left_align = flags.contains('-');
     let force_sign = flags.contains('+');
     let zero_pad = flags.contains('0') && !left_align;
@@ -9524,7 +9524,7 @@ pub(crate) fn native_string_format(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fmt_ref = extract_ref_arg(args, 0)?;
     let fmt = heap.get(fmt_ref)?.string_value.clone().unwrap_or_default();
 
@@ -9626,7 +9626,7 @@ pub(crate) fn native_string_touppercase(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s.to_uppercase());
@@ -9639,7 +9639,7 @@ pub(crate) fn native_string_tolowercase(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s.to_lowercase());
@@ -9653,7 +9653,7 @@ pub(crate) fn native_string_replace_char(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
@@ -9669,7 +9669,7 @@ pub(crate) fn native_string_replace_charsequence(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let target_ref = extract_ref_arg(args, 1)?;
@@ -9695,7 +9695,7 @@ pub(crate) fn native_string_split(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let delim_ref = extract_ref_arg(args, 1)?;
@@ -9735,7 +9735,7 @@ pub(crate) fn native_string_split_limit(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let delim_ref = extract_ref_arg(args, 1)?;
@@ -9788,7 +9788,7 @@ pub(crate) fn native_string_hashcode(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let mut h: i32 = 0;
@@ -9805,7 +9805,7 @@ pub(crate) fn native_string_tostring(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(Some(extract_slot_arg(args, 0)))
 }
 
@@ -9817,7 +9817,7 @@ pub(crate) fn native_math_max_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(a.max(b))))
@@ -9829,7 +9829,7 @@ pub(crate) fn native_math_min_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     Ok(Some(Slot::Int(a.min(b))))
@@ -9841,7 +9841,7 @@ pub(crate) fn native_math_abs_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     Ok(Some(Slot::Int(a.wrapping_abs())))
 }
@@ -9852,11 +9852,11 @@ pub(crate) fn native_math_floor_mod_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     if b == 0 {
-        return Err(VmError::DivisionByZero);
+        return Err(crate::Error::DivisionByZero);
     }
     let remainder = a.wrapping_rem(b);
     let floor_mod = if remainder != 0 && (remainder < 0) != (b < 0) {
@@ -9875,7 +9875,7 @@ pub(crate) fn native_math_sqrt(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.sqrt())))
 }
@@ -9886,7 +9886,7 @@ pub(crate) fn native_math_pow(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.powf(b))))
@@ -9898,7 +9898,7 @@ pub(crate) fn native_math_floor(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.floor())))
 }
@@ -9909,7 +9909,7 @@ pub(crate) fn native_math_ceil(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.ceil())))
 }
@@ -9921,7 +9921,7 @@ pub(crate) fn native_math_round_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Long(a.round() as i64)))
 }
@@ -9932,7 +9932,7 @@ pub(crate) fn native_math_abs_long(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_long_arg(args, 0)?;
     Ok(Some(Slot::Long(a.wrapping_abs())))
 }
@@ -9943,7 +9943,7 @@ pub(crate) fn native_math_abs_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.abs())))
 }
@@ -9954,7 +9954,7 @@ pub(crate) fn native_math_max_long(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_long_arg(args, 0)?;
     let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.max(b))))
@@ -9966,7 +9966,7 @@ pub(crate) fn native_math_min_long(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_long_arg(args, 0)?;
     let b = extract_long_arg(args, 1)?;
     Ok(Some(Slot::Long(a.min(b))))
@@ -9978,7 +9978,7 @@ pub(crate) fn native_math_max_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.max(b))))
@@ -9990,7 +9990,7 @@ pub(crate) fn native_math_min_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     let b = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(a.min(b))))
@@ -10004,7 +10004,7 @@ pub(crate) fn native_math_sin(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.sin())))
 }
@@ -10015,7 +10015,7 @@ pub(crate) fn native_math_cos(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.cos())))
 }
@@ -10026,7 +10026,7 @@ pub(crate) fn native_math_tan(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.tan())))
 }
@@ -10037,7 +10037,7 @@ pub(crate) fn native_math_asin(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.asin())))
 }
@@ -10048,7 +10048,7 @@ pub(crate) fn native_math_acos(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.acos())))
 }
@@ -10059,7 +10059,7 @@ pub(crate) fn native_math_atan(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.atan())))
 }
@@ -10070,7 +10070,7 @@ pub(crate) fn native_math_atan2(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let y = extract_double_arg(args, 0)?;
     let x = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(y.atan2(x))))
@@ -10082,7 +10082,7 @@ pub(crate) fn native_math_log(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.ln())))
 }
@@ -10093,7 +10093,7 @@ pub(crate) fn native_math_log10(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.log10())))
 }
@@ -10104,7 +10104,7 @@ pub(crate) fn native_math_exp(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.exp())))
 }
@@ -10115,7 +10115,7 @@ pub(crate) fn native_math_signum_double(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.signum())))
 }
@@ -10127,7 +10127,7 @@ pub(crate) fn native_math_signum_float(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_float_arg(args, 0)?;
     Ok(Some(Slot::Float(a.signum())))
 }
@@ -10138,7 +10138,7 @@ pub(crate) fn native_math_to_radians(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.to_radians())))
 }
@@ -10149,7 +10149,7 @@ pub(crate) fn native_math_to_degrees(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.to_degrees())))
 }
@@ -10160,7 +10160,7 @@ pub(crate) fn native_math_cbrt(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_double_arg(args, 0)?;
     Ok(Some(Slot::Double(a.cbrt())))
 }
@@ -10171,7 +10171,7 @@ pub(crate) fn native_math_hypot(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let x = extract_double_arg(args, 0)?;
     let y = extract_double_arg(args, 1)?;
     Ok(Some(Slot::Double(x.hypot(y))))
@@ -10183,11 +10183,11 @@ pub(crate) fn native_math_floor_div_int(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_int_arg(args, 0)?;
     let b = extract_int_arg(args, 1)?;
     if b == 0 {
-        return Err(VmError::DivisionByZero);
+        return Err(crate::Error::DivisionByZero);
     }
     Ok(Some(Slot::Int(
         a.div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
@@ -10201,7 +10201,7 @@ pub(crate) fn native_math_round_float(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = extract_float_arg(args, 0)?;
     Ok(Some(Slot::Int(a.round() as i32)))
 }
@@ -10216,12 +10216,12 @@ pub(crate) fn native_system_arraycopy(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let src_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) => return Err(crate::Error::NullPointerException),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -10230,9 +10230,9 @@ pub(crate) fn native_system_arraycopy(
     let src_pos = extract_int_arg(args, 1)?;
     let dst_ref = match args.get(2) {
         Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) => return Err(crate::Error::NullPointerException),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -10241,7 +10241,7 @@ pub(crate) fn native_system_arraycopy(
     let dst_pos = extract_int_arg(args, 3)?;
     let length = extract_int_arg(args, 4)?;
     if length < 0 || src_pos < 0 || dst_pos < 0 {
-        return Err(VmError::NegativeArraySize {
+        return Err(crate::Error::NegativeArraySize {
             size: length.min(src_pos).min(dst_pos),
         });
     }
@@ -10251,7 +10251,7 @@ pub(crate) fn native_system_arraycopy(
     // Copy elements one by one to support src == dst (overlapping ranges handled via clone).
     let src_len = heap.get(src_ref)?.fields.len();
     if src_pos + length > src_len {
-        return Err(VmError::ArrayIndexOutOfBounds {
+        return Err(crate::Error::ArrayIndexOutOfBounds {
             index: i32::try_from(src_pos + length - 1).unwrap_or(i32::MAX),
             length: src_len,
         });
@@ -10259,7 +10259,7 @@ pub(crate) fn native_system_arraycopy(
     let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[src_pos..src_pos + length].to_vec();
     let dst_len = heap.get(dst_ref)?.fields.len();
     if dst_pos + length > dst_len {
-        return Err(VmError::ArrayIndexOutOfBounds {
+        return Err(crate::Error::ArrayIndexOutOfBounds {
             index: i32::try_from(dst_pos + length - 1).unwrap_or(i32::MAX),
             length: dst_len,
         });
@@ -10279,7 +10279,7 @@ pub(crate) fn native_map_entry_get_key(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_first_field_arg(heap, this_ref)?;
     Ok(Some(key))
@@ -10291,7 +10291,7 @@ pub(crate) fn native_map_entry_get_value(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_field_arg(heap, this_ref, 1)?;
     Ok(Some(val))
@@ -10303,7 +10303,7 @@ pub(crate) fn native_hashmap_key_set(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(this_ref)?.fields.clone();
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
@@ -10324,7 +10324,7 @@ pub(crate) fn native_hashmap_values(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(this_ref)?.fields.clone();
     let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -10345,7 +10345,7 @@ pub(crate) fn native_hashmap_entry_set(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(this_ref)?.fields.clone();
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
@@ -10382,7 +10382,7 @@ pub(crate) fn native_long_parselong(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_i64_from_string_arg(args, heap)?;
     Ok(Some(Slot::Long(val)))
 }
@@ -10393,7 +10393,7 @@ pub(crate) fn native_long_parselong_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_i64_from_string_and_radix_args(args, heap)?;
     Ok(Some(Slot::Long(val)))
 }
@@ -10404,7 +10404,7 @@ pub(crate) fn native_long_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
@@ -10417,7 +10417,7 @@ pub(crate) fn native_long_valueof_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_i64_from_string_arg(args, heap)?;
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
@@ -10430,7 +10430,7 @@ pub(crate) fn native_long_valueof_string_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_i64_from_string_and_radix_args(args, heap)?;
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Long(val);
@@ -10443,7 +10443,7 @@ pub(crate) fn native_long_decode(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_i64_decode_from_string_arg(args, heap)?;
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Long(val);
@@ -10456,7 +10456,7 @@ pub(crate) fn native_long_longvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -10469,7 +10469,7 @@ pub(crate) fn native_long_intvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = match heap.get(this_ref)?.fields.first() {
         #[allow(clippy::cast_possible_truncation)] // enum ordinals fit i32
@@ -10486,7 +10486,7 @@ pub(crate) fn native_long_tostring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_long_arg(args, 0)?;
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
@@ -10498,11 +10498,11 @@ pub(crate) fn native_long_tohexstring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Long",
                 got: "other",
             });
@@ -10518,11 +10518,11 @@ pub(crate) fn native_long_tooctalstring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Long",
                 got: "other",
             });
@@ -10538,11 +10538,11 @@ pub(crate) fn native_long_tobinarystring_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Long(v)) => u64::from_ne_bytes(v.to_ne_bytes()),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Long",
                 got: "other",
             });
@@ -10558,7 +10558,7 @@ pub(crate) fn native_long_compareunsigned_static(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = u64::from_ne_bytes(extract_long_arg(args, 0)?.to_ne_bytes());
     let b = u64::from_ne_bytes(extract_long_arg(args, 1)?.to_ne_bytes());
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
@@ -10570,21 +10570,21 @@ pub(crate) fn native_long_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let long_val = |s: &Slot| -> VmResult<i64> {
+) -> crate::Result<Option<Slot>> {
+    let long_val = |s: &Slot| -> crate::Result<i64> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Long(n)) => Ok(*n),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => long_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = long_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = long_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -10596,19 +10596,19 @@ pub(crate) fn native_double_parsedouble(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let str_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) => return Err(crate::Error::NullPointerException),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
         }
     };
     let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
-    let val: f64 = s.trim().parse().map_err(|_| VmError::JavaException {
+    let val: f64 = s.trim().parse().map_err(|_| crate::Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })?;
     Ok(Some(Slot::Double(val)))
@@ -10620,7 +10620,7 @@ pub(crate) fn native_double_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_double_arg(args, 0)?;
     let r = heap.allocate("java/lang/Double".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Double(val);
@@ -10633,7 +10633,7 @@ pub(crate) fn native_double_doublevalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -10646,7 +10646,7 @@ pub(crate) fn native_float_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_float_arg(args, 0)?;
     let r = heap.allocate("java/lang/Float".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Float(val);
@@ -10658,7 +10658,7 @@ pub(crate) fn native_float_floatvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -10669,21 +10669,21 @@ pub(crate) fn native_float_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let float_val = |s: &Slot| -> VmResult<f32> {
+) -> crate::Result<Option<Slot>> {
+    let float_val = |s: &Slot| -> crate::Result<f32> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Float(n)) => Ok(*n),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => float_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = float_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = float_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
 
@@ -10693,19 +10693,19 @@ pub(crate) fn native_float_parsefloat(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let str_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
-        Some(Slot::Reference(None)) => return Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) => return Err(crate::Error::NullPointerException),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
         }
     };
     let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
-    let val: f32 = s.trim().parse().map_err(|_| VmError::JavaException {
+    let val: f32 = s.trim().parse().map_err(|_| crate::Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })?;
     Ok(Some(Slot::Float(val)))
@@ -10718,7 +10718,7 @@ pub(crate) fn native_boolean_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/lang/Boolean".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(i32::from(val != 0));
@@ -10730,7 +10730,7 @@ pub(crate) fn native_boolean_booleanvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -10741,21 +10741,21 @@ pub(crate) fn native_boolean_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let bool_val = |s: &Slot| -> VmResult<bool> {
+) -> crate::Result<Option<Slot>> {
+    let bool_val = |s: &Slot| -> crate::Result<bool> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Int(n)) => Ok(*n != 0),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => bool_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = bool_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = bool_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -10765,7 +10765,7 @@ pub(crate) fn native_boolean_parseboolean(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
             let s = heap.get(*r)?.string_value.clone().unwrap_or_default();
@@ -10773,7 +10773,7 @@ pub(crate) fn native_boolean_parseboolean(
             Ok(Some(Slot::Int(i32::from(val))))
         }
         Some(Slot::Reference(None)) => Ok(Some(Slot::Int(0))),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Reference",
             got: "other",
         }),
@@ -10785,7 +10785,7 @@ fn parse_bounded_i32_from_string_arg(
     heap: &duke_gc::Heap,
     min: i32,
     max: i32,
-) -> VmResult<i32> {
+) -> crate::Result<i32> {
     let s = extract_string_arg_value(args, 0, heap)?;
     parse_bounded_i32_with_radix(&s, 10, min, max)
 }
@@ -10795,71 +10795,71 @@ fn parse_bounded_i32_from_string_and_radix_args(
     heap: &duke_gc::Heap,
     min: i32,
     max: i32,
-) -> VmResult<i32> {
+) -> crate::Result<i32> {
     let s = extract_string_arg_value(args, 0, heap)?;
     let radix = extract_parse_radix_arg(args, 1)?;
     parse_bounded_i32_with_radix(&s, radix, min, max)
 }
 
-fn parse_bounded_i32_with_radix(s: &str, radix: u32, min: i32, max: i32) -> VmResult<i32> {
-    let val = i32::from_str_radix(s.trim(), radix).map_err(|_| VmError::JavaException {
+fn parse_bounded_i32_with_radix(s: &str, radix: u32, min: i32, max: i32) -> crate::Result<i32> {
+    let val = i32::from_str_radix(s.trim(), radix).map_err(|_| crate::Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })?;
     if val < min || val > max {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
     Ok(val)
 }
 
-fn parse_i64_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i64> {
+fn parse_i64_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> crate::Result<i64> {
     let s = extract_string_arg_value(args, 0, heap)?;
     parse_i64_with_radix(&s, 10)
 }
 
-fn parse_i64_from_string_and_radix_args(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i64> {
+fn parse_i64_from_string_and_radix_args(args: &[Slot], heap: &duke_gc::Heap) -> crate::Result<i64> {
     let s = extract_string_arg_value(args, 0, heap)?;
     let radix = extract_parse_radix_arg(args, 1)?;
     parse_i64_with_radix(&s, radix)
 }
 
-fn parse_i64_with_radix(s: &str, radix: u32) -> VmResult<i64> {
-    i64::from_str_radix(s.trim(), radix).map_err(|_| VmError::JavaException {
+fn parse_i64_with_radix(s: &str, radix: u32) -> crate::Result<i64> {
+    i64::from_str_radix(s.trim(), radix).map_err(|_| crate::Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })
 }
 
-fn parse_i32_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i32> {
+fn parse_i32_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> crate::Result<i32> {
     let s = extract_string_arg_value(args, 0, heap)?;
     let val = parse_i128_decode(&s)?;
     if val < i128::from(i32::MIN) || val > i128::from(i32::MAX) {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
-    i32::try_from(val).map_err(|_| VmError::JavaException {
+    i32::try_from(val).map_err(|_| crate::Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })
 }
 
-fn parse_i64_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> VmResult<i64> {
+fn parse_i64_decode_from_string_arg(args: &[Slot], heap: &duke_gc::Heap) -> crate::Result<i64> {
     let s = extract_string_arg_value(args, 0, heap)?;
     let val = parse_i128_decode(&s)?;
     if val < i128::from(i64::MIN) || val > i128::from(i64::MAX) {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
-    i64::try_from(val).map_err(|_| VmError::JavaException {
+    i64::try_from(val).map_err(|_| crate::Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })
 }
 
-fn parse_i128_decode(s: &str) -> VmResult<i128> {
+fn parse_i128_decode(s: &str) -> crate::Result<i128> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
@@ -10883,26 +10883,26 @@ fn parse_i128_decode(s: &str) -> VmResult<i128> {
 
     let digits = &rest[prefix_len..];
     if digits.is_empty() || digits.starts_with('+') || digits.starts_with('-') {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
 
-    let magnitude = i128::from_str_radix(digits, radix).map_err(|_| VmError::JavaException {
+    let magnitude = i128::from_str_radix(digits, radix).map_err(|_| crate::Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })?;
     Ok(if negative { -magnitude } else { magnitude })
 }
 
-fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> VmResult<String> {
+fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> crate::Result<String> {
     let str_ref = extract_ref_arg(args, index)?;
     Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
 }
 
-fn extract_parse_radix_arg(args: &[Slot], index: usize) -> VmResult<u32> {
+fn extract_parse_radix_arg(args: &[Slot], index: usize) -> crate::Result<u32> {
     let radix = extract_int_arg(args, index)?;
     if !(2..=36).contains(&radix) {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/NumberFormatException".to_string(),
         });
     }
@@ -10914,7 +10914,7 @@ pub(crate) fn native_byte_parsebyte(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val =
         parse_bounded_i32_from_string_arg(args, heap, i32::from(i8::MIN), i32::from(i8::MAX))?;
     Ok(Some(Slot::Int(val)))
@@ -10925,7 +10925,7 @@ pub(crate) fn native_byte_parsebyte_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_and_radix_args(
         args,
         heap,
@@ -10940,7 +10940,7 @@ pub(crate) fn native_byte_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/lang/Byte".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
@@ -10952,7 +10952,7 @@ pub(crate) fn native_byte_valueof_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val =
         parse_bounded_i32_from_string_arg(args, heap, i32::from(i8::MIN), i32::from(i8::MAX))?;
     let r = heap.allocate("java/lang/Byte".to_string(), 1);
@@ -10965,7 +10965,7 @@ pub(crate) fn native_byte_valueof_string_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_and_radix_args(
         args,
         heap,
@@ -10982,7 +10982,7 @@ pub(crate) fn native_byte_bytevalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -10993,21 +10993,21 @@ pub(crate) fn native_byte_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let byte_val = |s: &Slot| -> VmResult<i32> {
+) -> crate::Result<Option<Slot>> {
+    let byte_val = |s: &Slot| -> crate::Result<i32> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Int(n)) => Ok(*n),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => byte_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = byte_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = byte_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -11016,7 +11016,7 @@ pub(crate) fn native_short_parseshort(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val =
         parse_bounded_i32_from_string_arg(args, heap, i32::from(i16::MIN), i32::from(i16::MAX))?;
     Ok(Some(Slot::Int(val)))
@@ -11027,7 +11027,7 @@ pub(crate) fn native_short_parseshort_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_and_radix_args(
         args,
         heap,
@@ -11042,7 +11042,7 @@ pub(crate) fn native_short_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/lang/Short".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(val);
@@ -11054,7 +11054,7 @@ pub(crate) fn native_short_valueof_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val =
         parse_bounded_i32_from_string_arg(args, heap, i32::from(i16::MIN), i32::from(i16::MAX))?;
     let r = heap.allocate("java/lang/Short".to_string(), 1);
@@ -11067,7 +11067,7 @@ pub(crate) fn native_short_valueof_string_radix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = parse_bounded_i32_from_string_and_radix_args(
         args,
         heap,
@@ -11084,7 +11084,7 @@ pub(crate) fn native_short_shortvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -11095,21 +11095,21 @@ pub(crate) fn native_short_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let short_val = |s: &Slot| -> VmResult<i32> {
+) -> crate::Result<Option<Slot>> {
+    let short_val = |s: &Slot| -> crate::Result<i32> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Int(n)) => Ok(*n),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => short_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = short_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = short_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -11118,21 +11118,21 @@ pub(crate) fn native_char_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let char_val = |s: &Slot| -> VmResult<i32> {
+) -> crate::Result<Option<Slot>> {
+    let char_val = |s: &Slot| -> crate::Result<i32> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Int(n)) => Ok(*n),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => char_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = char_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = char_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
 
@@ -11143,7 +11143,7 @@ pub(crate) fn native_char_digit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let ch = match args.first() {
         Some(Slot::Int(n)) => (*n).cast_unsigned(),
         _ => return Ok(Some(Slot::Int(-1))),
@@ -11166,7 +11166,7 @@ fn execute_string_concat_recipe(
     arg_types: &[char],
     constants: &[String],
     heap: &mut duke_gc::Heap,
-) -> VmResult<Slot> {
+) -> crate::Result<Slot> {
     let mut result = String::new();
     let mut dyn_idx = 0;
     let mut const_idx = 0;
@@ -11201,7 +11201,7 @@ fn stringify_slot(
     type_hint: char,
     heap: &duke_gc::Heap,
     out: &mut String,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     match slot {
         Slot::Int(v) => {
             if type_hint == 'Z' {
@@ -11267,7 +11267,7 @@ fn format_java_double(v: f64) -> String {
 /// `Ok(Some(slot))` for value-returning methods, `Ok(None)` for `void`.
 ///
 /// # Errors
-/// Returns [`VmError`] on execution faults (division by zero, stack overflow,
+/// Returns [`crate::Error`] on execution faults (division by zero, stack overflow,
 /// unimplemented instruction, etc.).
 ///
 /// # Examples
@@ -11295,7 +11295,7 @@ fn format_java_double(v: f64) -> String {
 ///
 /// # Errors
 ///
-/// Returns a `VmError` if bytecode invariants are broken or if an exception is raised
+/// Returns a `crate::Error` if bytecode invariants are broken or if an exception is raised
 /// internally.
 #[allow(
     clippy::cast_sign_loss,
@@ -11310,7 +11310,7 @@ pub fn execute(
     args: Vec<Slot>,
     max_stack: u16,
     max_locals: u16,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Build PC → instruction-index map for O(1) branch resolution.
     let pc_to_idx: HashMap<usize, usize> = instructions
         .iter()
@@ -11326,7 +11326,7 @@ pub fn execute(
 
     loop {
         let Some((pc, instr)) = instructions.get(idx) else {
-            return Err(VmError::FellOffEnd);
+            return Err(crate::Error::FellOffEnd);
         };
         let pc = *pc;
 
@@ -11336,7 +11336,7 @@ pub fn execute(
                 let target = (pc as i64).wrapping_add(i64::from($offset)) as usize;
                 idx = *pc_to_idx
                     .get(&target)
-                    .ok_or(VmError::InvalidBranchTarget { pc: target })?;
+                    .ok_or(crate::Error::InvalidBranchTarget { pc: target })?;
                 continue;
             }};
         }
@@ -11378,7 +11378,7 @@ pub fn execute(
                     } else {
                         let s = match cp.get(si).and_then(|e| e.as_ref()) {
                             Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                            _ => return Err(crate::Error::InvalidCpIndex { index: si }),
                         };
                         let r = local_heap.len() as u64;
                         local_heap.push(("java/lang/String".to_string(), Vec::new(), Some(s)));
@@ -11401,7 +11401,7 @@ pub fn execute(
                     } else {
                         let s = match cp.get(si).and_then(|e| e.as_ref()) {
                             Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(VmError::InvalidCpIndex { index: si }),
+                            _ => return Err(crate::Error::InvalidCpIndex { index: si }),
                         };
                         let r = local_heap.len() as u64;
                         local_heap.push(("java/lang/String".to_string(), Vec::new(), Some(s)));
@@ -11608,7 +11608,7 @@ pub fn execute(
                 let b = frame.pop_int()?;
                 let a = frame.pop_int()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    return Err(crate::Error::DivisionByZero);
                 }
                 frame.push(Slot::Int(a.wrapping_div(b)))?;
             }
@@ -11616,7 +11616,7 @@ pub fn execute(
                 let b = frame.pop_int()?;
                 let a = frame.pop_int()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    return Err(crate::Error::DivisionByZero);
                 }
                 frame.push(Slot::Int(a.wrapping_rem(b)))?;
             }
@@ -11691,7 +11691,7 @@ pub fn execute(
                 let b = frame.pop_long()?;
                 let a = frame.pop_long()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    return Err(crate::Error::DivisionByZero);
                 }
                 frame.push(Slot::Long(a.wrapping_div(b)))?;
             }
@@ -11699,7 +11699,7 @@ pub fn execute(
                 let b = frame.pop_long()?;
                 let a = frame.pop_long()?;
                 if b == 0 {
-                    return Err(VmError::DivisionByZero);
+                    return Err(crate::Error::DivisionByZero);
                 }
                 frame.push(Slot::Long(a.wrapping_rem(b)))?;
             }
@@ -12033,7 +12033,7 @@ pub fn execute(
             Instruction::Newarray(array_type) => {
                 let count = frame.pop_int()?;
                 if count < 0 {
-                    return Err(VmError::NegativeArraySize { size: count });
+                    return Err(crate::Error::NegativeArraySize { size: count });
                 }
                 let class_name = match array_type {
                     ArrayType::Boolean => "[Z",
@@ -12064,7 +12064,7 @@ pub fn execute(
                 let array_type = format!("[L{element_type};");
                 let count = frame.pop_int()?;
                 if count < 0 {
-                    return Err(VmError::NegativeArraySize { size: count });
+                    return Err(crate::Error::NegativeArraySize { size: count });
                 }
                 let r = local_heap.len() as u64;
                 local_heap.push((
@@ -12078,7 +12078,7 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let len = local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1
                     .len();
                 frame.push(Slot::Int(len as i32))?;
@@ -12090,10 +12090,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12107,10 +12107,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12124,10 +12124,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12141,10 +12141,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12158,10 +12158,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12175,10 +12175,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12192,10 +12192,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12209,10 +12209,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12226,10 +12226,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12243,10 +12243,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12260,10 +12260,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12277,10 +12277,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12294,10 +12294,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12311,10 +12311,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12328,10 +12328,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12345,10 +12345,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let fields = &mut local_heap
                     .get_mut(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .1;
                 if idx_val < 0 || idx_val as usize >= fields.len() {
-                    return Err(VmError::ArrayIndexOutOfBounds {
+                    return Err(crate::Error::ArrayIndexOutOfBounds {
                         index: idx_val,
                         length: fields.len(),
                     });
@@ -12391,20 +12391,20 @@ pub fn execute(
                         let target = resolve_class_name(cp, usize::from(cp_idx.0))?;
                         let actual = local_heap
                             .get(*r as usize)
-                            .ok_or(VmError::InvalidRef { address: *r })?
+                            .ok_or(crate::Error::InvalidRef { address: *r })?
                             .0
                             .clone();
                         if actual == target {
                             frame.push(slot)?;
                         } else {
-                            return Err(VmError::ClassCastException {
+                            return Err(crate::Error::ClassCastException {
                                 from: actual,
                                 to: target,
                             });
                         }
                     }
                     _ => {
-                        return Err(VmError::TypeMismatch {
+                        return Err(crate::Error::TypeMismatch {
                             expected: "reference",
                             got: "non-reference",
                         });
@@ -12421,7 +12421,7 @@ pub fn execute(
                         let target = resolve_class_name(cp, usize::from(cp_idx.0))?;
                         let actual = local_heap
                             .get(*r as usize)
-                            .ok_or(VmError::InvalidRef { address: *r })?
+                            .ok_or(crate::Error::InvalidRef { address: *r })?
                             .0
                             .clone();
                         if actual == target {
@@ -12431,7 +12431,7 @@ pub fn execute(
                         }
                     }
                     _ => {
-                        return Err(VmError::TypeMismatch {
+                        return Err(crate::Error::TypeMismatch {
                             expected: "reference",
                             got: "non-reference",
                         });
@@ -12444,10 +12444,10 @@ pub fn execute(
                 let r = frame.pop_ref()?;
                 let class_name = local_heap
                     .get(r as usize)
-                    .ok_or(VmError::InvalidRef { address: r })?
+                    .ok_or(crate::Error::InvalidRef { address: r })?
                     .0
                     .clone();
-                return Err(VmError::JavaException { class_name });
+                return Err(crate::Error::JavaException { class_name });
             }
 
             // ---- monitor (no-op, single-threaded) ----
@@ -12456,7 +12456,7 @@ pub fn execute(
             }
 
             other => {
-                return Err(VmError::Unimplemented {
+                return Err(crate::Error::Unimplemented {
                     mnemonic: other.mnemonic(),
                 });
             }
@@ -12478,7 +12478,7 @@ fn ensure_initialized(
     stdout: &mut dyn Write,
     class_name: &str,
     _triggered_by: &str,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     if registry.is_initialized(class_name) {
         return Ok(());
     }
@@ -12539,7 +12539,7 @@ fn initialize_primitive_wrapper_type_field(
     registry: &mut ClassRegistry,
     heap: &mut duke_gc::Heap,
     class_name: &str,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     let Some(descriptor) = primitive_wrapper_type_descriptor(class_name) else {
         return Ok(());
     };
@@ -12650,7 +12650,7 @@ fn callback_invoke_registered_lambda(
     method: &str,
     descriptor: &str,
     args: &[Slot],
-) -> VmResult<Option<Option<Slot>>> {
+) -> crate::Result<Option<Option<Slot>>> {
     let Some(lambda_info) = registry.get_lambda(class).cloned() else {
         return Ok(None);
     };
@@ -12660,9 +12660,9 @@ fn callback_invoke_registered_lambda(
 
     let this_ref = match args.first().copied() {
         Some(Slot::Reference(Some(reference))) => reference,
-        Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+        Some(Slot::Reference(None)) | None => return Err(crate::Error::NullPointerException),
         Some(_) => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "reference",
                 got: "other",
             });
@@ -12677,7 +12677,7 @@ fn callback_invoke_registered_lambda(
                 .fields
                 .get(capture_index)
                 .copied()
-                .ok_or(VmError::Unimplemented {
+                .ok_or(crate::Error::Unimplemented {
                     mnemonic: "lambda capture missing",
                 })?;
         impl_args.push(slot);
@@ -12708,16 +12708,16 @@ fn callback_invoke_registered_lambda(
                     lambda_info.impl_class.clone()
                 }
             }
-            Some(Slot::Reference(None)) | None => return Err(VmError::NullPointerException),
+            Some(Slot::Reference(None)) | None => return Err(crate::Error::NullPointerException),
             Some(_) => {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "reference",
                     got: "other",
                 });
             }
         },
         _ => {
-            return Err(VmError::Unimplemented {
+            return Err(crate::Error::Unimplemented {
                 mnemonic: "unsupported lambda impl kind",
             });
         }
@@ -12747,7 +12747,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         method: &str,
         descriptor: &str,
         args: Vec<Slot>,
-    ) -> VmResult<Option<Slot>> {
+    ) -> crate::Result<Option<Slot>> {
         if let Some(result) = callback_invoke_registered_lambda(
             self.registry,
             self.loader,
@@ -12772,22 +12772,22 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         )
     }
 
-    fn ensure_loaded(&mut self, class: &str) -> VmResult<()> {
+    fn ensure_loaded(&mut self, class: &str) -> crate::Result<()> {
         match self.registry.resolve_loaded_class_key(class) {
             Ok(_) => return Ok(()),
-            Err(VmError::ClassNotFound { .. }) => {}
+            Err(crate::Error::ClassNotFound { .. }) => {}
             Err(err) => return Err(err),
         }
         if self.registry.ensure_loaded(class, self.loader)? {
             Ok(())
         } else {
-            Err(VmError::ClassNotFound {
+            Err(crate::Error::ClassNotFound {
                 name: class.to_string(),
             })
         }
     }
 
-    fn inspect_class(&mut self, class: &str) -> VmResult<ReflectedClassInfo> {
+    fn inspect_class(&mut self, class: &str) -> crate::Result<ReflectedClassInfo> {
         inspect_reflected_class(self.registry, self.loader, class)
     }
 
@@ -12796,12 +12796,12 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         heap: &mut duke_gc::Heap,
         output: &mut dyn Write,
         class: &str,
-    ) -> VmResult<()> {
+    ) -> crate::Result<()> {
         self.ensure_loaded(class)?;
         ensure_initialized(self.registry, self.loader, heap, output, class, "")
     }
 
-    fn code_source_for_class(&mut self, class: &str) -> VmResult<Option<String>> {
+    fn code_source_for_class(&mut self, class: &str) -> crate::Result<Option<String>> {
         Ok(self
             .registry
             .code_source_for_class(class)
@@ -12813,7 +12813,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         heap: &duke_gc::Heap,
         loader_ref: u64,
         class: &str,
-    ) -> VmResult<()> {
+    ) -> crate::Result<()> {
         if let Some(path) = launched_class_loader_archive_path(self.registry, heap, loader_ref)? {
             if self
                 .registry
@@ -12821,14 +12821,14 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
             {
                 return Ok(());
             }
-            return Err(VmError::ClassNotFound {
+            return Err(crate::Error::ClassNotFound {
                 name: class.to_string(),
             });
         }
         self.ensure_loaded(class)
     }
 
-    fn instance_field_slot(&mut self, class: &str, field_name: &str) -> VmResult<usize> {
+    fn instance_field_slot(&mut self, class: &str, field_name: &str) -> crate::Result<usize> {
         field_slot_idx(self.registry, class, field_name)
     }
 
@@ -12838,7 +12838,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         object_ref: u64,
         declaring_class: &str,
         field_name: &str,
-    ) -> VmResult<Slot> {
+    ) -> crate::Result<Slot> {
         let actual_class = heap.get(object_ref)?.class_name.clone();
         if !is_assignable_from(
             self.registry,
@@ -12847,7 +12847,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
             declaring_class,
             Some(declaring_class),
         ) {
-            return Err(VmError::JavaException {
+            return Err(crate::Error::JavaException {
                 class_name: "java/lang/IllegalArgumentException".to_string(),
             });
         }
@@ -12862,7 +12862,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         declaring_class: &str,
         field_name: &str,
         value: Slot,
-    ) -> VmResult<()> {
+    ) -> crate::Result<()> {
         let actual_class = heap.get(object_ref)?.class_name.clone();
         if !is_assignable_from(
             self.registry,
@@ -12871,7 +12871,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
             declaring_class,
             Some(declaring_class),
         ) {
-            return Err(VmError::JavaException {
+            return Err(crate::Error::JavaException {
                 class_name: "java/lang/IllegalArgumentException".to_string(),
             });
         }
@@ -12880,7 +12880,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         Ok(())
     }
 
-    fn read_static_field(&mut self, class: &str, field_name: &str) -> VmResult<Slot> {
+    fn read_static_field(&mut self, class: &str, field_name: &str) -> crate::Result<Slot> {
         let slot = {
             let ctx = self.registry.get(class)?;
             static_field_idx(ctx, field_name)?
@@ -12888,7 +12888,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         Ok(self.registry.get(class)?.static_fields[slot])
     }
 
-    fn write_static_field(&mut self, class: &str, field_name: &str, value: Slot) -> VmResult<()> {
+    fn write_static_field(&mut self, class: &str, field_name: &str, value: Slot) -> crate::Result<()> {
         let slot = {
             let ctx = self.registry.get(class)?;
             static_field_idx(ctx, field_name)?
@@ -12897,11 +12897,11 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         Ok(())
     }
 
-    fn runtime_loader_for_class(&mut self, class: &str) -> VmResult<Option<u64>> {
+    fn runtime_loader_for_class(&mut self, class: &str) -> crate::Result<Option<u64>> {
         Ok(self.registry.runtime_loader_for_class(class))
     }
 
-    fn class_key_for_loaded_class(&mut self, class: &str) -> VmResult<String> {
+    fn class_key_for_loaded_class(&mut self, class: &str) -> crate::Result<String> {
         self.registry.resolve_loaded_class_key(class)
     }
 
@@ -12910,7 +12910,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         heap: &duke_gc::Heap,
         loader_ref: u64,
         class: &str,
-    ) -> VmResult<String> {
+    ) -> crate::Result<String> {
         if let Some(path) = launched_class_loader_archive_path(self.registry, heap, loader_ref)? {
             return Ok(self.registry.class_key_from_provenance(
                 class,
@@ -12925,7 +12925,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         &mut self,
         class: &str,
         source_class: Option<&str>,
-    ) -> VmResult<String> {
+    ) -> crate::Result<String> {
         Ok(self.registry.class_key_from_source(class, source_class))
     }
 
@@ -12934,7 +12934,7 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         heap: &mut duke_gc::Heap,
         output: &mut dyn Write,
         class: &str,
-    ) -> VmResult<u64> {
+    ) -> crate::Result<u64> {
         allocate_reflection_instance(self.registry, self.loader, heap, output, class)
     }
 }
@@ -12946,7 +12946,7 @@ impl ExecutionState {
         #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))] method_name: &str,
         entry_idx: usize,
         args: &[Slot],
-    ) -> VmResult<Self> {
+    ) -> crate::Result<Self> {
         let current_class = class_name.to_string();
         let pc_to_idx = {
             let ctx = registry.get(&current_class)?;
@@ -13025,9 +13025,9 @@ fn activate_method_state(
     resume_idx: usize,
     #[cfg(feature = "telemetry")] registry: &ClassRegistry,
     #[cfg(feature = "telemetry")] current_method: &mut String,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     if call_stack.len() >= MAX_CALL_DEPTH {
-        return Err(duke_runtime::VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/StackOverflowError".to_string(),
         });
     }
@@ -13064,7 +13064,7 @@ fn finish_native_call(
     frame: &mut Frame,
     idx: &mut usize,
     result: Option<Slot>,
-) -> VmResult<Option<ExecutionOutcome>> {
+) -> crate::Result<Option<ExecutionOutcome>> {
     if let Some(val) = result {
         frame.push(val)?;
     }
@@ -13085,12 +13085,12 @@ fn prepare_execution_state(
     method_name: &str,
     descriptor: &str,
     args: &[Slot],
-) -> VmResult<ExecutionState> {
+) -> crate::Result<ExecutionState> {
     let class_name = match registry.resolve_loaded_class_key(class_name) {
         Ok(class_key) => class_key,
-        Err(VmError::ClassNotFound { .. }) => {
+        Err(crate::Error::ClassNotFound { .. }) => {
             if !registry.ensure_loaded(class_name, loader)? {
-                return Err(VmError::ClassNotFound {
+                return Err(crate::Error::ClassNotFound {
                     name: class_name.to_string(),
                 });
             }
@@ -13103,7 +13103,7 @@ fn prepare_execution_state(
         ctx.methods
             .iter()
             .position(|m| m.name == method_name && m.descriptor == descriptor)
-            .ok_or_else(|| VmError::MethodNotFound {
+            .ok_or_else(|| crate::Error::MethodNotFound {
                 name: format!("{class_name}.{method_name}"),
                 descriptor: descriptor.to_string(),
             })?
@@ -13279,7 +13279,7 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
 /// Supports `invokestatic` calls between methods in the same class.
 ///
 /// # Errors
-/// Returns [`VmError`] on execution faults or if `method_name`/`descriptor`
+/// Returns [`crate::Error`] on execution faults or if `method_name`/`descriptor`
 /// are not found in `ctx`.
 ///
 /// # Panics
@@ -13328,7 +13328,7 @@ pub fn execute_class(
     method_name: &str,
     descriptor: &str,
     args: &[Slot],
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Fast path: if a native handler is registered for this class/method/descriptor,
     // dispatch it directly without requiring a ClassContext in the registry.
     // This handles both Simple natives and Callback natives at the top-level call site.
@@ -13337,7 +13337,7 @@ pub fn execute_class(
             let mut native_control = NativeControl::default();
             let result = h(args, heap, stdout, &mut native_control)?;
             if native_control.take().is_some() {
-                return Err(VmError::Unimplemented {
+                return Err(crate::Error::Unimplemented {
                     mnemonic: "thread action requires execute_class_to_completion",
                 });
             }
@@ -13350,7 +13350,7 @@ pub fn execute_class(
                 h(args, heap, stdout, &mut native_control, &mut callback_ops)?
             };
             if native_control.take().is_some() {
-                return Err(VmError::Unimplemented {
+                return Err(crate::Error::Unimplemented {
                     mnemonic: "thread action requires execute_class_to_completion",
                 });
             }
@@ -13372,7 +13372,7 @@ pub fn execute_class(
     match execution::run_execution(&mut state, registry, loader, heap, stdout, true, None)? {
         ExecutionOutcome::Returned(result) => Ok(result),
         ExecutionOutcome::ThreadAction(_) | ExecutionOutcome::Yield => {
-            Err(VmError::Unimplemented {
+            Err(crate::Error::Unimplemented {
                 mnemonic: "thread action requires execute_class_to_completion",
             })
         }
@@ -13389,7 +13389,7 @@ struct CompletionVm {
 #[derive(Default)]
 struct CompletionRuntime {
     threads: threading::ThreadRuntime,
-    handles: HashMap<i32, std::thread::JoinHandle<VmResult<()>>>,
+    handles: HashMap<i32, std::thread::JoinHandle<crate::Result<()>>>,
 }
 
 fn resolve_thread_entry(
@@ -13397,7 +13397,7 @@ fn resolve_thread_entry(
     loader: &dyn ClassLoader,
     heap: &duke_gc::Heap,
     thread_ref: u64,
-) -> VmResult<Option<(String, usize, Vec<Slot>)>> {
+) -> crate::Result<Option<(String, usize, Vec<Slot>)>> {
     let actual_class = heap.get(thread_ref)?.class_name.clone();
     if actual_class != "java/lang/Thread"
         && let Some((dispatch_class, method_idx)) =
@@ -13417,7 +13417,7 @@ fn resolve_thread_entry(
     let target_class = heap.get(target_ref)?.class_name.clone();
     let (dispatch_class, method_idx) =
         resolve_method_in_hierarchy(registry, loader, &target_class, "run", "()V").ok_or_else(
-            || VmError::AbstractMethodError {
+            || crate::Error::AbstractMethodError {
                 class_name: target_class.clone(),
                 method_name: "run".to_string(),
             },
@@ -13432,7 +13432,7 @@ fn resolve_thread_entry(
 fn join_java_thread(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
     thread_id: i32,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     loop {
         let handle = {
             let mut runtime = runtime.lock().unwrap();
@@ -13461,7 +13461,7 @@ fn join_java_thread(
 
 fn wait_for_all_java_threads(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     let mut first_error = None;
     loop {
         let handles = {
@@ -13494,7 +13494,7 @@ fn handle_thread_action(
     shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     match action {
         NativeThreadAction::Start { thread_ref } => {
             spawn_java_thread(shared, runtime, loader, thread_ref)
@@ -13512,7 +13512,7 @@ fn run_thread_to_completion(
     shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     loop {
         let mut shared_guard = shared.lock().unwrap();
         let CompletionVm {
@@ -13553,7 +13553,7 @@ fn spawn_java_thread(
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
     thread_ref: u64,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     {
         let mut shared_guard = shared.lock().unwrap();
         let thread = shared_guard.heap.get_mut(thread_ref)?;
@@ -13630,7 +13630,7 @@ fn spawn_java_thread(
 ///
 /// # Errors
 ///
-/// Returns `VmError` if class resolution, method dispatch, or bytecode
+/// Returns `crate::Error` if class resolution, method dispatch, or bytecode
 /// execution fails in any thread.
 ///
 /// # Panics
@@ -13648,7 +13648,7 @@ pub fn execute_class_to_completion<L>(
     method_name: &str,
     descriptor: &str,
     args: &[Slot],
-) -> VmResult<Option<Slot>>
+) -> crate::Result<Option<Slot>>
 where
     L: ClassLoader + Send + Sync + 'static,
 {
@@ -13694,7 +13694,7 @@ where
     let shared = std::sync::Arc::new(std::sync::Mutex::new(vm));
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(CompletionRuntime::default()));
 
-    let run_result: VmResult<Option<Slot>> = loop {
+    let run_result: crate::Result<Option<Slot>> = loop {
         let mut shared_guard = shared.lock().unwrap();
         let CompletionVm {
             registry,
@@ -13735,7 +13735,7 @@ where
     };
     let flush_result = stdout
         .write_all(&shared.output)
-        .map_err(|_| VmError::Unimplemented {
+        .map_err(|_| crate::Error::Unimplemented {
             mnemonic: "output flush",
         });
     *registry = shared.registry;
@@ -13962,17 +13962,17 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
 }
 
 /// Resolve a CP Class entry to its name string.
-fn resolve_class_name(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> {
+fn resolve_class_name(cp: &[Option<CpEntry>], cp_idx: usize) -> crate::Result<String> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Class { name_index }) => {
             match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Utf8(s)) => Ok(s.clone()),
-                _ => Err(VmError::InvalidCpIndex {
+                _ => Err(crate::Error::InvalidCpIndex {
                     index: name_index.0 as usize,
                 }),
             }
         }
-        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+        _ => Err(crate::Error::InvalidCpIndex { index: cp_idx }),
     }
 }
 
@@ -13995,10 +13995,10 @@ fn binary_name_to_internal_name(name: &str) -> String {
     name.replace('.', "/")
 }
 
-fn cp_utf8_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> {
+fn cp_utf8_string(cp: &[Option<CpEntry>], cp_idx: usize) -> crate::Result<String> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Utf8(s)) => Ok(s.clone()),
-        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+        _ => Err(crate::Error::InvalidCpIndex { index: cp_idx }),
     }
 }
 
@@ -14086,7 +14086,7 @@ fn inspect_reflected_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
     class: &str,
-) -> VmResult<ReflectedClassInfo> {
+) -> crate::Result<ReflectedClassInfo> {
     let internal_name = registry.internal_name_for_class(class).to_string();
     match registry.resolve_loaded_class_key(class) {
         Ok(class_key) => {
@@ -14133,7 +14133,7 @@ fn inspect_reflected_class(
                 fields,
             });
         }
-        Err(VmError::ClassNotFound { .. }) => {}
+        Err(crate::Error::ClassNotFound { .. }) => {}
         Err(err) => return Err(err),
     }
 
@@ -14192,20 +14192,20 @@ fn class_internal_name_from_key(class_key: &str) -> &str {
         .map_or(class_key, |(internal_name, _)| internal_name)
 }
 
-fn allocate_class_object(heap: &mut duke_gc::Heap, class_key: &str) -> VmResult<u64> {
+fn allocate_class_object(heap: &mut duke_gc::Heap, class_key: &str) -> crate::Result<u64> {
     let class_ref = heap.allocate("java/lang/Class".to_string(), 0);
     heap.get_mut(class_ref)?.string_value = Some(class_key.to_string());
     Ok(class_ref)
 }
 
-fn class_key_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
+fn class_key_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> crate::Result<String> {
     heap.get(class_ref)?
         .string_value
         .clone()
-        .ok_or(VmError::InvalidRef { address: class_ref })
+        .ok_or(crate::Error::InvalidRef { address: class_ref })
 }
 
-fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
+fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> crate::Result<String> {
     Ok(class_internal_name_from_key(&class_key_from_ref(heap, class_ref)?).to_string())
 }
 
@@ -14213,7 +14213,7 @@ fn allocate_reference_array(
     heap: &mut duke_gc::Heap,
     array_class_name: &str,
     elements: &[u64],
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     let array_ref = heap.allocate(array_class_name.to_string(), elements.len());
     {
         let array_obj = heap.get_mut(array_ref)?;
@@ -14235,7 +14235,7 @@ fn allocate_reflection_member_object(
     descriptor: &str,
     is_public: bool,
     is_static: bool,
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     let member_ref = heap.allocate(member_class_name.to_string(), 6);
     let declaring_class_ref = allocate_class_object(heap, declaring_internal_name)?;
     let name_ref = heap.allocate_string(name.to_string());
@@ -14269,22 +14269,22 @@ fn allocate_reflection_member_object(
     Ok(member_ref)
 }
 
-fn reflection_member_name_slot(heap: &duke_gc::Heap, member_ref: u64) -> VmResult<Slot> {
+fn reflection_member_name_slot(heap: &duke_gc::Heap, member_ref: u64) -> crate::Result<Slot> {
     heap.get(member_ref)?
         .fields
         .get(REFLECTION_MEMBER_NAME_FIELD)
         .copied()
-        .ok_or(VmError::InvalidRef {
+        .ok_or(crate::Error::InvalidRef {
             address: member_ref,
         })
 }
 
-fn reflection_member_declaring_class_slot(heap: &duke_gc::Heap, member_ref: u64) -> VmResult<Slot> {
+fn reflection_member_declaring_class_slot(heap: &duke_gc::Heap, member_ref: u64) -> crate::Result<Slot> {
     heap.get(member_ref)?
         .fields
         .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
         .copied()
-        .ok_or(VmError::InvalidRef {
+        .ok_or(crate::Error::InvalidRef {
             address: member_ref,
         })
 }
@@ -14292,11 +14292,11 @@ fn reflection_member_declaring_class_slot(heap: &duke_gc::Heap, member_ref: u64)
 fn reflection_member_declaring_class_name_slot(
     heap: &mut duke_gc::Heap,
     member_ref: u64,
-) -> VmResult<Slot> {
+) -> crate::Result<Slot> {
     let Slot::Reference(Some(class_ref)) =
         reflection_member_declaring_class_slot(heap, member_ref)?
     else {
-        return Err(VmError::InvalidRef {
+        return Err(crate::Error::InvalidRef {
             address: member_ref,
         });
     };
@@ -14310,7 +14310,7 @@ fn descriptor_class_key_from_source(
     ops: &mut dyn CallbackOps,
     descriptor: &str,
     source_class: Option<&str>,
-) -> VmResult<String> {
+) -> crate::Result<String> {
     match descriptor.as_bytes().first().copied() {
         Some(b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b'V')
             if descriptor.len() == 1 =>
@@ -14321,7 +14321,7 @@ fn descriptor_class_key_from_source(
         Some(b'L') if descriptor.ends_with(';') => {
             ops.class_key_from_source(&descriptor[1..descriptor.len() - 1], source_class)
         }
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "type descriptor",
             got: "other",
         }),
@@ -14333,24 +14333,24 @@ fn descriptor_class_slot_from_source(
     ops: &mut dyn CallbackOps,
     descriptor: &str,
     source_class: Option<&str>,
-) -> VmResult<Slot> {
+) -> crate::Result<Slot> {
     let class_key = descriptor_class_key_from_source(ops, descriptor, source_class)?;
     let class_ref = allocate_class_object(heap, &class_key)?;
     Ok(Slot::Reference(Some(class_ref)))
 }
 
-fn reflection_array_elements(heap: &duke_gc::Heap, args_slot: Slot) -> VmResult<Vec<Slot>> {
+fn reflection_array_elements(heap: &duke_gc::Heap, args_slot: Slot) -> crate::Result<Vec<Slot>> {
     match args_slot {
         Slot::Reference(None) => Ok(Vec::new()),
         Slot::Reference(Some(array_ref)) => Ok(heap.get(array_ref)?.fields.clone()),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "reference array",
             got: "other",
         }),
     }
 }
 
-fn class_descriptor_from_class_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmResult<String> {
+fn class_descriptor_from_class_ref(heap: &duke_gc::Heap, class_ref: u64) -> crate::Result<String> {
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     if internal_name.starts_with('[') || internal_name.len() == 1 {
         Ok(internal_name)
@@ -14359,15 +14359,15 @@ fn class_descriptor_from_class_ref(heap: &duke_gc::Heap, class_ref: u64) -> VmRe
     }
 }
 
-fn parameter_descriptor_from_class_array(heap: &duke_gc::Heap, slot: Slot) -> VmResult<String> {
+fn parameter_descriptor_from_class_array(heap: &duke_gc::Heap, slot: Slot) -> crate::Result<String> {
     let params = reflection_array_elements(heap, slot)?;
     let mut descriptor = String::from("(");
     for param in params {
         let class_ref = match param {
             Slot::Reference(Some(class_ref)) => class_ref,
-            Slot::Reference(None) => return Err(VmError::NullPointerException),
+            Slot::Reference(None) => return Err(crate::Error::NullPointerException),
             _ => {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "reference array",
                     got: "other",
                 });
@@ -14389,7 +14389,7 @@ fn lookup_public_reflected_field(
     ops: &mut dyn CallbackOps,
     class: &str,
     field_name: &str,
-) -> VmResult<Option<(String, ReflectedFieldInfo)>> {
+) -> crate::Result<Option<(String, ReflectedFieldInfo)>> {
     lookup_public_reflected_field_inner(ops, class, field_name, &mut HashSet::new())
 }
 
@@ -14398,7 +14398,7 @@ fn lookup_public_reflected_field_inner(
     class: &str,
     field_name: &str,
     visited: &mut HashSet<String>,
-) -> VmResult<Option<(String, ReflectedFieldInfo)>> {
+) -> crate::Result<Option<(String, ReflectedFieldInfo)>> {
     if !visited.insert(class.to_string()) {
         return Ok(None);
     }
@@ -14432,7 +14432,7 @@ fn lookup_public_reflected_method(
     class: &str,
     method_name: &str,
     parameter_descriptor: &str,
-) -> VmResult<Option<(String, ReflectedMethodInfo)>> {
+) -> crate::Result<Option<(String, ReflectedMethodInfo)>> {
     lookup_public_reflected_method_inner(
         ops,
         class,
@@ -14448,7 +14448,7 @@ fn lookup_public_reflected_method_inner(
     method_name: &str,
     parameter_descriptor: &str,
     visited: &mut HashSet<String>,
-) -> VmResult<Option<(String, ReflectedMethodInfo)>> {
+) -> crate::Result<Option<(String, ReflectedMethodInfo)>> {
     if !visited.insert(class.to_string()) {
         return Ok(None);
     }
@@ -14495,7 +14495,7 @@ fn lookup_public_reflected_method_inner(
 fn collect_public_reflected_fields(
     ops: &mut dyn CallbackOps,
     class: &str,
-) -> VmResult<Vec<(String, ReflectedFieldInfo)>> {
+) -> crate::Result<Vec<(String, ReflectedFieldInfo)>> {
     let mut collected = Vec::new();
     collect_public_reflected_fields_inner(
         ops,
@@ -14513,7 +14513,7 @@ fn collect_public_reflected_fields_inner(
     visited_classes: &mut HashSet<String>,
     seen_fields: &mut HashSet<String>,
     collected: &mut Vec<(String, ReflectedFieldInfo)>,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     if !visited_classes.insert(class.to_string()) {
         return Ok(());
     }
@@ -14551,7 +14551,7 @@ fn collect_public_reflected_fields_inner(
 fn collect_public_reflected_methods(
     ops: &mut dyn CallbackOps,
     class: &str,
-) -> VmResult<Vec<(String, ReflectedMethodInfo)>> {
+) -> crate::Result<Vec<(String, ReflectedMethodInfo)>> {
     let mut collected = Vec::new();
     collect_public_reflected_methods_inner(
         ops,
@@ -14569,7 +14569,7 @@ fn collect_public_reflected_methods_inner(
     visited_classes: &mut HashSet<String>,
     seen_methods: &mut HashSet<String>,
     collected: &mut Vec<(String, ReflectedMethodInfo)>,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     if !visited_classes.insert(class.to_string()) {
         return Ok(());
     }
@@ -14617,26 +14617,26 @@ struct ReflectedFieldHandle {
     is_accessible: bool,
 }
 
-fn reflected_field_handle(heap: &duke_gc::Heap, field_ref: u64) -> VmResult<ReflectedFieldHandle> {
+fn reflected_field_handle(heap: &duke_gc::Heap, field_ref: u64) -> crate::Result<ReflectedFieldHandle> {
     let field_obj = heap.get(field_ref)?;
     let Some(Slot::Reference(Some(declaring_class_ref))) = field_obj
         .fields
         .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
         .copied()
     else {
-        return Err(VmError::InvalidRef { address: field_ref });
+        return Err(crate::Error::InvalidRef { address: field_ref });
     };
     let Some(Slot::Reference(Some(name_ref))) =
         field_obj.fields.get(REFLECTION_MEMBER_NAME_FIELD).copied()
     else {
-        return Err(VmError::InvalidRef { address: field_ref });
+        return Err(crate::Error::InvalidRef { address: field_ref });
     };
     let Some(Slot::Reference(Some(descriptor_ref))) = field_obj
         .fields
         .get(REFLECTION_MEMBER_DESCRIPTOR_FIELD)
         .copied()
     else {
-        return Err(VmError::InvalidRef { address: field_ref });
+        return Err(crate::Error::InvalidRef { address: field_ref });
     };
     let is_public = matches!(
         field_obj.fields.get(REFLECTION_MEMBER_PUBLIC_FIELD),
@@ -14657,12 +14657,12 @@ fn reflected_field_handle(heap: &duke_gc::Heap, field_ref: u64) -> VmResult<Refl
             .get(name_ref)?
             .string_value
             .clone()
-            .ok_or(VmError::NullPointerException)?,
+            .ok_or(crate::Error::NullPointerException)?,
         descriptor: heap
             .get(descriptor_ref)?
             .string_value
             .clone()
-            .ok_or(VmError::NullPointerException)?,
+            .ok_or(crate::Error::NullPointerException)?,
         is_public,
         is_static,
         is_accessible,
@@ -14681,21 +14681,21 @@ struct ReflectedMethodHandle {
 fn reflected_method_handle(
     heap: &duke_gc::Heap,
     method_ref: u64,
-) -> VmResult<ReflectedMethodHandle> {
+) -> crate::Result<ReflectedMethodHandle> {
     let method_obj = heap.get(method_ref)?;
     let Some(Slot::Reference(Some(declaring_class_ref))) = method_obj
         .fields
         .get(REFLECTION_MEMBER_DECLARING_CLASS_FIELD)
         .copied()
     else {
-        return Err(VmError::InvalidRef {
+        return Err(crate::Error::InvalidRef {
             address: method_ref,
         });
     };
     let Some(Slot::Reference(Some(name_ref))) =
         method_obj.fields.get(REFLECTION_MEMBER_NAME_FIELD).copied()
     else {
-        return Err(VmError::InvalidRef {
+        return Err(crate::Error::InvalidRef {
             address: method_ref,
         });
     };
@@ -14704,7 +14704,7 @@ fn reflected_method_handle(
         .get(REFLECTION_MEMBER_DESCRIPTOR_FIELD)
         .copied()
     else {
-        return Err(VmError::InvalidRef {
+        return Err(crate::Error::InvalidRef {
             address: method_ref,
         });
     };
@@ -14727,12 +14727,12 @@ fn reflected_method_handle(
             .get(name_ref)?
             .string_value
             .clone()
-            .ok_or(VmError::NullPointerException)?,
+            .ok_or(crate::Error::NullPointerException)?,
         descriptor: heap
             .get(descriptor_ref)?
             .string_value
             .clone()
-            .ok_or(VmError::NullPointerException)?,
+            .ok_or(crate::Error::NullPointerException)?,
         is_public,
         is_static,
         is_accessible,
@@ -14745,10 +14745,10 @@ fn build_reflection_invoke_args(
     descriptor: &str,
     invoke_arg_slots: Vec<Slot>,
     is_static: bool,
-) -> VmResult<Vec<Slot>> {
+) -> crate::Result<Vec<Slot>> {
     let arg_types = parse_arg_types(descriptor);
     if arg_types.len() != invoke_arg_slots.len() {
-        return Err(VmError::TypeMismatch {
+        return Err(crate::Error::TypeMismatch {
             expected: "matching reflective argument count",
             got: "different count",
         });
@@ -14758,7 +14758,7 @@ fn build_reflection_invoke_args(
     if !is_static {
         match target_slot {
             Slot::Reference(Some(_)) => invoke_args.push(target_slot),
-            _ => return Err(VmError::NullPointerException),
+            _ => return Err(crate::Error::NullPointerException),
         }
     }
     for (descriptor, arg) in arg_types.iter().copied().zip(invoke_arg_slots) {
@@ -14770,22 +14770,22 @@ fn build_reflection_invoke_args(
     Ok(invoke_args)
 }
 
-fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) -> VmResult<Slot> {
+fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) -> crate::Result<Slot> {
     match descriptor {
         'L' | '[' => match arg {
             Slot::Reference(_) => Ok(arg),
-            _ => Err(VmError::TypeMismatch {
+            _ => Err(crate::Error::TypeMismatch {
                 expected: "reference",
                 got: "other",
             }),
         },
         'B' | 'C' | 'I' | 'S' | 'Z' => {
             let Slot::Reference(Some(obj_ref)) = arg else {
-                return Err(VmError::NullPointerException);
+                return Err(crate::Error::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Int(value)) => Ok(Slot::Int(*value)),
-                _ => Err(VmError::TypeMismatch {
+                _ => Err(crate::Error::TypeMismatch {
                     expected: "boxed int-like primitive",
                     got: "other",
                 }),
@@ -14793,11 +14793,11 @@ fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) 
         }
         'J' => {
             let Slot::Reference(Some(obj_ref)) = arg else {
-                return Err(VmError::NullPointerException);
+                return Err(crate::Error::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Long(value)) => Ok(Slot::Long(*value)),
-                _ => Err(VmError::TypeMismatch {
+                _ => Err(crate::Error::TypeMismatch {
                     expected: "boxed long",
                     got: "other",
                 }),
@@ -14805,11 +14805,11 @@ fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) 
         }
         'F' => {
             let Slot::Reference(Some(obj_ref)) = arg else {
-                return Err(VmError::NullPointerException);
+                return Err(crate::Error::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Float(value)) => Ok(Slot::Float(*value)),
-                _ => Err(VmError::TypeMismatch {
+                _ => Err(crate::Error::TypeMismatch {
                     expected: "boxed float",
                     got: "other",
                 }),
@@ -14817,17 +14817,17 @@ fn unbox_reflection_argument(heap: &duke_gc::Heap, descriptor: char, arg: Slot) 
         }
         'D' => {
             let Slot::Reference(Some(obj_ref)) = arg else {
-                return Err(VmError::NullPointerException);
+                return Err(crate::Error::NullPointerException);
             };
             match heap.get(obj_ref)?.fields.first() {
                 Some(Slot::Double(value)) => Ok(Slot::Double(*value)),
-                _ => Err(VmError::TypeMismatch {
+                _ => Err(crate::Error::TypeMismatch {
                     expected: "boxed double",
                     got: "other",
                 }),
             }
         }
-        _ => Err(VmError::Unimplemented {
+        _ => Err(crate::Error::Unimplemented {
             mnemonic: "reflection primitive unboxing",
         }),
     }
@@ -14848,13 +14848,13 @@ fn box_reflection_return_value(
     heap: &mut duke_gc::Heap,
     return_type: char,
     result: Option<Slot>,
-) -> VmResult<Slot> {
+) -> crate::Result<Slot> {
     match return_type {
         'V' => Ok(Slot::Reference(None)),
         'L' | '[' => Ok(result.unwrap_or(Slot::Reference(None))),
         'B' => {
             let Some(Slot::Int(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "byte result",
                     got: "other",
                 });
@@ -14865,7 +14865,7 @@ fn box_reflection_return_value(
         }
         'C' => {
             let Some(Slot::Int(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "char result",
                     got: "other",
                 });
@@ -14876,7 +14876,7 @@ fn box_reflection_return_value(
         }
         'D' => {
             let Some(Slot::Double(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "double result",
                     got: "other",
                 });
@@ -14887,7 +14887,7 @@ fn box_reflection_return_value(
         }
         'F' => {
             let Some(Slot::Float(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "float result",
                     got: "other",
                 });
@@ -14898,7 +14898,7 @@ fn box_reflection_return_value(
         }
         'I' => {
             let Some(Slot::Int(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "int result",
                     got: "other",
                 });
@@ -14909,7 +14909,7 @@ fn box_reflection_return_value(
         }
         'J' => {
             let Some(Slot::Long(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "long result",
                     got: "other",
                 });
@@ -14920,7 +14920,7 @@ fn box_reflection_return_value(
         }
         'S' => {
             let Some(Slot::Int(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "short result",
                     got: "other",
                 });
@@ -14931,7 +14931,7 @@ fn box_reflection_return_value(
         }
         'Z' => {
             let Some(Slot::Int(value)) = result else {
-                return Err(VmError::TypeMismatch {
+                return Err(crate::Error::TypeMismatch {
                     expected: "boolean result",
                     got: "other",
                 });
@@ -14940,20 +14940,20 @@ fn box_reflection_return_value(
             heap.get_mut(boxed_ref)?.fields[0] = Slot::Int(value);
             Ok(Slot::Reference(Some(boxed_ref)))
         }
-        _ => Err(VmError::Unimplemented {
+        _ => Err(crate::Error::Unimplemented {
             mnemonic: "reflection primitive boxing",
         }),
     }
 }
 
 /// Push a constant pool value onto the frame's operand stack.
-fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> VmResult<()> {
+fn ldc_push(frame: &mut Frame, cp: &[Option<CpEntry>], idx: usize) -> crate::Result<()> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Integer(v)) => frame.push(Slot::Int(*v)),
         Some(CpEntry::Float(v)) => frame.push(Slot::Float(*v)),
         Some(CpEntry::Long(v)) => frame.push(Slot::Long(*v)),
         Some(CpEntry::Double(v)) => frame.push(Slot::Double(*v)),
-        _ => Err(VmError::InvalidCpIndex { index: idx }),
+        _ => Err(crate::Error::InvalidCpIndex { index: idx }),
     }
 }
 
@@ -15169,7 +15169,7 @@ fn resolve_method_in_hierarchy(
 }
 
 /// Resolve a constant pool Methodref to (`class_name`, `method_name`, `descriptor`).
-fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
+fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> crate::Result<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(
             CpEntry::Methodref {
@@ -15185,10 +15185,10 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
                         Some(CpEntry::Utf8(s)) => s.clone(),
-                        _ => return Err(VmError::InvalidMethodref { index: idx }),
+                        _ => return Err(crate::Error::InvalidMethodref { index: idx }),
                     }
                 }
-                _ => return Err(VmError::InvalidMethodref { index: idx }),
+                _ => return Err(crate::Error::InvalidMethodref { index: idx }),
             };
             let nat_idx = name_and_type_index.0 as usize;
             match cp.get(nat_idx).and_then(|e| e.as_ref()) {
@@ -15198,18 +15198,18 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, St
                 }) => {
                     let name = match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
                         Some(CpEntry::Utf8(s)) => s.clone(),
-                        _ => return Err(VmError::InvalidMethodref { index: idx }),
+                        _ => return Err(crate::Error::InvalidMethodref { index: idx }),
                     };
                     let desc = match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
                         Some(CpEntry::Utf8(s)) => s.clone(),
-                        _ => return Err(VmError::InvalidMethodref { index: idx }),
+                        _ => return Err(crate::Error::InvalidMethodref { index: idx }),
                     };
                     Ok((class_name, name, desc))
                 }
-                _ => Err(VmError::InvalidMethodref { index: nat_idx }),
+                _ => Err(crate::Error::InvalidMethodref { index: nat_idx }),
             }
         }
-        _ => Err(VmError::InvalidMethodref { index: idx }),
+        _ => Err(crate::Error::InvalidMethodref { index: idx }),
     }
 }
 
@@ -15255,7 +15255,7 @@ fn parse_arg_count(descriptor: &str) -> usize {
 }
 
 /// Resolve a constant pool Fieldref to (`class_name`, `field_name`, descriptor).
-fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, String, String)> {
+fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> crate::Result<(String, String, String)> {
     match cp.get(idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Fieldref {
             class_index,
@@ -15265,10 +15265,10 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
                 Some(CpEntry::Class { name_index }) => {
                     match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
                         Some(CpEntry::Utf8(s)) => s.clone(),
-                        _ => return Err(VmError::InvalidFieldref { index: idx }),
+                        _ => return Err(crate::Error::InvalidFieldref { index: idx }),
                     }
                 }
-                _ => return Err(VmError::InvalidFieldref { index: idx }),
+                _ => return Err(crate::Error::InvalidFieldref { index: idx }),
             };
             let nat_idx = name_and_type_index.0 as usize;
             match cp.get(nat_idx).and_then(|e| e.as_ref()) {
@@ -15278,18 +15278,18 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
                 }) => {
                     let name = match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
                         Some(CpEntry::Utf8(s)) => s.clone(),
-                        _ => return Err(VmError::InvalidFieldref { index: idx }),
+                        _ => return Err(crate::Error::InvalidFieldref { index: idx }),
                     };
                     let desc = match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
                         Some(CpEntry::Utf8(s)) => s.clone(),
-                        _ => return Err(VmError::InvalidFieldref { index: idx }),
+                        _ => return Err(crate::Error::InvalidFieldref { index: idx }),
                     };
                     Ok((class_name, name, desc))
                 }
-                _ => Err(VmError::InvalidFieldref { index: nat_idx }),
+                _ => Err(crate::Error::InvalidFieldref { index: nat_idx }),
             }
         }
-        _ => Err(VmError::InvalidFieldref { index: idx }),
+        _ => Err(crate::Error::InvalidFieldref { index: idx }),
     }
 }
 
@@ -15297,20 +15297,20 @@ fn resolve_fieldref(cp: &[Option<CpEntry>], idx: usize) -> VmResult<(String, Str
 fn resolve_method_handle(
     cp: &[Option<CpEntry>],
     cp_idx: usize,
-) -> VmResult<(u8, String, String, String)> {
+) -> crate::Result<(u8, String, String, String)> {
     let (kind, ref_idx) = match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::MethodHandle {
             reference_kind,
             reference_index,
         }) => (*reference_kind, reference_index.0 as usize),
-        _ => return Err(VmError::InvalidCpIndex { index: cp_idx }),
+        _ => return Err(crate::Error::InvalidCpIndex { index: cp_idx }),
     };
     let (class_name, method_name, descriptor) = resolve_methodref(cp, ref_idx)?;
     Ok((kind, class_name, method_name, descriptor))
 }
 
 /// Resolve a `NameAndType` CP entry to (name, descriptor).
-fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(String, String)> {
+fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> crate::Result<(String, String)> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::NameAndType {
             name_index,
@@ -15319,7 +15319,7 @@ fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(Str
             let name = match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Utf8(s)) => s.clone(),
                 _ => {
-                    return Err(VmError::InvalidCpIndex {
+                    return Err(crate::Error::InvalidCpIndex {
                         index: name_index.0 as usize,
                     });
                 }
@@ -15327,30 +15327,30 @@ fn resolve_name_and_type(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<(Str
             let desc = match cp.get(descriptor_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Utf8(s)) => s.clone(),
                 _ => {
-                    return Err(VmError::InvalidCpIndex {
+                    return Err(crate::Error::InvalidCpIndex {
                         index: descriptor_index.0 as usize,
                     });
                 }
             };
             Ok((name, desc))
         }
-        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+        _ => Err(crate::Error::InvalidCpIndex { index: cp_idx }),
     }
 }
 
 /// Resolve a CP String entry to its UTF-8 content. Also handles bare Utf8 entries.
-fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> VmResult<String> {
+fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> crate::Result<String> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::String { string_index }) => {
             match cp.get(string_index.0 as usize).and_then(|e| e.as_ref()) {
                 Some(CpEntry::Utf8(s)) => Ok(s.clone()),
-                _ => Err(VmError::InvalidCpIndex {
+                _ => Err(crate::Error::InvalidCpIndex {
                     index: string_index.0 as usize,
                 }),
             }
         }
         Some(CpEntry::Utf8(s)) => Ok(s.clone()),
-        _ => Err(VmError::InvalidCpIndex { index: cp_idx }),
+        _ => Err(crate::Error::InvalidCpIndex { index: cp_idx }),
     }
 }
 
@@ -15498,7 +15498,7 @@ fn pop_typed_args_into_locals(
     frame: &mut Frame,
     locals: &mut [Slot],
     start_idx: usize,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     let count = param_types.len();
     let mut args = vec![Slot::Int(0); count];
     for i in (0..count).rev() {
@@ -15531,7 +15531,7 @@ fn autobox_if_needed(
     impl_desc: &str,
     sam_desc: &str,
     heap: &mut duke_gc::Heap,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let Some(slot) = result else {
         return Ok(None);
     };
@@ -15661,7 +15661,7 @@ fn materialize_java_exception_object(
     loader: &dyn ClassLoader,
     heap: &mut duke_gc::Heap,
     class_name: &str,
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     registry.ensure_loaded(class_name, loader)?;
     let exc_ref = heap.allocate(
         class_name.to_string(),
@@ -15677,7 +15677,7 @@ fn allocate_reflection_instance(
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
     class: &str,
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     if !registry.contains(class) {
         registry.ensure_loaded(class, loader)?;
     }
@@ -15746,7 +15746,7 @@ fn init_object_fields(
 ///
 /// Layout: root fields occupy the lowest-numbered slots; each subclass
 /// appends its fields immediately after its superclass's fields.
-fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> VmResult<usize> {
+fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> crate::Result<usize> {
     let mut current = target_class;
 
     while let Ok(ctx) = registry.get(current) {
@@ -15770,16 +15770,16 @@ fn field_slot_idx(registry: &ClassRegistry, target_class: &str, name: &str) -> V
         }
     }
 
-    Err(VmError::InvalidFieldref { index: 0 })
+    Err(crate::Error::InvalidFieldref { index: 0 })
 }
 
 /// Index of a named static field within `ctx.static_fields`.
-fn static_field_idx(ctx: &ClassContext, name: &str) -> VmResult<usize> {
+fn static_field_idx(ctx: &ClassContext, name: &str) -> crate::Result<usize> {
     ctx.fields
         .iter()
         .filter(|f| f.is_static)
         .position(|f| f.name == name)
-        .ok_or(VmError::InvalidFieldref { index: 0 })
+        .ok_or(crate::Error::InvalidFieldref { index: 0 })
 }
 
 // ---------------------------------------------------------------------------
@@ -15792,7 +15792,7 @@ pub(crate) fn native_sb_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     obj.string_value = Some(String::new());
@@ -15805,7 +15805,7 @@ pub(crate) fn native_sb_init_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let init_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
@@ -15822,7 +15822,7 @@ pub(crate) fn native_sb_append_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let append_str = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
@@ -15841,7 +15841,7 @@ pub(crate) fn native_sb_append_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_int_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
@@ -15857,7 +15857,7 @@ pub(crate) fn native_sb_append_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_long_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
@@ -15873,7 +15873,7 @@ pub(crate) fn native_sb_append_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_double_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
@@ -15889,7 +15889,7 @@ pub(crate) fn native_sb_append_float(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_float_arg(args, 1)?;
     let obj = heap.get_mut(this_ref)?;
@@ -15905,7 +15905,7 @@ pub(crate) fn native_sb_append_boolean(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Int(v)) => *v != 0,
@@ -15924,7 +15924,7 @@ pub(crate) fn native_sb_append_char(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Int(v)) => char::from_u32((*v).cast_unsigned()).unwrap_or('\0'),
@@ -15943,7 +15943,7 @@ pub(crate) fn native_sb_tostring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let content = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(content);
@@ -15958,14 +15958,14 @@ pub(crate) fn native_sb_insert_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let offset = extract_int_arg(args, 1)?;
     let s = match args.get(2) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
         Some(Slot::Reference(None)) | None => "null".to_string(),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "String",
                 got: "other",
             });
@@ -15991,7 +15991,7 @@ pub(crate) fn native_sb_insert_char(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let offset = extract_int_arg(args, 1)?;
     let ch = char::from_u32(extract_int_arg(args, 2)? as u32).unwrap_or('\0');
@@ -16014,7 +16014,7 @@ pub(crate) fn native_sb_delete(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let start = extract_int_arg(args, 1)?;
     let end = extract_int_arg(args, 2)?;
@@ -16040,7 +16040,7 @@ pub(crate) fn native_sb_delete_char_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let index = extract_int_arg(args, 1)?;
     let buf = heap
@@ -16062,7 +16062,7 @@ pub(crate) fn native_sb_reverse(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let buf = heap
         .get_mut(this_ref)?
@@ -16079,7 +16079,7 @@ pub(crate) fn native_sb_char_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let index = extract_int_arg(args, 1)?;
     let ch = heap
@@ -16097,7 +16097,7 @@ pub(crate) fn native_sb_set_length(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let new_len = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(0);
     let buf = heap
@@ -16119,7 +16119,7 @@ pub(crate) fn native_sb_length(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let len = heap
         .get(this_ref)?
@@ -16133,10 +16133,10 @@ pub(crate) fn native_sb_length(
 // ---------------------------------------------------------------------------
 
 /// Helper: extract a `char` from a `Slot::Int` argument.
-fn slot_to_char(slot: &Slot) -> VmResult<char> {
+fn slot_to_char(slot: &Slot) -> crate::Result<char> {
     match slot {
         Slot::Int(v) => Ok(char::from_u32((*v).cast_unsigned()).unwrap_or('\0')),
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "Int (char)",
             got: "other",
         }),
@@ -16149,8 +16149,8 @@ pub(crate) fn native_char_is_digit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_ascii_digit()))))
 }
 
@@ -16160,8 +16160,8 @@ pub(crate) fn native_char_is_letter(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_alphabetic()))))
 }
 
@@ -16171,8 +16171,8 @@ pub(crate) fn native_char_is_whitespace(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_whitespace()))))
 }
 
@@ -16182,8 +16182,8 @@ pub(crate) fn native_char_is_uppercase(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_uppercase()))))
 }
 
@@ -16193,8 +16193,8 @@ pub(crate) fn native_char_is_lowercase(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_lowercase()))))
 }
 
@@ -16204,8 +16204,8 @@ pub(crate) fn native_char_to_uppercase(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     let upper = ch.to_uppercase().next().unwrap_or(ch);
     Ok(Some(Slot::Int(upper as i32)))
 }
@@ -16216,8 +16216,8 @@ pub(crate) fn native_char_to_lowercase(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     let lower = ch.to_lowercase().next().unwrap_or(ch);
     Ok(Some(Slot::Int(lower as i32)))
 }
@@ -16228,8 +16228,8 @@ pub(crate) fn native_char_is_letter_or_digit(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let ch = slot_to_char(args.first().ok_or(VmError::StackUnderflow)?)?;
+) -> crate::Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(crate::Error::StackUnderflow)?)?;
     Ok(Some(Slot::Int(i32::from(ch.is_alphanumeric()))))
 }
 
@@ -16239,11 +16239,11 @@ pub(crate) fn native_char_valueof(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let val = match args.first() {
         Some(Slot::Int(v)) => *v,
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Int (char)",
                 got: "other",
             });
@@ -16260,7 +16260,7 @@ pub(crate) fn native_char_charvalue(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
@@ -16276,7 +16276,7 @@ pub(crate) fn native_arraylist_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
     Ok(None)
@@ -16288,7 +16288,7 @@ pub(crate) fn native_arraylist_init_from_collection(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let Some(Slot::Reference(Some(src_ref))) = args.get(1).copied() else {
         heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
@@ -16317,13 +16317,13 @@ pub(crate) fn native_arraylist_add(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let element = extract_slot_arg(args, 1);
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
         Some(Slot::Int(sz)) => *sz += 1,
-        _ => return Err(VmError::NullPointerException), // shouldn't happen; init sets fields[0]=Int(0)
+        _ => return Err(crate::Error::NullPointerException), // shouldn't happen; init sets fields[0]=Int(0)
     }
     obj.fields.push(element);
     Ok(Some(Slot::Int(1))) // boolean true
@@ -16336,13 +16336,13 @@ pub(crate) fn native_arraylist_get(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let idx = extract_int_arg(args, 1)? as usize;
     let obj = heap.get(this_ref)?;
     obj.fields.get(idx + 1).map_or_else(
         || {
-            Err(VmError::JavaException {
+            Err(crate::Error::JavaException {
                 class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
             })
         },
@@ -16356,7 +16356,7 @@ pub(crate) fn native_arraylist_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
     match obj.fields.first() {
@@ -16371,7 +16371,7 @@ pub(crate) fn native_arraylist_iterator(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     // fields[0]=list_ref, fields[1]=cursor, fields[2]=last_returned (-1 = none)
     let iter_ref = heap.allocate("duke/util/ArrayListIterator".to_string(), 3);
@@ -16384,7 +16384,7 @@ pub(crate) fn native_arraylist_iterator(
     Ok(Some(Slot::Reference(Some(iter_ref))))
 }
 
-fn collection_elements_from_ref(heap: &duke_gc::Heap, collection_ref: u64) -> VmResult<Vec<Slot>> {
+fn collection_elements_from_ref(heap: &duke_gc::Heap, collection_ref: u64) -> crate::Result<Vec<Slot>> {
     let collection = heap.get(collection_ref)?;
     match collection.class_name.as_str() {
         "java/util/ArrayList" | "java/util/HashSet" => {
@@ -16400,7 +16400,7 @@ fn collection_elements_from_ref(heap: &duke_gc::Heap, collection_ref: u64) -> Vm
                 .copied()
                 .collect())
         }
-        _ => Err(VmError::TypeMismatch {
+        _ => Err(crate::Error::TypeMismatch {
             expected: "java/util/Collection",
             got: "other",
         }),
@@ -16411,7 +16411,7 @@ fn allocate_reference_array_from_slots(
     heap: &mut duke_gc::Heap,
     array_class_name: &str,
     elements: &[Slot],
-) -> VmResult<u64> {
+) -> crate::Result<u64> {
     let array_ref = heap.allocate(array_class_name.to_string(), elements.len());
     let array = heap.get_mut(array_ref)?;
     for slot in &mut array.fields {
@@ -16429,7 +16429,7 @@ pub(crate) fn native_collection_to_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elements = collection_elements_from_ref(heap, this_ref)?;
     let array_ref = allocate_reference_array_from_slots(heap, "[Ljava/lang/Object;", &elements)?;
@@ -16442,7 +16442,7 @@ pub(crate) fn native_collection_to_array_with_seed_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let seed_array_ref = extract_ref_arg(args, 1)?;
     let elements = collection_elements_from_ref(heap, this_ref)?;
@@ -16474,7 +16474,7 @@ pub(crate) fn array_list_sort(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // args[0] = ArrayList ref, args[1] = Comparator (null = natural ordering)
     let list_ref = extract_ref_arg(args, 0)?;
 
@@ -16484,7 +16484,7 @@ pub(crate) fn array_list_sort(
     // Fix 2: guard against a negative size stored in fields[0].
     let size = match heap.get(list_ref)?.fields.first() {
         Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+        Some(Slot::Int(n)) => return Err(crate::Error::NegativeArraySize { size: *n }),
         _ => return Ok(None),
     };
 
@@ -16502,7 +16502,7 @@ pub(crate) fn array_list_sort(
 
     // Fix 3: malformed list → InvalidRef, not silent Ok(None).
     if elems.len() != size {
-        return Err(VmError::InvalidRef { address: list_ref });
+        return Err(crate::Error::InvalidRef { address: list_ref });
     }
 
     // Insertion sort — O(n²), correct, easy to verify.
@@ -16562,7 +16562,7 @@ pub(crate) fn array_list_sort(
                 Some(Slot::Int(n)) if n <= 0 => break,
                 Some(Slot::Int(_)) => {} // n > 0, keep shifting
                 _ => {
-                    return Err(VmError::TypeMismatch {
+                    return Err(crate::Error::TypeMismatch {
                         expected: "Int",
                         got: "other",
                     });
@@ -16598,7 +16598,7 @@ pub(crate) fn native_collections_sort(
     output: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // args[0] = List ref
     let list_ref = extract_ref_arg(args, 0)?;
     // Dispatch on the actual runtime class so any List implementation works.
@@ -16625,7 +16625,7 @@ pub(crate) fn native_arraylist_iter_init(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(None)
 }
 
@@ -16635,7 +16635,7 @@ pub(crate) fn native_arraylist_iter_hasnext(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let iter_obj = heap.get(this_ref)?;
     let list_ref = match iter_obj.fields.first() {
@@ -16660,13 +16660,13 @@ pub(crate) fn native_arraylist_iter_next(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (list_ref, cursor) = {
         let iter_obj = heap.get(this_ref)?;
         let lr = match iter_obj.fields.first() {
             Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
+            _ => return Err(crate::Error::NullPointerException),
         };
         let c = match iter_obj.fields.get(1) {
             Some(Slot::Int(i)) => *i,
@@ -16679,7 +16679,7 @@ pub(crate) fn native_arraylist_iter_next(
         match list_obj.fields.get(cursor as usize + 1) {
             Some(slot) => *slot,
             None => {
-                return Err(VmError::JavaException {
+                return Err(crate::Error::JavaException {
                     class_name: "java/util/NoSuchElementException".to_string(),
                 });
             }
@@ -16698,13 +16698,13 @@ pub(crate) fn native_arraylist_iter_remove(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (list_ref, last, cursor) = {
         let iter_obj = heap.get(this_ref)?;
         let lr = match iter_obj.fields.first() {
             Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
+            _ => return Err(crate::Error::NullPointerException),
         };
         let last = match iter_obj.fields.get(2) {
             Some(Slot::Int(i)) => *i,
@@ -16717,7 +16717,7 @@ pub(crate) fn native_arraylist_iter_remove(
         (lr, last, cursor)
     };
     if last < 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalStateException".to_string(),
         });
     }
@@ -16752,11 +16752,11 @@ pub(crate) fn native_arraylist_remove_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let idx = extract_int_arg(args, 1)?;
     if idx < 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IndexOutOfBoundsException".to_string(),
         });
     }
@@ -16764,7 +16764,7 @@ pub(crate) fn native_arraylist_remove_at(
     let len = heap.get(this_ref)?.fields.len();
     // fields[0]=size, elements start at 1; idx is 0-based element index → field index = idx+1
     if idx + 1 >= len {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IndexOutOfBoundsException".to_string(),
         });
     }
@@ -16783,7 +16783,7 @@ pub(crate) fn native_arraylist_remove_obj(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -16811,7 +16811,7 @@ pub(crate) fn native_arraylist_contains(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -16828,7 +16828,7 @@ pub(crate) fn native_arraylist_clear(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     obj.fields.truncate(1);
@@ -16842,7 +16842,7 @@ pub(crate) fn native_arraylist_is_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let is_empty = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(sz)) => *sz == 0,
@@ -16858,12 +16858,12 @@ pub(crate) fn native_arraylist_set(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let idx = extract_int_arg(args, 1)?;
     let value = extract_slot_arg(args, 2);
     if idx < 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IndexOutOfBoundsException".to_string(),
         });
     }
@@ -16872,7 +16872,7 @@ pub(crate) fn native_arraylist_set(
         .get(this_ref)?
         .fields
         .get(field_idx)
-        .ok_or_else(|| VmError::JavaException {
+        .ok_or_else(|| crate::Error::JavaException {
             class_name: "java/lang/IndexOutOfBoundsException".to_string(),
         })?;
     heap.get_mut(this_ref)?.fields[field_idx] = value;
@@ -16885,7 +16885,7 @@ pub(crate) fn native_arraylist_index_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -16903,7 +16903,7 @@ pub(crate) fn native_arraylist_last_index_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -16922,12 +16922,12 @@ pub(crate) fn native_arraylist_add_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let idx = extract_int_arg(args, 1)?;
     let element = extract_slot_arg(args, 2);
     if idx < 0 {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IndexOutOfBoundsException".to_string(),
         });
     }
@@ -16935,7 +16935,7 @@ pub(crate) fn native_arraylist_add_at(
     let obj = heap.get_mut(this_ref)?;
     let len = obj.fields.len();
     if field_idx > len {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IndexOutOfBoundsException".to_string(),
         });
     }
@@ -16954,7 +16954,7 @@ pub(crate) fn native_hashmap_put_if_absent(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let val = extract_slot_arg(args, 2);
@@ -16979,7 +16979,7 @@ pub(crate) fn native_hashmap_clear(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     obj.fields.truncate(1);
@@ -16993,7 +16993,7 @@ pub(crate) fn native_hashmap_contains_value(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -17017,7 +17017,7 @@ pub(crate) fn native_double_isnan(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Double(v)) => Ok(Some(Slot::Int(i32::from(v.is_nan())))),
         _ => Ok(Some(Slot::Int(0))),
@@ -17030,21 +17030,21 @@ pub(crate) fn native_double_compareto(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
-    let double_val = |s: &Slot| -> VmResult<f64> {
+) -> crate::Result<Option<Slot>> {
+    let double_val = |s: &Slot| -> crate::Result<f64> {
         match s {
             Slot::Reference(Some(r)) => match heap.get(*r)?.fields.first() {
                 Some(Slot::Double(n)) => Ok(*n),
-                _ => Err(VmError::InvalidRef { address: *r }),
+                _ => Err(crate::Error::InvalidRef { address: *r }),
             },
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         }
     };
     let a = match args.first() {
         Some(s) => double_val(s)?,
-        None => return Err(VmError::NullPointerException),
+        None => return Err(crate::Error::NullPointerException),
     };
-    let b = double_val(args.get(1).ok_or(VmError::NullPointerException)?)?;
+    let b = double_val(args.get(1).ok_or(crate::Error::NullPointerException)?)?;
     // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
@@ -17057,7 +17057,7 @@ pub(crate) fn native_arrays_fill_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let val = match args.get(1) {
         Some(Slot::Int(v)) => Slot::Int(*v),
@@ -17076,7 +17076,7 @@ pub(crate) fn native_arrays_fill_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let val = extract_slot_arg(args, 1);
     let obj = heap.get_mut(arr_ref)?;
@@ -17092,11 +17092,11 @@ pub(crate) fn native_arrays_copyof_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
     let new_len = match args.get(1) {
         Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+        Some(Slot::Int(n)) => return Err(crate::Error::NegativeArraySize { size: *n }),
         _ => 0,
     };
     let src_fields = heap.get(src_ref)?.fields.clone();
@@ -17114,11 +17114,11 @@ pub(crate) fn native_arrays_copyof_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
     let new_len = match args.get(1) {
         Some(Slot::Int(n)) if *n >= 0 => usize::try_from(*n).unwrap_or(0),
-        Some(Slot::Int(n)) => return Err(VmError::NegativeArraySize { size: *n }),
+        Some(Slot::Int(n)) => return Err(crate::Error::NegativeArraySize { size: *n }),
         _ => 0,
     };
     let src_fields = heap.get(src_ref)?.fields.clone();
@@ -17136,7 +17136,7 @@ pub(crate) fn native_arrays_sort_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(arr_ref)?;
     obj.fields.sort_by(|a, b| match (a, b) {
@@ -17152,7 +17152,7 @@ pub(crate) fn native_arrays_equals_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a_ref = extract_ref_arg(args, 0)?;
     let b_ref = extract_ref_arg(args, 1)?;
     let a_fields = heap.get(a_ref)?.fields.clone();
@@ -17176,7 +17176,7 @@ pub(crate) fn native_arrays_copy_of_range_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
     let from = match args.get(1) {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -17202,7 +17202,7 @@ pub(crate) fn native_arrays_copy_of_range_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
     let from = match args.get(1) {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -17233,7 +17233,7 @@ pub(crate) fn native_arraylist_sub_list(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let from = match args.get(1) {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -17269,7 +17269,7 @@ pub(crate) fn native_arraylist_remove_if(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -17318,7 +17318,7 @@ pub(crate) fn native_comparator_reversed(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let delegate = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/ReversedComparator".to_string(), 1);
     heap.get_mut(r)?.fields[0] = delegate;
@@ -17332,7 +17332,7 @@ pub(crate) fn native_reversed_comparator_compare(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let a = extract_slot_arg(args, 1);
     let b = extract_slot_arg(args, 2);
@@ -17365,7 +17365,7 @@ pub(crate) fn native_collections_binary_search(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let size = match heap.get(list_ref)?.fields.first() {
@@ -17399,7 +17399,7 @@ pub(crate) fn native_string_intern(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // In our interpreter, string equality is by value already; intern = identity.
     Ok(Some(extract_slot_arg(args, 0)))
 }
@@ -17412,7 +17412,7 @@ pub(crate) fn native_arrays_as_list(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let arr_len = heap.get(arr_ref)?.fields.len();
     // Create a new ArrayList (1 field slot for size counter) and populate it.
@@ -17433,7 +17433,7 @@ pub(crate) fn native_string_strip(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s.trim().to_owned());
@@ -17446,7 +17446,7 @@ pub(crate) fn native_string_strip_leading(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s.trim_start().to_owned());
@@ -17459,7 +17459,7 @@ pub(crate) fn native_string_strip_trailing(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s.trim_end().to_owned());
@@ -17473,7 +17473,7 @@ pub(crate) fn native_string_is_blank(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let blank = heap.get(this_ref).map_or(true, |o| {
         o.string_value
@@ -17489,7 +17489,7 @@ pub(crate) fn native_string_repeat(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let n = usize::try_from(extract_int_arg(args, 1)?.max(0)).unwrap_or(0);
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
@@ -17503,7 +17503,7 @@ pub(crate) fn native_string_formatted(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // args[0] = this (the format string), args[1] = Object[] varargs
     let fmt_ref = extract_ref_arg(args, 0)?;
     let arr_slot = extract_slot_arg(args, 1);
@@ -17521,7 +17521,7 @@ pub(crate) fn native_string_join(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let delim_ref = extract_ref_arg(args, 0)?;
     let delim = heap
         .get(delim_ref)?
@@ -17594,7 +17594,7 @@ pub(crate) fn native_string_index_of_char(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let ch = char::from_u32(extract_int_arg(args, 1)? as u32).unwrap_or('\0');
     let idx = heap
@@ -17619,7 +17619,7 @@ pub(crate) fn native_string_last_index_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let sub_ref = extract_ref_arg(args, 1)?;
     let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
@@ -17637,7 +17637,7 @@ pub(crate) fn native_string_code_point_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let idx = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(0);
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
@@ -17654,7 +17654,7 @@ pub(crate) fn native_string_lines(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let text = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
@@ -17696,7 +17696,7 @@ pub(crate) fn native_random_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let nanos = u64::from(
         std::time::SystemTime::now()
@@ -17719,7 +17719,7 @@ pub(crate) fn native_random_init_seed(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let seed = match args.get(1).copied() {
         Some(Slot::Long(v)) => v as u64,
@@ -17733,7 +17733,7 @@ pub(crate) fn native_random_init_seed(
 
 /// Retrieve and advance seed from `fields[0]`, returning new seed and `bits` high bits.
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
-fn random_step(heap: &mut duke_gc::Heap, this_ref: u64, bits: u32) -> VmResult<(u64, i32)> {
+fn random_step(heap: &mut duke_gc::Heap, this_ref: u64, bits: u32) -> crate::Result<(u64, i32)> {
     let old_seed = match heap.get(this_ref)?.fields.first().copied() {
         Some(Slot::Long(v)) => v as u64,
         _ => 0,
@@ -17749,7 +17749,7 @@ pub(crate) fn native_random_next_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (_, v) = random_step(heap, this_ref, 32)?;
     Ok(Some(Slot::Int(v)))
@@ -17766,11 +17766,11 @@ pub(crate) fn native_random_next_int_bound(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let bound = extract_int_arg(args, 1)?;
     if bound <= 0 {
-        return Err(duke_runtime::VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalArgumentException".to_string(),
         });
     }
@@ -17792,7 +17792,7 @@ pub(crate) fn native_random_next_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (_, hi) = random_step(heap, this_ref, 32)?;
     let (_, lo) = random_step(heap, this_ref, 32)?;
@@ -17807,7 +17807,7 @@ pub(crate) fn native_random_next_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (_, hi) = random_step(heap, this_ref, 26)?;
     let (_, lo) = random_step(heap, this_ref, 27)?;
@@ -17824,7 +17824,7 @@ pub(crate) fn native_random_next_float(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (_, bits) = random_step(heap, this_ref, 24)?;
     // next(24) is non-negative, safe to cast to f32
@@ -17838,7 +17838,7 @@ pub(crate) fn native_random_next_boolean(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (_, v) = random_step(heap, this_ref, 1)?;
     Ok(Some(Slot::Int(v)))
@@ -17854,8 +17854,8 @@ pub(crate) fn native_random_next_boolean(
 
 /// Helper: compile a regex from a pattern string.
 /// Returns `Err` with `JavaException` on bad pattern.
-fn compile_java_regex(pattern: &str) -> VmResult<regex::Regex> {
-    regex::Regex::new(pattern).map_err(|e| duke_runtime::VmError::JavaException {
+fn compile_java_regex(pattern: &str) -> crate::Result<regex::Regex> {
+    regex::Regex::new(pattern).map_err(|e| crate::Error::JavaException {
         class_name: format!("java/util/regex/PatternSyntaxException: {e}"),
     })
 }
@@ -17866,7 +17866,7 @@ pub(crate) fn native_pattern_compile(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let pat_str_ref = extract_ref_arg(args, 0)?;
     let pattern_str = heap
         .get(pat_str_ref)?
@@ -17886,7 +17886,7 @@ pub(crate) fn native_pattern_matcher(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_slot = extract_slot_arg(args, 1);
     // fields: [0]=pattern_ref, [1]=input_ref, [2]=pos, [3]=match_start, [4]=match_end
@@ -17905,7 +17905,7 @@ pub(crate) fn native_pattern_matches_static(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_ref = extract_ref_arg(args, 1)?;
     let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
@@ -17927,7 +17927,7 @@ pub(crate) fn native_matcher_find(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(m_ref)?.fields.clone();
     let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
@@ -17969,7 +17969,7 @@ pub(crate) fn native_matcher_matches(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(m_ref)?.fields.clone();
     let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
@@ -18003,7 +18003,7 @@ pub(crate) fn native_matcher_group(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let matched = heap.get(m_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(matched);
@@ -18016,7 +18016,7 @@ pub(crate) fn native_matcher_group_n(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
         Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
@@ -18059,7 +18059,7 @@ pub(crate) fn native_matcher_start(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let start = match heap.get(m_ref)?.fields.get(3).copied() {
         Some(Slot::Int(n)) => n,
@@ -18074,7 +18074,7 @@ pub(crate) fn native_matcher_end(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let end = match heap.get(m_ref)?.fields.get(4).copied() {
         Some(Slot::Int(n)) => n,
@@ -18089,7 +18089,7 @@ pub(crate) fn native_matcher_replace_all(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
     let fields = heap.get(m_ref)?.fields.clone();
@@ -18118,7 +18118,7 @@ pub(crate) fn native_matcher_replace_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
     let fields = heap.get(m_ref)?.fields.clone();
@@ -18147,7 +18147,7 @@ pub(crate) fn native_string_matches_regex(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let pat_ref = extract_ref_arg(args, 1)?;
     let input = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
@@ -18165,7 +18165,7 @@ pub(crate) fn native_string_replace_all_regex(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let pat_ref = extract_ref_arg(args, 1)?;
     let repl_ref = extract_ref_arg(args, 2)?;
@@ -18184,7 +18184,7 @@ pub(crate) fn native_string_replace_first_regex(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let pat_ref = extract_ref_arg(args, 1)?;
     let repl_ref = extract_ref_arg(args, 2)?;
@@ -18208,7 +18208,7 @@ pub(crate) fn native_optional_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let value = extract_first_field_arg(heap, opt_ref)?;
@@ -18242,7 +18242,7 @@ pub(crate) fn native_optional_filter(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let value = extract_first_field_arg(heap, opt_ref)?;
@@ -18277,7 +18277,7 @@ pub(crate) fn native_optional_flat_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let value = extract_first_field_arg(heap, opt_ref)?;
@@ -18311,7 +18311,7 @@ pub(crate) fn native_optional_if_present(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let value = extract_first_field_arg(heap, opt_ref)?;
@@ -18337,7 +18337,7 @@ pub(crate) fn native_optional_or_else_get(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
     let supplier_slot = extract_slot_arg(args, 1);
     let value = extract_first_field_arg(heap, opt_ref)?;
@@ -18385,7 +18385,7 @@ pub(crate) fn native_hashmap_compute(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let fn_slot = extract_slot_arg(args, 2);
@@ -18446,7 +18446,7 @@ pub(crate) fn native_hashmap_merge(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let new_val_slot = extract_slot_arg(args, 2);
@@ -18497,7 +18497,7 @@ pub(crate) fn native_stringbuffer_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.string_value = Some(String::new());
     Ok(None)
@@ -18509,7 +18509,7 @@ pub(crate) fn native_stringbuffer_init_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = match args.get(1).copied() {
         Some(Slot::Reference(Some(r))) => heap.get(r)?.string_value.clone().unwrap_or_default(),
@@ -18525,7 +18525,7 @@ pub(crate) fn native_stringbuffer_append(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let frag = match extract_slot_arg(args, 1) {
         Slot::Reference(Some(r)) => heap
@@ -18554,7 +18554,7 @@ pub(crate) fn native_stringbuffer_tostring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let r = heap.allocate_string(s);
@@ -18567,7 +18567,7 @@ pub(crate) fn native_stringbuffer_length(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let len = heap
         .get(this_ref)?
@@ -18592,7 +18592,7 @@ pub(crate) fn native_stringjoiner_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let delim_slot = extract_slot_arg(args, 1);
     let empty_ref = heap.allocate_string(String::new());
@@ -18612,7 +18612,7 @@ pub(crate) fn native_stringjoiner_init_prefix_suffix(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let delim_slot = extract_slot_arg(args, 1);
     let prefix_slot = extract_slot_arg(args, 2);
@@ -18631,7 +18631,7 @@ pub(crate) fn native_stringjoiner_add(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     heap.get_mut(this_ref)?.fields.push(elem);
@@ -18644,7 +18644,7 @@ pub(crate) fn native_stringjoiner_set_empty_value(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let empty_slot = extract_slot_arg(args, 1);
     heap.get_mut(this_ref)?.fields[3] = empty_slot;
@@ -18672,7 +18672,7 @@ pub(crate) fn native_stringjoiner_tostring(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(this_ref)?.fields.clone();
     // elements start at index 4
@@ -18730,7 +18730,7 @@ pub(crate) fn native_stringjoiner_length(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Reuse toString and measure
     let result = native_stringjoiner_tostring(args, heap, out, control)?;
     let len = match result {
@@ -18796,7 +18796,7 @@ pub(crate) fn native_hashmap_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.is_empty() {
@@ -18814,7 +18814,7 @@ pub(crate) fn native_hashmap_put(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let val = extract_slot_arg(args, 2);
@@ -18831,7 +18831,7 @@ pub(crate) fn native_hashmap_put(
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
         Some(Slot::Int(sz)) => *sz += 1,
-        _ => return Err(VmError::NullPointerException),
+        _ => return Err(crate::Error::NullPointerException),
     }
     obj.fields.push(key);
     obj.fields.push(val);
@@ -18844,7 +18844,7 @@ pub(crate) fn native_hashmap_get(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -18861,7 +18861,7 @@ pub(crate) fn native_hashmap_contains_key(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -18879,7 +18879,7 @@ pub(crate) fn native_hashmap_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => Ok(Some(Slot::Int(*n))),
@@ -18894,7 +18894,7 @@ pub(crate) fn native_hashmap_remove(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -18909,7 +18909,7 @@ pub(crate) fn native_hashmap_remove(
         obj.fields.truncate(obj.fields.len() - 2);
         match obj.fields.first_mut() {
             Some(Slot::Int(sz)) => *sz -= 1,
-            _ => return Err(VmError::NullPointerException),
+            _ => return Err(crate::Error::NullPointerException),
         }
         Ok(Some(old_val))
     } else {
@@ -18923,7 +18923,7 @@ pub(crate) fn native_hashmap_is_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(0)) => Ok(Some(Slot::Int(1))),
@@ -18938,7 +18938,7 @@ pub(crate) fn native_hashmap_get_or_default(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let default = extract_slot_arg(args, 2);
@@ -18958,7 +18958,7 @@ pub(crate) fn native_set_of(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
     native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
 
@@ -18974,9 +18974,9 @@ pub(crate) fn native_set_of(
                 )?;
             }
         }
-        Slot::Reference(None) => return Err(VmError::NullPointerException),
+        Slot::Reference(None) => return Err(crate::Error::NullPointerException),
         _ => {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -19003,7 +19003,7 @@ pub(crate) fn native_hashset_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.is_empty() {
@@ -19020,7 +19020,7 @@ pub(crate) fn native_hashset_init_from_collection(
     output: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let mut this_ref = extract_ref_arg(args, 0)?;
     let collection_ref = extract_ref_arg(args, 1)?;
     native_hashset_init(&[Slot::Reference(Some(this_ref))], heap, output, control)?;
@@ -19043,7 +19043,7 @@ pub(crate) fn native_hashset_init_from_collection(
             vec![Slot::Reference(Some(collection_ref))],
         )?;
         let Some(Slot::Reference(Some(array_ref))) = array_slot else {
-            return Err(VmError::TypeMismatch {
+            return Err(crate::Error::TypeMismatch {
                 expected: "Reference",
                 got: "other",
             });
@@ -19070,7 +19070,7 @@ pub(crate) fn native_hashset_add(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -19082,7 +19082,7 @@ pub(crate) fn native_hashset_add(
     let obj = heap.get_mut(this_ref)?;
     match obj.fields.first_mut() {
         Some(Slot::Int(sz)) => *sz += 1,
-        _ => return Err(VmError::NullPointerException),
+        _ => return Err(crate::Error::NullPointerException),
     }
     obj.fields.push(element);
     Ok(Some(Slot::Int(1)))
@@ -19094,7 +19094,7 @@ pub(crate) fn native_hashset_contains(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -19113,7 +19113,7 @@ pub(crate) fn native_hashset_remove(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let element = extract_slot_arg(args, 1);
     let fields = heap.get(this_ref)?.fields.clone();
@@ -19125,7 +19125,7 @@ pub(crate) fn native_hashset_remove(
         obj.fields.truncate(obj.fields.len() - 1);
         match obj.fields.first_mut() {
             Some(Slot::Int(sz)) => *sz -= 1,
-            _ => return Err(VmError::NullPointerException),
+            _ => return Err(crate::Error::NullPointerException),
         }
         Ok(Some(Slot::Int(1)))
     } else {
@@ -19139,7 +19139,7 @@ pub(crate) fn native_hashset_size(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => Ok(Some(Slot::Int(*n))),
@@ -19153,7 +19153,7 @@ pub(crate) fn native_hashset_is_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(0)) => Ok(Some(Slot::Int(1))),
@@ -19168,7 +19168,7 @@ pub(crate) fn native_hashset_iterator(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let iter_ref = heap.allocate("duke/util/HashSetIterator".to_string(), 2);
     {
@@ -19186,7 +19186,7 @@ pub(crate) fn native_hashset_iter_init(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     Ok(None)
 }
 
@@ -19196,7 +19196,7 @@ pub(crate) fn native_hashset_iter_hasnext(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let iter_obj = heap.get(this_ref)?;
     let set_ref = match iter_obj.fields.first() {
@@ -19221,13 +19221,13 @@ pub(crate) fn native_hashset_iter_next(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let (set_ref, cursor) = {
         let iter_obj = heap.get(this_ref)?;
         let sr = match iter_obj.fields.first() {
             Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(VmError::NullPointerException),
+            _ => return Err(crate::Error::NullPointerException),
         };
         let c = match iter_obj.fields.get(1) {
             Some(Slot::Int(i)) => *i,
@@ -19240,7 +19240,7 @@ pub(crate) fn native_hashset_iter_next(
         match set_obj.fields.get(cursor as usize + 1) {
             Some(slot) => *slot,
             None => {
-                return Err(VmError::JavaException {
+                return Err(crate::Error::JavaException {
                     class_name: "java/util/NoSuchElementException".to_string(),
                 });
             }
@@ -19256,7 +19256,7 @@ pub(crate) fn native_hashset_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -19277,7 +19277,7 @@ pub(crate) fn native_linked_list_stream(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_stream(args, heap, out, control)
 }
 
@@ -19287,7 +19287,7 @@ pub(crate) fn native_collections_n_copies(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let n = usize::try_from(extract_int_arg(args, 0)?.max(0)).unwrap_or(0);
     let elem = extract_slot_arg(args, 1);
     let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -19304,7 +19304,7 @@ pub(crate) fn native_string_chars(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
@@ -19317,16 +19317,16 @@ const PROCESS_STDIN_FIELD: usize = 1;
 const PROCESS_STDOUT_FIELD: usize = 2;
 const PROCESS_STDERR_FIELD: usize = 3;
 
-fn string_array_from_slot(slot: Slot, heap: &duke_gc::Heap) -> VmResult<Vec<String>> {
+fn string_array_from_slot(slot: Slot, heap: &duke_gc::Heap) -> crate::Result<Vec<String>> {
     let Slot::Reference(Some(array_ref)) = slot else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     let elements = heap.get(array_ref)?.fields.clone();
     elements
         .into_iter()
         .map(|element| match element {
             Slot::Reference(Some(string_ref)) => string_value_from_ref(heap, string_ref),
-            _ => Err(VmError::NullPointerException),
+            _ => Err(crate::Error::NullPointerException),
         })
         .collect()
 }
@@ -19334,18 +19334,18 @@ fn string_array_from_slot(slot: Slot, heap: &duke_gc::Heap) -> VmResult<Vec<Stri
 fn optional_file_path_from_slot(
     slot: Slot,
     heap: &duke_gc::Heap,
-) -> VmResult<Option<std::path::PathBuf>> {
+) -> crate::Result<Option<std::path::PathBuf>> {
     match slot {
         Slot::Reference(Some(file_ref)) => Ok(Some(file_path_from_ref(file_ref, heap)?)),
         Slot::Reference(None) => Ok(None),
-        _ => Err(VmError::NullPointerException),
+        _ => Err(crate::Error::NullPointerException),
     }
 }
 
 fn allocate_process_impl(
     heap: &mut duke_gc::Heap,
     ids: duke_gc::SpawnedProcessIds,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let process_ref = heap.allocate("java/lang/ProcessImpl".to_string(), 4);
     let process_obj = heap.get_mut(process_ref)?;
     process_obj.fields[PROCESS_ID_FIELD] = Slot::Int(ids.process_id);
@@ -19359,7 +19359,7 @@ fn spawn_process_impl(
     heap: &mut duke_gc::Heap,
     command: &[String],
     cwd: Option<&std::path::Path>,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let ids = heap.spawn_host_process(command, cwd)?;
     allocate_process_impl(heap, ids)
 }
@@ -19368,11 +19368,11 @@ fn process_field_id_from_this(
     args: &[Slot],
     heap: &duke_gc::Heap,
     field_idx: usize,
-) -> VmResult<i32> {
+) -> crate::Result<i32> {
     let this_ref = extract_ref_arg(args, 0)?;
     match heap.get(this_ref)?.fields.get(field_idx) {
         Some(Slot::Int(id)) if *id > 0 => Ok(*id),
-        _ => Err(VmError::JavaException {
+        _ => Err(crate::Error::JavaException {
             class_name: "java/io/IOException".into(),
         }),
     }
@@ -19382,7 +19382,7 @@ fn allocate_process_stream(
     heap: &mut duke_gc::Heap,
     class_name: &str,
     handle_id: i32,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = heap.allocate(class_name.to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(handle_id);
     Ok(Some(Slot::Reference(Some(stream_ref))))
@@ -19393,12 +19393,12 @@ pub(crate) fn native_process_builder_init(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let command_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     }
     builder_obj.fields[0] = command_slot;
     builder_obj.fields[1] = Slot::Reference(None);
@@ -19410,12 +19410,12 @@ pub(crate) fn native_process_builder_directory(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let directory_slot = extract_slot_arg(args, 1);
     let builder_obj = heap.get_mut(this_ref)?;
     if builder_obj.fields.len() < 2 {
-        return Err(VmError::InvalidRef { address: this_ref });
+        return Err(crate::Error::InvalidRef { address: this_ref });
     }
     builder_obj.fields[1] = directory_slot;
     Ok(Some(Slot::Reference(Some(this_ref))))
@@ -19426,7 +19426,7 @@ pub(crate) fn native_process_builder_start(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let builder_obj = heap.get(this_ref)?;
     let command_slot = builder_obj
@@ -19450,7 +19450,7 @@ pub(crate) fn native_runtime_get_runtime(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let runtime_ref = heap.allocate("java/lang/Runtime".to_string(), 0);
     Ok(Some(Slot::Reference(Some(runtime_ref))))
 }
@@ -19460,10 +19460,10 @@ pub(crate) fn native_runtime_exec_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(_))) => {}
-        _ => return Err(VmError::NullPointerException),
+        _ => return Err(crate::Error::NullPointerException),
     }
     let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
     spawn_process_impl(heap, &command, None)
@@ -19474,10 +19474,10 @@ pub(crate) fn native_runtime_exec_array_dir(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(_))) => {}
-        _ => return Err(VmError::NullPointerException),
+        _ => return Err(crate::Error::NullPointerException),
     }
     let command = string_array_from_slot(extract_slot_arg(args, 1), heap)?;
     let cwd = optional_file_path_from_slot(extract_slot_arg(args, 3), heap)?;
@@ -19489,7 +19489,7 @@ pub(crate) fn native_process_get_input_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stdout_id = process_field_id_from_this(args, heap, PROCESS_STDOUT_FIELD)?;
     allocate_process_stream(heap, "duke/process/ProcessInputStream", stdout_id)
 }
@@ -19499,7 +19499,7 @@ pub(crate) fn native_process_get_error_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stderr_id = process_field_id_from_this(args, heap, PROCESS_STDERR_FIELD)?;
     allocate_process_stream(heap, "duke/process/ProcessErrorStream", stderr_id)
 }
@@ -19509,7 +19509,7 @@ pub(crate) fn native_process_get_output_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stdin_id = process_field_id_from_this(args, heap, PROCESS_STDIN_FIELD)?;
     allocate_process_stream(heap, "duke/process/ProcessOutputStream", stdin_id)
 }
@@ -19519,7 +19519,7 @@ pub(crate) fn native_process_wait_for(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
     Ok(Some(Slot::Int(heap.wait_host_process(process_id)?)))
 }
@@ -19529,10 +19529,10 @@ pub(crate) fn native_process_exit_value(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
     let Some(exit_code) = heap.try_host_process_exit_value(process_id)? else {
-        return Err(VmError::JavaException {
+        return Err(crate::Error::JavaException {
             class_name: "java/lang/IllegalThreadStateException".into(),
         });
     };
@@ -19544,7 +19544,7 @@ pub(crate) fn native_process_destroy(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let process_id = process_field_id_from_this(args, heap, PROCESS_ID_FIELD)?;
     heap.destroy_host_process(process_id)?;
     Ok(None)
@@ -19608,7 +19608,7 @@ pub(crate) fn native_stream_generate(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let supplier = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/GeneratorStream".to_string(), 1);
     heap.get_mut(r)?.fields[0] = supplier;
@@ -19623,7 +19623,7 @@ pub(crate) fn native_stream_iterate(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let seed = extract_slot_arg(args, 0);
     let fn_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/IteratorStream".to_string(), 2);
@@ -19638,7 +19638,7 @@ pub(crate) fn native_stream_concat(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a_ref = extract_ref_arg(args, 0)?;
     let b_ref = extract_ref_arg(args, 1)?;
     let a_size = match heap.get(a_ref)?.fields.first() {
@@ -19667,7 +19667,7 @@ pub(crate) fn native_stream_empty(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Int(0);
     Ok(Some(Slot::Reference(Some(r))))
@@ -19684,7 +19684,7 @@ pub(crate) fn native_stream_take_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -19728,7 +19728,7 @@ pub(crate) fn native_stream_drop_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -19781,7 +19781,7 @@ pub(crate) fn native_arraylist_for_each(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(consumer_ref)) = extract_slot_arg(args, 1)
     else {
@@ -19813,7 +19813,7 @@ pub(crate) fn native_stream_sorted_comparator(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // If no comparator provided, fall back to natural-order sort.
     let Slot::Reference(Some(comp_ref)) = extract_slot_arg(args, 1)
     else {
@@ -19861,7 +19861,7 @@ pub(crate) fn native_arrays_to_string_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(arr_ref)?.fields.clone();
     let parts: Vec<String> = fields
@@ -19882,7 +19882,7 @@ pub(crate) fn native_arrays_to_string_object(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(arr_ref)?.fields.clone();
     let mut parts: Vec<String> = Vec::with_capacity(fields.len());
@@ -19911,7 +19911,7 @@ pub(crate) fn native_hashmap_replace(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let new_val = extract_slot_arg(args, 2);
@@ -19931,7 +19931,7 @@ pub(crate) fn native_collections_swap(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let i = match args.get(1) {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -19962,7 +19962,7 @@ pub(crate) fn native_collections_unmodifiable_map(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let src_ref = match args.first() {
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Ok(Some(Slot::Reference(None))),
@@ -19984,7 +19984,7 @@ pub(crate) fn native_collectors_partitioning_by(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let pred = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/PartitioningByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = pred;
@@ -19997,7 +19997,7 @@ pub(crate) fn native_collectors_partitioning_by_downstream(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let pred = extract_slot_arg(args, 0);
     let downstream = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/PartitioningByDownstreamCollector".to_string(), 2);
@@ -20012,7 +20012,7 @@ pub(crate) fn native_int_stream_sorted(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -20044,7 +20044,7 @@ pub(crate) fn native_comparator_then_comparing(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let primary = extract_slot_arg(args, 0);
     let secondary = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ThenComparingComparator".to_string(), 2);
@@ -20060,7 +20060,7 @@ pub(crate) fn native_then_comparing_compare(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let a = extract_slot_arg(args, 1);
     let b = extract_slot_arg(args, 2);
@@ -20084,7 +20084,7 @@ fn invoke_comparator(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-) -> VmResult<i32> {
+) -> crate::Result<i32> {
     let Slot::Reference(Some(cmp_ref)) = comparator else {
         return Ok(0);
     };
@@ -20112,7 +20112,7 @@ pub(crate) fn native_predicate_and(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let left = extract_slot_arg(args, 0);
     let right = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/AndPredicate".to_string(), 2);
@@ -20128,7 +20128,7 @@ pub(crate) fn native_and_predicate_test(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let left = extract_first_field_arg(heap, this_ref)?;
@@ -20148,7 +20148,7 @@ pub(crate) fn native_predicate_or(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let left = extract_slot_arg(args, 0);
     let right = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/OrPredicate".to_string(), 2);
@@ -20164,7 +20164,7 @@ pub(crate) fn native_or_predicate_test(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let left = extract_first_field_arg(heap, this_ref)?;
@@ -20184,7 +20184,7 @@ pub(crate) fn native_predicate_negate(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let original = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/NegatedPredicate".to_string(), 1);
     heap.get_mut(r)?.fields[0] = original;
@@ -20198,7 +20198,7 @@ pub(crate) fn native_negated_predicate_test(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let original = extract_first_field_arg(heap, this_ref)?;
@@ -20213,7 +20213,7 @@ fn invoke_predicate_test(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-) -> VmResult<bool> {
+) -> crate::Result<bool> {
     let Slot::Reference(Some(pred_ref)) = predicate else {
         return Ok(false);
     };
@@ -20238,7 +20238,7 @@ pub(crate) fn native_function_and_then(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let first = extract_slot_arg(args, 0);
     let second = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/AndThenFunction".to_string(), 2);
@@ -20254,7 +20254,7 @@ pub(crate) fn native_and_then_function_apply(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let input = extract_slot_arg(args, 1);
     let first = extract_first_field_arg(heap, this_ref)?;
@@ -20270,7 +20270,7 @@ pub(crate) fn native_consumer_and_then(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let first = extract_slot_arg(args, 0);
     let second = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/AndThenConsumer".to_string(), 2);
@@ -20286,7 +20286,7 @@ pub(crate) fn native_and_then_consumer_accept(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let arg = extract_slot_arg(args, 1);
     let first = extract_first_field_arg(heap, this_ref)?;
@@ -20302,7 +20302,7 @@ fn invoke_consumer_accept(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-) -> VmResult<()> {
+) -> crate::Result<()> {
     let Slot::Reference(Some(c_ref)) = consumer else {
         return Ok(());
     };
@@ -20325,7 +20325,7 @@ pub(crate) fn native_function_compose(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let outer = extract_slot_arg(args, 0);
     let inner = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ComposeFunction".to_string(), 2);
@@ -20341,7 +20341,7 @@ pub(crate) fn native_compose_function_apply(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let input = extract_slot_arg(args, 1);
     let outer = extract_first_field_arg(heap, this_ref)?;
@@ -20357,7 +20357,7 @@ fn invoke_function_apply(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Slot> {
+) -> crate::Result<Slot> {
     let Slot::Reference(Some(fn_ref)) = function else {
         return Ok(Slot::Reference(None));
     };
@@ -20380,7 +20380,7 @@ pub(crate) fn native_bifunction_and_then(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let bifunction = extract_slot_arg(args, 0);
     let after = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/BiFunctionAndThen".to_string(), 2);
@@ -20396,7 +20396,7 @@ pub(crate) fn native_bifunction_and_then_apply(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let a = extract_slot_arg(args, 1);
     let b = extract_slot_arg(args, 2);
@@ -20426,7 +20426,7 @@ pub(crate) fn native_stream_map_to_long(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -20478,7 +20478,7 @@ pub(crate) fn native_long_stream_sum(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -20502,7 +20502,7 @@ pub(crate) fn native_stream_map_to_double(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -20560,7 +20560,7 @@ pub(crate) fn native_double_stream_sum(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -20668,7 +20668,7 @@ pub(crate) fn native_long_stream_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let values: Vec<i64> = heap
         .get(arr_ref)?
@@ -20692,7 +20692,7 @@ pub(crate) fn native_long_stream_range(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let start = match args.first().copied() {
         Some(Slot::Long(n)) => n,
         _ => 0,
@@ -20712,7 +20712,7 @@ pub(crate) fn native_long_stream_range_closed(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let start = match args.first().copied() {
         Some(Slot::Long(n)) => n,
         _ => 0,
@@ -20734,7 +20734,7 @@ pub(crate) fn native_long_stream_count(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match heap.get(r)?.fields.first() {
         Some(Slot::Int(n)) => i64::from(*n),
@@ -20749,7 +20749,7 @@ pub(crate) fn native_long_stream_min(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = long_stream_elems(heap, r);
     let opt = make_optional_long(heap, elems.into_iter().min());
@@ -20762,7 +20762,7 @@ pub(crate) fn native_long_stream_max(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = long_stream_elems(heap, r);
     let opt = make_optional_long(heap, elems.into_iter().max());
@@ -20775,7 +20775,7 @@ pub(crate) fn native_long_stream_average(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = long_stream_elems(heap, r);
     let opt = if elems.is_empty() {
@@ -20794,7 +20794,7 @@ pub(crate) fn native_long_stream_to_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = long_stream_elems(heap, r);
     let arr_ref = heap.allocate("[J".to_string(), elems.len());
@@ -20811,7 +20811,7 @@ pub(crate) fn native_long_stream_sorted(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let mut elems = long_stream_elems(heap, r);
     elems.sort_unstable();
@@ -20825,7 +20825,7 @@ pub(crate) fn native_long_stream_distinct(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let mut seen = std::collections::HashSet::new();
     let elems: Vec<i64> = long_stream_elems(heap, r)
@@ -20842,7 +20842,7 @@ pub(crate) fn native_long_stream_reduce_identity(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let identity = match args.get(1).copied() {
         Some(Slot::Long(n)) => n,
@@ -20881,7 +20881,7 @@ pub(crate) fn native_long_stream_boxed(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = long_stream_elems(heap, r);
     let n = i32::try_from(elems.len()).unwrap_or(0);
@@ -20906,7 +20906,7 @@ pub(crate) fn native_long_stream_filter(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -20938,7 +20938,7 @@ pub(crate) fn native_long_stream_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -20972,7 +20972,7 @@ pub(crate) fn native_long_stream_for_each(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
@@ -21002,7 +21002,7 @@ pub(crate) fn native_long_stream_map_to_int(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21037,7 +21037,7 @@ pub(crate) fn native_double_stream_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
     let values: Vec<f64> = heap
         .get(arr_ref)?
@@ -21063,7 +21063,7 @@ pub(crate) fn native_double_stream_of_single(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let v = match args.first() {
         Some(Slot::Double(d)) => *d,
         Some(Slot::Float(f)) => f64::from(*f),
@@ -21084,7 +21084,7 @@ pub(crate) fn native_double_stream_count(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match heap.get(r)?.fields.first() {
         Some(Slot::Int(n)) => i64::from(*n),
@@ -21099,7 +21099,7 @@ pub(crate) fn native_double_stream_min(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = double_stream_elems(heap, r);
     let min = elems.iter().copied().reduce(f64::min);
@@ -21113,7 +21113,7 @@ pub(crate) fn native_double_stream_max(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = double_stream_elems(heap, r);
     let max = elems.iter().copied().reduce(f64::max);
@@ -21127,7 +21127,7 @@ pub(crate) fn native_double_stream_average(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = double_stream_elems(heap, r);
     let opt = if elems.is_empty() {
@@ -21146,7 +21146,7 @@ pub(crate) fn native_double_stream_to_array(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = double_stream_elems(heap, r);
     let arr_ref = heap.allocate("[D".to_string(), elems.len());
@@ -21163,7 +21163,7 @@ pub(crate) fn native_double_stream_sorted(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let mut elems = double_stream_elems(heap, r);
     elems.sort_by(f64::total_cmp);
@@ -21179,7 +21179,7 @@ pub(crate) fn native_double_stream_filter(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -21214,7 +21214,7 @@ pub(crate) fn native_double_stream_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21256,7 +21256,7 @@ pub(crate) fn native_int_stream_as_long_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let values: Vec<i64> = int_stream_elems(heap, r)
         .into_iter()
@@ -21272,7 +21272,7 @@ pub(crate) fn native_int_stream_as_double_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let values: Vec<f64> = int_stream_elems(heap, r)
         .into_iter()
@@ -21291,11 +21291,11 @@ pub(crate) fn native_optional_long_get_as_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     if !present {
-        return Err(VmError::MethodNotFound {
+        return Err(crate::Error::MethodNotFound {
             name: "OptionalLong.getAsLong on empty".to_string(),
             descriptor: String::new(),
         });
@@ -21316,7 +21316,7 @@ pub(crate) fn native_optional_long_is_present(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     Ok(Some(Slot::Int(i32::from(present))))
@@ -21331,7 +21331,7 @@ pub(crate) fn native_collectors_summing_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/SummingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -21345,7 +21345,7 @@ pub(crate) fn native_collectors_averaging_int(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/AveragingIntCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -21364,7 +21364,7 @@ pub(crate) fn native_int_stream_find_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = int_stream_elems(heap, r);
     let opt = make_optional_int(heap, elems.into_iter().next());
@@ -21378,7 +21378,7 @@ pub(crate) fn native_int_stream_any_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -21409,7 +21409,7 @@ pub(crate) fn native_int_stream_all_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -21440,7 +21440,7 @@ pub(crate) fn native_int_stream_none_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -21471,7 +21471,7 @@ pub(crate) fn native_int_stream_map_to_long(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21505,7 +21505,7 @@ pub(crate) fn native_long_stream_find_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = long_stream_elems(heap, r);
     let opt = make_optional_long(heap, elems.into_iter().next());
@@ -21519,7 +21519,7 @@ pub(crate) fn native_long_stream_any_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -21550,7 +21550,7 @@ pub(crate) fn native_long_stream_all_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -21581,7 +21581,7 @@ pub(crate) fn native_long_stream_none_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -21612,7 +21612,7 @@ pub(crate) fn native_comparator_comparing_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_ref = extract_ref_arg(args, 0)?;
     let r = heap.allocate("duke/util/ComparingLongComparator".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Reference(Some(fn_ref));
@@ -21626,7 +21626,7 @@ pub(crate) fn native_comparing_long_compare(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21675,7 +21675,7 @@ pub(crate) fn native_comparator_comparing_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_ref = extract_ref_arg(args, 0)?;
     let r = heap.allocate("duke/util/ComparingDoubleComparator".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Reference(Some(fn_ref));
@@ -21689,7 +21689,7 @@ pub(crate) fn native_comparing_double_compare(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21731,7 +21731,7 @@ pub(crate) fn native_map_copy_of(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
     let copy_ref = heap.allocate("java/util/HashMap".to_string(), 1);
     native_hashmap_init(&[Slot::Reference(Some(copy_ref))], heap, out, control)?;
@@ -21758,7 +21758,7 @@ pub(crate) fn native_map_entry_factory(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let key = extract_slot_arg(args, 0);
     let val = extract_slot_arg(args, 1);
     let r = heap.allocate("java/util/Map$Entry".to_string(), 2);
@@ -21773,7 +21773,7 @@ pub(crate) fn native_map_of_entries(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
     native_hashmap_init(&[Slot::Reference(Some(map_ref))], heap, out, control)?;
     // args[0] is the Object[] array of Map.Entry objects (anewarray layout: fields = elements)
@@ -21802,7 +21802,7 @@ pub(crate) fn native_collections_singleton_map(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_map_of(args, heap, out, control)
 }
 
@@ -21812,7 +21812,7 @@ pub(crate) fn native_collections_singleton_set(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_set_of_factory(args, heap, out, control)
 }
 
@@ -21823,7 +21823,7 @@ pub(crate) fn native_collections_unmodifiable_set(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // Wrap the source set in a UnmodifiableSet (same field layout as HashSet).
     let src_ref = extract_ref_arg(args, 0)?;
     let src_fields = heap.get(src_ref)?.fields.clone();
@@ -21850,7 +21850,7 @@ pub(crate) fn native_stream_flat_map_to_int(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21886,7 +21886,7 @@ pub(crate) fn native_stream_flat_map_to_long(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21922,7 +21922,7 @@ pub(crate) fn native_stream_flat_map_to_double(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -21963,7 +21963,7 @@ pub(crate) fn native_collectors_to_map_merge(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let key_fn = extract_slot_arg(args, 0);
     let val_fn = extract_slot_arg(args, 1);
     let merge_fn = extract_slot_arg(args, 2);
@@ -21981,7 +21981,7 @@ pub(crate) fn native_hashset_for_each(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(consumer_ref)) = extract_slot_arg(args, 1)
     else {
@@ -22013,7 +22013,7 @@ pub(crate) fn native_treeset_for_each(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // TreeSet uses same layout as HashSet: fields[0]=size, fields[1..size]=elements
     native_hashset_for_each(args, heap, out, control, ops)
 }
@@ -22025,7 +22025,7 @@ pub(crate) fn native_treemap_for_each(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // TreeMap uses same layout as HashMap: fields[0]=size, fields[1,2]=k0/v0 ...
     native_hashmap_for_each(args, heap, out, control, ops)
 }
@@ -22037,7 +22037,7 @@ pub(crate) fn native_linkedhashmap_for_each(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_hashmap_for_each(args, heap, out, control, ops)
 }
 
@@ -22048,7 +22048,7 @@ pub(crate) fn native_linked_list_for_each(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_for_each(args, heap, out, control, ops)
 }
 
@@ -22059,7 +22059,7 @@ pub(crate) fn native_priorityqueue_for_each(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_for_each(args, heap, out, control, ops)
 }
 
@@ -22076,7 +22076,7 @@ pub(crate) fn native_int_stream_take_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -22111,7 +22111,7 @@ pub(crate) fn native_int_stream_drop_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -22150,7 +22150,7 @@ pub(crate) fn native_long_stream_take_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -22185,7 +22185,7 @@ pub(crate) fn native_long_stream_drop_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -22224,7 +22224,7 @@ pub(crate) fn native_double_stream_take_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -22262,7 +22262,7 @@ pub(crate) fn native_double_stream_drop_while(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
     else {
@@ -22304,7 +22304,7 @@ pub(crate) fn native_integer_compare(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -22323,7 +22323,7 @@ pub(crate) fn native_integer_max(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -22342,7 +22342,7 @@ pub(crate) fn native_integer_min(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -22361,7 +22361,7 @@ pub(crate) fn native_long_compare(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Long(v)) => *v,
         Some(Slot::Int(v)) => i64::from(*v),
@@ -22382,7 +22382,7 @@ pub(crate) fn native_long_max(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Long(v)) => *v,
         Some(Slot::Int(v)) => i64::from(*v),
@@ -22403,7 +22403,7 @@ pub(crate) fn native_long_min(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Long(v)) => *v,
         Some(Slot::Int(v)) => i64::from(*v),
@@ -22424,7 +22424,7 @@ pub(crate) fn native_double_compare(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
         Some(Slot::Float(v)) => f64::from(*v),
@@ -22445,7 +22445,7 @@ pub(crate) fn native_double_max(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
         Some(Slot::Float(v)) => f64::from(*v),
@@ -22466,7 +22466,7 @@ pub(crate) fn native_double_min(
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a = match args.first() {
         Some(Slot::Double(v)) => *v,
         Some(Slot::Float(v)) => f64::from(*v),
@@ -22486,7 +22486,7 @@ pub(crate) fn native_treemap_key_set(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_hashmap_key_set(args, heap, out, control)
 }
 
@@ -22496,7 +22496,7 @@ pub(crate) fn native_treemap_values(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_hashmap_values(args, heap, out, control)
 }
 
@@ -22506,7 +22506,7 @@ pub(crate) fn native_treemap_get_or_default(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let default_val = extract_slot_arg(args, 2);
@@ -22522,7 +22522,7 @@ pub(crate) fn native_treeset_stream(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     // TreeSet layout: fields[0]=size, fields[1..=size]=elements (same as HashSet)
     native_hashset_stream(args, heap, out, control)
 }
@@ -22535,7 +22535,7 @@ pub(crate) fn native_optional_or(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
     let supplier_slot = extract_slot_arg(args, 1);
     let value = extract_first_field_arg(heap, opt_ref)?;
@@ -22566,7 +22566,7 @@ pub(crate) fn native_optional_if_present_or_else(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let opt_ref = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let runnable_slot = extract_slot_arg(args, 2);
@@ -22609,7 +22609,7 @@ pub(crate) fn native_collectors_to_unmodifiable_list(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/ToUnmodifiableListCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -22622,7 +22622,7 @@ pub(crate) fn native_collectors_to_unmodifiable_set(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("duke/util/ToSetCollector".to_string(), 0);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -22639,7 +22639,7 @@ pub(crate) fn native_int_stream_limit(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
         Some(Slot::Long(v)) => usize::try_from(v.max(0)).unwrap_or(0),
@@ -22657,7 +22657,7 @@ pub(crate) fn native_int_stream_skip(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
         Some(Slot::Long(v)) => usize::try_from(v.max(0)).unwrap_or(0),
@@ -22675,7 +22675,7 @@ pub(crate) fn native_int_stream_flat_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -22708,7 +22708,7 @@ pub(crate) fn native_long_stream_limit(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
         Some(Slot::Long(v)) => usize::try_from(v.max(0)).unwrap_or(0),
@@ -22726,7 +22726,7 @@ pub(crate) fn native_long_stream_skip(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
         Some(Slot::Long(v)) => usize::try_from(v.max(0)).unwrap_or(0),
@@ -22744,7 +22744,7 @@ pub(crate) fn native_long_stream_flat_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -22777,7 +22777,7 @@ pub(crate) fn native_double_stream_limit(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
         Some(Slot::Long(v)) => usize::try_from(v.max(0)).unwrap_or(0),
@@ -22795,7 +22795,7 @@ pub(crate) fn native_double_stream_skip(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
         Some(Slot::Long(v)) => usize::try_from(v.max(0)).unwrap_or(0),
@@ -22814,7 +22814,7 @@ pub(crate) fn native_collectors_grouping_by_2(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let downstream_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/GroupingBy2Collector".to_string(), 2);
@@ -22831,7 +22831,7 @@ pub(crate) fn native_collectors_mapping(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let mapper_slot = extract_slot_arg(args, 0);
     let downstream_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/MappingCollector".to_string(), 2);
@@ -22851,7 +22851,7 @@ pub(crate) fn native_double_stream_for_each(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
@@ -22879,7 +22879,7 @@ pub(crate) fn native_double_stream_any_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -22910,7 +22910,7 @@ pub(crate) fn native_double_stream_all_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -22941,7 +22941,7 @@ pub(crate) fn native_double_stream_none_match(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
@@ -22971,7 +22971,7 @@ pub(crate) fn native_double_stream_find_first(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = double_stream_elems(heap, r);
     let opt_ref = make_optional_double_val(heap, elems.into_iter().next());
@@ -22985,7 +22985,7 @@ pub(crate) fn native_double_stream_reduce_identity(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let identity = match args.get(1).copied() {
         Some(Slot::Double(d)) => d,
@@ -23026,7 +23026,7 @@ pub(crate) fn native_double_stream_reduce_optional(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -23072,7 +23072,7 @@ pub(crate) fn native_double_stream_flat_map(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -23109,7 +23109,7 @@ pub(crate) fn native_double_stream_map_to_int(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -23142,7 +23142,7 @@ pub(crate) fn native_double_stream_map_to_long(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -23176,7 +23176,7 @@ pub(crate) fn native_double_stream_distinct(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = double_stream_elems(heap, r);
     let mut seen = std::collections::HashSet::new();
@@ -23195,7 +23195,7 @@ pub(crate) fn native_double_stream_boxed(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let elems = double_stream_elems(heap, r);
     let n = i32::try_from(elems.len()).unwrap_or(0);
@@ -23218,7 +23218,7 @@ pub(crate) fn native_optional_double_is_present(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let present = matches!(heap.get(r)?.fields.get(1), Some(Slot::Int(1)));
     Ok(Some(Slot::Int(i32::from(present))))
@@ -23231,7 +23231,7 @@ pub(crate) fn native_long_stream_reduce_optional(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -23274,7 +23274,7 @@ pub(crate) fn native_long_stream_map_to_double(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
@@ -23314,7 +23314,7 @@ pub(crate) fn native_collectors_summing_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/SummingLongCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -23333,7 +23333,7 @@ pub(crate) fn native_collectors_min_by(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let cmp_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/MinByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = cmp_slot;
@@ -23347,7 +23347,7 @@ pub(crate) fn native_collectors_max_by(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let cmp_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/MaxByCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = cmp_slot;
@@ -23361,7 +23361,7 @@ pub(crate) fn native_collectors_summing_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/SummingDoubleCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -23375,7 +23375,7 @@ pub(crate) fn native_collectors_averaging_long(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/AveragingLongCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -23389,7 +23389,7 @@ pub(crate) fn native_collectors_to_unmodifiable_map(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let key_fn_slot = extract_slot_arg(args, 0);
     let val_fn_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ToUnmodifiableMapCollector".to_string(), 2);
@@ -23406,7 +23406,7 @@ pub(crate) fn native_collectors_collecting_and_then(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let downstream_slot = extract_slot_arg(args, 0);
     let finisher_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/CollectingAndThenCollector".to_string(), 2);
@@ -23422,7 +23422,7 @@ pub(crate) fn native_collectors_averaging_double(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let fn_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/AveragingDoubleCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = fn_slot;
@@ -23442,7 +23442,7 @@ pub(crate) fn native_collectors_reducing_no_identity(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let op_slot = extract_slot_arg(args, 0);
     let r = heap.allocate("duke/util/ReducingNoIdentityCollector".to_string(), 1);
     heap.get_mut(r)?.fields[0] = op_slot;
@@ -23457,7 +23457,7 @@ pub(crate) fn native_collectors_reducing_with_identity(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let identity_slot = extract_slot_arg(args, 0);
     let op_slot = extract_slot_arg(args, 1);
     let r = heap.allocate("duke/util/ReducingCollector".to_string(), 2);
@@ -23474,7 +23474,7 @@ pub(crate) fn native_collectors_reducing_mapping(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let identity_slot = extract_slot_arg(args, 0);
     let mapper_slot = extract_slot_arg(args, 1);
     let op_slot = extract_slot_arg(args, 2);
@@ -23493,15 +23493,15 @@ pub(crate) fn native_stream_iterate_predicate(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let seed = extract_slot_arg(args, 0);
     let pred_slot = extract_slot_arg(args, 1);
     let next_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     let Slot::Reference(Some(next_ref)) = next_slot else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let next_class = heap.get(next_ref)?.class_name.clone();
@@ -23549,7 +23549,7 @@ pub(crate) fn native_optional_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let value = extract_first_field_arg(heap, this_ref)?;
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
@@ -23571,7 +23571,7 @@ pub(crate) fn native_arraydeque_add_first(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraydeque_push(args, heap, out, control)
 }
 
@@ -23581,7 +23581,7 @@ pub(crate) fn native_arraydeque_add_last(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_add(args, heap, out, control)?;
     Ok(None)
 }
@@ -23592,7 +23592,7 @@ pub(crate) fn native_arraydeque_offer_first(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraydeque_push(args, heap, out, control)?;
     Ok(Some(Slot::Int(1)))
 }
@@ -23603,7 +23603,7 @@ pub(crate) fn native_arraydeque_offer_last(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraylist_add(args, heap, out, control)?;
     Ok(Some(Slot::Int(1)))
 }
@@ -23614,7 +23614,7 @@ pub(crate) fn native_arraydeque_peek_first(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraydeque_peek(args, heap, out, control)
 }
 
@@ -23624,7 +23624,7 @@ pub(crate) fn native_arraydeque_peek_last(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -23642,7 +23642,7 @@ pub(crate) fn native_arraydeque_poll_first(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_arraydeque_poll(args, heap, out, control)
 }
 
@@ -23652,7 +23652,7 @@ pub(crate) fn native_arraydeque_poll_last(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -23673,7 +23673,7 @@ pub(crate) fn native_arraydeque_contains(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
     let size = match heap.get(this_ref)?.fields.first() {
@@ -23691,7 +23691,7 @@ pub(crate) fn native_arraydeque_stream(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
@@ -23713,11 +23713,11 @@ pub(crate) fn native_arraydeque_for_each(
     out: &mut dyn Write,
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(cons_ref)) = consumer_slot else {
-        return Err(VmError::NullPointerException);
+        return Err(crate::Error::NullPointerException);
     };
     let cons_class = heap.get(cons_ref)?.class_name.clone();
     let size = match heap.get(this_ref)?.fields.first() {
@@ -23744,7 +23744,7 @@ pub(crate) fn native_arraydeque_clear(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields.truncate(1);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
@@ -23802,7 +23802,7 @@ pub(crate) fn native_localdate_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let year = extract_int_arg(args, 0)?;
     let month = extract_int_arg(args, 1)? as u32;
     let day = extract_int_arg(args, 2)? as u32;
@@ -23818,7 +23818,7 @@ pub(crate) fn native_localdate_now(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("java/time/LocalDate".to_string(), 1);
     heap.get_mut(r)?.fields[0] = Slot::Int(0); // epoch 0 = 1970-01-01
     Ok(Some(Slot::Reference(Some(r))))
@@ -23830,7 +23830,7 @@ pub(crate) fn native_localdate_get_year(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -23846,7 +23846,7 @@ pub(crate) fn native_localdate_get_month_value(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -23863,7 +23863,7 @@ pub(crate) fn native_localdate_get_day_of_month(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -23880,7 +23880,7 @@ pub(crate) fn native_localdate_plus_days(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let days = extract_long_arg(args, 1)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
@@ -23900,7 +23900,7 @@ pub(crate) fn native_localdate_minus_days(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let days = extract_long_arg(args, 1)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
@@ -23920,7 +23920,7 @@ pub(crate) fn native_localdate_plus_months(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let months = extract_long_arg(args, 1)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
@@ -23949,7 +23949,7 @@ pub(crate) fn native_localdate_plus_years(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let years = extract_long_arg(args, 1)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
@@ -23973,7 +23973,7 @@ pub(crate) fn native_localdate_is_before(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a = match heap.get(this_ref)?.fields.first() {
@@ -23993,7 +23993,7 @@ pub(crate) fn native_localdate_is_after(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a = match heap.get(this_ref)?.fields.first() {
@@ -24013,7 +24013,7 @@ pub(crate) fn native_localdate_is_equal(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a = match heap.get(this_ref)?.fields.first() {
@@ -24033,7 +24033,7 @@ pub(crate) fn native_localdate_to_epoch_day(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24048,7 +24048,7 @@ pub(crate) fn native_localdate_to_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24083,7 +24083,7 @@ pub(crate) fn native_duration_of_seconds(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let secs = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/time/Duration".to_string(), 2);
     heap.get_mut(r)?.fields[0] = Slot::Long(secs);
@@ -24097,7 +24097,7 @@ pub(crate) fn native_duration_of_minutes(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let mins = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/time/Duration".to_string(), 2);
     heap.get_mut(r)?.fields[0] = Slot::Long(mins * 60);
@@ -24111,7 +24111,7 @@ pub(crate) fn native_duration_of_hours(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let hrs = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/time/Duration".to_string(), 2);
     heap.get_mut(r)?.fields[0] = Slot::Long(hrs * 3600);
@@ -24125,7 +24125,7 @@ pub(crate) fn native_duration_of_days(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let days = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/time/Duration".to_string(), 2);
     heap.get_mut(r)?.fields[0] = Slot::Long(days * 86_400);
@@ -24139,7 +24139,7 @@ pub(crate) fn native_duration_get_seconds(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24154,7 +24154,7 @@ pub(crate) fn native_duration_to_seconds(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     native_duration_get_seconds(args, heap, out, control)
 }
 
@@ -24164,7 +24164,7 @@ pub(crate) fn native_duration_to_minutes(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24179,7 +24179,7 @@ pub(crate) fn native_duration_to_hours(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24194,7 +24194,7 @@ pub(crate) fn native_duration_to_days(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24209,7 +24209,7 @@ pub(crate) fn native_duration_plus(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a_secs = match heap.get(this_ref)?.fields.first() {
@@ -24244,7 +24244,7 @@ pub(crate) fn native_duration_minus(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a_secs = match heap.get(this_ref)?.fields.first() {
@@ -24283,7 +24283,7 @@ pub(crate) fn native_duration_is_negative(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24298,7 +24298,7 @@ pub(crate) fn native_duration_is_zero(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24319,7 +24319,7 @@ pub(crate) fn native_period_of(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let years = extract_int_arg(args, 0)?;
     let months = extract_int_arg(args, 1)?;
     let days = extract_int_arg(args, 2)?;
@@ -24336,7 +24336,7 @@ pub(crate) fn native_period_of_days(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let days = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/time/Period".to_string(), 3);
     heap.get_mut(r)?.fields[0] = Slot::Int(0);
@@ -24351,7 +24351,7 @@ pub(crate) fn native_period_of_months(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let months = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/time/Period".to_string(), 3);
     heap.get_mut(r)?.fields[0] = Slot::Int(0);
@@ -24366,7 +24366,7 @@ pub(crate) fn native_period_of_years(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let years = extract_int_arg(args, 0)?;
     let r = heap.allocate("java/time/Period".to_string(), 3);
     heap.get_mut(r)?.fields[0] = Slot::Int(years);
@@ -24381,7 +24381,7 @@ pub(crate) fn native_period_get_years(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let v = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24396,7 +24396,7 @@ pub(crate) fn native_period_get_months(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let v = match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(v)) => *v,
@@ -24411,7 +24411,7 @@ pub(crate) fn native_period_get_days(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let v = match heap.get(this_ref)?.fields.get(2) {
         Some(Slot::Int(v)) => *v,
@@ -24426,7 +24426,7 @@ pub(crate) fn native_period_is_negative(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let f = heap.get(this_ref)?.fields.clone();
     let neg = f.iter().any(|s| matches!(s, Slot::Int(v) if *v < 0));
@@ -24439,7 +24439,7 @@ pub(crate) fn native_period_is_zero(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let f = heap.get(this_ref)?.fields.clone();
     let zero = f.iter().all(|s| matches!(s, Slot::Int(0)));
@@ -24454,7 +24454,7 @@ pub(crate) fn native_instant_of_epoch_second(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let secs = extract_long_arg(args, 0)?;
     let r = heap.allocate("java/time/Instant".to_string(), 2);
     heap.get_mut(r)?.fields[0] = Slot::Long(secs);
@@ -24468,7 +24468,7 @@ pub(crate) fn native_instant_of_epoch_milli(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let millis = extract_long_arg(args, 0)?;
     let secs = millis / 1000;
     #[allow(clippy::cast_possible_truncation)] // nanos = [0, 999_000_000], fits i32
@@ -24485,7 +24485,7 @@ pub(crate) fn native_instant_get_epoch_second(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24500,7 +24500,7 @@ pub(crate) fn native_instant_to_epoch_milli(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let secs = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Long(v)) => *v,
@@ -24519,7 +24519,7 @@ pub(crate) fn native_instant_is_before(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a = match heap.get(this_ref)?.fields.first() {
@@ -24539,7 +24539,7 @@ pub(crate) fn native_instant_is_after(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a = match heap.get(this_ref)?.fields.first() {
@@ -24566,7 +24566,7 @@ pub(crate) fn native_localdatetime_of_ymd_hm(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let year = extract_int_arg(args, 0)?;
     let month = extract_int_arg(args, 1)? as u32;
     let day = extract_int_arg(args, 2)? as u32;
@@ -24589,7 +24589,7 @@ pub(crate) fn native_localdatetime_of_ymd_hms(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let year = extract_int_arg(args, 0)?;
     let month = extract_int_arg(args, 1)? as u32;
     let day = extract_int_arg(args, 2)? as u32;
@@ -24613,7 +24613,7 @@ pub(crate) fn native_localdatetime_of_date_hms(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let date_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(date_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24637,7 +24637,7 @@ pub(crate) fn native_localdatetime_now(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
     for i in 0..5 {
         heap.get_mut(r)?.fields[i] = Slot::Int(0);
@@ -24651,7 +24651,7 @@ pub(crate) fn native_localdatetime_get_year(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24667,7 +24667,7 @@ pub(crate) fn native_localdatetime_get_month_value(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24684,7 +24684,7 @@ pub(crate) fn native_localdatetime_get_day_of_month(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24701,7 +24701,7 @@ pub(crate) fn native_localdatetime_get_hour(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let v = match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(v)) => *v,
@@ -24716,7 +24716,7 @@ pub(crate) fn native_localdatetime_get_minute(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let v = match heap.get(this_ref)?.fields.get(2) {
         Some(Slot::Int(v)) => *v,
@@ -24731,7 +24731,7 @@ pub(crate) fn native_localdatetime_get_second(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let v = match heap.get(this_ref)?.fields.get(3) {
         Some(Slot::Int(v)) => *v,
@@ -24746,7 +24746,7 @@ pub(crate) fn native_localdatetime_to_local_date(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let epoch = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(v)) => *v,
@@ -24763,7 +24763,7 @@ pub(crate) fn native_localdatetime_is_before(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a_epoch = match heap.get(this_ref)?.fields.first() {
@@ -24802,7 +24802,7 @@ pub(crate) fn native_localdatetime_is_after(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
     let a_epoch = match heap.get(this_ref)?.fields.first() {
@@ -24840,7 +24840,7 @@ pub(crate) fn native_localdatetime_to_string(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(this_ref)?.fields.clone();
     let epoch = match fields.first() {
@@ -24872,7 +24872,7 @@ pub(crate) fn native_localdatetime_plus_days(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let days = extract_long_arg(args, 1)?;
     let fields = heap.get(this_ref)?.fields.clone();
@@ -24895,7 +24895,7 @@ pub(crate) fn native_localdatetime_with_hour(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let hour = extract_int_arg(args, 1)?;
     let fields = heap.get(this_ref)?.fields.clone();
@@ -24920,7 +24920,7 @@ pub(crate) fn native_string_indent(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let n = extract_int_arg(args, 1)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
@@ -24961,7 +24961,7 @@ pub(crate) fn native_stringbuilder_set_char_at(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let idx = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(usize::MAX);
     let ch = match args.get(2) {
@@ -24989,7 +24989,7 @@ pub(crate) fn native_collections_disjoint(
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let a_ref = extract_ref_arg(args, 0)?;
     let b_ref = extract_ref_arg(args, 1)?;
     // Both use ArrayList/HashSet layout: fields[0]=size, fields[1..=size]=elements
@@ -25022,7 +25022,7 @@ pub(crate) fn native_hashmap_compute_if_present(
     out: &mut dyn Write,
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     // Look up existing value.
@@ -25073,7 +25073,7 @@ pub(crate) fn native_hashmap_remove_key_value(
     heap: &mut duke_gc::Heap,
     out: &mut dyn Write,
     control: &mut NativeControl,
-) -> VmResult<Option<Slot>> {
+) -> crate::Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let expected_val = extract_slot_arg(args, 2);
