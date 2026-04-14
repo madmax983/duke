@@ -4,3 +4,6 @@
 ## 2024-05-18 - [Missing Coverage in `duke-gc`]
 **Learning:** Found multiple uncovered edge cases and error paths in `duke-gc` related to `read_host_file_byte`, `write_host_file_byte`, `spawn_host_process`, `open_host_zip`, `bind_server_socket`, and `accept_connection`. When testing `GarbageCollector`, the struct is actually named `Heap` locally in `crates/duke-gc/src/lib.rs` and aliased to `GarbageCollector` later/externally.
 **Action:** Always check the struct definitions and imports inside the file to ensure the tests compile, and use the internal type name when writing unit tests in `mod tests`.
+## 2025-02-28 - [Hardcoded paths in tests cause massive coverage gaps]
+**Learning:** A hardcoded Windows path in `jdk_modules_path()` caused several `duke-loader` integration tests to be skipped silently on Linux CI, dropping coverage for `JImageReader` by ~45%.
+**Action:** When tests skip or coverage drops on file I/O operations, check for hardcoded OS-specific paths and replace them with dynamic resolution (like `JAVA_HOME`).
