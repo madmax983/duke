@@ -9,6 +9,17 @@
 use duke_classfile::CpIndex;
 
 /// Array type codes used by the `newarray` instruction (JVM spec §6.5).
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::instruction::ArrayType;
+///
+/// let int_array = ArrayType::from_u8(10).unwrap();
+/// assert_eq!(int_array, ArrayType::Int);
+///
+/// assert_eq!(ArrayType::from_u8(99), None);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArrayType {
     Boolean = 4,
@@ -42,6 +53,20 @@ impl ArrayType {
 ///
 /// Wide-prefixed variants (e.g., `IloadW`) are represented as distinct variants
 /// so callers can exhaustively match without needing to track a separate `wide` flag.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::Instruction;
+///
+/// let instr = Instruction::Iconst1;
+/// assert_eq!(instr.mnemonic(), "iconst_1");
+///
+/// let load = Instruction::Iload(5);
+/// if let Instruction::Iload(index) = load {
+///     assert_eq!(index, 5);
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     // -----------------------------------------------------------------------

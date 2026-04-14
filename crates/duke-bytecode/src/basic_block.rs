@@ -10,6 +10,23 @@ use std::collections::BTreeSet;
 use crate::Instruction;
 
 /// A basic block of JVM bytecode.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, basic_block::BasicBlock};
+///
+/// let block = BasicBlock {
+///     start_pc: 0,
+///     end_pc: 2,
+///     instructions: vec![
+///         (0, Instruction::Iconst1),
+///         (1, Instruction::Istore1),
+///     ],
+/// };
+///
+/// assert_eq!(block.instructions.len(), 2);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BasicBlock {
     /// The starting program counter (PC) of this basic block.
