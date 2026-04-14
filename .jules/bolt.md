@@ -18,6 +18,9 @@
 **Basic Block Vec Reallocation**
 **Learning:** `Vec::new()` inside looping parser instructions causes multi-level heap reallocations. For small arrays where capacity is known from slice bounds (like basic blocks bounds / leader offsets), `Vec::with_capacity` drastically minimizes heap allocation traffic.
 **Action:** When constructing `Vec` from parsed instruction iterators, pre-compute rough capacity based on slice metrics or known leaders array length.
+**[Eliminate HashMap/ArrayList `.fields.clone()` Allocations in Native Bindings]**
+**Learning:** [Many Java collection native mappings (like `ArrayList.remove/contains`, `HashMap.keySet/values`, `LocalDateTime.isAfter`) were cloning the entire `fields` vector from `duke_gc::Heap` objects just to iterate or read elements. Because the heap lookup functions (`heap.get`) return a reference to the `HeapObject`, we can just borrow `.fields` immutably for loops, or do direct length/index lookups, completely avoiding massive `Vec` cloning and reallocation overhead on hot execution paths.]
+**Action:** [Use immutable references `&heap.get(...)?.fields` for native execution functions that only need to read internal Java object states or iterate them. If mutation is required after a lookup, ensure the immutable borrow is dropped (e.g. by wrapping the lookup loop in a `{ ... }` block) before calling `heap.get_mut()`.]
 ## 2026-04-13 - [Avoid Chained Iterators with Collect]
 **Learning:** Replaced `.drain().map().collect::<Vec<_>>().` pattern on a `HashMap` with an explicit `Vec::with_capacity()` and a for-loop. The chained iterators drop the size hint, causing unnecessary heap reallocations. Also, explicit `drop()` on lock guards avoids clippy warnings `clippy::significant_drop_tightening` when used immediately before long-running operations.
 **Action:** Use pre-allocated vectors and loops instead of chained iterator `collect`s when the size is known, especially around lock-managed states.
