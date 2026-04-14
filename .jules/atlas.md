@@ -12,3 +12,7 @@
 **[Split ClassFile types]
 **Tangle:** `duke-classfile/src/types.rs` was a Blob anti-pattern holding constant pool, attributes, and class structures.
 **Blueprint:** Split into `constant_pool.rs`, `attributes.rs`, and `class.rs` to match domain responsibilities.
+
+**Extracting Host I/O from duke-gc Blob**
+**Tangle:** The `duke-gc` crate's `lib.rs` file had become a massive Blob anti-pattern (over 2500 lines). It combined complex generational garbage collection logic (Eden space, copying collector, mark-sweep) with low-level host OS abstractions like file descriptors, sockets, and child process management.
+**Blueprint:** Extracted the host I/O management structures (`HostFileHandle`, `HostProcessHandle`, `SpawnedProcessIds`) and all related native host methods on `Heap` into a separate `host.rs` module. The JVM host interactions are now neatly encapsulated without polluting the garbage collection logic.
