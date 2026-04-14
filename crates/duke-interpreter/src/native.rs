@@ -12971,7 +12971,7 @@ impl ExecutionState {
             pc_to_idx,
             instructions,
             frame,
-            call_stack: Vec::new(),
+            call_stack: Vec::with_capacity(32),
             frame_pool: FramePool::new(),
             dispatch_cache: HashMap::new(),
             vtable_cache: HashMap::new(),
@@ -13469,11 +13469,12 @@ fn wait_for_all_java_threads(
             if runtime.handles.is_empty() {
                 return first_error.unwrap_or(Ok(()));
             }
-            runtime
-                .handles
-                .drain()
-                .map(|(_, handle)| handle)
-                .collect::<Vec<_>>()
+            let mut handles = Vec::with_capacity(runtime.handles.len());
+            for (_, handle) in runtime.handles.drain() {
+                handles.push(handle);
+            }
+            drop(runtime);
+            handles
         };
 
         for handle in handles {
