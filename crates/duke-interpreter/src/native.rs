@@ -10305,12 +10305,12 @@ pub(crate) fn native_hashmap_key_set(
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(this_ref)?.fields.clone();
+    let fields_len = heap.get(this_ref)?.fields.len();
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
     native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
     let mut i = 1usize;
-    while i < fields.len() {
-        let key = fields[i];
+    while i < fields_len {
+        let key = heap.get(this_ref)?.fields[i];
         native_hashset_add(&[Slot::Reference(Some(set_ref)), key], heap, out, control)?;
         i += 2;
     }
@@ -10326,13 +10326,13 @@ pub(crate) fn native_hashmap_values(
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(this_ref)?.fields.clone();
+    let fields_len = heap.get(this_ref)?.fields.len();
     let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
     native_arraylist_init(&[Slot::Reference(Some(list_ref))], heap, out, control)?;
     // Pairs start at index 1; values are at indices 2, 4, 6, ...
     let mut i = 2usize;
-    while i < fields.len() {
-        let val = fields[i];
+    while i < fields_len {
+        let val = heap.get(this_ref)?.fields[i];
         native_arraylist_add(&[Slot::Reference(Some(list_ref)), val], heap, out, control)?;
         i += 2;
     }
@@ -10347,13 +10347,13 @@ pub(crate) fn native_hashmap_entry_set(
     control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(this_ref)?.fields.clone();
+    let fields_len = heap.get(this_ref)?.fields.len();
     let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
     native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
     let mut i = 1usize;
-    while i + 1 < fields.len() {
-        let key = fields[i];
-        let val = fields[i + 1];
+    while i + 1 < fields_len {
+        let key = heap.get(this_ref)?.fields[i];
+        let val = heap.get(this_ref)?.fields[i + 1];
         let entry_ref = heap.allocate("java/util/Map$Entry".to_string(), 2);
         {
             let entry_obj = heap.get_mut(entry_ref)?;
@@ -16786,13 +16786,13 @@ pub(crate) fn native_arraylist_remove_obj(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(this_ref)?.fields.clone();
-    let found = fields
-        .iter()
-        .enumerate()
-        .skip(1)
-        .find(|(_, slot)| slots_equal(slot, &target, heap))
-        .map(|(i, _)| i);
+    let mut found = None;
+    for (i, slot) in heap.get(this_ref)?.fields.iter().enumerate().skip(1) {
+        if slots_equal(slot, &target, heap) {
+            found = Some(i);
+            break;
+        }
+    }
     if let Some(field_idx) = found {
         let obj = heap.get_mut(this_ref)?;
         obj.fields.remove(field_idx);
@@ -16814,11 +16814,13 @@ pub(crate) fn native_arraylist_contains(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(this_ref)?.fields.clone();
-    let found = fields
-        .iter()
-        .skip(1)
-        .any(|slot| slots_equal(slot, &target, heap));
+    let mut found = false;
+    for slot in heap.get(this_ref)?.fields.iter().skip(1) {
+        if slots_equal(slot, &target, heap) {
+            found = true;
+            break;
+        }
+    }
     Ok(Some(Slot::Int(i32::from(found))))
 }
 
@@ -22510,10 +22512,14 @@ pub(crate) fn native_treemap_get_or_default(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let default_val = extract_slot_arg(args, 2);
-    let fields = heap.get(this_ref)?.fields.clone();
-    Ok(Some(
-        find_hashmap_entry_index(&fields, &key, heap).map_or(default_val, |i| fields[i + 1]),
-    ))
+    let found_idx = {
+        let fields = &heap.get(this_ref)?.fields;
+        find_hashmap_entry_index(fields, &key, heap)
+    };
+    Ok(Some(match found_idx {
+        Some(i) => heap.get(this_ref)?.fields[i + 1],
+        None => default_val,
+    }))
 }
 
 /// Native: `TreeSet.stream()Stream` — wraps sorted elements into a `duke/util/Stream`.
@@ -24778,14 +24784,12 @@ pub(crate) fn native_localdatetime_is_before(
         return Ok(Some(Slot::Int(i32::from(a_epoch < b_epoch))));
     }
     // same day — compare time fields
-    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
-    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
     for idx in 1..=3 {
-        let a = match fields_a.get(idx) {
+        let a = match heap.get(this_ref)?.fields.get(idx) {
             Some(Slot::Int(v)) => *v,
             _ => 0,
         };
-        let b = match fields_b.get(idx) {
+        let b = match heap.get(other_ref)?.fields.get(idx) {
             Some(Slot::Int(v)) => *v,
             _ => 0,
         };
@@ -24816,14 +24820,12 @@ pub(crate) fn native_localdatetime_is_after(
     if a_epoch != b_epoch {
         return Ok(Some(Slot::Int(i32::from(a_epoch > b_epoch))));
     }
-    let fields_a: Vec<Slot> = heap.get(this_ref)?.fields.clone();
-    let fields_b: Vec<Slot> = heap.get(other_ref)?.fields.clone();
     for idx in 1..=3 {
-        let a = match fields_a.get(idx) {
+        let a = match heap.get(this_ref)?.fields.get(idx) {
             Some(Slot::Int(v)) => *v,
             _ => 0,
         };
-        let b = match fields_b.get(idx) {
+        let b = match heap.get(other_ref)?.fields.get(idx) {
             Some(Slot::Int(v)) => *v,
             _ => 0,
         };
