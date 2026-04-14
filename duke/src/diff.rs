@@ -1,0 +1,190 @@
+
+    #[test]
+    fn test_dump_diff_handles_files() {
+        let valid_bytes1 = vec![
+            0xca, 0xfe, 0xba, 0xbe, // magic
+            0x00, 0x00, // minor
+            0x00, 0x3d, // major (61)
+            0x00, 0x01, // constant_pool_count (1)
+            0x00, 0x01, // access_flags (public)
+            0x00, 0x00, // this_class (0)
+            0x00, 0x00, // super_class (0)
+            0x00, 0x00, // interfaces_count (0)
+            0x00, 0x00, // fields_count (0)
+            0x00, 0x00, // methods_count (0)
+            0x00, 0x00, // attributes_count (0)
+        ];
+
+        let dir = std::env::temp_dir();
+        let path1 = dir.join("diff_test_file1.class");
+        let path2 = dir.join("diff_test_file2.class");
+
+        std::fs::write(&path1, &valid_bytes1).unwrap();
+        std::fs::write(&path2, &valid_bytes1).unwrap();
+
+        // This will print to stdout, we just ensure it doesn't panic
+        dump_diff(path1.to_str().unwrap(), path2.to_str().unwrap());
+
+        std::fs::remove_file(&path1).unwrap();
+        std::fs::remove_file(&path2).unwrap();
+    }
+
+    #[test]
+    fn test_dump_diff_added_and_removed_methods() {
+        let valid_bytes1 = vec![
+            0xca, 0xfe, 0xba, 0xbe, // magic
+            0x00, 0x00, // minor
+            0x00, 0x3d, // major (61)
+            0x00, 0x04, // constant_pool_count (4)
+            // #1: Utf8 "oldMethod"
+            0x01, 0x00, 0x09, 0x6f, 0x6c, 0x64, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64,
+            // #2: Utf8 "()V"
+            0x01, 0x00, 0x03, 0x28, 0x29, 0x56,
+            // #3: Utf8 "Code"
+            0x01, 0x00, 0x04, 0x43, 0x6f, 0x64, 0x65,
+            0x00, 0x01, // access_flags (public)
+            0x00, 0x00, // this_class (0)
+            0x00, 0x00, // super_class (0)
+            0x00, 0x00, // interfaces_count (0)
+            0x00, 0x00, // fields_count (0)
+            0x00, 0x01, // methods_count (1)
+            0x00, 0x01, // method[0].access_flags
+            0x00, 0x01, // method[0].name_index
+            0x00, 0x02, // method[0].descriptor_index
+            0x00, 0x01, // method[0].attributes_count
+            0x00, 0x03, // attr name index
+            0x00, 0x00, 0x00, 0x0e, // attr len
+            0x00, 0x01, // max stack
+            0x00, 0x01, // max locals
+            0x00, 0x00, 0x00, 0x02, // code len
+            0x03, 0xac, // iconst_0, ireturn
+            0x00, 0x00, // exception table len
+            0x00, 0x00, // attributes count
+            0x00, 0x00, // class attributes_count (0)
+        ];
+
+        let valid_bytes2 = vec![
+            0xca, 0xfe, 0xba, 0xbe, // magic
+            0x00, 0x00, // minor
+            0x00, 0x3d, // major (61)
+            0x00, 0x04, // constant_pool_count (4)
+            // #1: Utf8 "newMethod"
+            0x01, 0x00, 0x09, 0x6e, 0x65, 0x77, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64,
+            // #2: Utf8 "()V"
+            0x01, 0x00, 0x03, 0x28, 0x29, 0x56,
+            // #3: Utf8 "Code"
+            0x01, 0x00, 0x04, 0x43, 0x6f, 0x64, 0x65,
+            0x00, 0x01, // access_flags (public)
+            0x00, 0x00, // this_class (0)
+            0x00, 0x00, // super_class (0)
+            0x00, 0x00, // interfaces_count (0)
+            0x00, 0x00, // fields_count (0)
+            0x00, 0x01, // methods_count (1)
+            0x00, 0x01, // method[0].access_flags
+            0x00, 0x01, // method[0].name_index
+            0x00, 0x02, // method[0].descriptor_index
+            0x00, 0x01, // method[0].attributes_count
+            0x00, 0x03, // attr name index
+            0x00, 0x00, 0x00, 0x0e, // attr len
+            0x00, 0x01, // max stack
+            0x00, 0x01, // max locals
+            0x00, 0x00, 0x00, 0x02, // code len
+            0x03, 0xac, // iconst_0, ireturn
+            0x00, 0x00, // exception table len
+            0x00, 0x00, // attributes count
+            0x00, 0x00, // class attributes_count (0)
+        ];
+
+        let dir = std::env::temp_dir();
+        let path1 = dir.join("diff_test_file3.class");
+        let path2 = dir.join("diff_test_file4.class");
+
+        std::fs::write(&path1, &valid_bytes1).unwrap();
+        std::fs::write(&path2, &valid_bytes2).unwrap();
+
+        dump_diff(path1.to_str().unwrap(), path2.to_str().unwrap());
+
+        std::fs::remove_file(&path1).unwrap();
+        std::fs::remove_file(&path2).unwrap();
+    }
+}
+
+    #[test]
+    fn test_dump_diff_changed_methods_with_different_instructions() {
+        let valid_bytes1 = vec![
+            0xca, 0xfe, 0xba, 0xbe, // magic
+            0x00, 0x00, // minor
+            0x00, 0x3d, // major (61)
+            0x00, 0x04, // constant_pool_count (4)
+            // #1: Utf8 "changedMethod"
+            0x01, 0x00, 0x0d, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x64, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64,
+            // #2: Utf8 "()V"
+            0x01, 0x00, 0x03, 0x28, 0x29, 0x56,
+            // #3: Utf8 "Code"
+            0x01, 0x00, 0x04, 0x43, 0x6f, 0x64, 0x65,
+            0x00, 0x01, // access_flags (public)
+            0x00, 0x00, // this_class (0)
+            0x00, 0x00, // super_class (0)
+            0x00, 0x00, // interfaces_count (0)
+            0x00, 0x00, // fields_count (0)
+            0x00, 0x01, // methods_count (1)
+            0x00, 0x01, // method[0].access_flags
+            0x00, 0x01, // method[0].name_index
+            0x00, 0x02, // method[0].descriptor_index
+            0x00, 0x01, // method[0].attributes_count
+            0x00, 0x03, // attr name index
+            0x00, 0x00, 0x00, 0x0e, // attr len
+            0x00, 0x01, // max stack
+            0x00, 0x01, // max locals
+            0x00, 0x00, 0x00, 0x02, // code len
+            0x03, 0xac, // iconst_0, ireturn
+            0x00, 0x00, // exception table len
+            0x00, 0x00, // attributes count
+            0x00, 0x00, // class attributes_count (0)
+        ];
+
+        let valid_bytes2 = vec![
+            0xca, 0xfe, 0xba, 0xbe, // magic
+            0x00, 0x00, // minor
+            0x00, 0x3d, // major (61)
+            0x00, 0x04, // constant_pool_count (4)
+            // #1: Utf8 "changedMethod"
+            0x01, 0x00, 0x0d, 0x63, 0x68, 0x61, 0x6e, 0x67, 0x65, 0x64, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64,
+            // #2: Utf8 "()V"
+            0x01, 0x00, 0x03, 0x28, 0x29, 0x56,
+            // #3: Utf8 "Code"
+            0x01, 0x00, 0x04, 0x43, 0x6f, 0x64, 0x65,
+            0x00, 0x01, // access_flags (public)
+            0x00, 0x00, // this_class (0)
+            0x00, 0x00, // super_class (0)
+            0x00, 0x00, // interfaces_count (0)
+            0x00, 0x00, // fields_count (0)
+            0x00, 0x01, // methods_count (1)
+            0x00, 0x01, // method[0].access_flags
+            0x00, 0x01, // method[0].name_index
+            0x00, 0x02, // method[0].descriptor_index
+            0x00, 0x01, // method[0].attributes_count
+            0x00, 0x03, // attr name index
+            0x00, 0x00, 0x00, 0x0f, // attr len
+            0x00, 0x01, // max stack
+            0x00, 0x01, // max locals
+            0x00, 0x00, 0x00, 0x03, // code len
+            0x03, 0x04, 0xac, // iconst_0, iconst_1, ireturn (diff instruction count)
+            0x00, 0x00, // exception table len
+            0x00, 0x00, // attributes count
+            0x00, 0x00, // class attributes_count (0)
+        ];
+
+        let dir = std::env::temp_dir();
+        let path1 = dir.join("diff_test_file5.class");
+        let path2 = dir.join("diff_test_file6.class");
+
+        std::fs::write(&path1, &valid_bytes1).unwrap();
+        std::fs::write(&path2, &valid_bytes2).unwrap();
+
+        dump_diff(path1.to_str().unwrap(), path2.to_str().unwrap());
+
+        std::fs::remove_file(&path1).unwrap();
+        std::fs::remove_file(&path2).unwrap();
+    }
+}
