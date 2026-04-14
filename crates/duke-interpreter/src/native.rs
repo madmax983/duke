@@ -13445,6 +13445,18 @@ fn join_java_thread(
             if is_finished {
                 return Ok(());
             }
+
+            // A thread attempting to join its own handle will panic.
+            let is_self_join = runtime.handles.get(&thread_id).is_some_and(|h| h.thread().id() == std::thread::current().id());
+            if is_self_join {
+                // Java semantics dictate that a thread joining itself blocks forever.
+                // Instead of panicking or returning immediately, we park the thread.
+                drop(runtime);
+                loop {
+                    std::thread::park();
+                }
+            }
+
             runtime.handles.remove(&thread_id)
         };
 
@@ -25087,4 +25099,49 @@ pub(crate) fn native_hashmap_remove_key_value(
         }
     }
     Ok(Some(Slot::Int(0)))
+}
+
+#[cfg(test)]
+mod havoc_thread_join_itself {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    #[test]
+    fn test_join_java_thread_itself() {
+        let runtime = Arc::new(Mutex::new(CompletionRuntime::default()));
+        let runtime_clone = runtime.clone();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx_panic, rx_panic) = std::sync::mpsc::channel();
+
+        let handle = thread::spawn(move || -> VmResult<()> {
+            rx.recv().unwrap();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = join_java_thread(&runtime_clone, 0);
+            }));
+            if let Err(e) = result {
+                if let Some(s) = e.downcast_ref::<&str>() {
+                    tx_panic.send(s.to_string()).unwrap();
+                } else if let Some(s) = e.downcast_ref::<String>() {
+                    tx_panic.send(s.clone()).unwrap();
+                }
+            }
+            Ok(())
+        });
+
+        {
+            let mut rt = runtime.lock().unwrap();
+            rt.handles.insert(0, handle);
+            let mut record = crate::threading::ThreadRecord::new(123, 0);
+            record.finished = false;
+            rt.threads.register(record);
+        }
+
+        tx.send(()).unwrap();
+
+        // It should NOT panic, but rather return Ok(())
+        let res = rx_panic.recv_timeout(std::time::Duration::from_millis(50));
+        assert!(res.is_err(), "Expected no panic, but received one!");
+    }
 }
