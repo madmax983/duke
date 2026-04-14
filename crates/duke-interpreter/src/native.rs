@@ -16903,13 +16903,14 @@ pub(crate) fn native_arraylist_index_of(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(this_ref)?.fields.clone();
-    let idx = fields
-        .iter()
-        .skip(1)
-        .position(|slot| slots_equal(slot, &target, heap))
-        .map_or(-1, |i| i32::try_from(i).unwrap_or(i32::MAX));
-    Ok(Some(Slot::Int(idx)))
+    let len = heap.get(this_ref)?.fields.len();
+    for i in 1..len {
+        let slot = heap.get(this_ref)?.fields[i];
+        if slots_equal(&slot, &target, heap) {
+            return Ok(Some(Slot::Int(i32::try_from(i - 1).unwrap_or(i32::MAX))));
+        }
+    }
+    Ok(Some(Slot::Int(-1)))
 }
 
 /// Native: `ArrayList.lastIndexOf(Object)I` — last occurrence, or -1.
@@ -16921,13 +16922,16 @@ pub(crate) fn native_arraylist_last_index_of(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(this_ref)?.fields.clone();
-    let idx = fields
-        .iter()
-        .skip(1)
-        .rposition(|slot| slots_equal(slot, &target, heap))
-        .map_or(-1, |i| i32::try_from(i).unwrap_or(i32::MAX));
-    Ok(Some(Slot::Int(idx)))
+    let len = heap.get(this_ref)?.fields.len();
+    if len > 1 {
+        for i in (1..len).rev() {
+            let slot = heap.get(this_ref)?.fields[i];
+            if slots_equal(&slot, &target, heap) {
+                return Ok(Some(Slot::Int(i32::try_from(i - 1).unwrap_or(i32::MAX))));
+            }
+        }
+    }
+    Ok(Some(Slot::Int(-1)))
 }
 
 /// Native: `ArrayList.add(I,Object)V` — inserts element at index, shifting others right.
@@ -17011,11 +17015,15 @@ pub(crate) fn native_hashmap_contains_value(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(this_ref)?.fields.clone();
-    // Values are at even indices: 2, 4, 6, ...
     let mut i = 2usize;
-    while i < fields.len() {
-        if slots_equal(&fields[i], &target, heap) {
+    loop {
+        // Evaluate len inside the loop since heap access can't be held across slots_equal
+        let len = heap.get(this_ref)?.fields.len();
+        if i >= len {
+            break;
+        }
+        let slot = heap.get(this_ref)?.fields[i];
+        if slots_equal(&slot, &target, heap) {
             return Ok(Some(Slot::Int(1)));
         }
         i += 2;
@@ -17170,14 +17178,20 @@ pub(crate) fn native_arrays_equals_int(
 ) -> VmResult<Option<Slot>> {
     let a_ref = extract_ref_arg(args, 0)?;
     let b_ref = extract_ref_arg(args, 1)?;
-    let a_fields = heap.get(a_ref)?.fields.clone();
-    let b_fields = heap.get(b_ref)?.fields.clone();
-    let equal = a_fields.len() == b_fields.len()
-        && a_fields.iter().zip(&b_fields).all(|(x, y)| match (x, y) {
-            (Slot::Int(a), Slot::Int(b)) => a == b,
-            _ => false,
-        });
-    Ok(Some(Slot::Int(i32::from(equal))))
+    let a_len = heap.get(a_ref)?.fields.len();
+    let b_len = heap.get(b_ref)?.fields.len();
+    if a_len != b_len {
+        return Ok(Some(Slot::Int(0)));
+    }
+    for i in 0..a_len {
+        let x = heap.get(a_ref)?.fields[i];
+        let y = heap.get(b_ref)?.fields[i];
+        match (x, y) {
+            (Slot::Int(a), Slot::Int(b)) if a == b => {}
+            _ => return Ok(Some(Slot::Int(0))),
+        }
+    }
+    Ok(Some(Slot::Int(1)))
 }
 
 // ---------------------------------------------------------------------------
