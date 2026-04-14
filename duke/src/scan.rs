@@ -263,6 +263,24 @@ mod tests {
     }
 
     #[test]
+    fn test_dump_scan_valid() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/HelloWorld.class");
+        let path = path.to_str().unwrap();
+
+        super::dump_scan(path);
+    }
+
+    #[test]
+    fn test_dump_jar_scan_valid() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/hello.jar");
+        let path = path.to_str().unwrap();
+
+        super::dump_jar_scan(path);
+    }
+
+    #[test]
     fn test_scan_classfile_detects_runtime_exec() {
         let cf = create_mock_classfile_with_methodref("java/lang/Runtime", "exec");
         let matches = scan_classfile(&cf);

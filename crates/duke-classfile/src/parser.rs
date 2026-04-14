@@ -160,23 +160,12 @@ pub fn parse(bytes: &[u8]) -> ParseResult<ClassFile> {
 // Class file structure
 // ---------------------------------------------------------------------------
 
-fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
-    // §4.1 — magic
-    let magic = c.read_u32()?;
-    if magic != MAGIC {
-        return Err(ParseError::BadMagic { got: magic });
-    }
-
-    let minor_version = c.read_u16()?;
-    let major_version = c.read_u16()?;
-    if major_version > MAX_MAJOR_VERSION {
-        return Err(ParseError::UnsupportedVersion {
-            major: major_version,
-            minor: minor_version,
-        });
-    }
-
-    let constant_pool = parse_constant_pool(c)?;
+fn parse_class_members(
+    c: &mut Cursor<'_>,
+    minor_version: u16,
+    major_version: u16,
+    constant_pool: Vec<Option<CpEntry>>,
+) -> ParseResult<ClassFile> {
     let cp_len = constant_pool.len(); // for bounds validation helpers
 
     let access_flags = ClassAccessFlags::from_bits_truncate(c.read_u16()?);
@@ -221,9 +210,99 @@ fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
     })
 }
 
+fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
+    // §4.1 — magic
+    let magic = c.read_u32()?;
+    if magic != MAGIC {
+        return Err(ParseError::BadMagic { got: magic });
+    }
+
+    let minor_version = c.read_u16()?;
+    let major_version = c.read_u16()?;
+    if major_version > MAX_MAJOR_VERSION {
+        return Err(ParseError::UnsupportedVersion {
+            major: major_version,
+            minor: minor_version,
+        });
+    }
+
+    let constant_pool = parse_constant_pool(c)?;
+    parse_class_members(c, minor_version, major_version, constant_pool)
+}
+
 // ---------------------------------------------------------------------------
 // Constant pool (§4.4)
 // ---------------------------------------------------------------------------
+
+fn parse_cp_entry(c: &mut Cursor<'_>, tag: u8, i: usize) -> ParseResult<CpEntry> {
+    match tag {
+        1 => {
+            let len = c.read_u16()? as usize;
+            let bytes = c.read_bytes(len)?;
+            let s = String::from_utf8(bytes.to_vec())?;
+            Ok(CpEntry::Utf8(s))
+        }
+        3 => Ok(CpEntry::Integer(c.read_i32()?)),
+        4 => Ok(CpEntry::Float(c.read_f32()?)),
+        5 => Ok(CpEntry::Long(c.read_i64()?)),
+        6 => Ok(CpEntry::Double(c.read_f64()?)),
+        7 => Ok(CpEntry::Class {
+            name_index: c.read_cp_index()?,
+        }),
+        8 => Ok(CpEntry::String {
+            string_index: c.read_cp_index()?,
+        }),
+        9 => Ok(CpEntry::Fieldref {
+            class_index: c.read_cp_index()?,
+            name_and_type_index: c.read_cp_index()?,
+        }),
+        10 => Ok(CpEntry::Methodref {
+            class_index: c.read_cp_index()?,
+            name_and_type_index: c.read_cp_index()?,
+        }),
+        11 => Ok(CpEntry::InterfaceMethodref {
+            class_index: c.read_cp_index()?,
+            name_and_type_index: c.read_cp_index()?,
+        }),
+        12 => Ok(CpEntry::NameAndType {
+            name_index: c.read_cp_index()?,
+            descriptor_index: c.read_cp_index()?,
+        }),
+        15 => {
+            let reference_kind = c.read_u8()?;
+            if !(1..=9).contains(&reference_kind) {
+                return Err(ParseError::InvalidMethodHandleKind {
+                    kind: reference_kind,
+                });
+            }
+            Ok(CpEntry::MethodHandle {
+                reference_kind,
+                reference_index: c.read_cp_index()?,
+            })
+        }
+        16 => Ok(CpEntry::MethodType {
+            descriptor_index: c.read_cp_index()?,
+        }),
+        17 => Ok(CpEntry::Dynamic {
+            bootstrap_method_attr_index: c.read_u16()?,
+            name_and_type_index: c.read_cp_index()?,
+        }),
+        18 => Ok(CpEntry::InvokeDynamic {
+            bootstrap_method_attr_index: c.read_u16()?,
+            name_and_type_index: c.read_cp_index()?,
+        }),
+        19 => Ok(CpEntry::Module {
+            name_index: c.read_cp_index()?,
+        }),
+        20 => Ok(CpEntry::Package {
+            name_index: c.read_cp_index()?,
+        }),
+        other => Err(ParseError::UnknownCpTag {
+            tag: other,
+            index: u16::try_from(i).unwrap_or(u16::MAX),
+        }),
+    }
+}
 
 fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> {
     let count = c.read_u16()? as usize;
@@ -235,90 +314,15 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
     let mut i = 1usize;
     while i < count {
         let tag = c.read_u8()?;
-        #[allow(clippy::match_same_arms)]
-        let entry = match tag {
-            1 => {
-                let len = c.read_u16()? as usize;
-                let bytes = c.read_bytes(len)?;
-                let s = String::from_utf8(bytes.to_vec())?;
-                CpEntry::Utf8(s)
-            }
-            3 => CpEntry::Integer(c.read_i32()?),
-            4 => CpEntry::Float(c.read_f32()?),
-            5 => {
-                let v = CpEntry::Long(c.read_i64()?);
-                pool.push(Some(v));
-                pool.push(None); // phantom slot
-                i += 2;
-                continue;
-            }
-            6 => {
-                let v = CpEntry::Double(c.read_f64()?);
-                pool.push(Some(v));
-                pool.push(None); // phantom slot
-                i += 2;
-                continue;
-            }
-            7 => CpEntry::Class {
-                name_index: c.read_cp_index()?,
-            },
-            8 => CpEntry::String {
-                string_index: c.read_cp_index()?,
-            },
-            9 => CpEntry::Fieldref {
-                class_index: c.read_cp_index()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            10 => CpEntry::Methodref {
-                class_index: c.read_cp_index()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            11 => CpEntry::InterfaceMethodref {
-                class_index: c.read_cp_index()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            12 => CpEntry::NameAndType {
-                name_index: c.read_cp_index()?,
-                descriptor_index: c.read_cp_index()?,
-            },
-            15 => {
-                let reference_kind = c.read_u8()?;
-                if !(1..=9).contains(&reference_kind) {
-                    return Err(ParseError::InvalidMethodHandleKind {
-                        kind: reference_kind,
-                    });
-                }
-                CpEntry::MethodHandle {
-                    reference_kind,
-                    reference_index: c.read_cp_index()?,
-                }
-            }
-            16 => CpEntry::MethodType {
-                descriptor_index: c.read_cp_index()?,
-            },
-            17 => CpEntry::Dynamic {
-                bootstrap_method_attr_index: c.read_u16()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            18 => CpEntry::InvokeDynamic {
-                bootstrap_method_attr_index: c.read_u16()?,
-                name_and_type_index: c.read_cp_index()?,
-            },
-            19 => CpEntry::Module {
-                name_index: c.read_cp_index()?,
-            },
-            20 => CpEntry::Package {
-                name_index: c.read_cp_index()?,
-            },
-            other => {
-                return Err(ParseError::UnknownCpTag {
-                    tag: other,
-                    index: u16::try_from(i).unwrap_or(u16::MAX),
-                });
-            }
-        };
+        let entry = parse_cp_entry(c, tag, i)?;
+        let is_double_slot = matches!(entry, CpEntry::Long(_) | CpEntry::Double(_));
         pool.push(Some(entry));
-        i += 1;
+        if is_double_slot {
+            pool.push(None); // phantom slot
+            i += 2;
+        } else {
+            i += 1;
+        }
     }
 
     Ok(pool)

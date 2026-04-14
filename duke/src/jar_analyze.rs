@@ -159,6 +159,15 @@ mod tests {
     use duke_classfile::types::ClassFile;
 
     #[test]
+    fn test_dump_jar_analyze_valid() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/hello.jar");
+        let path = path.to_str().unwrap();
+
+        super::dump_jar_analyze(path);
+    }
+
+    #[test]
     fn test_resolve_class_name_invalid_index() {
         let cf = ClassFile {
             major_version: 61,

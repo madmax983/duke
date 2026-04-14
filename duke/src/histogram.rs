@@ -87,15 +87,9 @@ mod tests {
 
     #[test]
     fn test_dump_histogram_valid_file() {
-        let path1 = "../tests/fixtures/hello.jar";
-        let path2 = "tests/fixtures/hello.jar";
-        let path = if std::path::Path::new(path1).exists() {
-            path1
-        } else if std::path::Path::new(path2).exists() {
-            path2
-        } else {
-            panic!("Could not find hello.jar fixture");
-        };
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/hello.jar");
+        let path = path.to_str().unwrap();
 
         // Ensure it doesn't panic on a valid JAR
         dump_histogram(path);

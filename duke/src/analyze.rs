@@ -109,6 +109,18 @@ mod tests {
     use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
 
     #[test]
+    fn test_dump_analyze_valid() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/HelloWorld.class");
+        let path = path.to_str().unwrap();
+
+        let bytes = std::fs::read(path).unwrap();
+        let cf = duke_classfile::parse(&bytes).unwrap();
+        let report = super::generate_analysis_report(&cf);
+        assert!(report.contains("HelloWorld"));
+    }
+
+    #[test]
     fn test_generate_analysis_report_empty() {
         let cf = ClassFile {
             major_version: 61,

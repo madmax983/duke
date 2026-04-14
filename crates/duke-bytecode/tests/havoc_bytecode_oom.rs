@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use duke_bytecode::decode;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
