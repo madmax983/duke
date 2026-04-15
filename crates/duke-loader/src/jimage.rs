@@ -241,9 +241,18 @@ impl JImageReader {
         if info.compressed > 0 {
             // Raw deflate stream (negative window bits — no zlib header)
             let cap = usize::try_from(info.uncompressed).unwrap_or(0);
-            let mut decoder = DeflateDecoder::new(raw);
+            let decoder = DeflateDecoder::new(raw);
+            let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+            if cap > max_size {
+                return Err(LoadError::JImageFormat {
+                    msg: format!(
+                        "resource '{path}' uncompressed size {cap} exceeds limit {max_size}"
+                    ),
+                });
+            }
             let mut out = Vec::with_capacity(cap.min(1024 * 1024 * 32));
             decoder
+                .take(max_size as u64)
                 .read_to_end(&mut out)
                 .map_err(|_| LoadError::Decompress {
                     name: path.to_string(),
@@ -858,8 +867,8 @@ mod tests {
         let reader = make_reader(vec![0xFF, 0xFF, 0, 0, 0], 2, u64::MAX);
         let result = reader.read_resource("r");
         assert!(
-            matches!(result, Err(LoadError::Decompress { .. })),
-            "should safely fail decompression, not panic with capacity overflow"
+            matches!(result, Err(LoadError::JImageFormat { .. })),
+            "should safely fail decompression with JImageFormat, not panic with capacity overflow"
         );
     }
 
