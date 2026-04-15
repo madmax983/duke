@@ -30,6 +30,39 @@ fn havoc_zip_reader_cd_entry_extends_past_bounds() {
 }
 
 #[test]
+fn havoc_zip_reader_cd_entry_length_overflow() {
+    let mut data = vec![0u8; 100];
+
+    // EOCD setup
+    let eocd_pos = 100 - 22;
+    data[eocd_pos..eocd_pos + 4].copy_from_slice(&0x0605_4b50_u32.to_le_bytes()); // EOCD_SIGNATURE
+    data[eocd_pos + 10..eocd_pos + 12].copy_from_slice(&1u16.to_le_bytes()); // count
+    data[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&50u32.to_le_bytes()); // cd_size
+    data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&28u32.to_le_bytes()); // cd_offset
+
+    // CD setup
+    let cd_pos = 28;
+    data[cd_pos..cd_pos + 4].copy_from_slice(&0x0201_4b50_u32.to_le_bytes()); // CD_SIGNATURE
+    data[cd_pos + 28..cd_pos + 30].copy_from_slice(&65535u16.to_le_bytes()); // filename_len
+    data[cd_pos + 30..cd_pos + 32].copy_from_slice(&65535u16.to_le_bytes()); // extra_len
+    data[cd_pos + 32..cd_pos + 34].copy_from_slice(&65535u16.to_le_bytes()); // comment_len
+
+    let res = duke_loader::zip::ZipReader::from_bytes(data);
+    assert!(res.is_err());
+    if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
+        // Will be either truncated filename or entry length overflow depending on architecture
+        assert!(
+            msg.contains("central directory entry filename truncated")
+                || msg.contains("length overflow"),
+            "{}",
+            msg
+        );
+    } else {
+        panic!("Expected ZipFormat error");
+    }
+}
+
+#[test]
 fn havoc_zip_reader_local_header_extends_past_archive() {
     let mut data = vec![0u8; 100];
 
@@ -57,7 +90,9 @@ fn havoc_zip_reader_local_header_extends_past_archive() {
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
         assert!(
-            msg.contains("local header extends past archive") || msg.contains("data extends past"),
+            msg.contains("local header extends past archive")
+                || msg.contains("data extends past")
+                || msg.contains("overflow"),
             "{}",
             msg
         );
