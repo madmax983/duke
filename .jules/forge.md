@@ -30,3 +30,7 @@
 **[Extracted Class Members Parser]
 **Learning:** `parse_class_file` in `crates/duke-classfile/src/parser.rs` handled validating the header (magic, versions), parsing the constant pool, *and* looping through all class members (interfaces, fields, methods, attributes). Doing multiple levels of sequential structural parsing in one function makes it a God Function.
 **Action:** Extract logical sections of file format parsing. Parse the header and constant pool first, then delegate to a `parse_class_members` function for the rest to clearly delineate the phases of decoding.
+
+**Extract Enum Variant Matchers**
+**Learning:** `crates/duke-bytecode/src/cfg.rs` contained multiple massive `match` blocks repeatedly enumerating the 15+ conditional branch instructions, unconditional jumps, and return instructions to generate CFGs and compute cyclomatic complexity. This duplicated logic and inflated file size.
+**Action:** Always extract boolean categorization logic (e.g., `is_conditional_branch()`, `is_return()`) and data extraction logic (`conditional_branch_target()`) into public helper methods directly on the enum (`Instruction`) to DRY up matching code and dramatically flatten calling modules.

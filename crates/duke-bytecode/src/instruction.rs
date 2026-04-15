@@ -362,6 +362,90 @@ pub enum Instruction {
 }
 
 impl Instruction {
+    /// Returns `true` if the instruction is a conditional branch.
+    #[must_use]
+    pub const fn is_conditional_branch(&self) -> bool {
+        matches!(
+            self,
+            Self::Ifeq(_)
+                | Self::Ifne(_)
+                | Self::Iflt(_)
+                | Self::Ifge(_)
+                | Self::Ifgt(_)
+                | Self::Ifle(_)
+                | Self::IfIcmpeq(_)
+                | Self::IfIcmpne(_)
+                | Self::IfIcmplt(_)
+                | Self::IfIcmpge(_)
+                | Self::IfIcmpgt(_)
+                | Self::IfIcmple(_)
+                | Self::IfAcmpeq(_)
+                | Self::IfAcmpne(_)
+                | Self::Ifnull(_)
+                | Self::Ifnonnull(_)
+        )
+    }
+
+    /// Returns the branch target offset for a conditional branch.
+    #[must_use]
+    pub const fn conditional_branch_target(&self) -> Option<isize> {
+        match self {
+            Self::Ifeq(offset)
+            | Self::Ifne(offset)
+            | Self::Iflt(offset)
+            | Self::Ifge(offset)
+            | Self::Ifgt(offset)
+            | Self::Ifle(offset)
+            | Self::IfIcmpeq(offset)
+            | Self::IfIcmpne(offset)
+            | Self::IfIcmplt(offset)
+            | Self::IfIcmpge(offset)
+            | Self::IfIcmpgt(offset)
+            | Self::IfIcmple(offset)
+            | Self::IfAcmpeq(offset)
+            | Self::IfAcmpne(offset)
+            | Self::Ifnull(offset)
+            | Self::Ifnonnull(offset) => Some(*offset as isize),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if the instruction is an unconditional jump.
+    #[must_use]
+    pub const fn is_unconditional_jump(&self) -> bool {
+        matches!(
+            self,
+            Self::Goto(_) | Self::GotoW(_) | Self::Jsr(_) | Self::JsrW(_)
+        )
+    }
+
+    /// Returns the target offset for an unconditional jump.
+    #[must_use]
+    pub const fn unconditional_jump_target(&self) -> Option<isize> {
+        match self {
+            Self::Goto(offset) | Self::Jsr(offset) => Some(*offset as isize),
+            Self::GotoW(offset) | Self::JsrW(offset) => Some(*offset as isize),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if the instruction halts execution in the current frame.
+    #[must_use]
+    pub const fn is_return(&self) -> bool {
+        matches!(
+            self,
+            Self::Return
+                | Self::Ireturn
+                | Self::Lreturn
+                | Self::Freturn
+                | Self::Dreturn
+                | Self::Areturn
+                | Self::Athrow
+                | Self::Ret(_)
+                | Self::RetW(_)
+        )
+    }
+
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
     #[allow(clippy::too_many_lines)]
