@@ -35,7 +35,11 @@ use crate::Instruction;
 /// assert!(cfg.contains("node0 --> node1"));
 /// assert!(cfg.contains("node1 -->|true| node6"));
 /// ```
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
 #[must_use]
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
     let mut cfg = String::from("graph TD\n");
@@ -442,5 +446,154 @@ mod complexity_tests {
             },
         )];
         assert_eq!(cyclomatic_complexity(&instructions), 3); // 1 + 2 pairs
+    }
+}
+
+#[cfg(feature = "nova")]
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
+#[must_use]
+pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> String {
+    use std::fmt::Write;
+    let mut cfg = String::from("graph TD\n");
+    if blocks.is_empty() {
+        return cfg;
+    }
+
+    // Map PC to Block ID (start_pc) for edge resolution
+    let mut pc_to_block = std::collections::HashMap::new();
+    for block in blocks {
+        pc_to_block.insert(block.start_pc, block.start_pc);
+    }
+
+    for block in blocks {
+        let block_id = block.start_pc;
+
+        // Node definition
+        let mut node_label = format!("Block {block_id}\n");
+        for (pc, instr) in &block.instructions {
+            let _ = writeln!(node_label, "{}: {}", pc, instr.mnemonic());
+        }
+        // Escape quotes
+        let node_label = node_label.replace('"', "\\\"");
+        let _ = writeln!(cfg, "    block{block_id}[\"{node_label}\"]");
+
+        // Edge definition based on the last instruction
+        if let Some((last_pc, last_instr)) = block.instructions.last() {
+            let next_block_id = block.end_pc;
+            match last_instr {
+                crate::Instruction::Goto(offset) | crate::Instruction::Jsr(offset) => {
+                    let target = (*last_pc as isize + isize::from(*offset)) as usize;
+                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
+                }
+                crate::Instruction::GotoW(offset) | crate::Instruction::JsrW(offset) => {
+                    let target = (*last_pc as isize + *offset as isize) as usize;
+                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
+                }
+                crate::Instruction::Ifeq(offset)
+                | crate::Instruction::Ifne(offset)
+                | crate::Instruction::Iflt(offset)
+                | crate::Instruction::Ifge(offset)
+                | crate::Instruction::Ifgt(offset)
+                | crate::Instruction::Ifle(offset)
+                | crate::Instruction::IfIcmpeq(offset)
+                | crate::Instruction::IfIcmpne(offset)
+                | crate::Instruction::IfIcmplt(offset)
+                | crate::Instruction::IfIcmpge(offset)
+                | crate::Instruction::IfIcmpgt(offset)
+                | crate::Instruction::IfIcmple(offset)
+                | crate::Instruction::IfAcmpeq(offset)
+                | crate::Instruction::IfAcmpne(offset)
+                | crate::Instruction::Ifnull(offset)
+                | crate::Instruction::Ifnonnull(offset) => {
+                    let target = (*last_pc as isize + isize::from(*offset)) as usize;
+                    let _ = writeln!(cfg, "    block{block_id} -->|true| block{target}");
+                    let _ = writeln!(cfg, "    block{block_id} -->|false| block{next_block_id}");
+                }
+                crate::Instruction::Tableswitch {
+                    default,
+                    low,
+                    high: _,
+                    offsets,
+                } => {
+                    let target = (*last_pc as isize + *default as isize) as usize;
+                    let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                    for (i, offset) in offsets.iter().enumerate() {
+                        let target = (*last_pc as isize + *offset as isize) as usize;
+                        let _ = writeln!(
+                            cfg,
+                            "    block{block_id} -->|{}| block{target}",
+                            (i as i32) + *low
+                        );
+                    }
+                }
+                crate::Instruction::Lookupswitch { default, pairs } => {
+                    let target = (*last_pc as isize + *default as isize) as usize;
+                    let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                    for (key, offset) in pairs {
+                        let target = (*last_pc as isize + *offset as isize) as usize;
+                        let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
+                    }
+                }
+                crate::Instruction::Return
+                | crate::Instruction::Ireturn
+                | crate::Instruction::Lreturn
+                | crate::Instruction::Freturn
+                | crate::Instruction::Dreturn
+                | crate::Instruction::Areturn
+                | crate::Instruction::Athrow
+                | crate::Instruction::Ret(_)
+                | crate::Instruction::RetW(_) => {
+                    // No fall-through, no explicit branches to other blocks
+                }
+                _ => {
+                    // Fall-through
+                    if pc_to_block.contains_key(&next_block_id) {
+                        let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
+                    }
+                }
+            }
+        }
+    }
+
+    cfg
+}
+
+#[cfg(test)]
+#[cfg(feature = "nova")]
+mod basic_block_cfg_tests {
+    use super::*;
+    use crate::Instruction;
+    use crate::basic_block::build_basic_blocks;
+
+    #[test]
+    fn test_generate_basic_block_cfg() {
+        let instructions = vec![
+            (0, Instruction::Iconst0),
+            (1, Instruction::Ifeq(5)),
+            (4, Instruction::Iconst1),
+            (5, Instruction::Ireturn),
+            (6, Instruction::Iconst2),
+            (7, Instruction::Ireturn),
+        ];
+
+        let blocks = build_basic_blocks(&instructions);
+        let cfg = generate_basic_block_cfg(&blocks);
+
+        assert!(cfg.contains("graph TD"));
+        // Don't assert the exact string literal because of escapes, just assert the block nodes exist
+        assert!(cfg.contains("block0[\"Block 0"));
+        assert!(cfg.contains("0: iconst_0"));
+        assert!(cfg.contains("1: ifeq"));
+        assert!(cfg.contains("block4[\"Block 4"));
+        assert!(cfg.contains("4: iconst_1"));
+        assert!(cfg.contains("block6[\"Block 6"));
+        assert!(cfg.contains("6: iconst_2"));
+
+        assert!(cfg.contains("block0 -->|true| block6"));
+        assert!(cfg.contains("block0 -->|false| block4"));
     }
 }
