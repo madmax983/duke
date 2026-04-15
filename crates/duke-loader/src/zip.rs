@@ -170,7 +170,10 @@ impl ZipReader {
         let offset = info.local_header_offset as usize;
 
         // Validate local file header signature.
-        if offset + 30 > self.data.len() {
+        if offset
+            .checked_add(30)
+            .is_none_or(|end| end > self.data.len())
+        {
             return Err(LoadError::ZipFormat {
                 msg: format!("local header at offset {offset} is truncated"),
             });
@@ -185,10 +188,20 @@ impl ZipReader {
         // Read local header's own filename_len and extra_len to find data start.
         let filename_len = read_u16_le(&self.data, offset + 26) as usize;
         let extra_len = read_u16_le(&self.data, offset + 28) as usize;
-        let data_start = offset + 30 + filename_len + extra_len;
+        let data_start = offset
+            .checked_add(30)
+            .and_then(|v| v.checked_add(filename_len))
+            .and_then(|v| v.checked_add(extra_len))
+            .ok_or_else(|| LoadError::ZipFormat {
+                msg: format!("entry '{}' local header offset overflow", info.name),
+            })?;
+
         let compressed_size = info.compressed_size as usize;
 
-        if data_start + compressed_size > self.data.len() {
+        if data_start
+            .checked_add(compressed_size)
+            .is_none_or(|end| end > self.data.len())
+        {
             return Err(LoadError::ZipFormat {
                 msg: format!("entry '{}' data extends past end of archive", info.name),
             });
@@ -455,7 +468,10 @@ fn parse_eocd_and_central_directory(
     let cd_size = read_u32_le(data, eocd_pos + 12) as usize;
     let cd_offset = read_u32_le(data, eocd_pos + 16) as usize;
 
-    if cd_offset + cd_size > data.len() {
+    if cd_offset
+        .checked_add(cd_size)
+        .is_none_or(|end| end > data.len())
+    {
         return Err(LoadError::ZipFormat {
             msg: "central directory extends past end of file".to_string(),
         });
@@ -478,7 +494,7 @@ fn parse_central_directory(
 
     for _ in 0..expected_count {
         // Each central directory header is at least 46 bytes.
-        if pos + 46 > cd_end {
+        if pos.checked_add(46).is_none_or(|end| end > cd_end) {
             return Err(LoadError::ZipFormat {
                 msg: "central directory entry truncated".to_string(),
             });
@@ -502,7 +518,10 @@ fn parse_central_directory(
         let local_header_offset = u64::from(read_u32_le(data, pos + 42));
 
         let name_start = pos + 46;
-        if name_start + filename_len > cd_end {
+        if name_start
+            .checked_add(filename_len)
+            .is_none_or(|end| end > cd_end)
+        {
             return Err(LoadError::ZipFormat {
                 msg: "central directory entry filename truncated".to_string(),
             });
@@ -523,7 +542,19 @@ fn parse_central_directory(
             },
         );
 
-        pos = name_start + filename_len + extra_len + comment_len;
+        pos = name_start
+            .checked_add(filename_len)
+            .and_then(|v| v.checked_add(extra_len))
+            .and_then(|v| v.checked_add(comment_len))
+            .ok_or_else(|| LoadError::ZipFormat {
+                msg: "central directory entry length overflow".to_string(),
+            })?;
+
+        if pos > cd_end {
+            return Err(LoadError::ZipFormat {
+                msg: "central directory entry extends past CD bounds".to_string(),
+            });
+        }
     }
 
     Ok(index)
