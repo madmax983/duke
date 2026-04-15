@@ -20,3 +20,7 @@
 
 **Confusion:** Running `cargo check` with `RUSTFLAGS="-D missing_docs"` fails on integration tests (`tests/*.rs`) and fuzzing targets because they don't have crate-level documentation.
 **Clarification:** Added `#![allow(missing_docs)]` to the top of test files and fuzzing binaries to ignore these lints while maintaining strict documentation standards for the actual library codebase.
+## 2024-05-18 - Missing module-level documentation
+
+**Confusion:** `pub mod host;` in `duke-gc/src/lib.rs` triggered a `missing_docs` error, and it can be unclear that the documentation actually belongs inside `host.rs` using the `//!` syntax.
+**Clarification:** Added `//!` module-level documentation to `crates/duke-gc/src/host.rs` explaining the host resource management responsibilities. Also added executable doctests to various host file functions.
