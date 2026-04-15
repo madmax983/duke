@@ -29593,3 +29593,50 @@ fn test_p117_array_of_arrays() {
         45
     );
 }
+
+#[test]
+fn test_box_primitive_slot() {
+    let mut heap = duke_gc::Heap::new();
+
+    let cases = vec![
+        (
+            duke_runtime::Slot::Int(42),
+            "java/lang/Integer",
+            duke_runtime::Slot::Int(42),
+        ),
+        (
+            duke_runtime::Slot::Long(999),
+            "java/lang/Long",
+            duke_runtime::Slot::Long(999),
+        ),
+        (
+            duke_runtime::Slot::Float(1.23),
+            "java/lang/Float",
+            duke_runtime::Slot::Float(1.23),
+        ),
+        (
+            duke_runtime::Slot::Double(4.56),
+            "java/lang/Double",
+            duke_runtime::Slot::Double(4.56),
+        ),
+    ];
+
+    for (input, expected_class, expected_field) in cases {
+        let result = crate::box_primitive_slot(input, &mut heap);
+
+        let duke_runtime::Slot::Reference(Some(obj_ref)) = result else {
+            panic!("Expected boxed primitive to be a Reference(Some(r))")
+        };
+
+        let obj = heap.get(obj_ref).expect("Object must exist in heap");
+        assert_eq!(obj.class_name, expected_class);
+        assert_eq!(obj.fields[0], expected_field);
+    }
+
+    let none_ref = duke_runtime::Slot::Reference(None);
+    let result = crate::box_primitive_slot(none_ref, &mut heap);
+    assert_eq!(
+        result, none_ref,
+        "Expected pass-through for other slot types"
+    );
+}
