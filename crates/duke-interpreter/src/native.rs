@@ -24965,7 +24965,7 @@ pub(crate) fn native_string_indent(
             })
             .collect()
     } else {
-        let remove = (-n) as usize;
+        let remove = n.unsigned_abs() as usize;
         s.lines()
             .map(|line| {
                 let stripped = line.trim_start_matches(' ');
@@ -25159,5 +25159,25 @@ mod havoc_thread_join_itself {
         // It should NOT panic, but rather return Ok(())
         let res = rx_panic.recv_timeout(std::time::Duration::from_millis(50));
         assert!(res.is_err(), "Expected no panic, but received one!");
+    }
+}
+
+#[cfg(test)]
+mod havoc_string_indent_overflow {
+    use super::*;
+    use std::io::sink;
+    use duke_gc::Heap;
+    use duke_runtime::Slot;
+
+    #[test]
+
+    fn test_string_indent_overflow() {
+        let mut heap = Heap::new();
+        let r = heap.allocate_string("hello\nworld".to_string());
+
+        let args = vec![Slot::Reference(Some(r)), Slot::Int(i32::MIN)];
+        let mut control = NativeControl::default();
+
+        let _ = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
     }
 }
