@@ -170,7 +170,10 @@ impl ZipReader {
         let offset = info.local_header_offset as usize;
 
         // Validate local file header signature.
-        if offset.checked_add(30).is_none_or(|end| end > self.data.len()) {
+        if offset
+            .checked_add(30)
+            .is_none_or(|end| end > self.data.len())
+        {
             return Err(LoadError::ZipFormat {
                 msg: format!("local header at offset {offset} is truncated"),
             });
@@ -465,7 +468,10 @@ fn parse_eocd_and_central_directory(
     let cd_size = read_u32_le(data, eocd_pos + 12) as usize;
     let cd_offset = read_u32_le(data, eocd_pos + 16) as usize;
 
-    if cd_offset.checked_add(cd_size).is_none_or(|end| end > data.len()) {
+    if cd_offset
+        .checked_add(cd_size)
+        .is_none_or(|end| end > data.len())
+    {
         return Err(LoadError::ZipFormat {
             msg: "central directory extends past end of file".to_string(),
         });
@@ -543,6 +549,12 @@ fn parse_central_directory(
             .ok_or_else(|| LoadError::ZipFormat {
                 msg: "central directory entry length overflow".to_string(),
             })?;
+
+        if pos > cd_end {
+            return Err(LoadError::ZipFormat {
+                msg: "central directory entry extends past CD bounds".to_string(),
+            });
+        }
     }
 
     Ok(index)
