@@ -1,3 +1,15 @@
+//! Host resource management for the Duke JVM.
+//!
+//! This module manages native operating system resources such as files,
+//! sockets, and child processes on behalf of the JVM. These resources are
+//! referenced by the Java layer via opaque integer file descriptors (handles).
+//!
+//! # Responsibilities
+//! - **Files:** Opening, reading, and closing native files.
+//! - **Sockets:** Binding server sockets, accepting connections, and connecting to remotes.
+//! - **Processes:** Spawning child processes and capturing their standard I/O streams.
+//! - **Archives:** Reading ZIP/JAR archives for class loading or resource extraction.
+
 use crate::Heap;
 use duke_runtime::{VmError, VmResult};
 use std::io::{Read, Write};
@@ -53,6 +65,18 @@ pub enum HostFileHandle {
 
 impl Heap {
     /// Opens an input file on the host OS.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::path::Path;
+    /// # use duke_gc::Heap;
+    /// let mut heap = Heap::new();
+    /// let path = Path::new("Cargo.toml");
+    /// if path.exists() {
+    ///     let fd = heap.open_host_input_file(path).unwrap();
+    ///     assert!(fd > 0);
+    /// }
+    /// ```
     ///
     /// # Errors
     /// Returns `VmError::JavaException` if the file does not exist or an IO error occurs.
@@ -397,6 +421,14 @@ impl Heap {
     }
 
     /// Binds a TCP listener to the given address string (e.g. `"0.0.0.0:8080"`).
+    ///
+    /// # Examples
+    /// ```
+    /// # use duke_gc::Heap;
+    /// let mut heap = Heap::new();
+    /// let fd = heap.bind_server_socket("127.0.0.1:0").unwrap();
+    /// assert!(fd > 0);
+    /// ```
     ///
     /// # Errors
     /// Returns `BindException` if the address is already in use, `SocketException` for other errors.
