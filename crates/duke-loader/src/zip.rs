@@ -197,7 +197,7 @@ impl ZipReader {
 
         if data_start
             .checked_add(compressed_size)
-            .map_or(true, |end| end > self.data.len())
+            .is_none_or(|end| end > self.data.len())
         {
             return Err(LoadError::ZipFormat {
                 msg: format!("entry '{}' data extends past end of archive", info.name),
@@ -512,7 +512,7 @@ fn parse_central_directory(
         let local_header_offset = u64::from(read_u32_le(data, pos + 42));
 
         let name_start = pos + 46;
-        if name_start + filename_len > cd_end {
+        if name_start.checked_add(filename_len).is_none_or(|end| end > cd_end) {
             return Err(LoadError::ZipFormat {
                 msg: "central directory entry filename truncated".to_string(),
             });
@@ -533,7 +533,13 @@ fn parse_central_directory(
             },
         );
 
-        pos = name_start + filename_len + extra_len + comment_len;
+        pos = name_start
+            .checked_add(filename_len)
+            .and_then(|v| v.checked_add(extra_len))
+            .and_then(|v| v.checked_add(comment_len))
+            .ok_or_else(|| LoadError::ZipFormat {
+                msg: "central directory entry length overflow".to_string(),
+            })?;
     }
 
     Ok(index)
