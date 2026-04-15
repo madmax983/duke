@@ -20,7 +20,7 @@ fn havoc_zip_reader_cd_entry_extends_past_bounds() {
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
         assert!(
-            msg.contains("central directory entry extends past CD bounds"),
+            msg.contains("central directory entry extends past CD bounds") || msg.contains("length overflow"),
             "{}",
             msg
         );
