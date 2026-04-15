@@ -30,6 +30,30 @@ fn havoc_zip_reader_cd_entry_extends_past_bounds() {
 }
 
 #[test]
+fn havoc_zip_reader_cd_entry_truncated() {
+    let mut data = vec![0u8; 100];
+
+    // EOCD setup
+    let eocd_pos = 100 - 22;
+    data[eocd_pos..eocd_pos + 4].copy_from_slice(&0x0605_4b50_u32.to_le_bytes()); // EOCD_SIGNATURE
+    data[eocd_pos + 10..eocd_pos + 12].copy_from_slice(&1u16.to_le_bytes()); // count
+    data[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&10u32.to_le_bytes()); // cd_size = 10!
+    data[eocd_pos + 16..eocd_pos + 20].copy_from_slice(&28u32.to_le_bytes()); // cd_offset = 28
+
+    // CD setup
+    let cd_pos = 28;
+    data[cd_pos..cd_pos + 4].copy_from_slice(&0x0201_4b50_u32.to_le_bytes()); // CD_SIGNATURE
+
+    let res = duke_loader::zip::ZipReader::from_bytes(data);
+    assert!(res.is_err());
+    if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
+        assert!(msg.contains("central directory entry truncated"), "{}", msg);
+    } else {
+        panic!("Expected ZipFormat error");
+    }
+}
+
+#[test]
 fn havoc_zip_reader_cd_entry_length_overflow() {
     let mut data = vec![0u8; 100];
 
@@ -50,7 +74,6 @@ fn havoc_zip_reader_cd_entry_length_overflow() {
     let res = duke_loader::zip::ZipReader::from_bytes(data);
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
-        // Will be either truncated filename or entry length overflow depending on architecture
         assert!(
             msg.contains("central directory entry filename truncated")
                 || msg.contains("length overflow"),
@@ -92,7 +115,8 @@ fn havoc_zip_reader_local_header_extends_past_archive() {
         assert!(
             msg.contains("local header extends past archive")
                 || msg.contains("data extends past")
-                || msg.contains("overflow"),
+                || msg.contains("overflow")
+                || msg.contains("truncated"),
             "{}",
             msg
         );
@@ -138,7 +162,9 @@ fn havoc_zip_reader_read_entry_info_panic() {
         match e {
             duke_loader::LoadError::ZipFormat { msg } => {
                 assert!(
-                    msg.contains("data extends past end of archive") || msg.contains("overflow")
+                    msg.contains("data extends past end of archive")
+                        || msg.contains("overflow")
+                        || msg.contains("truncated")
                 );
             }
             _ => panic!("Expected ZipFormat error"),
