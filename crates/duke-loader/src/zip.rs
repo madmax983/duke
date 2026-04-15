@@ -185,10 +185,20 @@ impl ZipReader {
         // Read local header's own filename_len and extra_len to find data start.
         let filename_len = read_u16_le(&self.data, offset + 26) as usize;
         let extra_len = read_u16_le(&self.data, offset + 28) as usize;
-        let data_start = offset + 30 + filename_len + extra_len;
+        let data_start = offset
+            .checked_add(30)
+            .and_then(|v| v.checked_add(filename_len))
+            .and_then(|v| v.checked_add(extra_len))
+            .ok_or_else(|| LoadError::ZipFormat {
+                msg: format!("entry '{}' local header offset overflow", info.name),
+            })?;
+
         let compressed_size = info.compressed_size as usize;
 
-        if data_start + compressed_size > self.data.len() {
+        if data_start
+            .checked_add(compressed_size)
+            .map_or(true, |end| end > self.data.len())
+        {
             return Err(LoadError::ZipFormat {
                 msg: format!("entry '{}' data extends past end of archive", info.name),
             });
