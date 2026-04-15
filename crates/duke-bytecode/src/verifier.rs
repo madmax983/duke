@@ -858,5 +858,60 @@ mod tests {
                 max_locals: 4
             })
         ));
+
+        let instr = Instruction::Dload(5);
+        let result = check_locals(&instr, 0, 4);
+        assert!(matches!(
+            result,
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 5,
+                max_locals: 4
+            })
+        ));
+
+        let instr = Instruction::IincW { index: 5, value: 1 };
+        let result = check_locals(&instr, 0, 4);
+        assert!(matches!(
+            result,
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 5,
+                max_locals: 4
+            })
+        ));
+
+        let instr = Instruction::Dload(5);
+        let result = check_locals(&instr, 0, 4);
+        assert!(matches!(
+            result,
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 5,
+                max_locals: 4
+            })
+        ));
+
+        let instr = Instruction::DloadW(5);
+        let result = check_locals(&instr, 0, 4);
+        assert!(matches!(
+            result,
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 5,
+                max_locals: 4
+            })
+        ));
+
+        let instr = Instruction::IincW { index: 5, value: 1 };
+        let result = check_locals(&instr, 0, 4);
+        assert!(matches!(
+            result,
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 5,
+                max_locals: 4
+            })
+        ));
     }
 }
