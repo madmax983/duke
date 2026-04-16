@@ -16035,6 +16035,15 @@ pub(crate) fn native_sb_delete(
         .get_mut(this_ref)?
         .string_value
         .get_or_insert_with(String::new);
+
+    let char_count = buf.chars().count();
+    if start > end || start < 0 || start as usize > char_count {
+        return Err(VmError::ArrayIndexOutOfBounds {
+            index: start,
+            length: char_count,
+        });
+    }
+
     let start_byte = usize::try_from(start)
         .ok()
         .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
@@ -25118,6 +25127,41 @@ pub(crate) fn native_hashmap_remove_key_value(
 }
 
 #[cfg(test)]
+mod havoc_sb_delete {
+
+    #[test]
+    fn test_sb_delete_out_of_bounds() {
+        use super::{native_sb_delete, NativeControl};
+        use duke_gc::Heap;
+        use duke_runtime::Slot;
+
+        let mut heap = Heap::new();
+        // Since heap.allocate doesn't set string_value directly, we do it via raw access or a proper way
+        let this_ref = heap.allocate("java/lang/StringBuilder".to_string(), 0);
+        heap.get_mut(this_ref).unwrap().string_value = Some("hello".to_string());
+
+        let args = vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Int(3), // start
+            Slot::Int(2), // end
+        ];
+
+        let mut out: Vec<u8> = Vec::new();
+        let mut control = NativeControl::default();
+
+        let result = native_sb_delete(&args, &mut heap, &mut out, &mut control);
+
+        match result {
+            Err(duke_runtime::VmError::ArrayIndexOutOfBounds { index, length }) => {
+                assert_eq!(index, 3);
+                assert_eq!(length, 5);
+            }
+            other => panic!("Expected ArrayIndexOutOfBounds, got {other:?}"),
+        }
+    }
+
+}
+
 mod havoc_thread_join_itself {
     use super::*;
     use std::sync::{Arc, Mutex};
