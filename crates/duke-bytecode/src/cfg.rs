@@ -50,83 +50,52 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
         let _ = writeln!(cfg, "    node{pc}[\"{pc}: {mnemonic}\"]");
 
         // Add edges
-        match instr {
-            // Absolute fall-through stops
-            Instruction::Return
-            | Instruction::Ireturn
-            | Instruction::Lreturn
-            | Instruction::Freturn
-            | Instruction::Dreturn
-            | Instruction::Areturn
-            | Instruction::Athrow
-            | Instruction::Ret(_)
-            | Instruction::RetW(_) => {
-                // No fall-through
-            }
-            Instruction::Goto(offset) => {
-                let target = (*pc as isize + isize::from(*offset)) as usize;
-                let _ = writeln!(cfg, "    node{pc} --> node{target}");
-            }
-            Instruction::GotoW(offset) => {
-                let target = (*pc as isize + *offset as isize) as usize;
-                let _ = writeln!(cfg, "    node{pc} --> node{target}");
-            }
-            Instruction::Tableswitch {
-                default, offsets, ..
-            } => {
-                let default_target = (*pc as isize + *default as isize) as usize;
-                let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
-                for (idx, offset) in offsets.iter().enumerate() {
-                    let target = (*pc as isize + *offset as isize) as usize;
-                    let _ = writeln!(cfg, "    node{pc} -->|{idx}| node{target}");
-                }
-            }
-            Instruction::Lookupswitch { default, pairs } => {
-                let default_target = (*pc as isize + *default as isize) as usize;
-                let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
-                for (match_val, offset) in pairs {
-                    let target = (*pc as isize + *offset as isize) as usize;
-                    let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{target}");
-                }
-            }
-            // Conditional branches
-            Instruction::Ifeq(offset)
-            | Instruction::Ifne(offset)
-            | Instruction::Iflt(offset)
-            | Instruction::Ifge(offset)
-            | Instruction::Ifgt(offset)
-            | Instruction::Ifle(offset)
-            | Instruction::IfIcmpeq(offset)
-            | Instruction::IfIcmpne(offset)
-            | Instruction::IfIcmplt(offset)
-            | Instruction::IfIcmpge(offset)
-            | Instruction::IfIcmpgt(offset)
-            | Instruction::IfIcmple(offset)
-            | Instruction::IfAcmpeq(offset)
-            | Instruction::IfAcmpne(offset)
-            | Instruction::Ifnull(offset)
-            | Instruction::Ifnonnull(offset)
-            | Instruction::Jsr(offset) => {
-                let target = (*pc as isize + isize::from(*offset)) as usize;
+        if instr.is_return() {
+            // No fall-through
+        } else if let Some(offset) = instr.unconditional_jump_target() {
+            let target = (*pc as isize + offset) as usize;
+            if matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_)) {
                 let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
                 if i + 1 < instructions.len() {
                     let next_pc = instructions[i + 1].0;
                     let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
                 }
+            } else {
+                let _ = writeln!(cfg, "    node{pc} --> node{target}");
             }
-            Instruction::JsrW(offset) => {
-                let target = (*pc as isize + *offset as isize) as usize;
-                let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
-                if i + 1 < instructions.len() {
-                    let next_pc = instructions[i + 1].0;
-                    let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
+        } else if let Some(offset) = instr.conditional_branch_target() {
+            let target = (*pc as isize + offset) as usize;
+            let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
+            if i + 1 < instructions.len() {
+                let next_pc = instructions[i + 1].0;
+                let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
+            }
+        } else {
+            match instr {
+                Instruction::Tableswitch {
+                    default, offsets, ..
+                } => {
+                    let default_target = (*pc as isize + *default as isize) as usize;
+                    let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
+                    for (idx, offset) in offsets.iter().enumerate() {
+                        let target = (*pc as isize + *offset as isize) as usize;
+                        let _ = writeln!(cfg, "    node{pc} -->|{idx}| node{target}");
+                    }
                 }
-            }
-            // Everything else falls through
-            _ => {
-                if i + 1 < instructions.len() {
-                    let next_pc = instructions[i + 1].0;
-                    let _ = writeln!(cfg, "    node{pc} --> node{next_pc}");
+                Instruction::Lookupswitch { default, pairs } => {
+                    let default_target = (*pc as isize + *default as isize) as usize;
+                    let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
+                    for (match_val, offset) in pairs {
+                        let target = (*pc as isize + *offset as isize) as usize;
+                        let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{target}");
+                    }
+                }
+                _ => {
+                    // Everything else falls through
+                    if i + 1 < instructions.len() {
+                        let next_pc = instructions[i + 1].0;
+                        let _ = writeln!(cfg, "    node{pc} --> node{next_pc}");
+                    }
                 }
             }
         }
@@ -326,39 +295,24 @@ pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
     let mut complexity = 1;
 
     for (_, instr) in instructions {
-        match instr {
-            // Conditional branches
-            Instruction::Ifeq(_)
-            | Instruction::Ifne(_)
-            | Instruction::Iflt(_)
-            | Instruction::Ifge(_)
-            | Instruction::Ifgt(_)
-            | Instruction::Ifle(_)
-            | Instruction::IfIcmpeq(_)
-            | Instruction::IfIcmpne(_)
-            | Instruction::IfIcmplt(_)
-            | Instruction::IfIcmpge(_)
-            | Instruction::IfIcmpgt(_)
-            | Instruction::IfIcmple(_)
-            | Instruction::IfAcmpeq(_)
-            | Instruction::IfAcmpne(_)
-            | Instruction::Ifnull(_)
-            | Instruction::Ifnonnull(_)
-            | Instruction::Jsr(_)
-            | Instruction::JsrW(_) => {
-                complexity += 1;
+        if instr.is_conditional_branch()
+            || matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))
+        {
+            complexity += 1;
+        } else {
+            match instr {
+                // Switch statements
+                Instruction::Tableswitch { offsets, .. } => {
+                    // Number of possible paths = offsets.len() + 1 (for default).
+                    // Subtract 1 because we start at 1 complexity inherently.
+                    complexity += offsets.len();
+                }
+                Instruction::Lookupswitch { pairs, .. } => {
+                    // Number of possible paths = pairs.len() + 1 (for default).
+                    complexity += pairs.len();
+                }
+                _ => {}
             }
-            // Switch statements
-            Instruction::Tableswitch { offsets, .. } => {
-                // Number of possible paths = offsets.len() + 1 (for default).
-                // Subtract 1 because we start at 1 complexity inherently.
-                complexity += offsets.len();
-            }
-            Instruction::Lookupswitch { pairs, .. } => {
-                // Number of possible paths = pairs.len() + 1 (for default).
-                complexity += pairs.len();
-            }
-            _ => {}
         }
     }
 
@@ -484,75 +438,47 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         // Edge definition based on the last instruction
         if let Some((last_pc, last_instr)) = block.instructions.last() {
             let next_block_id = block.end_pc;
-            match last_instr {
-                crate::Instruction::Goto(offset) | crate::Instruction::Jsr(offset) => {
-                    let target = (*last_pc as isize + isize::from(*offset)) as usize;
-                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
-                }
-                crate::Instruction::GotoW(offset) | crate::Instruction::JsrW(offset) => {
-                    let target = (*last_pc as isize + *offset as isize) as usize;
-                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
-                }
-                crate::Instruction::Ifeq(offset)
-                | crate::Instruction::Ifne(offset)
-                | crate::Instruction::Iflt(offset)
-                | crate::Instruction::Ifge(offset)
-                | crate::Instruction::Ifgt(offset)
-                | crate::Instruction::Ifle(offset)
-                | crate::Instruction::IfIcmpeq(offset)
-                | crate::Instruction::IfIcmpne(offset)
-                | crate::Instruction::IfIcmplt(offset)
-                | crate::Instruction::IfIcmpge(offset)
-                | crate::Instruction::IfIcmpgt(offset)
-                | crate::Instruction::IfIcmple(offset)
-                | crate::Instruction::IfAcmpeq(offset)
-                | crate::Instruction::IfAcmpne(offset)
-                | crate::Instruction::Ifnull(offset)
-                | crate::Instruction::Ifnonnull(offset) => {
-                    let target = (*last_pc as isize + isize::from(*offset)) as usize;
-                    let _ = writeln!(cfg, "    block{block_id} -->|true| block{target}");
-                    let _ = writeln!(cfg, "    block{block_id} -->|false| block{next_block_id}");
-                }
-                crate::Instruction::Tableswitch {
-                    default,
-                    low,
-                    high: _,
-                    offsets,
-                } => {
-                    let target = (*last_pc as isize + *default as isize) as usize;
-                    let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
-                    for (i, offset) in offsets.iter().enumerate() {
-                        let target = (*last_pc as isize + *offset as isize) as usize;
-                        let _ = writeln!(
-                            cfg,
-                            "    block{block_id} -->|{}| block{target}",
-                            (i as i32) + *low
-                        );
+            if last_instr.is_return() {
+                // No fall-through, no explicit branches to other blocks
+            } else if let Some(offset) = last_instr.unconditional_jump_target() {
+                let target = (*last_pc as isize + offset) as usize;
+                let _ = writeln!(cfg, "    block{block_id} --> block{target}");
+            } else if let Some(offset) = last_instr.conditional_branch_target() {
+                let target = (*last_pc as isize + offset) as usize;
+                let _ = writeln!(cfg, "    block{block_id} -->|true| block{target}");
+                let _ = writeln!(cfg, "    block{block_id} -->|false| block{next_block_id}");
+            } else {
+                match last_instr {
+                    crate::Instruction::Tableswitch {
+                        default,
+                        low,
+                        high: _,
+                        offsets,
+                    } => {
+                        let target = (*last_pc as isize + *default as isize) as usize;
+                        let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                        for (i, offset) in offsets.iter().enumerate() {
+                            let target = (*last_pc as isize + *offset as isize) as usize;
+                            let _ = writeln!(
+                                cfg,
+                                "    block{block_id} -->|{}| block{target}",
+                                (i as i32) + *low
+                            );
+                        }
                     }
-                }
-                crate::Instruction::Lookupswitch { default, pairs } => {
-                    let target = (*last_pc as isize + *default as isize) as usize;
-                    let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
-                    for (key, offset) in pairs {
-                        let target = (*last_pc as isize + *offset as isize) as usize;
-                        let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
+                    crate::Instruction::Lookupswitch { default, pairs } => {
+                        let target = (*last_pc as isize + *default as isize) as usize;
+                        let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                        for (key, offset) in pairs {
+                            let target = (*last_pc as isize + *offset as isize) as usize;
+                            let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
+                        }
                     }
-                }
-                crate::Instruction::Return
-                | crate::Instruction::Ireturn
-                | crate::Instruction::Lreturn
-                | crate::Instruction::Freturn
-                | crate::Instruction::Dreturn
-                | crate::Instruction::Areturn
-                | crate::Instruction::Athrow
-                | crate::Instruction::Ret(_)
-                | crate::Instruction::RetW(_) => {
-                    // No fall-through, no explicit branches to other blocks
-                }
-                _ => {
-                    // Fall-through
-                    if pc_to_block.contains_key(&next_block_id) {
-                        let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
+                    _ => {
+                        // Fall-through
+                        if pc_to_block.contains_key(&next_block_id) {
+                            let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
+                        }
                     }
                 }
             }
