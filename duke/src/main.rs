@@ -913,7 +913,6 @@ mod cfg_tests {
         dump_bbcfg(p.to_str().unwrap(), "main");
     }
 
-
     #[test]
     fn test_extract_bbcfg() {
         // Find HelloWorld.class in tests/fixtures
@@ -989,6 +988,9 @@ mod cfg_tests {
         let html_content = std::fs::read_to_string(&out_path).unwrap();
         assert!(html_content.contains("<!DOCTYPE html>"));
         assert!(html_content.contains("Duke Class Report: HelloWorld"));
+
+        // Basic Block CFG Coverage
+        assert!(html_content.contains("<h4>Basic Block Control Flow Graph</h4>"));
 
         // Clean up
         std::fs::remove_file(out_path).unwrap();
