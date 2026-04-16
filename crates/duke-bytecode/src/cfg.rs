@@ -548,4 +548,77 @@ mod basic_block_cfg_tests {
         assert!(cfg.contains("block0 -->|true| block6"));
         assert!(cfg.contains("block0 -->|false| block4"));
     }
+
+    #[test]
+    fn test_generate_basic_block_cfg_empty() {
+        let blocks = build_basic_blocks(&[]);
+        let cfg = generate_basic_block_cfg(&blocks);
+        assert!(cfg.contains("graph TD"));
+        assert!(!cfg.contains("block0"));
+    }
+
+    #[test]
+    fn test_generate_basic_block_cfg_switch() {
+        let instructions = vec![
+            (0, Instruction::Tableswitch {
+                default: 10,
+                low: 1,
+                high: 2,
+                offsets: vec![4, 6],
+            }),
+        ];
+        let blocks = build_basic_blocks(&instructions);
+        let cfg = generate_basic_block_cfg(&blocks);
+        assert!(cfg.contains("graph TD"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|1| block4"));
+        assert!(cfg.contains("block0 -->|2| block6"));
+    }
+
+    #[test]
+    fn test_generate_basic_block_cfg_lookupswitch() {
+        let instructions = vec![
+            (0, Instruction::Lookupswitch {
+                default: 10,
+                pairs: vec![(5, 4), (10, 6)],
+            }),
+        ];
+        let blocks = build_basic_blocks(&instructions);
+        let cfg = generate_basic_block_cfg(&blocks);
+        assert!(cfg.contains("graph TD"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|5| block4"));
+        assert!(cfg.contains("block0 -->|10| block6"));
+    }
+
+    #[test]
+    fn test_generate_basic_block_cfg_goto() {
+        let instructions = vec![
+            (0, Instruction::Goto(4)),
+            (3, Instruction::Iconst1), // Unreachable, but just to have next block
+            (4, Instruction::Iconst2),
+        ];
+        let blocks = build_basic_blocks(&instructions);
+        let cfg = generate_basic_block_cfg(&blocks);
+        assert!(cfg.contains("graph TD"));
+        assert!(cfg.contains("block0 --> block4"));
+    }
+
+    #[test]
+    fn test_generate_basic_block_cfg_fallthrough() {
+        let instructions = vec![
+            (0, Instruction::Iconst0),
+            (1, Instruction::Nop),
+            (2, Instruction::Ireturn),
+        ];
+        let blocks = build_basic_blocks(&instructions);
+        let cfg = generate_basic_block_cfg(&blocks);
+        assert!(cfg.contains("graph TD"));
+        // One big block
+        assert!(cfg.contains("block0[\"Block 0"));
+        assert!(cfg.contains("0: iconst_0"));
+        assert!(cfg.contains("1: nop"));
+        assert!(cfg.contains("2: ireturn"));
+        assert!(!cfg.contains("-->"));
+    }
 }
