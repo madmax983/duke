@@ -1,3 +1,4 @@
+//! Internal helper functions for telemetry serialization.
 #[cfg(feature = "telemetry")]
 pub mod ser_helpers {
     use std::collections::HashMap;
