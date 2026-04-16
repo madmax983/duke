@@ -559,14 +559,15 @@ mod basic_block_cfg_tests {
 
     #[test]
     fn test_generate_basic_block_cfg_switch() {
-        let instructions = vec![
-            (0, Instruction::Tableswitch {
+        let instructions = vec![(
+            0,
+            Instruction::Tableswitch {
                 default: 10,
                 low: 1,
                 high: 2,
                 offsets: vec![4, 6],
-            }),
-        ];
+            },
+        )];
         let blocks = build_basic_blocks(&instructions);
         let cfg = generate_basic_block_cfg(&blocks);
         assert!(cfg.contains("graph TD"));
@@ -576,13 +577,33 @@ mod basic_block_cfg_tests {
     }
 
     #[test]
+    fn test_generate_basic_block_cfg_switch_negative() {
+        let instructions = vec![(
+            0,
+            Instruction::Tableswitch {
+                default: 10,
+                low: -1,
+                high: 0,
+                offsets: vec![4, 6],
+            },
+        )];
+        let blocks = build_basic_blocks(&instructions);
+        let cfg = generate_basic_block_cfg(&blocks);
+        assert!(cfg.contains("graph TD"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|-1| block4"));
+        assert!(cfg.contains("block0 -->|0| block6"));
+    }
+
+    #[test]
     fn test_generate_basic_block_cfg_lookupswitch() {
-        let instructions = vec![
-            (0, Instruction::Lookupswitch {
+        let instructions = vec![(
+            0,
+            Instruction::Lookupswitch {
                 default: 10,
                 pairs: vec![(5, 4), (10, 6)],
-            }),
-        ];
+            },
+        )];
         let blocks = build_basic_blocks(&instructions);
         let cfg = generate_basic_block_cfg(&blocks);
         assert!(cfg.contains("graph TD"));
