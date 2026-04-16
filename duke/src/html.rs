@@ -1,6 +1,4 @@
-use duke_bytecode::{
-    build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_cfg,
-};
+use duke_bytecode::{build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_cfg};
 use duke_classfile::{
     ClassFile,
     types::{AttributeData, CpEntry, CpIndex},
