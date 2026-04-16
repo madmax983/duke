@@ -1823,12 +1823,10 @@ pub(crate) fn native_hashmap_for_each(
         .map(|i| {
             let key = heap
                 .get(this_ref)
-                .map(|o| o.fields[1 + i * 2])
-                .unwrap_or(Slot::Reference(None));
+                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
             let val = heap
                 .get(this_ref)
-                .map(|o| o.fields[2 + i * 2])
-                .unwrap_or(Slot::Reference(None));
+                .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
             (key, val)
         })
         .collect();
@@ -1867,15 +1865,13 @@ pub(crate) fn native_hashmap_replace_all(
     let keys: Vec<Slot> = (0..size)
         .map(|i| {
             heap.get(this_ref)
-                .map(|o| o.fields[1 + i * 2])
-                .unwrap_or(Slot::Reference(None))
+                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2])
         })
         .collect();
     for (i, key) in keys.iter().enumerate() {
         let old_val = heap
             .get(this_ref)
-            .map(|o| o.fields[2 + i * 2])
-            .unwrap_or(Slot::Reference(None));
+            .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
         let new_val = ops.invoke(
             heap,
             out,
@@ -15645,8 +15641,7 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
 fn total_instance_field_count(registry: &ClassRegistry, class_name: &str) -> usize {
     let mut count = registry
         .get(class_name)
-        .map(|c| c.instance_field_count)
-        .unwrap_or(0);
+        .map_or(0, |c| c.instance_field_count);
     let mut sc = registry
         .get(class_name)
         .ok()
