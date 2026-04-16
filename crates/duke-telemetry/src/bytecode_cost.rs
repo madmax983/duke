@@ -1,3 +1,8 @@
+//! Tracks execution frequency and duration per-opcode and per-bytecode site.
+//!
+//! This module provides structures to accumulate frequency and duration for bytecode execution,
+//! keeping a running total of how many times a particular execution site or opcode was visited.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;
