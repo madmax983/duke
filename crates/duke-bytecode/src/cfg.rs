@@ -54,7 +54,7 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
             // No fall-through
         } else if let Some(offset) = instr.unconditional_jump_target() {
             let target = (*pc as isize + offset) as usize;
-            if instr.is_jsr() {
+            if matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_)) {
                 let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
                 if i + 1 < instructions.len() {
                     let next_pc = instructions[i + 1].0;
@@ -295,7 +295,9 @@ pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
     let mut complexity = 1;
 
     for (_, instr) in instructions {
-        if instr.is_conditional_branch() || instr.is_jsr() {
+        if instr.is_conditional_branch()
+            || matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))
+        {
             complexity += 1;
         } else {
             match instr {

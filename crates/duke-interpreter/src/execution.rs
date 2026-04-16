@@ -1136,7 +1136,7 @@ pub fn run_execution(
                     -1
                 } else if a == b {
                     0
-                } else if instr.is_fcmpg() {
+                } else if matches!(instr, Instruction::Fcmpg) {
                     1
                 } else {
                     -1
@@ -1181,7 +1181,7 @@ pub fn run_execution(
                     -1
                 } else if a == b {
                     0
-                } else if instr.is_dcmpg() {
+                } else if matches!(instr, Instruction::Dcmpg) {
                     1
                 } else {
                     -1
@@ -1462,7 +1462,7 @@ pub fn run_execution(
             // classes (e.g. java/lang/Object) fall back to no-op.
             Instruction::Invokespecial(cp_idx) | Instruction::Invokevirtual(cp_idx) => {
                 // Fast path: cache hit for invokespecial (static dispatch — safe to cache).
-                if instr.is_invokespecial()
+                if matches!(instr, Instruction::Invokespecial(_))
                     && let Some(cached) = dispatch_cache
                         .get(current_class.as_str())
                         .and_then(|m| m.get(&cp_idx.0))
@@ -1524,24 +1524,25 @@ pub fn run_execution(
                     Some(current_class.as_str()),
                     loader,
                 )?;
-                let virtual_start: Option<String> = if instr.is_invokevirtual() {
-                    let arg_count = parse_arg_count(&callee_desc);
-                    let stack_len = frame.stack_len();
-                    if stack_len > arg_count {
-                        let this_pos = stack_len - arg_count - 1;
-                        if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
-                            heap.get(r).ok().map(|o| o.class_name.clone())
+                let virtual_start: Option<String> =
+                    if matches!(instr, Instruction::Invokevirtual(_)) {
+                        let arg_count = parse_arg_count(&callee_desc);
+                        let stack_len = frame.stack_len();
+                        if stack_len > arg_count {
+                            let this_pos = stack_len - arg_count - 1;
+                            if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
+                                heap.get(r).ok().map(|o| o.class_name.clone())
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
                     } else {
                         None
-                    }
-                } else {
-                    None
-                };
+                    };
                 // vtable fast path for invokevirtual — check PIC after receiver type is known.
-                if instr.is_invokevirtual()
+                if matches!(instr, Instruction::Invokevirtual(_))
                     && let Some(ref runtime_class) = virtual_start
                     && let Some(cached) = vtable_cache
                         .get(current_class.as_str())
@@ -1815,7 +1816,7 @@ pub fn run_execution(
                                         _native_start.elapsed().as_nanos() as u64,
                                         result.is_err(),
                                     );
-                                    if instr.is_invokevirtual() {
+                                    if matches!(instr, Instruction::Invokevirtual(_)) {
                                         // Native methods do not perform a bytecode hierarchy
                                         // walk — hierarchy_walk is always false here.
                                         registry.telemetry.dispatch_resolution.record(
@@ -1901,7 +1902,7 @@ pub fn run_execution(
                                         _native_start.elapsed().as_nanos() as u64,
                                         result.is_err(),
                                     );
-                                    if instr.is_invokevirtual() {
+                                    if matches!(instr, Instruction::Invokevirtual(_)) {
                                         registry.telemetry.dispatch_resolution.record(
                                             current_class,
                                             cp_idx.0,
@@ -1980,7 +1981,7 @@ pub fn run_execution(
                 };
                 let arg_count = parse_arg_count(&callee_desc);
                 #[cfg(feature = "telemetry")]
-                if instr.is_invokevirtual() {
+                if matches!(instr, Instruction::Invokevirtual(_)) {
                     registry.telemetry.dispatch_resolution.record(
                         current_class,
                         cp_idx.0,
