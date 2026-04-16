@@ -28,3 +28,7 @@
 
 **Confusion:** The `generate_basic_block_cfg` function in `crates/duke-bytecode/src/cfg.rs` lacked a doc comment explaining its purpose and how to use it, causing a `missing_docs` warning. Also, multiple modules in `duke-telemetry` were missing module level `//!` docs.
 **Clarification:** Added a detailed doc comment with an executable doctest to `generate_basic_block_cfg` to show how to pass a mock `BasicBlock` and assert on the Mermaid graph output. Additionally, added module level docs to the missing telemetry modules.
+## 2024-04-18 - Module docs on feature crates
+
+**Confusion:** Even when a module is entirely feature-gated (like `duke-telemetry` components), running `cargo check --all-features` with `-D missing_docs` will fail if the module lacks `//!` documentation, creating a 'Black Box' for developers trying to understand what the feature does.
+**Clarification:** Added `//!` module-level documentation to all submodules in `duke-telemetry` explaining their specific telemetry channel's purpose.

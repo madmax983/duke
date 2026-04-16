@@ -1,3 +1,8 @@
+//! Bytecode cost profiling module.
+//!
+//! This module provides structures to track the frequency and cumulative execution time
+//! of JVM opcodes, helping identify bytecode-level performance bottlenecks.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;

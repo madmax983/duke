@@ -1,3 +1,8 @@
+//! Class initialization graph tracking.
+//!
+//! This module builds a Directed Acyclic Graph (DAG) of `<clinit>` executions, tracking
+//! what triggered a class to initialize and the duration of the initialization process.
+
 // -- class_init_dag --------------------------------------------------------------
 
 /// A single class initialization (`<clinit>`) event in the VM.

@@ -1,3 +1,8 @@
+//! Virtual method dispatch resolution tracking.
+//!
+//! This module analyzes the polymorphism of `invokevirtual` and `invokeinterface` calls,
+//! recording the number of unique target implementations and the cost of class hierarchy traversal.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::{HashMap, HashSet};

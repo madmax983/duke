@@ -1,3 +1,8 @@
+//! Exception lifecycle and control flow tracking.
+//!
+//! This module traces the path of exceptions from their throw site to their catch site,
+//! including unhandled exceptions that terminate execution.
+
 // -- exception_flow --------------------------------------------------------------
 
 /// Lifecycle event for an exception thrown by the VM.

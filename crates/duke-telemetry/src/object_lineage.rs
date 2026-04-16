@@ -1,3 +1,8 @@
+//! Object lineage and allocation tracking.
+//!
+//! This module monitors object allocations, mapping the exact call site (class, method, pc)
+//! to the type of object being instantiated to pinpoint memory pressure sources.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;

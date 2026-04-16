@@ -1,3 +1,8 @@
+//! Native boundary transition tracking.
+//!
+//! This module monitors calls to JNI or intrinsic native methods, recording invocation counts,
+//! cumulative execution time, and error rates to identify expensive cross-boundary operations.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;
