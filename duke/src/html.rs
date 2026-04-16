@@ -1,4 +1,6 @@
-use duke_bytecode::{decode, generate_mermaid_cfg};
+use duke_bytecode::{
+    build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_cfg,
+};
 use duke_classfile::{
     ClassFile,
     types::{AttributeData, CpEntry, CpIndex},
@@ -211,6 +213,14 @@ fn write_methods(out: &mut String, cf: &ClassFile) {
                         let _ = writeln!(out, "{cfg}");
                         let _ = writeln!(out, "      </div>");
 
+                        // Generate Basic Block CFG
+                        let blocks = build_basic_blocks(&instructions);
+                        let bbcfg = generate_basic_block_cfg(&blocks);
+                        let _ = writeln!(out, "      <h4>Basic Block Control Flow Graph</h4>");
+                        let _ = writeln!(out, "      <div class=\"mermaid\">");
+                        let _ = writeln!(out, "{bbcfg}");
+                        let _ = writeln!(out, "      </div>");
+
                         // Also show raw bytecode for reference
                         let _ = writeln!(out, "      <details>");
                         let _ = writeln!(
@@ -411,5 +421,7 @@ mod tests {
         // Assertions for decode success/error
         assert!(html.contains("return")); // The mnemonic for 0xb1
         assert!(html.contains("Decode Error:")); // For the invalid opcode
+        assert!(html.contains("<h4>Control Flow Graph</h4>"));
+        assert!(html.contains("<h4>Basic Block Control Flow Graph</h4>"));
     }
 }
