@@ -24,3 +24,7 @@
 
 **Confusion:** `pub mod host;` in `duke-gc/src/lib.rs` triggered a `missing_docs` error, and it can be unclear that the documentation actually belongs inside `host.rs` using the `//!` syntax.
 **Clarification:** Added `//!` module-level documentation to `crates/duke-gc/src/host.rs` explaining the host resource management responsibilities. Also added executable doctests to various host file functions.
+## 2024-05-19 - Documenting `generate_basic_block_cfg`
+
+**Confusion:** The `generate_basic_block_cfg` function in `crates/duke-bytecode/src/cfg.rs` lacked a doc comment explaining its purpose and how to use it, causing a `missing_docs` warning. Also, multiple modules in `duke-telemetry` were missing module level `//!` docs.
+**Clarification:** Added a detailed doc comment with an executable doctest to `generate_basic_block_cfg` to show how to pass a mock `BasicBlock` and assert on the Mermaid graph output. Additionally, added module level docs to the missing telemetry modules.

@@ -403,6 +403,32 @@ mod complexity_tests {
     }
 }
 
+/// Generates a Mermaid control flow graph (CFG) from a list of basic blocks.
+///
+/// This is used to visualise the structure of a Java method in terms of basic blocks.
+/// It outputs Mermaid.js compatible syntax (using `graph TD`). Each basic block becomes a node,
+/// and edges represent the control flow between them (e.g. conditional branches, gotos, returns).
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, basic_block::BasicBlock, cfg::generate_basic_block_cfg};
+///
+/// let blocks = vec![
+///     BasicBlock {
+///         start_pc: 0,
+///         end_pc: 2,
+///         instructions: vec![
+///             (0, Instruction::Iconst1),
+///             (1, Instruction::Istore1),
+///         ],
+///     }
+/// ];
+///
+/// let cfg = generate_basic_block_cfg(&blocks);
+/// assert!(cfg.contains("graph TD"));
+/// assert!(cfg.contains("Block 0"));
+/// ```
 #[cfg(feature = "nova")]
 #[allow(
     clippy::cast_possible_wrap,
