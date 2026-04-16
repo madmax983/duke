@@ -230,6 +230,23 @@ impl Heap {
         idx
     }
 
+    /// Clones an existing object in the heap. Returns the reference of the new object.
+    ///
+    /// # Errors
+    /// Returns `VmError::NullPointerException` if the source reference is invalid.
+    pub fn clone_object(&mut self, src_ref: u64) -> VmResult<u64> {
+        let src = self.get(src_ref)?;
+        let class_name = src.class_name.clone();
+        let fields = src.fields.clone();
+        let string_value = src.string_value.clone();
+
+        let new_ref = self.allocate(class_name, 0);
+        let dest = self.get_mut(new_ref)?;
+        dest.fields = fields;
+        dest.string_value = string_value;
+        Ok(new_ref)
+    }
+
     /// Promote a young-gen object to old gen. Returns `raw_old_idx | OLD_BIT`.
     fn promote_to_old(&mut self, mut obj: HeapObject) -> u64 {
         obj.age = 0; // reset age in old gen (not used there)
