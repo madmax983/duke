@@ -63,7 +63,7 @@ pub use native_boundary::*;
 /// ```
 /// use duke_telemetry::TelemetryStore;
 ///
-/// let store = TelemetryStore::default();
+/// let mut store = TelemetryStore::default();
 /// assert_eq!(store.class_init_dag.events.len(), 0);
 /// ```
 #[derive(Debug, Default)]
@@ -95,7 +95,7 @@ impl TelemetryStore {
     /// ```
     /// use duke_telemetry::TelemetryStore;
     ///
-    /// let store = TelemetryStore::default();
+    /// let mut store = TelemetryStore::default();
     /// #[cfg(feature = "telemetry")]
     /// let json = store.to_json();
     /// ```
@@ -119,7 +119,7 @@ impl TelemetryStore {
     /// ```
     /// use duke_telemetry::TelemetryStore;
     ///
-    /// let store = TelemetryStore::default();
+    /// let mut store = TelemetryStore::default();
     /// let mut buf = Vec::<u8>::new();
     /// #[cfg(feature = "telemetry")]
     /// store.print_report(&mut buf).unwrap();
