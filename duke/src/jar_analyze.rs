@@ -127,7 +127,7 @@ pub fn dump_jar_analyze(jar_path: &str) {
         }
     }
 
-    all_methods.sort_by_key(|b| std::cmp::Reverse(b.complexity));
+    all_methods.sort_by_key(|m| std::cmp::Reverse(m.complexity));
 
     println!("======================================");
     println!(" JAR Analysis Summary");

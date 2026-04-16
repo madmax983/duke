@@ -446,6 +446,42 @@ impl Instruction {
         )
     }
 
+    /// Returns `true` if the instruction is a `jsr` or `jsr_w`.
+    #[must_use]
+    pub const fn is_jsr(&self) -> bool {
+        matches!(self, Self::Jsr(_) | Self::JsrW(_))
+    }
+
+    /// Returns `true` if the instruction is `invokevirtual`.
+    #[must_use]
+    pub const fn is_invokevirtual(&self) -> bool {
+        matches!(self, Self::Invokevirtual(_))
+    }
+
+    /// Returns `true` if the instruction is `invokespecial`.
+    #[must_use]
+    pub const fn is_invokespecial(&self) -> bool {
+        matches!(self, Self::Invokespecial(_))
+    }
+
+    /// Returns `true` if the instruction is `fcmpg`.
+    #[must_use]
+    pub const fn is_fcmpg(&self) -> bool {
+        matches!(self, Self::Fcmpg)
+    }
+
+    /// Returns `true` if the instruction is `dcmpg`.
+    #[must_use]
+    pub const fn is_dcmpg(&self) -> bool {
+        matches!(self, Self::Dcmpg)
+    }
+
+    /// Returns `true` if the instruction is `athrow`.
+    #[must_use]
+    pub const fn is_athrow(&self) -> bool {
+        matches!(self, Self::Athrow)
+    }
+
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
     #[allow(clippy::too_many_lines)]
@@ -684,6 +720,28 @@ mod tests {
         assert_eq!(ArrayType::from_u8(11), Some(ArrayType::Long));
         assert_eq!(ArrayType::from_u8(0), None);
         assert_eq!(ArrayType::from_u8(12), None);
+    }
+
+    #[test]
+    fn test_instruction_matchers() {
+        assert!(Instruction::Jsr(5).is_jsr());
+        assert!(Instruction::JsrW(5).is_jsr());
+        assert!(!Instruction::Nop.is_jsr());
+
+        assert!(Instruction::Invokevirtual(CpIndex(1)).is_invokevirtual());
+        assert!(!Instruction::Nop.is_invokevirtual());
+
+        assert!(Instruction::Invokespecial(CpIndex(1)).is_invokespecial());
+        assert!(!Instruction::Nop.is_invokespecial());
+
+        assert!(Instruction::Fcmpg.is_fcmpg());
+        assert!(!Instruction::Nop.is_fcmpg());
+
+        assert!(Instruction::Dcmpg.is_dcmpg());
+        assert!(!Instruction::Nop.is_dcmpg());
+
+        assert!(Instruction::Athrow.is_athrow());
+        assert!(!Instruction::Nop.is_athrow());
     }
 
     #[test]
