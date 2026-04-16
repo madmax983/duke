@@ -11791,7 +11791,7 @@ pub fn execute(
                     -1
                 } else if a == b {
                     0
-                } else if matches!(instr, Instruction::Fcmpg) {
+                } else if instr.is_fcmpg() {
                     1 // NaN result: Fcmpg pushes 1, Fcmpl pushes -1
                 } else {
                     -1
@@ -11842,7 +11842,7 @@ pub fn execute(
                     -1
                 } else if a == b {
                     0
-                } else if matches!(instr, Instruction::Dcmpg) {
+                } else if instr.is_dcmpg() {
                     1 // NaN result: Dcmpg pushes 1, Dcmpl pushes -1
                 } else {
                     -1

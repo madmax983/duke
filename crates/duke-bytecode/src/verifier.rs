@@ -88,7 +88,7 @@ pub fn verify(
 
         // athrow consumes the exception reference; stack is conceptually cleared
         // after throw (execution does not continue linearly), so reset depth.
-        if matches!(instr, Instruction::Athrow) {
+        if instr.is_athrow() {
             depth = 0;
         }
     }
