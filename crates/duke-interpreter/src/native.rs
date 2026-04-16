@@ -16043,12 +16043,6 @@ pub(crate) fn native_sb_delete(
         .ok()
         .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
         .unwrap_or(buf.len());
-    if start_byte > end_byte {
-        return Err(VmError::ArrayIndexOutOfBounds {
-            index: start,
-            length: buf.len(),
-        });
-    }
     buf.drain(start_byte..end_byte);
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
