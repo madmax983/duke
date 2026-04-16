@@ -19,3 +19,7 @@
 **[Refactoring the Duke Telemetry Blob]
 **Tangle:** The `crates/duke-telemetry/src/lib.rs` file was a massive Blob anti-pattern (over 1000 lines). It combined 6 distinct telemetry channels (bytecode cost, object lineage, class initialization, exception flow, dispatch resolution, and native boundary) along with the central store and formatting tools.
 **Blueprint:** Extracted the 6 individual channels and the serde formatting helpers into distinct submodules (`bytecode_cost.rs`, `object_lineage.rs`, etc.). `lib.rs` was refactored into a clean facade that re-exports the individual channels and acts as the singular `TelemetryStore` entrypoint, maintaining backwards compatibility while restoring domain responsibility separation.
+
+**Extracting Unit Tests from Library Roots**
+**Tangle:** The `lib.rs` files for `duke-bytecode`, `duke-classfile`, and `duke-gc` each contained large inline `mod tests { ... }` blocks containing hundreds of lines of unit tests. This inflated the size of the core library files, making the domain logic harder to read and navigate, acting as a minor "Blob" anti-pattern.
+**Blueprint:** Extracted the inner contents of these `mod tests` blocks into dedicated `tests.rs` files next to each `lib.rs` and linked them using `#[cfg(test)] mod tests;`. This reduces visual clutter in the main library files while preserving all unit test functionality and compilation.
