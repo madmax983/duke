@@ -7,3 +7,8 @@
 ## 2025-02-28 - [Hardcoded paths in tests cause massive coverage gaps]
 **Learning:** A hardcoded Windows path in `jdk_modules_path()` caused several `duke-loader` integration tests to be skipped silently on Linux CI, dropping coverage for `JImageReader` by ~45%.
 **Action:** When tests skip or coverage drops on file I/O operations, check for hardcoded OS-specific paths and replace them with dynamic resolution (like `JAVA_HOME`).
+## 2024-04-15 - Uncovered Code in duke-loader and duke-bytecode
+
+**Learning:** `Instruction::Dload` and `Instruction::IincW` bounds checking in `duke-bytecode/src/verifier.rs` were missing explicit test coverage. Similarly, inner `ZipReader` read errors (like `ZipFormat` errors when extracting files inside a nested `BOOT-INF/lib` jar) bubbling up to `find_class` callers were untested in `duke-loader/src/zip.rs`.
+
+**Action:** Add direct unit tests covering the `check_locals` function with `Dload` and `IincW` to assure the branch bounds behave properly, and write a targeted `zip_loader_try_nested_read_entry_error` test that triggers a `ZipFormat` error in an inner jar during class finding, asserting that it correctly bubbles rather than being swallowed as a NotFound or panicking.

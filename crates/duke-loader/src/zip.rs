@@ -1132,6 +1132,22 @@ mod tests {
     }
 
     #[test]
+    fn zip_loader_try_nested_read_entry_error() {
+        let mut nested_jar = build_stored_zip("Bad.class", b"data");
+        nested_jar[0] ^= 0xFF; // Corrupt local header signature
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+        let tmp = std::env::temp_dir().join("duke_test_zip_nested_err.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+        // The inner ZipReader will fail to read "Bad.class" during find_class
+        // and should bubble the error out.
+        let err = loader.find_class("Bad").unwrap_err();
+        assert!(matches!(err, super::LoadError::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
     fn zip_loader_read_entry_other_error_nested() {
         let mut nested_jar = build_stored_zip("Bad.class", b"data");
         nested_jar[0] ^= 0xFF; // Corrupt local header signature
