@@ -913,6 +913,7 @@ mod cfg_tests {
         dump_bbcfg(p.to_str().unwrap(), "main");
     }
 
+
     #[test]
     fn test_extract_bbcfg() {
         // Find HelloWorld.class in tests/fixtures
