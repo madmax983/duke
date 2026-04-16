@@ -458,40 +458,48 @@ impl Heap {
 
         // Copy phase — BFS worklist.
         while let Some(y_idx) = worklist.pop() {
-            let Some(Some(obj)) = self.young.get(y_idx) else {
+            let is_forwarded = self
+                .young
+                .get(y_idx)
+                .and_then(|o| o.as_ref())
+                .is_some_and(|o| o.forward.is_some());
+            if is_forwarded {
                 continue;
-            };
-            if obj.forward.is_some() {
-                continue; // already copied
             }
 
-            let mut copy = obj.clone();
+            let Some(Some(mut copy)) = self.young.get_mut(y_idx).map(std::option::Option::take)
+            else {
+                continue;
+            };
+
+            // Push young children onto worklist *before* moving copy
+            worklist.extend(
+                copy.fields
+                    .iter()
+                    .filter_map(Slot::as_reference)
+                    .filter(|r| r & OLD_BIT == 0)
+                    .map(|r| usize::try_from(r).unwrap()),
+            );
+
             let new_ref = if copy.age >= self.promotion_age {
-                // Promote: move to old gen. (age is reset to 0 inside promote_to_old)
                 self.promote_to_old(copy)
             } else {
-                // Copy to to_space.
                 copy.age += 1;
-                let new_idx = self.to_space.len() as u64; // no OLD_BIT → young ref
+                let new_idx = self.to_space.len() as u64;
                 self.to_space.push(Some(copy));
                 new_idx
             };
 
-            // Install forwarding pointer in the from-space slot and record in map.
-            if let Some(Some(from_obj)) = self.young.get_mut(y_idx) {
-                from_obj.forward = Some(new_ref);
-                self.forward_map.insert(y_idx as u64, new_ref);
-
-                // Push young children onto worklist.
-                worklist.extend(
-                    from_obj
-                        .fields
-                        .iter()
-                        .filter_map(Slot::as_reference)
-                        .filter(|r| r & OLD_BIT == 0)
-                        .map(|r| usize::try_from(r).unwrap()),
-                );
-            }
+            // Install dummy object with forwarding pointer
+            self.young[y_idx] = Some(HeapObject {
+                class_name: String::new(),
+                fields: vec![],
+                string_value: None,
+                marked: false,
+                age: 0,
+                forward: Some(new_ref),
+            });
+            self.forward_map.insert(y_idx as u64, new_ref);
         }
 
         let forward_map = &self.forward_map;
