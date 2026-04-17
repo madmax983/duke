@@ -124,6 +124,7 @@ impl TelemetryStore {
     /// #[cfg(feature = "telemetry")]
     /// store.print_report(&mut buf).unwrap();
     /// ```
+    #[cfg(feature = "telemetry")]
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(w, "=== Duke VM Telemetry Report ===")?;
 
@@ -213,6 +214,7 @@ impl TelemetryStore {
     /// data, making it easy to paste into PRs or issues for performance analysis.
     #[must_use]
     #[allow(clippy::too_many_lines)]
+    #[cfg(feature = "telemetry")]
     pub fn to_markdown_report(&self) -> String {
         use std::fmt::Write;
         let mut out = String::new();

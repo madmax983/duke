@@ -52,6 +52,8 @@ pub mod ser_helpers {
 }
 
 #[cfg(all(test, feature = "telemetry"))]
+#[cfg(test)]
+#[cfg(all(test, feature = "telemetry"))]
 mod tests {
     use super::ser_helpers::*;
     use serde::Serialize;
