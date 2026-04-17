@@ -51,8 +51,7 @@ pub mod ser_helpers {
     }
 }
 
-#[cfg(test)]
-#[cfg(feature = "telemetry")]
+#[cfg(all(test, feature = "telemetry"))]
 mod tests {
     use super::ser_helpers::*;
     use serde::Serialize;
@@ -83,7 +82,7 @@ mod tests {
             site3(self.0, serializer)
         }
     }
-    fn serde_helpers_wrapper_site3(
+    const fn serde_helpers_wrapper_site3(
         map: &HashMap<(String, String, usize), DummyStruct>,
     ) -> Site3Wrapper<'_> {
         Site3Wrapper(map)
@@ -106,7 +105,7 @@ mod tests {
             site2_u16(self.0, serializer)
         }
     }
-    fn serde_helpers_wrapper_site2_u16(
+    const fn serde_helpers_wrapper_site2_u16(
         map: &HashMap<(String, u16), DummyStruct>,
     ) -> Site2U16Wrapper<'_> {
         Site2U16Wrapper(map)
@@ -132,7 +131,7 @@ mod tests {
             pair_str(self.0, serializer)
         }
     }
-    fn serde_helpers_wrapper_pair_str(
+    const fn serde_helpers_wrapper_pair_str(
         map: &HashMap<(String, String), DummyStruct>,
     ) -> PairStrWrapper<'_> {
         PairStrWrapper(map)
@@ -157,7 +156,7 @@ mod tests {
             sorted_set(self.0, serializer)
         }
     }
-    fn serde_helpers_wrapper_sorted_set(set: &HashSet<String>) -> SortedSetWrapper<'_> {
+    const fn serde_helpers_wrapper_sorted_set(set: &HashSet<String>) -> SortedSetWrapper<'_> {
         SortedSetWrapper(set)
     }
 }

@@ -365,13 +365,11 @@ impl TelemetryStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "telemetry"))]
 mod tests {
-    #[cfg(feature = "telemetry")]
     use crate::TelemetryStore;
 
     #[test]
-    #[cfg(feature = "telemetry")]
     fn telemetry_store_to_markdown_report() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
