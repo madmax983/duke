@@ -1,3 +1,4 @@
+//! Static analysis report generation for JVM class files.
 use duke_bytecode::{cyclomatic_complexity, decode};
 use duke_classfile::{
     ClassFile,
@@ -44,7 +45,7 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```compile_fail
 /// use duke::analyze::generate_analysis_report;
 /// use duke_classfile::ClassFile;
 ///

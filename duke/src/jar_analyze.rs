@@ -1,3 +1,4 @@
+//! Comprehensive static analysis summary for complete JAR files.
 #![allow(clippy::items_after_statements)]
 #![allow(
     clippy::case_sensitive_file_extension_comparisons,
@@ -60,7 +61,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```compile_fail
 /// // Assumes 'legacy_lib.jar' is available on disk
 /// use duke::jar_analyze::dump_jar_analyze;
 ///

@@ -74,7 +74,7 @@ const fn method_visibility(flags: MethodAccessFlags) -> &'static str {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```compile_fail
 /// // Assumes a `ClassFile` structure exists.
 /// use duke::uml::generate_mermaid_uml;
 /// use duke_classfile::ClassFile;

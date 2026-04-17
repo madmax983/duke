@@ -1,3 +1,4 @@
+//! Class file comparison and diffing utility.
 
     #[test]
     fn test_dump_diff_handles_files() {

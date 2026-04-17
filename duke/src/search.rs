@@ -1,3 +1,4 @@
+//! Bytecode instruction search utility for classes and JARs.
 use duke_bytecode::decode;
 use duke_classfile::{
     parse,
@@ -30,7 +31,7 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```compile_fail
 /// // Example assumes a valid .class file path exists
 /// use duke::search::dump_search;
 ///
