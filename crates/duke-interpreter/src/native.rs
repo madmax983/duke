@@ -448,6 +448,10 @@ pub(crate) fn native_file_output_stream_write(
     Ok(None)
 }
 
+/// Native: `FileOutputStream.writeBytes([BIIZ)V` — writes an array of bytes.
+///
+/// Performance: avoids a large heap allocation (cloning the entire `fields` vector) by using
+/// index-based iteration over the byte array, improving I/O throughput for large files.
 pub(crate) fn native_file_output_stream_write_bytes(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -456,8 +460,10 @@ pub(crate) fn native_file_output_stream_write_bytes(
 ) -> VmResult<Option<Slot>> {
     let file_id = file_stream_id_from_this(args, heap)?;
     let array_ref = extract_ref_arg(args, 1)?;
-    let bytes = heap.get(array_ref)?.fields.clone();
-    for byte in bytes {
+
+    let len = heap.get(array_ref)?.fields.len();
+    for i in 0..len {
+        let byte = heap.get(array_ref)?.fields[i];
         let Slot::Int(value) = byte else {
             return Err(VmError::TypeMismatch {
                 expected: "Int",
@@ -1133,14 +1139,7 @@ pub(crate) fn native_object_clone(
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let obj = heap.get(this_ref)?;
-    let cloned_class = obj.class_name.clone();
-    let cloned_fields = obj.fields.clone();
-    let cloned_string = obj.string_value.clone();
-    let new_ref = heap.allocate(cloned_class, 0);
-    let dest = heap.get_mut(new_ref)?;
-    dest.fields = cloned_fields;
-    dest.string_value = cloned_string;
+    let new_ref = heap.clone_object(this_ref)?;
     Ok(Some(Slot::Reference(Some(new_ref))))
 }
 
