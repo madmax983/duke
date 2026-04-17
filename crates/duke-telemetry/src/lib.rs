@@ -388,3 +388,30 @@ mod tests {
         assert!(md.contains("```"));
     }
 }
+
+#[cfg(test)]
+mod tests_coverage {
+    use crate::TelemetryStore;
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn telemetry_store_to_markdown_report_full() {
+        let mut store = TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
+        store.object_lineage.record("java/lang/String", "main", 0, "java/lang/Object");
+        store.exception_flow.record_throw("java/lang/NullPointerException", "java/lang/String", "main", 10);
+        store.dispatch_resolution.record("java/lang/Object", 1, "java/lang/String", false);
+        store.native_boundary.record_call("java/lang/System", "currentTimeMillis()J", 100, false);
+
+        let md = store.to_markdown_report();
+        assert!(md.contains("# Duke VM Telemetry Report"));
+        assert!(md.contains("| `iadd` | 1 | 100 |"));
+        assert!(md.contains("java/lang/Object"));
+
+        let mut w = Vec::new();
+        store.print_report(&mut w).unwrap();
+        let report = String::from_utf8(w).unwrap();
+        assert!(report.contains("Duke VM Telemetry"));
+    }
+}
