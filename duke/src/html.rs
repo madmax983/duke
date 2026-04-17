@@ -292,7 +292,7 @@ mod tests {
             major_version: 61,
             minor_version: 0,
             constant_pool: vec![],
-            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            access_flags: duke_classfile::ClassAccessFlags::PUBLIC,
             this_class: CpIndex(0),
             super_class: CpIndex(0),
             interfaces: vec![],
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_generate_html_report_complex_class() {
-        use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
+        use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
         use duke_classfile::types::{
             AttributeData, AttributeInfo, CodeAttribute, FieldInfo, MethodInfo,
         };
@@ -337,7 +337,7 @@ mod tests {
                 Some(CpEntry::Utf8("<clinit>".to_string())), // 12
                 Some(CpEntry::Utf8("run".to_string())), // 13
             ],
-            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            access_flags: duke_classfile::ClassAccessFlags::PUBLIC,
             this_class: CpIndex(3),
             super_class: CpIndex(1),
             interfaces: vec![CpIndex(5)],

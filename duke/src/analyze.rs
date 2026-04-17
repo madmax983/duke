@@ -105,7 +105,7 @@ pub fn generate_analysis_report(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::access_flags::{ClassAccessFlags, MethodAccessFlags};
+    use duke_classfile::{ClassAccessFlags, MethodAccessFlags};
     use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
 
     #[test]

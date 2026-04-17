@@ -400,7 +400,7 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> ParseResult<AttributeI
 ///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
-pub(crate) fn resolve_attributes(
+pub fn resolve_attributes(
     attrs: &mut [AttributeInfo],
     pool: &[Option<CpEntry>],
 ) -> ParseResult<()> {
@@ -546,7 +546,7 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
-pub(crate) fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&str> {
+pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&str> {
     let i = idx.0 as usize;
     if i == 0 {
         return Err(ParseError::CpIndexZero);

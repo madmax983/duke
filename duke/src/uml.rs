@@ -5,7 +5,7 @@
 
 use duke_classfile::{
     ClassFile,
-    access_flags::{FieldAccessFlags, MethodAccessFlags},
+    {FieldAccessFlags, MethodAccessFlags},
     types::{CpEntry, CpIndex},
 };
 use std::fmt::Write;
@@ -130,7 +130,7 @@ pub fn generate_mermaid_uml(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
+    use duke_classfile::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
     use duke_classfile::types::{FieldInfo, MethodInfo};
 
     #[test]

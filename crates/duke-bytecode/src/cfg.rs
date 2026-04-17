@@ -279,7 +279,7 @@ mod tests {
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::{Instruction, cfg::cyclomatic_complexity};
+/// use duke_bytecode::{Instruction, cyclomatic_complexity};
 ///
 /// let instructions = vec![
 ///     (0, Instruction::Iconst0),

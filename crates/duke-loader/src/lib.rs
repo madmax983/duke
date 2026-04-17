@@ -9,17 +9,18 @@
 //! - [`manifest`] — MANIFEST.MF parser for JAR files.
 //! - [`zip`] — Read-only ZIP/JAR archive support.
 
-pub mod bootstrap;
-pub mod directory;
-pub mod error;
-pub mod jimage;
-pub mod manifest;
-pub mod zip;
+pub(crate) mod bootstrap;
+pub(crate) mod directory;
+pub(crate) mod error;
+pub(crate) mod jimage;
+pub(crate) mod manifest;
+pub(crate) mod zip;
 
 pub use bootstrap::{BootstrapLoader, ClasspathEntry};
+
 pub use directory::DirectoryLoader;
 pub use error::{Error, LoadError, LoadResult, Result};
-pub use jimage::JImageReader;
+pub use jimage::{JImageReader, ResourceInfo};
 pub use manifest::parse_main_class;
 pub use zip::{ZipEntryInfo, ZipLoader, ZipReader};
 
