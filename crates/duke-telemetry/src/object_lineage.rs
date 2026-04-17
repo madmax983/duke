@@ -1,3 +1,5 @@
+//! Tracks where objects are allocated, by method and instruction offset.
+//!
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;

@@ -1,3 +1,5 @@
+//! Tracks execution frequency and duration per-opcode and per-bytecode site.
+//!
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;

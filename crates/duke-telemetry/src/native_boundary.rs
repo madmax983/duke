@@ -1,3 +1,5 @@
+//! Tracks the cost and reliability of transitioning from JVM execution to native code.
+//!
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;

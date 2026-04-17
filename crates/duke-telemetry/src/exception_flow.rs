@@ -1,3 +1,5 @@
+//! Lifecycle events and flow tracking for exceptions thrown by the VM.
+//!
 // -- exception_flow --------------------------------------------------------------
 
 /// Lifecycle event for an exception thrown by the VM.

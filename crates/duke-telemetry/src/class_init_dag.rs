@@ -1,3 +1,5 @@
+//! A linear log of all `<clinit>` executions, tracking their dependencies.
+//!
 // -- class_init_dag --------------------------------------------------------------
 
 /// A single class initialization (`<clinit>`) event in the VM.

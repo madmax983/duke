@@ -1,3 +1,5 @@
+//! Statistics on dynamic method resolution (`invokevirtual` and `invokeinterface`).
+//!
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::{HashMap, HashSet};
