@@ -120,6 +120,8 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
                     | Instruction::Ifnull(off)
                     | Instruction::Ifnonnull(off)
                     | Instruction::Jsr(off) => isize::from(*off),
+                    // This unreachable is actually unreachable due to the outer match,
+                    // but let's test it just in case if we can't... wait, we can't test unreachable.
                     _ => unreachable!(),
                 };
                 leaders.insert((*pc as isize + offset) as usize);
