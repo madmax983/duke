@@ -410,6 +410,22 @@ impl Instruction {
         }
     }
 
+    /// Returns `true` if the instruction is a switch statement.
+    #[must_use]
+    pub const fn is_switch(&self) -> bool {
+        matches!(self, Self::Tableswitch { .. } | Self::Lookupswitch { .. })
+    }
+
+    /// Returns the number of paths (excluding default) in a switch statement.
+    #[must_use]
+    pub const fn switch_path_count(&self) -> Option<usize> {
+        match self {
+            Self::Tableswitch { offsets, .. } => Some(offsets.len()),
+            Self::Lookupswitch { pairs, .. } => Some(pairs.len()),
+            _ => None,
+        }
+    }
+
     /// Returns `true` if the instruction is an unconditional jump.
     #[must_use]
     pub const fn is_unconditional_jump(&self) -> bool {
@@ -670,75 +686,41 @@ impl Instruction {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn test_is_switch() {
-        assert!(super::Instruction::Tableswitch {
-            default: 0,
-            low: 0,
-            high: 0,
-            offsets: vec![],
-        }.is_switch());
-
-        assert!(super::Instruction::Lookupswitch {
-            default: 0,
-            pairs: vec![],
-        }.is_switch());
-
-        assert!(!super::Instruction::Nop.is_switch());
-    }
-
-    #[test]
-    fn test_switch_path_count() {
-        assert_eq!(super::Instruction::Tableswitch {
-            default: 0,
-            low: 0,
-            high: 2,
-            offsets: vec![1, 2, 3],
-        }.switch_path_count(), Some(3));
-
-        assert_eq!(super::Instruction::Lookupswitch {
-            default: 0,
-            pairs: vec![(1, 1), (2, 2)],
-        }.switch_path_count(), Some(2));
-
-        assert_eq!(super::Instruction::Nop.switch_path_count(), None);
-    }
-
-    #[test]
-    fn test_is_switch() {
-        assert!(super::Instruction::Tableswitch {
-            default: 0,
-            low: 0,
-            high: 0,
-            offsets: vec![],
-        }.is_switch());
-
-        assert!(super::Instruction::Lookupswitch {
-            default: 0,
-            pairs: vec![],
-        }.is_switch());
-
-        assert!(!super::Instruction::Nop.is_switch());
-    }
-
-    #[test]
-    fn test_switch_path_count() {
-        assert_eq!(super::Instruction::Tableswitch {
-            default: 0,
-            low: 0,
-            high: 2,
-            offsets: vec![1, 2, 3],
-        }.switch_path_count(), Some(3));
-
-        assert_eq!(super::Instruction::Lookupswitch {
-            default: 0,
-            pairs: vec![(1, 1), (2, 2)],
-        }.switch_path_count(), Some(2));
-
-        assert_eq!(super::Instruction::Nop.switch_path_count(), None);
-    }
-
     use super::*;
+
+    #[test]
+    fn test_is_switch() {
+        assert!(super::Instruction::Tableswitch {
+            default: 0,
+            low: 0,
+            high: 0,
+            offsets: vec![],
+        }.is_switch());
+
+        assert!(super::Instruction::Lookupswitch {
+            default: 0,
+            pairs: vec![],
+        }.is_switch());
+
+        assert!(!super::Instruction::Nop.is_switch());
+    }
+
+    #[test]
+    fn test_switch_path_count() {
+        assert_eq!(super::Instruction::Tableswitch {
+            default: 0,
+            low: 0,
+            high: 2,
+            offsets: vec![1, 2, 3],
+        }.switch_path_count(), Some(3));
+
+        assert_eq!(super::Instruction::Lookupswitch {
+            default: 0,
+            pairs: vec![(1, 1), (2, 2)],
+        }.switch_path_count(), Some(2));
+
+        assert_eq!(super::Instruction::Nop.switch_path_count(), None);
+    }
 
     #[test]
     fn test_array_type_from_u8() {
@@ -757,18 +739,6 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn test_instruction_mnemonics() {
-        assert!(super::Instruction::Tableswitch { default: 0, low: 0, high: 0, offsets: vec![] }.is_switch());
-        assert!(super::Instruction::Lookupswitch { default: 0, pairs: vec![] }.is_switch());
-        assert!(!super::Instruction::Nop.is_switch());
-        assert_eq!(super::Instruction::Tableswitch { default: 0, low: 0, high: 2, offsets: vec![1, 2, 3] }.switch_path_count(), Some(3));
-        assert_eq!(super::Instruction::Lookupswitch { default: 0, pairs: vec![(1, 1), (2, 2)] }.switch_path_count(), Some(2));
-        assert_eq!(super::Instruction::Nop.switch_path_count(), None);
-        assert!(Instruction::Tableswitch { default: 0, low: 0, high: 0, offsets: vec![] }.is_switch());
-        assert!(Instruction::Lookupswitch { default: 0, pairs: vec![] }.is_switch());
-        assert!(!Instruction::Nop.is_switch());
-        assert_eq!(Instruction::Tableswitch { default: 0, low: 0, high: 2, offsets: vec![1, 2, 3] }.switch_path_count(), Some(3));
-        assert_eq!(Instruction::Lookupswitch { default: 0, pairs: vec![(1, 1), (2, 2)] }.switch_path_count(), Some(2));
-        assert_eq!(Instruction::Nop.switch_path_count(), None);
         let cases = vec![
             (Instruction::Nop, "nop"),
             (Instruction::AconstNull, "aconst_null"),
@@ -1015,8 +985,4 @@ mod tests {
             assert_eq!(instr.mnemonic(), expected);
         }
     }
-}
-#[test]
-fn force_cov() {
-    assert_eq!(1, 1);
 }
