@@ -12,3 +12,6 @@
 **Learning:** `Instruction::Dload` and `Instruction::IincW` bounds checking in `duke-bytecode/src/verifier.rs` were missing explicit test coverage. Similarly, inner `ZipReader` read errors (like `ZipFormat` errors when extracting files inside a nested `BOOT-INF/lib` jar) bubbling up to `find_class` callers were untested in `duke-loader/src/zip.rs`.
 
 **Action:** Add direct unit tests covering the `check_locals` function with `Dload` and `IincW` to assure the branch bounds behave properly, and write a targeted `zip_loader_try_nested_read_entry_error` test that triggers a `ZipFormat` error in an inner jar during class finding, asserting that it correctly bubbles rather than being swallowed as a NotFound or panicking.
+## 2024-05-24 - Duke Telemetry Missing Coverage
+**Learning:** `helpers.rs` inside `duke-telemetry` was found to have 0% coverage. Found it using `cargo llvm-cov report` followed by a localized `grep` on `lcov.info`.
+**Action:** Wrote unit tests specifically targeting all helpers: `site3`, `site2_u16`, `pair_str`, and `sorted_set` ensuring they successfully serialize HashMap keys using formatting as intended, when `feature = "telemetry"` is enabled.
