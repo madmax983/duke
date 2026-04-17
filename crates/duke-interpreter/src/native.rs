@@ -42,13 +42,7 @@ fn extract_io_fd_at(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<
 
 #[inline]
 fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
-    match args.get(idx) {
-        Some(Slot::Int(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
-            expected: "Int",
-            got: "other",
-        }),
-    }
+    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_int()
 }
 
 /// Box a primitive `Slot` into a heap object so it can be stored as `Object` in collections.
@@ -91,35 +85,17 @@ fn box_primitive_slot(slot: Slot, heap: &mut duke_gc::Heap) -> Slot {
 
 #[inline]
 fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
-    match args.get(idx) {
-        Some(Slot::Long(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
-            expected: "Long",
-            got: "other",
-        }),
-    }
+    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_long()
 }
 
 #[inline]
 fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
-    match args.get(idx) {
-        Some(Slot::Float(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
-            expected: "Float",
-            got: "other",
-        }),
-    }
+    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_float()
 }
 
 #[inline]
 fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
-    match args.get(idx) {
-        Some(Slot::Double(v)) => Ok(*v),
-        _ => Err(VmError::TypeMismatch {
-            expected: "Double",
-            got: "other",
-        }),
-    }
+    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_double()
 }
 
 macro_rules! extract_print_arg {
