@@ -299,20 +299,11 @@ pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
             || matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))
         {
             complexity += 1;
-        } else {
-            match instr {
-                // Switch statements
-                Instruction::Tableswitch { offsets, .. } => {
-                    // Number of possible paths = offsets.len() + 1 (for default).
-                    // Subtract 1 because we start at 1 complexity inherently.
-                    complexity += offsets.len();
-                }
-                Instruction::Lookupswitch { pairs, .. } => {
-                    // Number of possible paths = pairs.len() + 1 (for default).
-                    complexity += pairs.len();
-                }
-                _ => {}
-            }
+        } else if let Some(count) = instr.switch_path_count() {
+            // Switch statements
+            // Number of possible paths = offsets/pairs length + 1 (for default).
+            // Subtract 1 because we start at 1 complexity inherently.
+            complexity += count;
         }
     }
 
