@@ -8,24 +8,23 @@
 #![cfg_attr(test, allow(clippy::large_stack_arrays))]
 
 /// Core execution context types for methods and classes.
-pub(crate) mod context;
+pub mod context;
 pub(crate) mod execution;
 /// Repositories for loaded classes and registered native methods.
-pub(crate) mod registry;
+pub mod registry;
 /// Core standard library classes and methods bootstrap.
-pub(crate) mod stdlib;
-pub(crate) mod threading;
+pub mod stdlib;
+pub mod threading;
 
 pub use context::*;
 pub use registry::*;
 pub use stdlib::bootstrap_stdlib;
-pub use threading::*;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 
-use duke_bytecode::ArrayType;
 use duke_bytecode::Instruction;
+use duke_bytecode::instruction::ArrayType;
 use duke_classfile::types::CpEntry;
 use duke_loader::ClassLoader;
 use duke_runtime::{Frame, Slot, VmError, VmResult};

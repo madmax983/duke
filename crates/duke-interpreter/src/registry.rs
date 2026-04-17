@@ -21,7 +21,7 @@ fn class_internal_name_fragment(name: &str) -> &str {
 
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
 #[derive(Debug, Clone)]
-pub struct LambdaInfo {
+pub(crate) struct LambdaInfo {
     pub impl_class: String,
     pub impl_method: String,
     pub impl_desc: String,

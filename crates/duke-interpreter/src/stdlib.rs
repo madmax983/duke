@@ -15,7 +15,7 @@ use duke_runtime::Slot;
 ///
 /// ```
 /// use duke_interpreter::ClassRegistry;
-/// use duke_interpreter::bootstrap_stdlib;
+/// use duke_interpreter::stdlib::bootstrap_stdlib;
 /// use duke_gc::Heap;
 ///
 /// let mut registry = ClassRegistry::new();
@@ -9451,7 +9451,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 // ─── Phase 88 natives ────────────────────────────────────────────────────────
 
 /// `BitSet.<init>(int)V` — size hint ignored; initialise bits to 0.
-pub fn native_bitset_init_with_size(
+pub(crate) fn native_bitset_init_with_size(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9463,7 +9463,7 @@ pub fn native_bitset_init_with_size(
 }
 
 /// `BitSet.<init>()V`
-pub fn native_bitset_init(
+pub(crate) fn native_bitset_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9475,7 +9475,7 @@ pub fn native_bitset_init(
 }
 
 /// `BitSet.set(int)V` — set bit at position n.
-pub fn native_bitset_set(
+pub(crate) fn native_bitset_set(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9501,7 +9501,7 @@ pub fn native_bitset_set(
 }
 
 /// `BitSet.cardinality()I` — number of set bits.
-pub fn native_bitset_cardinality(
+pub(crate) fn native_bitset_cardinality(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9517,7 +9517,7 @@ pub fn native_bitset_cardinality(
 
 /// `Function.identity()Ljava/util/function/Function;` — returns a `duke/util/IdentityFunction` proxy.
 #[allow(clippy::unnecessary_wraps)]
-pub fn native_function_identity(
+pub(crate) fn native_function_identity(
     _args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9529,7 +9529,7 @@ pub fn native_function_identity(
 
 /// `IdentityFunction.apply(Object)Object` — returns its argument unchanged.
 #[allow(clippy::unnecessary_wraps)]
-pub fn native_identity_function_apply(
+pub(crate) fn native_identity_function_apply(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9542,7 +9542,7 @@ pub fn native_identity_function_apply(
 // ─── Phase 100 natives ───────────────────────────────────────────────────────
 
 /// `Collectors.summarizingInt(ToIntFunction)Collector` — returns a `SummarizingIntCollector`.
-pub fn native_collectors_summarizing_int(
+pub(crate) fn native_collectors_summarizing_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9555,7 +9555,7 @@ pub fn native_collectors_summarizing_int(
 }
 
 /// `IntSummaryStatistics.getCount()J`
-pub fn native_int_summary_stats_get_count(
+pub(crate) fn native_int_summary_stats_get_count(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9570,7 +9570,7 @@ pub fn native_int_summary_stats_get_count(
 }
 
 /// `IntSummaryStatistics.getSum()J`
-pub fn native_int_summary_stats_get_sum(
+pub(crate) fn native_int_summary_stats_get_sum(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9585,7 +9585,7 @@ pub fn native_int_summary_stats_get_sum(
 }
 
 /// `IntSummaryStatistics.getMin()I`
-pub fn native_int_summary_stats_get_min(
+pub(crate) fn native_int_summary_stats_get_min(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9600,7 +9600,7 @@ pub fn native_int_summary_stats_get_min(
 }
 
 /// `IntSummaryStatistics.getMax()I`
-pub fn native_int_summary_stats_get_max(
+pub(crate) fn native_int_summary_stats_get_max(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
@@ -9615,7 +9615,7 @@ pub fn native_int_summary_stats_get_max(
 }
 
 /// `IntSummaryStatistics.getAverage()D`
-pub fn native_int_summary_stats_get_average(
+pub(crate) fn native_int_summary_stats_get_average(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,

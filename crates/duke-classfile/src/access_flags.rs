@@ -8,7 +8,7 @@ bitflags! {
     /// # Examples
     ///
     /// ```
-    /// use duke_classfile::ClassAccessFlags;
+    /// use duke_classfile::access_flags::ClassAccessFlags;
     ///
     /// let flags = ClassAccessFlags::PUBLIC | ClassAccessFlags::FINAL;
     /// assert!(flags.contains(ClassAccessFlags::PUBLIC));
@@ -49,7 +49,7 @@ bitflags! {
     /// # Examples
     ///
     /// ```
-    /// use duke_classfile::FieldAccessFlags;
+    /// use duke_classfile::access_flags::FieldAccessFlags;
     ///
     /// let flags = FieldAccessFlags::PRIVATE | FieldAccessFlags::STATIC;
     /// assert!(flags.contains(FieldAccessFlags::STATIC));
@@ -90,7 +90,7 @@ bitflags! {
     /// # Examples
     ///
     /// ```
-    /// use duke_classfile::MethodAccessFlags;
+    /// use duke_classfile::access_flags::MethodAccessFlags;
     ///
     /// let flags = MethodAccessFlags::PUBLIC | MethodAccessFlags::STATIC;
     /// assert!(flags.contains(MethodAccessFlags::STATIC));

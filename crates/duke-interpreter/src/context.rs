@@ -16,7 +16,7 @@ use duke_runtime::Slot;
 /// # Examples
 ///
 /// ```
-/// use duke_interpreter::MethodEntry;
+/// use duke_interpreter::context::MethodEntry;
 /// use std::sync::Arc;
 /// use std::collections::HashMap;
 ///
@@ -78,7 +78,7 @@ pub struct MethodEntry {
 /// # Examples
 ///
 /// ```
-/// use duke_interpreter::FieldEntry;
+/// use duke_interpreter::context::FieldEntry;
 ///
 /// // A blueprint for `private int x;`
 /// let field = FieldEntry {
@@ -109,7 +109,7 @@ pub struct FieldEntry {
 /// # Examples
 ///
 /// ```
-/// use duke_interpreter::ExceptionEntry;
+/// use duke_interpreter::context::ExceptionEntry;
 ///
 /// let handler = ExceptionEntry {
 ///     start_pc: 0,
@@ -151,7 +151,7 @@ pub enum ClassLoadSource {
 /// # Examples
 ///
 /// ```
-/// use duke_interpreter::{ClassContext, ClassLoadSource};
+/// use duke_interpreter::context::{ClassContext, ClassLoadSource};
 ///
 /// let context = ClassContext {
 ///     class_name: "java/lang/Object".to_string(),

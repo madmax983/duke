@@ -78,7 +78,7 @@ pub fn generate_deps_graph(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::ClassAccessFlags;
+    use duke_classfile::access_flags::ClassAccessFlags;
 
     #[test]
     fn test_cp_str_none() {

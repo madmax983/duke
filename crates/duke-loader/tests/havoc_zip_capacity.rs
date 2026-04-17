@@ -9,6 +9,6 @@ fn havoc_test_oom() {
         0, 0, 0, 0, // offset
         0, 0,
     ];
-    let res = duke_loader::ZipReader::from_bytes(bad_data);
+    let res = duke_loader::zip::ZipReader::from_bytes(bad_data);
     assert!(res.is_err());
 }

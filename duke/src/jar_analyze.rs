@@ -155,7 +155,7 @@ pub fn dump_jar_analyze(jar_path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::ClassAccessFlags;
+    use duke_classfile::access_flags::ClassAccessFlags;
     use duke_classfile::types::ClassFile;
 
     #[test]

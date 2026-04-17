@@ -9,27 +9,22 @@
 //! - [`error`] — [`DecodeError`] and [`VerifyError`]
 
 #[cfg(feature = "nova")]
-pub(crate) mod basic_block;
-pub(crate) mod call_graph;
-pub(crate) mod cfg;
-pub(crate) mod decoder;
-pub(crate) mod error;
-pub(crate) mod instruction;
-pub(crate) mod opcodes;
-pub(crate) mod verifier;
+pub mod basic_block;
+pub mod call_graph;
+pub mod cfg;
+pub mod decoder;
+pub mod error;
+pub mod instruction;
+pub mod opcodes;
+pub mod verifier;
 
 #[cfg(feature = "nova")]
 pub use basic_block::{BasicBlock, build_basic_blocks};
 pub use call_graph::generate_mermaid_call_graph;
-#[cfg(feature = "nova")]
-#[allow(dead_code)]
-pub use cfg::generate_basic_block_cfg;
 pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
 pub use error::{DecodeError, DecodeResult, Error, Result, VerifyError, VerifyResult};
-pub use instruction::{ArrayType, Instruction};
-#[allow(dead_code)]
-pub use opcodes::*;
+pub use instruction::Instruction;
 pub use verifier::verify;
 
 #[cfg(test)]

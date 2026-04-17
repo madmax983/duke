@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use duke_loader::JImageReader;
+use duke_loader::jimage::JImageReader;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 

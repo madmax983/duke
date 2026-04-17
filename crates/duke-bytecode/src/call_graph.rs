@@ -83,7 +83,7 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::generate_mermaid_call_graph;
+/// use duke_bytecode::call_graph::generate_mermaid_call_graph;
 /// use duke_classfile::{parse, types::ClassFile};
 ///
 /// // Create a dummy ClassFile from valid dummy bytecode:
@@ -160,8 +160,8 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use duke_classfile::access_flags::{ClassAccessFlags, MethodAccessFlags};
     use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
-    use duke_classfile::{ClassAccessFlags, MethodAccessFlags};
 
     #[test]
     fn test_generate_mermaid_call_graph_empty() {

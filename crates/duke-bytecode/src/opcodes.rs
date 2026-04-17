@@ -278,27 +278,16 @@ pub const GOTO_W: u8 = 0xC8;
 pub const JSR_W: u8 = 0xC9;
 
 /// §6.2 reserved opcodes (must not appear in valid class files)
-#[allow(dead_code)]
 pub const BREAKPOINT: u8 = 0xCA;
-#[allow(dead_code)]
 pub const IMPDEP1: u8 = 0xFE;
-#[allow(dead_code)]
 pub const IMPDEP2: u8 = 0xFF;
 
 /// §6.5 newarray type codes
-#[allow(dead_code)]
 pub const T_BOOLEAN: u8 = 4;
-#[allow(dead_code)]
 pub const T_CHAR: u8 = 5;
-#[allow(dead_code)]
 pub const T_FLOAT: u8 = 6;
-#[allow(dead_code)]
 pub const T_DOUBLE: u8 = 7;
-#[allow(dead_code)]
 pub const T_BYTE: u8 = 8;
-#[allow(dead_code)]
 pub const T_SHORT: u8 = 9;
-#[allow(dead_code)]
 pub const T_INT: u8 = 10;
-#[allow(dead_code)]
 pub const T_LONG: u8 = 11;

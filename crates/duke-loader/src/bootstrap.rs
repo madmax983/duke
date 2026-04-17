@@ -10,7 +10,7 @@ use crate::{ClassLoader, DirectoryLoader, JImageReader, LoadError, LoadResult, Z
 ///
 /// ```
 /// use std::path::PathBuf;
-/// use duke_loader::{DirectoryLoader, ClasspathEntry};
+/// use duke_loader::{DirectoryLoader, bootstrap::ClasspathEntry};
 ///
 /// let dir_loader = DirectoryLoader::new(PathBuf::from("my_classes"));
 /// let entry = ClasspathEntry::Directory(dir_loader);

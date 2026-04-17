@@ -229,7 +229,7 @@ pub fn dump_jar_scan(jar_path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::ClassAccessFlags;
+    use duke_classfile::access_flags::ClassAccessFlags;
 
     fn create_mock_classfile_with_methodref(class_name: &str, method_name: &str) -> ClassFile {
         ClassFile {

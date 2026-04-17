@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 use duke_runtime::{Slot, VmError, VmResult};
 
-pub(crate) mod host;
+pub mod host;
 mod mermaid;
 pub use host::{HostFileHandle, HostProcessHandle, SpawnedProcessIds};
 

@@ -42,7 +42,7 @@ impl SharedOutput {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::SharedOutput;
+    /// use duke_interpreter::threading::SharedOutput;
     /// let output = SharedOutput::new();
     /// ```
     #[must_use]
@@ -60,7 +60,7 @@ impl SharedOutput {
     ///
     /// ```
     /// use std::sync::{Arc, Mutex};
-    /// use duke_interpreter::SharedOutput;
+    /// use duke_interpreter::threading::SharedOutput;
     /// let buffer = Arc::new(Mutex::new(Vec::new()));
     /// let output = SharedOutput::from_buffer(buffer);
     /// ```
@@ -78,7 +78,7 @@ impl SharedOutput {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::SharedOutput;
+    /// use duke_interpreter::threading::SharedOutput;
     /// let output = SharedOutput::new();
     /// let buffer = output.buffer();
     /// ```
@@ -110,7 +110,7 @@ impl ThreadRecord {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::ThreadRecord;
+    /// use duke_interpreter::threading::ThreadRecord;
     /// let record = ThreadRecord::new(12345, 1);
     /// assert_eq!(record.java_ref, 12345);
     /// assert_eq!(record.thread_id, 1);
@@ -152,7 +152,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::ThreadRuntime;
+    /// use duke_interpreter::threading::ThreadRuntime;
     /// let runtime = ThreadRuntime::new();
     /// ```
     #[must_use]
@@ -165,7 +165,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::ThreadRuntime;
+    /// use duke_interpreter::threading::ThreadRuntime;
     /// let runtime = ThreadRuntime::new();
     /// assert_eq!(runtime.next_thread_id(), 0);
     /// ```
@@ -183,7 +183,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::{ThreadRuntime, ThreadRecord};
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
     /// let mut runtime = ThreadRuntime::new();
     /// runtime.register(ThreadRecord::new(123, 0));
     /// assert_eq!(runtime.live_workers(), 1);
@@ -204,7 +204,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::ThreadRuntime;
+    /// use duke_interpreter::threading::ThreadRuntime;
     /// let runtime = ThreadRuntime::new();
     /// assert_eq!(runtime.records().len(), 0);
     /// ```
@@ -221,7 +221,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::ThreadRuntime;
+    /// use duke_interpreter::threading::ThreadRuntime;
     /// let mut runtime = ThreadRuntime::new();
     /// let id1 = runtime.allocate_thread_id();
     /// let id2 = runtime.allocate_thread_id();
@@ -243,7 +243,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::{ThreadRuntime, ThreadRecord};
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
     /// let mut runtime = ThreadRuntime::new();
     /// runtime.register(ThreadRecord::new(123, 0));
     /// ```
@@ -262,7 +262,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::{ThreadRuntime, ThreadRecord};
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
     /// let mut runtime = ThreadRuntime::new();
     /// runtime.register(ThreadRecord::new(123, 0));
     /// assert!(runtime.mark_finished(0));
@@ -290,7 +290,7 @@ impl ThreadRuntime {
     /// ## Examples
     ///
     /// ```
-    /// use duke_interpreter::{ThreadRuntime, ThreadRecord};
+    /// use duke_interpreter::threading::{ThreadRuntime, ThreadRecord};
     /// let mut runtime = ThreadRuntime::new();
     /// runtime.register(ThreadRecord::new(123, 0));
     /// assert!(runtime.mark_finished_by_java_ref(123));
