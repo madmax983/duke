@@ -29640,3 +29640,27 @@ fn test_box_primitive_slot() {
         "Expected pass-through for other slot types"
     );
 }
+
+#[test]
+fn havoc_stringbuilder_delete_panic() {
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("java/lang/StringBuilder".to_string(), 0);
+    heap.get_mut(this_ref).unwrap().string_value = Some("hello".to_string());
+
+    let mut control = crate::registry::NativeControl::default();
+
+    // Trigger panic: start > end.
+    let args = [
+        duke_runtime::Slot::Reference(Some(this_ref)),
+        duke_runtime::Slot::Int(4),
+        duke_runtime::Slot::Int(1),
+    ];
+
+    let mut out = std::io::sink();
+
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::native_sb_delete(&args, &mut heap, &mut out, &mut control).unwrap();
+    }));
+
+    assert!(res.is_err(), "Expected panic, but it succeeded!");
+}
