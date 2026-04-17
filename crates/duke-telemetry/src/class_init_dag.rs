@@ -1,3 +1,8 @@
+//! A linear log of all `<clinit>` executions, tracking their dependencies.
+//!
+//! This module captures the directed acyclic graph (DAG) of class initializations, allowing
+//! analysis of slow startup times due to heavy static initializers and dependency chains.
+
 // -- class_init_dag --------------------------------------------------------------
 
 /// A single class initialization (`<clinit>`) event in the VM.

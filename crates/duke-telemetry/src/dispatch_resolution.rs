@@ -1,3 +1,8 @@
+//! Statistics on dynamic method resolution (`invokevirtual` and `invokeinterface`).
+//!
+//! This module tracks polymorphism and dispatch overhead at every dynamic call site in the VM
+//! to help identify opportunities for inline caching or other optimizations.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::{HashMap, HashSet};

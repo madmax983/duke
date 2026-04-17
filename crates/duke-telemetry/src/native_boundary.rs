@@ -1,3 +1,7 @@
+//! Tracks the cost and reliability of transitioning from JVM execution to native code.
+//!
+//! This module groups native method execution statistics by their defining class and method names.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;

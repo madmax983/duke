@@ -1,3 +1,8 @@
+//! A linear log of all thrown exceptions and their catch sites.
+//!
+//! This module tracks the paths taken by thrown exceptions through the VM's call stack,
+//! providing insight into the error handling overhead of the application.
+
 // -- exception_flow --------------------------------------------------------------
 
 /// Lifecycle event for an exception thrown by the VM.

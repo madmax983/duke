@@ -1,3 +1,8 @@
+//! Tracks where objects are allocated, by method and instruction offset.
+//!
+//! This module provides structures to record the allocating class and method alongside the PC offset
+//! of the `new` instruction, to trace the origin of high allocation rates back to the source code.
+
 #[cfg(feature = "telemetry")]
 use crate::helpers::ser_helpers;
 use std::collections::HashMap;
