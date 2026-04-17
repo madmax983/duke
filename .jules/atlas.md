@@ -19,3 +19,7 @@
 **[Refactoring the Duke Telemetry Blob]
 **Tangle:** The `crates/duke-telemetry/src/lib.rs` file was a massive Blob anti-pattern (over 1000 lines). It combined 6 distinct telemetry channels (bytecode cost, object lineage, class initialization, exception flow, dispatch resolution, and native boundary) along with the central store and formatting tools.
 **Blueprint:** Extracted the 6 individual channels and the serde formatting helpers into distinct submodules (`bytecode_cost.rs`, `object_lineage.rs`, etc.). `lib.rs` was refactored into a clean facade that re-exports the individual channels and acts as the singular `TelemetryStore` entrypoint, maintaining backwards compatibility while restoring domain responsibility separation.
+
+**Enforce The Facade Pattern Across Workspace Crates**
+**Tangle:** All workspace crates (like `duke-bytecode`, `duke-classfile`, `duke-interpreter`) were leaking their internal structure by exporting submodules directly with `pub mod`. This violated the high cohesion/low coupling rule by exposing internal implementation details (The "Leaky Abstraction") and making downstream crates depend on deep paths.
+**Blueprint:** Encapsulated internal modules by changing `pub mod` to `pub(crate) mod` in every `lib.rs` file across the workspace. Added explicit `pub use` statements to create a true Facade, re-exporting only what the public API strictly requires.

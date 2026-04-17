@@ -16,9 +16,7 @@ mod uml;
 
 use duke_bytecode::{decode, generate_mermaid_call_graph, generate_mermaid_cfg};
 use duke_classfile::{
-    ClassFile,
-    access_flags::MethodAccessFlags,
-    parse,
+    ClassFile, MethodAccessFlags, parse,
     types::{AttributeData, CpEntry, CpIndex},
 };
 use duke_gc::Heap;
@@ -1257,7 +1255,7 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code_empty() {
         use duke_classfile::{
-            access_flags::ClassAccessFlags,
+            ClassAccessFlags,
             types::{ClassFile, CpEntry, CpIndex},
         };
 
@@ -1287,8 +1285,8 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code() {
         use duke_classfile::{
-            access_flags::{ClassAccessFlags, MethodAccessFlags},
             types::{ClassFile, CpEntry, CpIndex, MethodInfo},
+            {ClassAccessFlags, MethodAccessFlags},
         };
 
         let cf = ClassFile {

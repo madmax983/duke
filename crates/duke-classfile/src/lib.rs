@@ -15,12 +15,12 @@
 //! println!("Methods: {}", class_file.methods.len());
 //! ```
 
-pub mod access_flags;
-pub mod attributes;
-pub mod class;
-pub mod constant_pool;
-pub mod error;
-pub mod parser;
+pub(crate) mod access_flags;
+pub(crate) mod attributes;
+pub(crate) mod class;
+pub(crate) mod constant_pool;
+pub(crate) mod error;
+pub(crate) mod parser;
 
 /// Compatibility module re-exporting the split type structures.
 pub mod types {
@@ -29,6 +29,7 @@ pub mod types {
     pub use crate::constant_pool::*;
 }
 
+pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, ParseError, ParseResult, Result};
 pub use parser::parse;
 pub use types::{
