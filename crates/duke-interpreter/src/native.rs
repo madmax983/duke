@@ -24984,6 +24984,9 @@ pub(crate) fn native_string_indent(
 }
 
 /// Native: `StringBuilder.setCharAt(int, char) -> void`
+///
+/// ⚡ Bolt: Modifies the string directly via `replace_range` instead of cloning the entire
+/// string into an intermediate `Vec<char>`, eliminating O(N) heap allocations per character mutation.
 pub(crate) fn native_stringbuilder_set_char_at(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -24999,14 +25002,12 @@ pub(crate) fn native_stringbuilder_set_char_at(
     let s = heap
         .get_mut(this_ref)?
         .string_value
-        .get_or_insert_with(String::new)
-        .clone();
-    let mut chars: Vec<char> = s.chars().collect();
-    if idx < chars.len() {
-        chars[idx] = ch;
+        .get_or_insert_with(String::new);
+    if let Some((byte_idx, old_ch)) = s.char_indices().nth(idx) {
+        let mut buf = [0; 4];
+        let ch_str = ch.encode_utf8(&mut buf);
+        s.replace_range(byte_idx..byte_idx + old_ch.len_utf8(), ch_str);
     }
-    let new_s: String = chars.into_iter().collect();
-    heap.get_mut(this_ref)?.string_value = Some(new_s);
     Ok(None)
 }
 

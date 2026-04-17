@@ -30,3 +30,7 @@
 **[Eliminate Slot Vec clones in Native Array/HashMap Iteration]
 **Learning:** [Many Java native methods like `native_arraylist_index_of` or `native_arrays_equals_int` were cloning the entire `fields` vector from `heap.get(this_ref)` simply to iterate and search. Since `Slot` is `Copy`, cloning the entire vector is wildly inefficient. A previous learning suggested borrowing with `&heap.get(...)?.fields`, but this causes borrow checker conflicts if the inner loop needs `heap` for operations like `slots_equal`.]
 **Action:** [Use an index-based loop (`for i in 0..len`) by getting `len` first, then retrieving `heap.get(this_ref)?.fields[i]` inside the loop. This avoids both full `Vec` cloning and holding overlapping `Heap` borrows across function calls.]
+
+**[Avoid O(N) allocations for String edits]
+**Learning:** Using `char_indices().nth()` and `replace_range` allows in-place string modification without the O(N) memory allocation of converting `String` to `Vec<char>` and back.
+**Action:** Always favor `replace_range` for single character replacements in `String` instead of doing heavy O(N) `.chars().collect()` allocations.
