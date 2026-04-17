@@ -21,6 +21,8 @@ pub mod verifier;
 #[cfg(feature = "nova")]
 pub use basic_block::{BasicBlock, build_basic_blocks};
 pub use call_graph::generate_mermaid_call_graph;
+#[cfg(feature = "nova")]
+pub use cfg::generate_basic_block_cfg;
 pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
 pub use error::{DecodeError, DecodeResult, Error, Result, VerifyError, VerifyResult};

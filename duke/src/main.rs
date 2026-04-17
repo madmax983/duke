@@ -14,7 +14,10 @@ mod scan;
 mod search;
 mod uml;
 
-use duke_bytecode::{decode, generate_mermaid_call_graph, generate_mermaid_cfg};
+use duke_bytecode::{
+    build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_call_graph,
+    generate_mermaid_cfg,
+};
 use duke_classfile::{
     ClassFile,
     access_flags::MethodAccessFlags,
@@ -222,6 +225,7 @@ fn main() {
         eprintln!("       duke deps-graph <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
+        eprintln!("       duke bbcfg <classfile.class> <method>");
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
@@ -274,6 +278,12 @@ fn main() {
     // Dispatch `cfg`: dump control flow graph for a method.
     if args.len() >= 4 && args[1] == "cfg" {
         dump_cfg(&args[2], &args[3]);
+        return;
+    }
+
+    // Dispatch `bbcfg`: dump basic block control flow graph for a method.
+    if args.len() >= 4 && args[1] == "bbcfg" {
+        dump_bbcfg(&args[2], &args[3]);
         return;
     }
 
@@ -805,6 +815,45 @@ fn dump_cfg(path: &str, method_name: &str) {
     process::exit(1);
 }
 
+fn dump_bbcfg(path: &str, method_name: &str) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| {
+        eprintln!("duke: cannot read '{path}': {e}");
+        process::exit(1);
+    });
+    let cf = parse(&bytes).unwrap_or_else(|e| {
+        eprintln!("duke: parse error: {e}");
+        process::exit(1);
+    });
+
+    let target = cf
+        .methods
+        .iter()
+        .find(|m| {
+            let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize) else {
+                return false;
+            };
+            s.as_str() == method_name
+        })
+        .unwrap_or_else(|| {
+            eprintln!("duke: method '{method_name}' not found");
+            process::exit(1);
+        });
+
+    for attr in &target.attributes {
+        if let AttributeData::Code(code) = &attr.data {
+            let instructions = decode(&code.code).unwrap_or_else(|e| {
+                eprintln!("duke: decode error: {e}");
+                process::exit(1);
+            });
+            let blocks = build_basic_blocks(&instructions);
+            println!("{}", generate_basic_block_cfg(&blocks));
+            return;
+        }
+    }
+    eprintln!("duke: method '{method_name}' has no code attribute");
+    process::exit(1);
+}
+
 fn dump_cg(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
@@ -857,6 +906,49 @@ mod cfg_tests {
         assert!(found_code, "should have found code attribute for main");
     }
 
+    #[test]
+    fn test_dump_bbcfg_valid() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+        dump_bbcfg(p.to_str().unwrap(), "main");
+    }
+
+    #[test]
+    fn test_extract_bbcfg() {
+        // Find HelloWorld.class in tests/fixtures
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+
+        let bytes = std::fs::read(&p).expect("read class");
+        let cf = parse(&bytes).expect("parse class");
+
+        // Use core logic inside dump_bbcfg to extract main
+        let target = cf
+            .methods
+            .iter()
+            .find(|m| {
+                let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize)
+                else {
+                    return false;
+                };
+                s.as_str() == "main"
+            })
+            .expect("find main");
+
+        let mut found_code = false;
+        for attr in &target.attributes {
+            if let AttributeData::Code(code) = &attr.data {
+                found_code = true;
+                let instructions = decode(&code.code).expect("decode instructions");
+                let blocks = build_basic_blocks(&instructions);
+                let cfg_str = generate_basic_block_cfg(&blocks);
+                assert!(cfg_str.contains("graph TD"));
+                assert!(cfg_str.contains("getstatic"));
+            }
+        }
+        assert!(found_code, "should have found code attribute for main");
+    }
+
     // To trigger the `dump_cfg` function coverage for error cases:
     #[test]
     fn test_dump_cfg_missing_file() {
@@ -896,6 +988,9 @@ mod cfg_tests {
         let html_content = std::fs::read_to_string(&out_path).unwrap();
         assert!(html_content.contains("<!DOCTYPE html>"));
         assert!(html_content.contains("Duke Class Report: HelloWorld"));
+
+        // Basic Block CFG Coverage
+        assert!(html_content.contains("<h4>Basic Block Control Flow Graph</h4>"));
 
         // Clean up
         std::fs::remove_file(out_path).unwrap();

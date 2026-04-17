@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 duke-classfile = { path = "../crates/duke-classfile" }
-duke-bytecode = { path = "../crates/duke-bytecode" }
+duke-bytecode = { path = "../crates/duke-bytecode", features = ["nova"] }
 duke-loader = { path = "../crates/duke-loader" }
 duke-runtime = { path = "../crates/duke-runtime" }
 duke-gc = { path = "../crates/duke-gc" }
