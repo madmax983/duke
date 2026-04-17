@@ -1,4 +1,3 @@
-//! High-level static analysis for JAR files.
 use duke_bytecode::{cyclomatic_complexity, decode};
 use duke_classfile::{parse, types::AttributeData};
 use duke_loader::ZipReader;
@@ -16,7 +15,7 @@ use std::fs;
 ///
 /// # Examples
 ///
-/// ```compile_fail
+/// ```ignore
 /// // Assumes 'app.jar' exists on the filesystem
 /// use duke::inspect::inspect_jar;
 ///

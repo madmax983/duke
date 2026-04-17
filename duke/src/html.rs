@@ -1,4 +1,3 @@
-//! HTML report generation for JVM class files.
 use duke_bytecode::{build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_cfg};
 use duke_classfile::{
     ClassFile,
@@ -267,7 +266,7 @@ fn write_methods(out: &mut String, cf: &ClassFile) {
 ///
 /// # Examples
 ///
-/// ```compile_fail
+/// ```ignore
 /// use duke::html::generate_html_report;
 /// use duke_classfile::ClassFile;
 ///

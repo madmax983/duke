@@ -1,4 +1,3 @@
-//! Security scanning utility to detect dangerous API usage.
 use duke_classfile::{
     ClassFile,
     types::{CpEntry, CpIndex},

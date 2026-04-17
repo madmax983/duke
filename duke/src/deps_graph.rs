@@ -1,4 +1,3 @@
-//! Dependency graph generation from JVM class constant pools.
 use duke_classfile::{
     ClassFile,
     types::{CpEntry, CpIndex},
@@ -45,7 +44,7 @@ use std::fmt::Write;
 ///
 /// # Examples
 ///
-/// ```compile_fail
+/// ```ignore
 /// use duke::deps_graph::generate_deps_graph;
 /// use duke_classfile::ClassFile;
 ///

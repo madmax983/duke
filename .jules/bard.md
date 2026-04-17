@@ -28,7 +28,3 @@
 
 **Confusion:** The `generate_basic_block_cfg` function in `crates/duke-bytecode/src/cfg.rs` lacked a doc comment explaining its purpose and how to use it, causing a `missing_docs` warning. Also, multiple modules in `duke-telemetry` were missing module level `//!` docs.
 **Clarification:** Added a detailed doc comment with an executable doctest to `generate_basic_block_cfg` to show how to pass a mock `BasicBlock` and assert on the Mermaid graph output. Additionally, added module level docs to the missing telemetry modules.
-## 2024-05-19 - Binary crate modules missing docs
-
-**Confusion:** Running `cargo clippy --all-targets --all-features -- -D missing_docs` fails when a workspace binary crate (`duke/src/*.rs`) has public module methods that lack module-level documentation (`//!`).
-**Clarification:** Added module-level documentation describing the tool's purpose to each file (`duke/src/analyze.rs`, etc.) to clear the `-D missing_docs` requirement, and changed `ignore` to `compile_fail` so tests are correctly recognized as dummy without affecting CI.
