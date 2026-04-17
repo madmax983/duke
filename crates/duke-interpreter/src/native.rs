@@ -42,7 +42,13 @@ fn extract_io_fd_at(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> VmResult<
 
 #[inline]
 fn extract_int_arg(args: &[Slot], idx: usize) -> VmResult<i32> {
-    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_int()
+    match args.get(idx) {
+        Some(Slot::Int(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Int",
+            got: "other",
+        }),
+    }
 }
 
 /// Box a primitive `Slot` into a heap object so it can be stored as `Object` in collections.
@@ -85,17 +91,35 @@ fn box_primitive_slot(slot: Slot, heap: &mut duke_gc::Heap) -> Slot {
 
 #[inline]
 fn extract_long_arg(args: &[Slot], idx: usize) -> VmResult<i64> {
-    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_long()
+    match args.get(idx) {
+        Some(Slot::Long(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Long",
+            got: "other",
+        }),
+    }
 }
 
 #[inline]
 fn extract_float_arg(args: &[Slot], idx: usize) -> VmResult<f32> {
-    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_float()
+    match args.get(idx) {
+        Some(Slot::Float(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Float",
+            got: "other",
+        }),
+    }
 }
 
 #[inline]
 fn extract_double_arg(args: &[Slot], idx: usize) -> VmResult<f64> {
-    args.get(idx).copied().unwrap_or(Slot::Reference(None)).as_double()
+    match args.get(idx) {
+        Some(Slot::Double(v)) => Ok(*v),
+        _ => Err(VmError::TypeMismatch {
+            expected: "Double",
+            got: "other",
+        }),
+    }
 }
 
 macro_rules! extract_print_arg {
@@ -1799,10 +1823,12 @@ pub(crate) fn native_hashmap_for_each(
         .map(|i| {
             let key = heap
                 .get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
+                .map(|o| o.fields[1 + i * 2])
+                .unwrap_or(Slot::Reference(None));
             let val = heap
                 .get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+                .map(|o| o.fields[2 + i * 2])
+                .unwrap_or(Slot::Reference(None));
             (key, val)
         })
         .collect();
@@ -1841,13 +1867,15 @@ pub(crate) fn native_hashmap_replace_all(
     let keys: Vec<Slot> = (0..size)
         .map(|i| {
             heap.get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2])
+                .map(|o| o.fields[1 + i * 2])
+                .unwrap_or(Slot::Reference(None))
         })
         .collect();
     for (i, key) in keys.iter().enumerate() {
         let old_val = heap
             .get(this_ref)
-            .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+            .map(|o| o.fields[2 + i * 2])
+            .unwrap_or(Slot::Reference(None));
         let new_val = ops.invoke(
             heap,
             out,
@@ -15617,7 +15645,8 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
 fn total_instance_field_count(registry: &ClassRegistry, class_name: &str) -> usize {
     let mut count = registry
         .get(class_name)
-        .map_or(0, |c| c.instance_field_count);
+        .map(|c| c.instance_field_count)
+        .unwrap_or(0);
     let mut sc = registry
         .get(class_name)
         .ok()

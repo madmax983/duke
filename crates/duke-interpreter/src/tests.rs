@@ -1790,8 +1790,8 @@ fn test_extract_int_arg_missing() {
     assert!(matches!(
         extract_int_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "int",
-            got: _
+            expected: "Int",
+            got: "other"
         }
     ));
 }
@@ -13219,8 +13219,8 @@ fn test_extract_int_arg_type_mismatch() {
     assert!(matches!(
         extract_int_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "int",
-            got: _
+            expected: "Int",
+            got: "other"
         }
     ));
 }
@@ -13231,8 +13231,8 @@ fn test_extract_long_arg_missing() {
     assert!(matches!(
         extract_long_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "long",
-            got: _
+            expected: "Long",
+            got: "other"
         }
     ));
 }
@@ -13249,8 +13249,8 @@ fn test_extract_long_arg_type_mismatch() {
     assert!(matches!(
         extract_long_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "long",
-            got: _
+            expected: "Long",
+            got: "other"
         }
     ));
 }
@@ -13261,8 +13261,8 @@ fn test_extract_float_arg_missing() {
     assert!(matches!(
         extract_float_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "float",
-            got: _
+            expected: "Float",
+            got: "other"
         }
     ));
 }
@@ -13279,8 +13279,8 @@ fn test_extract_float_arg_type_mismatch() {
     assert!(matches!(
         extract_float_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "float",
-            got: _
+            expected: "Float",
+            got: "other"
         }
     ));
 }
@@ -13291,8 +13291,8 @@ fn test_extract_double_arg_missing() {
     assert!(matches!(
         extract_double_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "double",
-            got: _
+            expected: "Double",
+            got: "other"
         }
     ));
 }
@@ -13309,8 +13309,8 @@ fn test_extract_double_arg_type_mismatch() {
     assert!(matches!(
         extract_double_arg(&args, 0).unwrap_err(),
         VmError::TypeMismatch {
-            expected: "double",
-            got: _
+            expected: "Double",
+            got: "other"
         }
     ));
 }

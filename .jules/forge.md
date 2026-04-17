@@ -34,11 +34,3 @@
 **Extract Enum Variant Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained multiple massive `match` blocks repeatedly enumerating the 15+ conditional branch instructions, unconditional jumps, and return instructions to generate CFGs and compute cyclomatic complexity. This duplicated logic and inflated file size.
 **Action:** Always extract boolean categorization logic (e.g., `is_conditional_branch()`, `is_return()`) and data extraction logic (`conditional_branch_target()`) into public helper methods directly on the enum (`Instruction`) to DRY up matching code and dramatically flatten calling modules.
-
-**Simplify primitive arg extraction in native.rs**
-**Learning:** Repeated extraction of arguments and fields via unwrapping `unwrap_or(Slot::Reference(None))` and then custom matching in `extract_*_arg` (int, long, float, double) created unnecessary logic, especially when `Slot::as_*` functions already provide correct matching and type checking.
-**Action:** Refactored `extract_*_arg` helper functions to rely on the underlying `Slot::as_*` functions instead of manually unpacking the `Option` and matching on the variants. Reduced boilerplate and improved readability.
-
-**Simplify primitive arg extraction in native.rs**
-**Learning:** Repeated extraction of arguments and fields via unwrapping `unwrap_or(Slot::Reference(None))` and then custom matching in `extract_*_arg` (int, long, float, double) created unnecessary logic, especially when `Slot::as_*` functions already provide correct matching and type checking.
-**Action:** Refactored `extract_*_arg` helper functions to rely on the underlying `Slot::as_*` functions instead of manually unpacking the `Option` and matching on the variants. Reduced boilerplate and improved readability.
