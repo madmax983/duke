@@ -7,6 +7,7 @@ use std::process;
 
 mod analyze;
 mod deps_graph;
+mod diff;
 mod histogram;
 mod html;
 mod jar_analyze;
@@ -219,6 +220,7 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke html <classfile.class> [output.html]");
+        eprintln!("       duke diff <classfile1.class> <classfile2.class>");
         eprintln!("       duke deps-graph <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
@@ -257,6 +259,15 @@ fn main() {
     // Dispatch `load` before trying to read a file.
     if args.len() >= 3 && args[1] == "load" {
         load_and_dump(&args[2]);
+        return;
+    }
+
+    // Dispatch `diff`: compare two classes.
+    if args.len() >= 4 && args[1] == "diff" {
+        #[cfg(feature = "nova")]
+        diff::dump_diff(&args[2], &args[3]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'diff' command requires the 'nova' feature flag.");
         return;
     }
 

@@ -1,3 +1,114 @@
+#[cfg(feature = "nova")]
+use std::collections::HashMap;
+#[cfg(feature = "nova")]
+use duke_classfile::{parse, types::{AttributeData, CpEntry, CpIndex}};
+#[cfg(feature = "nova")]
+use duke_bytecode::decode;
+
+#[cfg(feature = "nova")]
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
+fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|slot| slot.as_ref())
+        .and_then(|entry| {
+            if let CpEntry::Utf8(s) = entry {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+}
+
+#[cfg(feature = "nova")]
+#[allow(clippy::print_stdout, clippy::use_debug, clippy::collapsible_if)]
+pub fn dump_diff(path1: &str, path2: &str) {
+    let bytes1 = match std::fs::read(path1) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("duke: failed to read '{path1}': {e}");
+            return;
+        }
+    };
+    let cf1 = match parse(&bytes1) {
+        Ok(cf) => cf,
+        Err(e) => {
+            eprintln!("duke: parse error in '{path1}': {e}");
+            return;
+        }
+    };
+
+    let bytes2 = match std::fs::read(path2) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("duke: failed to read '{path2}': {e}");
+            return;
+        }
+    };
+    let cf2 = match parse(&bytes2) {
+        Ok(cf) => cf,
+        Err(e) => {
+            eprintln!("duke: parse error in '{path2}': {e}");
+            return;
+        }
+    };
+
+    let mut methods1 = HashMap::new();
+    for m in &cf1.methods {
+        let name = cp_str(&cf1, m.name_index).unwrap_or("");
+        let desc = cp_str(&cf1, m.descriptor_index).unwrap_or("");
+        let mut code_len = 0;
+        for attr in &m.attributes {
+            if let AttributeData::Code(code) = &attr.data {
+                if let Ok(instructions) = decode(&code.code) {
+                    code_len = instructions.len();
+                }
+            }
+        }
+        methods1.insert(format!("{name}{desc}"), code_len);
+    }
+
+    let mut methods2 = HashMap::new();
+    for m in &cf2.methods {
+        let name = cp_str(&cf2, m.name_index).unwrap_or("");
+        let desc = cp_str(&cf2, m.descriptor_index).unwrap_or("");
+        let mut code_len = 0;
+        for attr in &m.attributes {
+            if let AttributeData::Code(code) = &attr.data {
+                if let Ok(instructions) = decode(&code.code) {
+                    code_len = instructions.len();
+                }
+            }
+        }
+        methods2.insert(format!("{name}{desc}"), code_len);
+    }
+
+    println!("=== Bytecode Diff ===");
+    println!("--- {path1}");
+    println!("+++ {path2}");
+
+    for (m, len1) in &methods1 {
+        if let Some(len2) = methods2.get(m) {
+            if len1 != len2 {
+                println!("~ {m} ({len1} instrs -> {len2} instrs)");
+            }
+        } else {
+            println!("- {m}");
+        }
+    }
+    for m in methods2.keys() {
+        if !methods1.contains_key(m) {
+            println!("+ {m}");
+        }
+    }
+}
+
+
+#[cfg(test)]
+#[cfg(feature = "nova")]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_dump_diff_handles_files() {
@@ -107,7 +218,6 @@
         std::fs::remove_file(&path1).unwrap();
         std::fs::remove_file(&path2).unwrap();
     }
-}
 
     #[test]
     fn test_dump_diff_changed_methods_with_different_instructions() {
