@@ -16043,13 +16043,6 @@ pub(crate) fn native_sb_delete(
         .ok()
         .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
         .unwrap_or(buf.len());
-
-    if start > end || start_byte > end_byte {
-        return Err(VmError::JavaException {
-            class_name: "java/lang/StringIndexOutOfBoundsException".to_string(),
-        });
-    }
-
     buf.drain(start_byte..end_byte);
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
