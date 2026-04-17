@@ -1867,8 +1867,7 @@ pub(crate) fn native_hashmap_replace_all(
     let keys: Vec<Slot> = (0..size)
         .map(|i| {
             heap.get(this_ref)
-                .map(|o| o.fields[1 + i * 2])
-                .unwrap_or(Slot::Reference(None))
+                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2])
         })
         .collect();
     for (i, key) in keys.iter().enumerate() {
@@ -16037,7 +16036,7 @@ pub(crate) fn native_sb_delete(
         .get_or_insert_with(String::new);
 
     let char_count = buf.chars().count();
-    if start > end || start < 0 || start as usize > char_count {
+    if start > end || start < 0 || start.unsigned_abs() as usize > char_count {
         return Err(VmError::ArrayIndexOutOfBounds {
             index: start,
             length: char_count,
@@ -25163,8 +25162,11 @@ mod havoc_sb_delete {
 }
 
 mod havoc_thread_join_itself {
+    #[cfg(test)]
     use super::*;
+    #[cfg(test)]
     use std::sync::{Arc, Mutex};
+    #[cfg(test)]
     use std::thread;
 
     #[test]
