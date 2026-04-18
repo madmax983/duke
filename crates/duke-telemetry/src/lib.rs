@@ -129,7 +129,7 @@ impl TelemetryStore {
 
         writeln!(w, "\n-- bytecode_cost (top 10 by count) --")?;
         let mut ops: Vec<_> = self.bytecode_cost.by_opcode.iter().collect();
-        ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+        ops.sort_by(|a, b| b.1.count.cmp(&a.1.count));
         for (name, stat) in ops.iter().take(10) {
             writeln!(w, "  {:20} count={:>10}", name, stat.count)?;
         }
@@ -139,7 +139,7 @@ impl TelemetryStore {
             "\n-- object_lineage (top 10 allocation sites by count) --"
         )?;
         let mut sites: Vec<_> = self.object_lineage.sites.iter().collect();
-        sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+        sites.sort_by(|a, b| b.1.count.cmp(&a.1.count));
         for ((class, method, pc), site) in sites.iter().take(10) {
             writeln!(
                 w,
@@ -180,7 +180,7 @@ impl TelemetryStore {
 
         writeln!(w, "\n-- dispatch_resolution (top 10 virtual call sites) --")?;
         let mut dsites: Vec<_> = self.dispatch_resolution.by_site.iter().collect();
-        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+        dsites.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
         for ((class, cp), stat) in dsites.iter().take(10) {
             writeln!(
                 w,
@@ -195,7 +195,7 @@ impl TelemetryStore {
 
         writeln!(w, "\n-- native_boundary (top 10 by call count) --")?;
         let mut natives: Vec<_> = self.native_boundary.by_method.iter().collect();
-        natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+        natives.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
         for ((class, method), stat) in natives.iter().take(10) {
             writeln!(
                 w,
@@ -233,7 +233,7 @@ impl TelemetryStore {
         writeln!(&mut out, "| Opcode | Count | Time (ns) |").unwrap();
         writeln!(&mut out, "|--------|-------|-----------|").unwrap();
         let mut ops: Vec<_> = self.bytecode_cost.by_opcode.iter().collect();
-        ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+        ops.sort_by(|a, b| b.1.count.cmp(&a.1.count));
         for (name, stat) in ops.iter().take(10) {
             writeln!(
                 &mut out,
@@ -254,7 +254,7 @@ impl TelemetryStore {
         writeln!(&mut out, "| Location | Class Allocated | Count |").unwrap();
         writeln!(&mut out, "|----------|-----------------|-------|").unwrap();
         let mut sites: Vec<_> = self.object_lineage.sites.iter().collect();
-        sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+        sites.sort_by(|a, b| b.1.count.cmp(&a.1.count));
         for ((class, method, pc), site) in sites.iter().take(10) {
             writeln!(
                 &mut out,
@@ -327,7 +327,7 @@ impl TelemetryStore {
         writeln!(&mut out, "| Caller | Calls | Targets | Hierarchy Walks |").unwrap();
         writeln!(&mut out, "|--------|-------|---------|-----------------|").unwrap();
         let mut dsites: Vec<_> = self.dispatch_resolution.by_site.iter().collect();
-        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+        dsites.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
         for ((class, cp), stat) in dsites.iter().take(10) {
             writeln!(
                 &mut out,
@@ -350,7 +350,7 @@ impl TelemetryStore {
         writeln!(&mut out, "| Native Method | Calls | Errors | Time (ns) |").unwrap();
         writeln!(&mut out, "|---------------|-------|--------|-----------|").unwrap();
         let mut natives: Vec<_> = self.native_boundary.by_method.iter().collect();
-        natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+        natives.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
         for ((class, method), stat) in natives.iter().take(10) {
             writeln!(
                 &mut out,
@@ -375,6 +375,23 @@ mod tests {
     fn telemetry_store_to_markdown_report() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("Foo", "bar", 10, "java/lang/String");
+        store.dispatch_resolution.record("Foo", 10, "Bar", false);
+        store.native_boundary.record_call("Foo", "bar", 100, false);
+
+        let mut out = Vec::new();
+        store.print_report(&mut out).unwrap();
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.contains("-- bytecode_cost (top 10 by count) --"));
+        assert!(s.contains("iadd"));
+        assert!(s.contains("-- object_lineage (top 10 allocation sites by count) --"));
+        assert!(s.contains("java/lang/String"));
+        assert!(s.contains("-- dispatch_resolution (top 10 virtual call sites) --"));
+        assert!(s.contains("Foo"));
+        assert!(s.contains("-- native_boundary (top 10 by call count) --"));
+        assert!(s.contains("bar"));
         store
             .class_init_dag
             .record("java/lang/String", "java/lang/System", 500);
