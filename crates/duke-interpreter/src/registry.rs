@@ -1020,7 +1020,9 @@ mod callback_ops_tests {
             Ok(())
         }
         fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
-            unimplemented!()
+            Err(VmError::Unimplemented {
+                mnemonic: "inspect_class",
+            })
         }
     }
 
