@@ -295,10 +295,10 @@ pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
     let mut complexity = 1;
 
     for (_, instr) in instructions {
-        if instr.is_conditional_branch() || instr.unconditional_jump_target().is_some() {
-            if !matches!(instr, Instruction::Goto(_) | Instruction::GotoW(_)) {
-                complexity += 1;
-            }
+        if instr.is_conditional_branch()
+            || matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))
+        {
+            complexity += 1;
         } else {
             match instr {
                 // Switch statements
