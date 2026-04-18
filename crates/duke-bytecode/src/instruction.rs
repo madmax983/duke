@@ -690,34 +690,48 @@ mod tests {
 
     #[test]
     fn test_is_switch() {
-        assert!(super::Instruction::Tableswitch {
-            default: 0,
-            low: 0,
-            high: 0,
-            offsets: vec![],
-        }.is_switch());
+        assert!(
+            super::Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 0,
+                offsets: vec![],
+            }
+            .is_switch()
+        );
 
-        assert!(super::Instruction::Lookupswitch {
-            default: 0,
-            pairs: vec![],
-        }.is_switch());
+        assert!(
+            super::Instruction::Lookupswitch {
+                default: 0,
+                pairs: vec![],
+            }
+            .is_switch()
+        );
 
         assert!(!super::Instruction::Nop.is_switch());
     }
 
     #[test]
     fn test_switch_path_count() {
-        assert_eq!(super::Instruction::Tableswitch {
-            default: 0,
-            low: 0,
-            high: 2,
-            offsets: vec![1, 2, 3],
-        }.switch_path_count(), Some(3));
+        assert_eq!(
+            super::Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 2,
+                offsets: vec![1, 2, 3],
+            }
+            .switch_path_count(),
+            Some(3)
+        );
 
-        assert_eq!(super::Instruction::Lookupswitch {
-            default: 0,
-            pairs: vec![(1, 1), (2, 2)],
-        }.switch_path_count(), Some(2));
+        assert_eq!(
+            super::Instruction::Lookupswitch {
+                default: 0,
+                pairs: vec![(1, 1), (2, 2)],
+            }
+            .switch_path_count(),
+            Some(2)
+        );
 
         assert_eq!(super::Instruction::Nop.switch_path_count(), None);
     }
