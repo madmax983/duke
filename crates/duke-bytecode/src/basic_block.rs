@@ -81,37 +81,90 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
     leaders.insert(instructions[0].0);
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
-        let mut is_branch_or_return = false;
-
-        if let Some(offset) = instr.conditional_branch_target() {
-            leaders.insert((*pc as isize + offset) as usize);
-            is_branch_or_return = true;
-        } else if let Some(offset) = instr.unconditional_jump_target() {
-            leaders.insert((*pc as isize + offset) as usize);
-            is_branch_or_return = true;
-        } else if instr.is_return() {
-            is_branch_or_return = true;
-        } else {
-            match instr {
-                Instruction::Tableswitch {
-                    default, offsets, ..
-                } => {
-                    leaders.insert((*pc as isize + *default as isize) as usize);
-                    for offset in offsets {
-                        leaders.insert((*pc as isize + *offset as isize) as usize);
-                    }
-                    is_branch_or_return = true;
-                }
-                Instruction::Lookupswitch { default, pairs } => {
-                    leaders.insert((*pc as isize + *default as isize) as usize);
-                    for (_, offset) in pairs {
-                        leaders.insert((*pc as isize + *offset as isize) as usize);
-                    }
-                    is_branch_or_return = true;
-                }
-                _ => {}
+        let is_branch_or_return = match instr {
+            Instruction::Ifeq(_)
+            | Instruction::Ifne(_)
+            | Instruction::Iflt(_)
+            | Instruction::Ifge(_)
+            | Instruction::Ifgt(_)
+            | Instruction::Ifle(_)
+            | Instruction::IfIcmpeq(_)
+            | Instruction::IfIcmpne(_)
+            | Instruction::IfIcmplt(_)
+            | Instruction::IfIcmpge(_)
+            | Instruction::IfIcmpgt(_)
+            | Instruction::IfIcmple(_)
+            | Instruction::IfAcmpeq(_)
+            | Instruction::IfAcmpne(_)
+            | Instruction::Ifnull(_)
+            | Instruction::Ifnonnull(_)
+            | Instruction::Jsr(_)
+            | Instruction::JsrW(_) => {
+                // Rule 2: The target of a branch is a leader.
+                let offset = match instr {
+                    Instruction::JsrW(off) => *off as isize,
+                    Instruction::Ifeq(off)
+                    | Instruction::Ifne(off)
+                    | Instruction::Iflt(off)
+                    | Instruction::Ifge(off)
+                    | Instruction::Ifgt(off)
+                    | Instruction::Ifle(off)
+                    | Instruction::IfIcmpeq(off)
+                    | Instruction::IfIcmpne(off)
+                    | Instruction::IfIcmplt(off)
+                    | Instruction::IfIcmpge(off)
+                    | Instruction::IfIcmpgt(off)
+                    | Instruction::IfIcmple(off)
+                    | Instruction::IfAcmpeq(off)
+                    | Instruction::IfAcmpne(off)
+                    | Instruction::Ifnull(off)
+                    | Instruction::Ifnonnull(off)
+                    | Instruction::Jsr(off) => isize::from(*off),
+                    // This unreachable is actually unreachable due to the outer match,
+                    // but let's test it just in case if we can't... wait, we can't test unreachable.
+                    _ => unreachable!(),
+                };
+                leaders.insert((*pc as isize + offset) as usize);
+                true
             }
-        }
+            Instruction::Goto(offset) => {
+                leaders.insert((*pc as isize + isize::from(*offset)) as usize);
+                true
+            }
+            Instruction::GotoW(offset) => {
+                leaders.insert((*pc as isize + *offset as isize) as usize);
+                true
+            }
+            Instruction::Tableswitch {
+                default, offsets, ..
+            } => {
+                leaders.insert((*pc as isize + *default as isize) as usize);
+                for offset in offsets {
+                    leaders.insert((*pc as isize + *offset as isize) as usize);
+                }
+                true
+            }
+            Instruction::Lookupswitch { default, pairs } => {
+                leaders.insert((*pc as isize + *default as isize) as usize);
+                for (_, offset) in pairs {
+                    leaders.insert((*pc as isize + *offset as isize) as usize);
+                }
+                true
+            }
+            Instruction::Return
+            | Instruction::Ireturn
+            | Instruction::Lreturn
+            | Instruction::Freturn
+            | Instruction::Dreturn
+            | Instruction::Areturn
+            | Instruction::Athrow
+            | Instruction::Ret(_)
+            | Instruction::RetW(_) => {
+                // Returns and throws also terminate the current block.
+                true
+            }
+            _ => false,
+        };
 
         if is_branch_or_return && i + 1 < instructions.len() {
             // Rule 3: The instruction immediately following a branch/return is a leader.

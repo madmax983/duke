@@ -936,3 +936,43 @@ mod tests {
         }
     }
 }
+#[cfg(test)]
+mod tests_ad_hoc {
+    use crate::Instruction;
+
+    #[test]
+    fn test_is_unconditional_jump() {
+        assert!(Instruction::Goto(5).is_unconditional_jump());
+        assert!(Instruction::GotoW(5).is_unconditional_jump());
+        assert!(Instruction::Jsr(5).is_unconditional_jump());
+        assert!(Instruction::JsrW(5).is_unconditional_jump());
+        assert!(!Instruction::Iconst0.is_unconditional_jump());
+        assert!(!Instruction::Return.is_unconditional_jump());
+    }
+
+    #[test]
+    fn test_unconditional_jump_target() {
+        assert_eq!(Instruction::Goto(5).unconditional_jump_target(), Some(5));
+        assert_eq!(Instruction::GotoW(-5).unconditional_jump_target(), Some(-5));
+        assert_eq!(Instruction::Jsr(10).unconditional_jump_target(), Some(10));
+        assert_eq!(
+            Instruction::JsrW(-10).unconditional_jump_target(),
+            Some(-10)
+        );
+        assert_eq!(Instruction::Iconst0.unconditional_jump_target(), None);
+    }
+
+    #[test]
+    fn test_is_return() {
+        assert!(Instruction::Return.is_return());
+        assert!(Instruction::Ireturn.is_return());
+        assert!(Instruction::Lreturn.is_return());
+        assert!(Instruction::Freturn.is_return());
+        assert!(Instruction::Dreturn.is_return());
+        assert!(Instruction::Areturn.is_return());
+        assert!(Instruction::Athrow.is_return());
+        assert!(Instruction::Ret(1).is_return());
+        assert!(Instruction::RetW(1).is_return());
+        assert!(!Instruction::Iconst0.is_return());
+    }
+}
