@@ -35,31 +35,10 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     }
 }
 
-/// A security rule representing a potentially dangerous Java API.
-///
-/// **Why it exists:** Provides a structured definition for identifying risky methods
-/// (e.g., `java.lang.Runtime.exec()`) during a security audit.
-///
-/// # Examples
-///
-/// ```
-/// use duke::scan::RiskRule;
-///
-/// let rule = RiskRule {
-///     class_name: "java/lang/Runtime",
-///     method_name: "exec",
-///     severity: "CRITICAL",
-///     description: "Executes an arbitrary OS command.",
-/// };
-/// ```
 pub struct RiskRule {
-    /// The internal name of the class (e.g., `"java/lang/Runtime"`).
     pub class_name: &'static str,
-    /// The name of the method (e.g., `"exec"`).
     pub method_name: &'static str,
-    /// The severity level (`"LOW"`, `"MEDIUM"`, `"HIGH"`, `"CRITICAL"`).
     pub severity: &'static str,
-    /// A human-readable description of why this method is dangerous.
     pub description: &'static str,
 }
 
@@ -102,33 +81,9 @@ pub const DEFAULT_RULES: &[RiskRule] = &[
     },
 ];
 
-/// Represents a discovered instance of a `RiskRule` within a class file.
-///
-/// **Why it exists:** When a dangerous API is detected, this struct links the matched
-/// rule with the specific location in the constant pool where the reference was found.
-///
-/// # Examples
-///
-/// ```
-/// use duke::scan::{RiskRule, RiskMatch};
-///
-/// let rule = RiskRule {
-///     class_name: "java/lang/System",
-///     method_name: "exit",
-///     severity: "MEDIUM",
-///     description: "Exits the JVM.",
-/// };
-///
-/// let risk_match = RiskMatch {
-///     rule: &rule,
-///     location: "Constant Pool #15".to_string(),
-/// };
-/// ```
 pub struct RiskMatch {
-    /// The security rule that was matched.
     pub rule: &'static RiskRule,
-    /// The location where the match occurred (e.g., `"Constant Pool #15"`).
-    pub location: String,
+    pub location: String, // E.g. "Methodref #10" or something more descriptive
 }
 
 #[cfg(not(tarpaulin_include))]
