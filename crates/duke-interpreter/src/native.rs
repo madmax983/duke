@@ -1822,10 +1822,12 @@ pub(crate) fn native_hashmap_for_each(
         .map(|i| {
             let key = heap
                 .get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
+                .map(|o| o.fields[1 + i * 2])
+                .unwrap_or(Slot::Reference(None));
             let val = heap
                 .get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+                .map(|o| o.fields[2 + i * 2])
+                .unwrap_or(Slot::Reference(None));
             (key, val)
         })
         .collect();
@@ -1864,13 +1866,15 @@ pub(crate) fn native_hashmap_replace_all(
     let keys: Vec<Slot> = (0..size)
         .map(|i| {
             heap.get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2])
+                .map(|o| o.fields[1 + i * 2])
+                .unwrap_or(Slot::Reference(None))
         })
         .collect();
     for (i, key) in keys.iter().enumerate() {
         let old_val = heap
             .get(this_ref)
-            .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+            .map(|o| o.fields[2 + i * 2])
+            .unwrap_or(Slot::Reference(None));
         let new_val = ops.invoke(
             heap,
             out,
@@ -15640,7 +15644,8 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
 fn total_instance_field_count(registry: &ClassRegistry, class_name: &str) -> usize {
     let mut count = registry
         .get(class_name)
-        .map_or(0, |c| c.instance_field_count);
+        .map(|c| c.instance_field_count)
+        .unwrap_or(0);
     let mut sc = registry
         .get(class_name)
         .ok()
@@ -16971,12 +16976,10 @@ pub(crate) fn native_hashmap_put_if_absent(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let val = extract_slot_arg(args, 2);
-    let existing = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashmap_entry_index(fields, &key, heap).map(|i| fields[i + 1])
-    };
-    if let Some(val) = existing {
-        return Ok(Some(val));
+    let fields = heap.get(this_ref)?.fields.clone();
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        // Key already present — return existing value.
+        return Ok(Some(fields[i + 1]));
     }
     // Key absent — insert and return null.
     let obj = heap.get_mut(this_ref)?;
@@ -18843,14 +18846,11 @@ pub(crate) fn native_hashmap_put(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let val = extract_slot_arg(args, 2);
-    // Use a scoped borrow to find the index without cloning.
-    let existing_idx = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashmap_entry_index(fields, &key, heap)
-    };
+    // Clone fields to release the immutable borrow before mutating.
+    let fields = heap.get(this_ref)?.fields.clone();
 
-    if let Some(i) = existing_idx {
-        let old = heap.get(this_ref)?.fields[i + 1];
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        let old = fields[i + 1];
         heap.get_mut(this_ref)?.fields[i + 1] = val;
         return Ok(Some(old));
     }
@@ -18875,11 +18875,12 @@ pub(crate) fn native_hashmap_get(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let val = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashmap_entry_index(fields, &key, heap).map_or(Slot::Reference(None), |i| fields[i + 1])
-    };
-    Ok(Some(val))
+    let fields = heap.get(this_ref)?.fields.clone();
+
+    Ok(Some(
+        find_hashmap_entry_index(&fields, &key, heap)
+            .map_or(Slot::Reference(None), |i| fields[i + 1]),
+    ))
 }
 
 /// Native: `HashMap.containsKey(Object)Z` — returns 1 if key present, 0 otherwise.
@@ -18891,11 +18892,9 @@ pub(crate) fn native_hashmap_contains_key(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let contains = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashmap_entry_index(fields, &key, heap).is_some()
-    };
-    if contains {
+    let fields = heap.get(this_ref)?.fields.clone();
+
+    if find_hashmap_entry_index(&fields, &key, heap).is_some() {
         Ok(Some(Slot::Int(1)))
     } else {
         Ok(Some(Slot::Int(0)))
@@ -18926,12 +18925,10 @@ pub(crate) fn native_hashmap_remove(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let found = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashmap_entry_index(fields, &key, heap).map(|i| (i, fields[i + 1]))
-    };
+    let fields = heap.get(this_ref)?.fields.clone();
 
-    if let Some((i, old_val)) = found {
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        let old_val = fields[i + 1];
         let obj = heap.get_mut(this_ref)?;
         let last_val_idx = obj.fields.len() - 1;
         let last_key_idx = obj.fields.len() - 2;
@@ -18973,11 +18970,11 @@ pub(crate) fn native_hashmap_get_or_default(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let default = extract_slot_arg(args, 2);
-    let val = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashmap_entry_index(fields, &key, heap).map_or(default, |i| fields[i + 1])
-    };
-    Ok(Some(val))
+    let fields = heap.get(this_ref)?.fields.clone();
+
+    Ok(Some(
+        find_hashmap_entry_index(&fields, &key, heap).map_or(default, |i| fields[i + 1]),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -19104,12 +19101,9 @@ pub(crate) fn native_hashset_add(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let element = extract_slot_arg(args, 1);
-    let contains = {
-        let fields = &heap.get(this_ref)?.fields;
-        // fields[0] = size, fields[1..] = elements
-        find_hashset_entry_index(fields, &element, heap).is_some()
-    };
-    if contains {
+    let fields = heap.get(this_ref)?.fields.clone();
+    // fields[0] = size, fields[1..] = elements
+    if find_hashset_entry_index(&fields, &element, heap).is_some() {
         return Ok(Some(Slot::Int(0))); // duplicate
     }
 
@@ -19131,11 +19125,9 @@ pub(crate) fn native_hashset_contains(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let element = extract_slot_arg(args, 1);
-    let contains = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashset_entry_index(fields, &element, heap).is_some()
-    };
-    if contains {
+    let fields = heap.get(this_ref)?.fields.clone();
+
+    if find_hashset_entry_index(&fields, &element, heap).is_some() {
         Ok(Some(Slot::Int(1)))
     } else {
         Ok(Some(Slot::Int(0)))
@@ -19152,12 +19144,9 @@ pub(crate) fn native_hashset_remove(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let element = extract_slot_arg(args, 1);
-    let found_idx = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashset_entry_index(fields, &element, heap)
-    };
+    let fields = heap.get(this_ref)?.fields.clone();
 
-    if let Some(i) = found_idx {
+    if let Some(i) = find_hashset_entry_index(&fields, &element, heap) {
         let obj = heap.get_mut(this_ref)?;
         let last_idx = obj.fields.len() - 1;
         obj.fields.swap(i, last_idx);
@@ -24914,24 +24903,17 @@ pub(crate) fn native_localdatetime_plus_days(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let days = extract_long_arg(args, 1)?;
-    let (epoch, f1, f2, f3, f4) = {
-        let fields = &heap.get(this_ref)?.fields;
-        let epoch = match fields.first() {
-            Some(Slot::Int(v)) => *v,
-            _ => 0,
-        };
-        (epoch, fields.get(1).copied().unwrap_or(Slot::Int(0)),
-         fields.get(2).copied().unwrap_or(Slot::Int(0)),
-         fields.get(3).copied().unwrap_or(Slot::Int(0)),
-         fields.get(4).copied().unwrap_or(Slot::Int(0)))
+    let fields = heap.get(this_ref)?.fields.clone();
+    let epoch = match fields.first() {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
     };
     let new_epoch = epoch.saturating_add(days as i32);
     let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
     heap.get_mut(r)?.fields[0] = Slot::Int(new_epoch);
-    heap.get_mut(r)?.fields[1] = f1;
-    heap.get_mut(r)?.fields[2] = f2;
-    heap.get_mut(r)?.fields[3] = f3;
-    heap.get_mut(r)?.fields[4] = f4;
+    for i in 1..5 {
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
+    }
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -24944,20 +24926,11 @@ pub(crate) fn native_localdatetime_with_hour(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let hour = extract_int_arg(args, 1)?;
-    let (f0, f1, f2, f3, f4) = {
-        let fields = &heap.get(this_ref)?.fields;
-        (fields.first().copied().unwrap_or(Slot::Int(0)),
-         fields.get(1).copied().unwrap_or(Slot::Int(0)),
-         fields.get(2).copied().unwrap_or(Slot::Int(0)),
-         fields.get(3).copied().unwrap_or(Slot::Int(0)),
-         fields.get(4).copied().unwrap_or(Slot::Int(0)))
-    };
+    let fields = heap.get(this_ref)?.fields.clone();
     let r = heap.allocate("java/time/LocalDateTime".to_string(), 5);
-    heap.get_mut(r)?.fields[0] = f0;
-    heap.get_mut(r)?.fields[1] = f1;
-    heap.get_mut(r)?.fields[2] = f2;
-    heap.get_mut(r)?.fields[3] = f3;
-    heap.get_mut(r)?.fields[4] = f4;
+    for i in 0..5 {
+        heap.get_mut(r)?.fields[i] = fields.get(i).copied().unwrap_or(Slot::Int(0));
+    }
     heap.get_mut(r)?.fields[1] = Slot::Int(hour);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -25132,15 +25105,13 @@ pub(crate) fn native_hashmap_remove_key_value(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let expected_val = extract_slot_arg(args, 2);
-    let found = {
-        let fields = &heap.get(this_ref)?.fields;
-        find_hashmap_entry_index(fields, &key, heap).map(|i| (i, fields[i + 1]))
-    };
-    if let Some((_i, actual_val)) = found
-        && slots_equal(&actual_val, &expected_val, heap)
-    {
-        native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
-        return Ok(Some(Slot::Int(1)));
+    let fields = heap.get(this_ref)?.fields.clone();
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        let actual_val = fields[i + 1];
+        if slots_equal(&actual_val, &expected_val, heap) {
+            native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
+            return Ok(Some(Slot::Int(1)));
+        }
     }
     Ok(Some(Slot::Int(0)))
 }
