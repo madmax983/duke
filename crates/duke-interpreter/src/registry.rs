@@ -997,3 +997,90 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod callback_ops_tests {
+    use super::*;
+    use duke_gc::Heap;
+
+    struct MockOps;
+    impl CallbackOps for MockOps {
+        fn invoke(
+            &mut self,
+            _heap: &mut Heap,
+            _output: &mut dyn std::io::Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<crate::Slot>,
+        ) -> VmResult<Option<crate::Slot>> {
+            Ok(None)
+        }
+        fn ensure_loaded(&mut self, _class: &str) -> VmResult<()> {
+            Ok(())
+        }
+        fn inspect_class(&mut self, _class: &str) -> VmResult<ReflectedClassInfo> {
+            Err(VmError::Unimplemented {
+                mnemonic: "inspect_class",
+            })
+        }
+    }
+
+    #[test]
+    fn test_callback_ops_defaults() {
+        let mut ops = MockOps;
+        let mut heap = Heap::new();
+        let mut output = Vec::new();
+
+        assert!(
+            ops.ensure_class_initialized(&mut heap, &mut output, "TestClass")
+                .is_ok()
+        );
+        assert!(ops.code_source_for_class("TestClass").unwrap().is_none());
+        assert!(
+            ops.ensure_loaded_with_runtime_loader(&heap, 0, "TestClass")
+                .is_ok()
+        );
+
+        let err = ops.instance_field_slot("TestClass", "field").unwrap_err();
+        assert!(matches!(err, VmError::InvalidFieldref { index: 0 }));
+
+        let err = ops
+            .read_instance_field(&heap, 0, "TestClass", "field")
+            .unwrap_err();
+        assert!(matches!(err, VmError::InvalidFieldref { index: 0 }));
+
+        let err = ops
+            .write_instance_field(&mut heap, 0, "TestClass", "field", crate::Slot::Int(0))
+            .unwrap_err();
+        assert!(matches!(err, VmError::InvalidFieldref { index: 0 }));
+
+        let err = ops.read_static_field("TestClass", "field").unwrap_err();
+        assert!(matches!(err, VmError::InvalidFieldref { index: 0 }));
+
+        let err = ops
+            .write_static_field("TestClass", "field", crate::Slot::Int(0))
+            .unwrap_err();
+        assert!(matches!(err, VmError::InvalidFieldref { index: 0 }));
+
+        assert!(ops.runtime_loader_for_class("TestClass").unwrap().is_none());
+        assert_eq!(
+            ops.class_key_for_loaded_class("TestClass").unwrap(),
+            "TestClass"
+        );
+        assert_eq!(
+            ops.class_key_for_runtime_loader(&heap, 0, "TestClass")
+                .unwrap(),
+            "TestClass"
+        );
+        assert_eq!(
+            ops.class_key_from_source("TestClass", None).unwrap(),
+            "TestClass"
+        );
+
+        let err = ops
+            .allocate_instance(&mut heap, &mut output, "TestClass")
+            .unwrap_err();
+        assert!(matches!(err, VmError::Unimplemented { .. }));
+    }
+}
