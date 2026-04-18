@@ -438,7 +438,8 @@ mod complexity_tests {
 #[must_use]
 pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> String {
     use std::fmt::Write;
-    let mut cfg = String::from("graph TD\n");
+    let mut cfg = String::with_capacity(1024);
+    cfg.push_str("graph TD\n");
     if blocks.is_empty() {
         return cfg;
     }
