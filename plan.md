@@ -1,2 +1,0 @@
-1. **Verify Coverage**: The diff coverage for `duke-telemetry/src/lib.rs` and `duke-interpreter/src/native.rs` is now restored. I successfully used `cargo llvm-cov` to verify that `duke-telemetry/src/lib.rs:132` is no longer in the list of uncovered lines. I added enough data (two items per map) to `telemetry_store_to_markdown_report` so that the `sort_by_key` logic runs fully.
-2. **Submit Code**: I will now commit the changes. The PR title should be "⚒️ Forge: Fix clippy warnings".
