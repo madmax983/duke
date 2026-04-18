@@ -25240,3 +25240,24 @@ mod tests_zip_coverage {
         zip_close(999);
     }
 }
+
+#[cfg(test)]
+mod tests_zip_open_coverage {
+    use super::*;
+
+    #[test]
+    fn zip_open_io_error() {
+        let err = zip_open(std::path::Path::new("/does/not/exist/ever/zip.zip")).unwrap_err();
+        assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException"));
+    }
+
+    #[test]
+    fn zip_open_format_error() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("bad_zip_format.zip");
+        std::fs::write(&path, b"not a zip file").unwrap();
+        let err = zip_open(&path).unwrap_err();
+        assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException"));
+        std::fs::remove_file(&path).unwrap();
+    }
+}
