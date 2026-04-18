@@ -1,4 +1,3 @@
-#![allow(clippy::map_unwrap_or)]
 //! Switch-dispatch JVM bytecode interpreter for Duke Phase 4.
 //!
 //! Executes decoded instruction streams for methods containing integer, long,
