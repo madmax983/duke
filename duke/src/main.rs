@@ -10,6 +10,8 @@ mod deps_graph;
 mod histogram;
 mod html;
 mod jar_analyze;
+#[cfg(feature = "nova")]
+mod ngram;
 mod scan;
 mod search;
 mod uml;
@@ -230,6 +232,10 @@ fn main() {
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
         eprintln!("       duke histogram <file.jar>");
+        #[cfg(feature = "nova")]
+        {
+            eprintln!("       duke ngram <file.jar> [n]");
+        }
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke scan <classfile.class>");
         eprintln!("       duke jar-scan <file.jar>");
@@ -290,6 +296,17 @@ fn main() {
     // Dispatch `cg`: dump call graph for a class.
     if args.len() >= 3 && args[1] == "cg" {
         dump_cg(&args[2]);
+        return;
+    }
+
+    #[cfg(feature = "nova")]
+    if args.len() >= 3 && args[1] == "ngram" {
+        let n = if args.len() >= 4 {
+            args[3].parse().unwrap_or(2)
+        } else {
+            2
+        };
+        ngram::dump_ngram(&args[2], n);
         return;
     }
 
