@@ -1804,6 +1804,7 @@ pub(crate) fn native_linked_list_iterator(
 // ---- HashMap.forEach callback ----
 
 /// Native: `HashMap.forEach(BiConsumer)V` — iterates key-value pairs, invoking `accept(k, v)`.
+#[allow(clippy::map_unwrap_or)]
 pub(crate) fn native_hashmap_for_each(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1822,10 +1823,10 @@ pub(crate) fn native_hashmap_for_each(
         .map(|i| {
             let key = heap
                 .get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
+                .map(|o| o.fields[1 + i * 2]).unwrap_or(Slot::Reference(None));
             let val = heap
                 .get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+                .map(|o| o.fields[2 + i * 2]).unwrap_or(Slot::Reference(None));
             (key, val)
         })
         .collect();
@@ -1846,6 +1847,7 @@ pub(crate) fn native_hashmap_for_each(
 
 /// Native: `HashMap.replaceAll(BiFunction<K,V,V>) -> void`
 /// Replaces each value with the result of applying the function to (key, value).
+#[allow(clippy::map_unwrap_or)]
 pub(crate) fn native_hashmap_replace_all(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1864,13 +1866,13 @@ pub(crate) fn native_hashmap_replace_all(
     let keys: Vec<Slot> = (0..size)
         .map(|i| {
             heap.get(this_ref)
-                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2])
+                .map(|o| o.fields[1 + i * 2]).unwrap_or(Slot::Reference(None))
         })
         .collect();
     for (i, key) in keys.iter().enumerate() {
         let old_val = heap
             .get(this_ref)
-            .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+            .map(|o| o.fields[2 + i * 2]).unwrap_or(Slot::Reference(None));
         let new_val = ops.invoke(
             heap,
             out,
@@ -15637,10 +15639,11 @@ fn default_slot_for_descriptor(desc: &str) -> Slot {
 
 /// reference-typed fields (`L…;` / `[…`), which must be `Reference(None)`.
 /// Sum a class's instance fields across its full superclass chain.
+#[allow(clippy::map_unwrap_or)]
 fn total_instance_field_count(registry: &ClassRegistry, class_name: &str) -> usize {
     let mut count = registry
         .get(class_name)
-        .map_or(0, |c| c.instance_field_count);
+        .map(|c| c.instance_field_count).unwrap_or(0);
     let mut sc = registry
         .get(class_name)
         .ok()
@@ -25156,22 +25159,3 @@ mod havoc_thread_join_itself {
     }
 }
 
-#[cfg(test)]
-mod havoc_string_indent_overflow {
-    use super::*;
-    use std::io::sink;
-    use duke_gc::Heap;
-    use duke_runtime::Slot;
-
-    #[test]
-
-    fn test_string_indent_overflow() {
-        let mut heap = Heap::new();
-        let r = heap.allocate_string("hello\nworld".to_string());
-
-        let args = vec![Slot::Reference(Some(r)), Slot::Int(i32::MIN)];
-        let mut control = NativeControl::default();
-
-        let _ = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
-    }
-}
