@@ -21,7 +21,8 @@ use std::path::Path;
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 #[cfg(feature = "nova")]
-pub fn dump_ngram(jar_path: &str, n: usize) {
+pub fn dump_ngram(jar_path: &str, mut n: usize) {
+    if n == 0 { n = 1; }
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         panic!("duke: failed to open JAR '{jar_path}': {e}");
     });
