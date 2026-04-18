@@ -1,6 +1,6 @@
-⚡ Bolt: Eliminate HashMap and HashSet field clones in native bindings
+⚡ Bolt: Resolve recent clippy warnings
 
-💡 What: Replaced deep `.clone()` calls on Java object `fields` vectors in various HashMap, HashSet, and LocalDateTime native bindings with scoped immutable borrows.
-🎯 Why: Methods like `HashMap.containsKey` or `HashMap.putIfAbsent` previously cloned the entire internal entry array just to avoid borrow checker conflicts (E0502) between reading the elements and subsequently mutating the heap. This resulted in O(N) allocations for O(1) operations.
-📊 Impact: Completely eliminates heap allocations for HashMap read operations (get/containsKey) and heavily reduces allocation traffic for inserts/removes. Benchmarks show a ~3.5% performance improvement in `benchHashMap`.
-🔬 Measurement: Run `cargo bench` and observe reduced allocation traffic in collection operations.
+💡 What: Addressed `clippy::unnecessary_sort_by` by replacing `.sort_by(|a, b| b.cmp(a))` with `.sort_by_key(|b| std::cmp::Reverse(b))` in `duke-telemetry/src/lib.rs`. Also addressed `clippy::map_unwrap_or` by replacing `.map(...).unwrap_or(...)` with `.map_or(...)` in `duke-interpreter/src/native.rs`.
+🎯 Why: Clippy checks on the CI failed due to these lint warnings.
+📊 Impact: Zero performance impact. Code is more concise and conforms to modern idiomatic Rust.
+🔬 Measurement: Run `cargo clippy --all-targets --all-features -- -D warnings`.
