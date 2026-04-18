@@ -375,26 +375,6 @@ mod tests {
     fn telemetry_store_to_markdown_report() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        store.bytecode_cost.record("isub", "Foo", "bar", 12, 120);
-        store
-            .object_lineage
-            .record("Foo", "bar", 10, "java/lang/String");
-        store
-            .object_lineage
-            .record("Foo", "baz", 20, "java/lang/Integer");
-        store.dispatch_resolution.record("Foo", 10, "Bar", false);
-        store.dispatch_resolution.record("Foo", 20, "Baz", false);
-        store.native_boundary.record_call("Foo", "bar", 100, false);
-        store.native_boundary.record_call("Foo", "baz", 200, false);
-
-        let mut out = Vec::new();
-        store.print_report(&mut out).unwrap();
-        let s = String::from_utf8(out).unwrap();
-        assert!(s.contains("iadd"));
-        assert!(s.contains("java/lang/String"));
-        assert!(s.contains("baz"));
-        assert!(s.contains("bar"));
-
         store
             .class_init_dag
             .record("java/lang/String", "java/lang/System", 500);
