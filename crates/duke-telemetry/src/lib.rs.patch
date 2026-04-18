@@ -1,0 +1,56 @@
+--- crates/duke-telemetry/src/lib.rs
++++ crates/duke-telemetry/src/lib.rs
+@@ -131,7 +131,7 @@
+         let mut ops: Vec<_> = self.op_counts.iter().collect();
+-        ops.sort_by(|a, b| b.1.count.cmp(&a.1.count));
++        ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+         for (op, stats) in ops.iter().take(50) {
+             writeln!(out, "| `{op}` | {} | {} |", stats.count, stats.time_ns).unwrap();
+         }
+@@ -141,7 +141,7 @@
+         let mut sites: Vec<_> = self.allocation_sites.iter().collect();
+-        sites.sort_by(|a, b| b.1.count.cmp(&a.1.count));
++        sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+         for (key, stats) in sites.iter().take(50) {
+             writeln!(out, "| `{}` | `{}` | {} |", key, stats.class_allocated, stats.count).unwrap();
+         }
+@@ -182,7 +182,7 @@
+         let mut dsites: Vec<_> = self.dispatch_sites.iter().collect();
+-        dsites.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
++        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+         for (caller, stats) in dsites.iter().take(50) {
+             let targets = stats.targets.len();
+@@ -197,7 +197,7 @@
+         let mut natives: Vec<_> = self.native_calls.iter().collect();
+-        natives.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
++        natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+         for (method, stats) in natives.iter().take(50) {
+             writeln!(out, "| `{method}` | {} | {} | {} |", stats.calls, stats.errors, stats.time_ns).unwrap();
+         }
+@@ -235,7 +235,7 @@
+         let mut ops: Vec<_> = self.op_counts.iter().collect();
+-        ops.sort_by(|a, b| b.1.count.cmp(&a.1.count));
++        ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+         for (op, stats) in ops.iter().take(50) {
+             writeln!(&mut out, "| `{op}` | {} | {} |", stats.count, stats.time_ns).unwrap();
+         }
+@@ -256,7 +256,7 @@
+         let mut sites: Vec<_> = self.allocation_sites.iter().collect();
+-        sites.sort_by(|a, b| b.1.count.cmp(&a.1.count));
++        sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
+         for (key, stats) in sites.iter().take(50) {
+             writeln!(&mut out, "| `{}` | `{}` | {} |", key, stats.class_allocated, stats.count).unwrap();
+         }
+@@ -329,7 +329,7 @@
+         let mut dsites: Vec<_> = self.dispatch_sites.iter().collect();
+-        dsites.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
++        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+         for (caller, stats) in dsites.iter().take(50) {
+             let targets = stats.targets.len();
+@@ -352,7 +352,7 @@
+         let mut natives: Vec<_> = self.native_calls.iter().collect();
+-        natives.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
++        natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+         for (method, stats) in natives.iter().take(50) {
+             writeln!(&mut out, "| `{method}` | {} | {} | {} |", stats.calls, stats.errors, stats.time_ns).unwrap();
+         }

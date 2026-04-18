@@ -1,0 +1,37 @@
+--- crates/duke-interpreter/src/native.rs
++++ crates/duke-interpreter/src/native.rs
+@@ -1822,12 +1822,10 @@
+             let key = heap
+                 .get(this_ref)
+-                .map(|o| o.fields[1 + i * 2])
+-                .unwrap_or(Slot::Reference(None));
++                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
+             let val = heap
+                 .get(this_ref)
+-                .map(|o| o.fields[2 + i * 2])
+-                .unwrap_or(Slot::Reference(None));
++                .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+             let key_str = string_value_from_slot(heap, key)?;
+             let val_str = string_value_from_slot(heap, val)?;
+@@ -1867,14 +1865,12 @@
+         let old_key =
+             heap.get(this_ref)
+-                .map(|o| o.fields[1 + i * 2])
+-                .unwrap_or(Slot::Reference(None));
++                .map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
+         if old_key == key {
+             let old_val = heap
+                 .get(this_ref)
+-                .map(|o| o.fields[2 + i * 2])
+-                .unwrap_or(Slot::Reference(None));
++                .map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+             heap.get_mut(this_ref)?.fields[2 + i * 2] = val;
+             return Ok(Some(old_val));
+@@ -15644,6 +15640,5 @@
+     let mut count = registry
+         .get(class_name)
+-        .map(|c| c.instance_field_count)
+-        .unwrap_or(0);
++        .map_or(0, |c| c.instance_field_count);
+
+     let mut sc = registry
