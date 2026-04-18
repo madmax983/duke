@@ -173,32 +173,30 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
     }
 
     let mut blocks = Vec::with_capacity(leaders.len());
-    let mut current_block = Vec::with_capacity(instructions.len() / leaders.len().max(1));
-    let mut current_start = instructions[0].0;
+    let mut current_start_pc = instructions[0].0;
+    let mut current_start_idx = 0;
 
-    for (pc, instr) in instructions {
-        if leaders.contains(pc) && !current_block.is_empty() {
+    for (i, (pc, _)) in instructions.iter().enumerate() {
+        if leaders.contains(pc) && i > current_start_idx {
             blocks.push(BasicBlock {
-                start_pc: current_start,
+                start_pc: current_start_pc,
                 end_pc: *pc,
-                instructions: current_block,
+                instructions: instructions[current_start_idx..i].to_vec(),
             });
-            current_block = Vec::with_capacity(instructions.len() / leaders.len().max(1));
-            current_start = *pc;
+            current_start_idx = i;
+            current_start_pc = *pc;
         }
-        current_block.push((*pc, instr.clone()));
     }
 
-    if !current_block.is_empty() {
-        // We do not have an `encoded_len` method.
-        // Let's assume the last instruction takes at least 1 byte.
-        let end_pc = current_block
+    if current_start_idx < instructions.len() {
+        let current_slice = &instructions[current_start_idx..];
+        let end_pc = current_slice
             .last()
-            .map_or(current_start + 1, |(pc, _)| *pc + 1);
+            .map_or(current_start_pc + 1, |(pc, _)| *pc + 1);
         blocks.push(BasicBlock {
-            start_pc: current_start,
+            start_pc: current_start_pc,
             end_pc,
-            instructions: current_block,
+            instructions: current_slice.to_vec(),
         });
     }
 
