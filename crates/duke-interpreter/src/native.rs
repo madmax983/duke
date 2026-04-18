@@ -25219,3 +25219,24 @@ mod havoc_string_indent_overflow {
         let _ = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
     }
 }
+
+#[cfg(test)]
+mod tests_zip_coverage {
+    use super::*;
+
+    #[test]
+    fn zip_registry_error_coverage() {
+        // ID 999 doesn't exist
+        let err = zip_entry_count(999).unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
+
+        let err = zip_get_entry_info(999, "test").unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
+
+        let err = zip_read_entry(999, "test").unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
+
+        // Removing non-existent shouldn't panic
+        zip_close(999);
+    }
+}
