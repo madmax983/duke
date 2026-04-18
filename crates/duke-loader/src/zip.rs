@@ -167,7 +167,7 @@ impl ZipReader {
     /// or [`LoadError::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
     pub fn read_entry_info(&self, info: &ZipEntryInfo) -> LoadResult<Vec<u8>> {
-        let offset = info.local_header_offset as usize;
+        let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
 
         // Validate local file header signature.
         if offset
@@ -196,7 +196,7 @@ impl ZipReader {
                 msg: format!("entry '{}' local header offset overflow", info.name),
             })?;
 
-        let compressed_size = info.compressed_size as usize;
+        let compressed_size = usize::try_from(info.compressed_size).unwrap_or(usize::MAX);
 
         if data_start
             .checked_add(compressed_size)
@@ -213,7 +213,7 @@ impl ZipReader {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
                 let decoder = flate2::read::DeflateDecoder::new(compressed);
-                let cap = info.uncompressed_size as usize;
+                let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
                 let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
                 if cap > max_size {
                     return Err(LoadError::ZipFormat {
@@ -465,8 +465,8 @@ fn parse_eocd_and_central_directory(
     // 16: offset of start of CD (4)
     // 20: comment length (2)
     let entry_count = read_u16_le(data, eocd_pos + 10) as usize;
-    let cd_size = read_u32_le(data, eocd_pos + 12) as usize;
-    let cd_offset = read_u32_le(data, eocd_pos + 16) as usize;
+    let cd_size = usize::try_from(read_u32_le(data, eocd_pos + 12)).unwrap_or(usize::MAX);
+    let cd_offset = usize::try_from(read_u32_le(data, eocd_pos + 16)).unwrap_or(usize::MAX);
 
     if cd_offset
         .checked_add(cd_size)
