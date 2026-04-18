@@ -11,7 +11,7 @@ use duke_classfile::{
     types::{AttributeData, CpEntry, CpIndex},
 };
 
-use crate::{Instruction, decode};
+use crate::decode;
 
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
@@ -127,14 +127,7 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
                 && let Ok(instructions) = decode(&code.code)
             {
                 for (_, instr) in instructions {
-                    let target_idx = match instr {
-                        Instruction::Invokevirtual(idx)
-                        | Instruction::Invokespecial(idx)
-                        | Instruction::Invokestatic(idx)
-                        | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
-                        // Invokedynamic is more complex, skip for basic call graph
-                        _ => None,
-                    };
+                    let target_idx = instr.method_invocation_target();
 
                     if let Some(idx) = target_idx
                         && let Some((target_class, target_method, target_descriptor)) =

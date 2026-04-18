@@ -447,6 +447,21 @@ impl Instruction {
     }
 
     /// Returns the mnemonic string for display/debugging.
+    /// Returns the target constant pool index for a method invocation instruction.
+    ///
+    /// Ignores `invokedynamic` which requires complex bootstrap method resolution.
+    #[must_use]
+    pub const fn method_invocation_target(&self) -> Option<CpIndex> {
+        match self {
+            Self::Invokevirtual(idx)
+            | Self::Invokespecial(idx)
+            | Self::Invokestatic(idx)
+            | Self::Invokeinterface { index: idx, .. } => Some(*idx),
+            _ => None,
+        }
+    }
+
+    /// Returns the mnemonic of the instruction.
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub const fn mnemonic(&self) -> &'static str {
