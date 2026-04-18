@@ -34,3 +34,7 @@
 **Extract Enum Variant Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained multiple massive `match` blocks repeatedly enumerating the 15+ conditional branch instructions, unconditional jumps, and return instructions to generate CFGs and compute cyclomatic complexity. This duplicated logic and inflated file size.
 **Action:** Always extract boolean categorization logic (e.g., `is_conditional_branch()`, `is_return()`) and data extraction logic (`conditional_branch_target()`) into public helper methods directly on the enum (`Instruction`) to DRY up matching code and dramatically flatten calling modules.
+
+**Simplify Basic Block generation**
+**Learning:** The `build_basic_blocks` function in `crates/duke-bytecode/src/basic_block.rs` contained a massive inline match statement enumerating dozens of branch and jump instructions, duplicating classification logic already present on the `Instruction` enum.
+**Action:** Leverage existing enum helper methods like `conditional_branch_target()` and `is_return()` to dramatically flatten code and eliminate redundant variant matching.
