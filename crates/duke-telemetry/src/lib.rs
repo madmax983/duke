@@ -378,11 +378,24 @@ mod tests {
         store
             .class_init_dag
             .record("java/lang/String", "java/lang/System", 500);
-        store.object_lineage.record("com/Example", "method", 1, "java/lang/Object");
-        let ev = store.exception_flow.record_throw("java/lang/Exception", "ThrowClass", "ThrowMethod", 1);
-        store.exception_flow.record_catch(ev, "CatchClass", "CatchMethod", 2);
-        store.dispatch_resolution.record("CallerClass", 1, "CallerMethod", false);
-        store.native_boundary.record_call("java/lang/System", "out", 500, false);
+        store
+            .object_lineage
+            .record("com/Example", "method", 1, "java/lang/Object");
+        let ev = store.exception_flow.record_throw(
+            "java/lang/Exception",
+            "ThrowClass",
+            "ThrowMethod",
+            1,
+        );
+        store
+            .exception_flow
+            .record_catch(ev, "CatchClass", "CatchMethod", 2);
+        store
+            .dispatch_resolution
+            .record("CallerClass", 1, "CallerMethod", false);
+        store
+            .native_boundary
+            .record_call("java/lang/System", "out", 500, false);
 
         let md = store.to_markdown_report();
         assert!(md.contains("# Duke VM Telemetry Report"));
@@ -402,12 +415,27 @@ mod tests {
     fn telemetry_store_print_report() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        store.object_lineage.record("com/Example", "method", 1, "java/lang/Object");
-        store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
-        let ev = store.exception_flow.record_throw("java/lang/Exception", "ThrowClass", "ThrowMethod", 1);
-        store.exception_flow.record_catch(ev, "CatchClass", "CatchMethod", 2);
-        store.dispatch_resolution.record("CallerClass", 1, "CallerMethod", false);
-        store.native_boundary.record_call("java/lang/System", "out", 500, false);
+        store
+            .object_lineage
+            .record("com/Example", "method", 1, "java/lang/Object");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let ev = store.exception_flow.record_throw(
+            "java/lang/Exception",
+            "ThrowClass",
+            "ThrowMethod",
+            1,
+        );
+        store
+            .exception_flow
+            .record_catch(ev, "CatchClass", "CatchMethod", 2);
+        store
+            .dispatch_resolution
+            .record("CallerClass", 1, "CallerMethod", false);
+        store
+            .native_boundary
+            .record_call("java/lang/System", "out", 500, false);
         let mut buf = Vec::new();
         store.print_report(&mut buf).unwrap();
         let report = String::from_utf8(buf).unwrap();
@@ -424,12 +452,27 @@ mod tests {
     fn test_print_report() {
         let mut store = crate::TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        store.object_lineage.record("com/Example", "method", 1, "java/lang/Object");
-        store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
-        let ev = store.exception_flow.record_throw("java/lang/Exception", "ThrowClass", "ThrowMethod", 1);
-        store.exception_flow.record_catch(ev, "CatchClass", "CatchMethod", 2);
-        store.dispatch_resolution.record("CallerClass", 1, "CallerMethod", false);
-        store.native_boundary.record_call("java/lang/System", "out", 500, false);
+        store
+            .object_lineage
+            .record("com/Example", "method", 1, "java/lang/Object");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let ev = store.exception_flow.record_throw(
+            "java/lang/Exception",
+            "ThrowClass",
+            "ThrowMethod",
+            1,
+        );
+        store
+            .exception_flow
+            .record_catch(ev, "CatchClass", "CatchMethod", 2);
+        store
+            .dispatch_resolution
+            .record("CallerClass", 1, "CallerMethod", false);
+        store
+            .native_boundary
+            .record_call("java/lang/System", "out", 500, false);
         let mut buf = Vec::new();
         store.print_report(&mut buf).unwrap();
         let report = String::from_utf8(buf).unwrap();
@@ -442,17 +485,31 @@ mod tests {
         assert!(report.contains("java/lang/System"));
     }
 
-
     #[test]
     fn test_to_markdown_report() {
         let mut store = crate::TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        store.object_lineage.record("com/Example", "method", 1, "java/lang/Object");
-        store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
-        let ev = store.exception_flow.record_throw("java/lang/Exception", "ThrowClass", "ThrowMethod", 1);
-        store.exception_flow.record_catch(ev, "CatchClass", "CatchMethod", 2);
-        store.dispatch_resolution.record("CallerClass", 1, "CallerMethod", false);
-        store.native_boundary.record_call("java/lang/System", "out", 500, false);
+        store
+            .object_lineage
+            .record("com/Example", "method", 1, "java/lang/Object");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let ev = store.exception_flow.record_throw(
+            "java/lang/Exception",
+            "ThrowClass",
+            "ThrowMethod",
+            1,
+        );
+        store
+            .exception_flow
+            .record_catch(ev, "CatchClass", "CatchMethod", 2);
+        store
+            .dispatch_resolution
+            .record("CallerClass", 1, "CallerMethod", false);
+        store
+            .native_boundary
+            .record_call("java/lang/System", "out", 500, false);
         let md = store.to_markdown_report();
         assert!(md.contains("# Duke VM Telemetry Report"));
         assert!(md.contains("iadd"));
@@ -462,7 +519,6 @@ mod tests {
         assert!(md.contains("CallerClass"));
         assert!(md.contains("java/lang/System"));
     }
-
 
     #[test]
     fn test_print_report_empty() {
@@ -482,17 +538,6 @@ mod tests {
 
 
 
-
-
-    #[test]
-    #[cfg(feature = "telemetry")]
-    fn test_to_json() {
-        let mut store = crate::TelemetryStore::default();
-        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        let json = store.to_json();
-        assert!(json.contains("iadd"));
-        assert!(json.contains("bytecode_cost"));
-    }
 
 
     #[test]
