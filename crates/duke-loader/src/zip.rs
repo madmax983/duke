@@ -426,7 +426,6 @@ fn read_u32_le(data: &[u8], offset: usize) -> u32 {
     ])
 }
 
-
 /// Scan backwards from end of file to find the EOCD signature.
 fn find_eocd(data: &[u8]) -> LoadResult<usize> {
     if data.len() < EOCD_MIN_SIZE {
@@ -983,8 +982,6 @@ mod tests {
             }
         }
     }
-
-
 
     // ── ZipReader from bytes ─────────────────────────────────────────────
 
