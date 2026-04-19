@@ -7695,13 +7695,15 @@ pub(crate) fn native_string_substring(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        if begin > s.len() {
+        let char_count = s.chars().count();
+        if begin > char_count {
             return Err(VmError::ArrayIndexOutOfBounds {
                 index: i32::try_from(begin).unwrap_or(i32::MAX),
-                length: s.len(),
+                length: char_count,
             });
         }
-        s.chars().skip(begin).collect::<String>()
+        let byte_begin = s.char_indices().nth(begin).map_or(s.len(), |(i, _)| i);
+        s[byte_begin..].to_string()
     };
 
     let r = heap.allocate_string(sub);
@@ -7723,13 +7725,16 @@ pub(crate) fn native_string_substring_range(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        if begin > end || end > s.len() {
+        let char_count = s.chars().count();
+        if begin > end || end > char_count {
             return Err(VmError::ArrayIndexOutOfBounds {
                 index: i32::try_from(end).unwrap_or(i32::MAX),
-                length: s.len(),
+                length: char_count,
             });
         }
-        s.chars().skip(begin).take(end - begin).collect::<String>()
+        let byte_begin = s.char_indices().nth(begin).map_or(s.len(), |(i, _)| i);
+        let byte_end = s.char_indices().nth(end).map_or(s.len(), |(i, _)| i);
+        s[byte_begin..byte_end].to_string()
     };
 
     let r = heap.allocate_string(sub);
