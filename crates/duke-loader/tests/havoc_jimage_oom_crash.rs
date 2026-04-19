@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Test to verify fix for out-of-memory crash when parsing malformed jimage files.
 //!
 //! Test is modified to not crash the test runner by skipping actual execution during normal `cargo test`.
