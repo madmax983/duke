@@ -167,13 +167,7 @@ impl ZipReader {
     /// or [`LoadError::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
     pub fn read_entry_info(&self, info: &ZipEntryInfo) -> LoadResult<Vec<u8>> {
-        let offset =
-            usize::try_from(info.local_header_offset).map_err(|_| LoadError::ZipFormat {
-                msg: format!(
-                    "local header offset {} is too large for memory",
-                    info.local_header_offset
-                ),
-            })?;
+        let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
 
         // Validate local file header signature.
         if offset
@@ -202,13 +196,7 @@ impl ZipReader {
                 msg: format!("entry '{}' local header offset overflow", info.name),
             })?;
 
-        let compressed_size =
-            usize::try_from(info.compressed_size).map_err(|_| LoadError::ZipFormat {
-                msg: format!(
-                    "compressed size {} is too large for memory",
-                    info.compressed_size
-                ),
-            })?;
+        let compressed_size = usize::try_from(info.compressed_size).unwrap_or(usize::MAX);
 
         if data_start
             .checked_add(compressed_size)
@@ -225,13 +213,7 @@ impl ZipReader {
             METHOD_STORED => compressed.to_vec(),
             METHOD_DEFLATED => {
                 let decoder = flate2::read::DeflateDecoder::new(compressed);
-                let cap =
-                    usize::try_from(info.uncompressed_size).map_err(|_| LoadError::ZipFormat {
-                        msg: format!(
-                            "uncompressed size {} is too large for memory",
-                            info.uncompressed_size
-                        ),
-                    })?;
+                let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
                 let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
                 if cap > max_size {
                     return Err(LoadError::ZipFormat {
@@ -443,6 +425,7 @@ fn read_u32_le(data: &[u8], offset: usize) -> u32 {
         data[offset + 3],
     ])
 }
+
 
 /// Scan backwards from end of file to find the EOCD signature.
 fn find_eocd(data: &[u8]) -> LoadResult<usize> {
@@ -1000,6 +983,8 @@ mod tests {
             }
         }
     }
+
+
 
     // ── ZipReader from bytes ─────────────────────────────────────────────
 
