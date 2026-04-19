@@ -445,11 +445,13 @@ impl Heap {
     /// Panics if a young-gen reference in `roots` cannot be converted to `usize`,
     /// which cannot happen on 64-bit targets since heap indices are always small.
     pub fn minor_collect_prepare(&mut self, roots: &[Slot]) {
-        self.to_space = Vec::new();
+        // ⚡ Bolt: Pre-allocate `to_space` based on maximum possible survivors to eliminate dynamic resizing overhead.
+        self.to_space = Vec::with_capacity(self.young.len());
         self.forward_map.clear();
 
         // Seed worklist with young refs from roots and remembered-set fields.
-        let mut worklist: Vec<usize> = Vec::new();
+        // ⚡ Bolt: Pre-allocate `worklist` based on root set size to eliminate initial dynamic resizing overhead.
+        let mut worklist: Vec<usize> = Vec::with_capacity(roots.len());
 
         for slot in roots {
             if let Some(r) = slot.as_reference()
