@@ -70,33 +70,28 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
                 let next_pc = instructions[i + 1].0;
                 let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
             }
+        } else if let Instruction::Tableswitch {
+            default, offsets, ..
+        } = instr
+        {
+            let default_target = (*pc as isize + *default as isize) as usize;
+            let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
+            for (idx, offset) in offsets.iter().enumerate() {
+                let target = (*pc as isize + *offset as isize) as usize;
+                let _ = writeln!(cfg, "    node{pc} -->|{idx}| node{target}");
+            }
+        } else if let Instruction::Lookupswitch { default, pairs } = instr {
+            let default_target = (*pc as isize + *default as isize) as usize;
+            let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
+            for (match_val, offset) in pairs {
+                let target = (*pc as isize + *offset as isize) as usize;
+                let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{target}");
+            }
         } else {
-            match instr {
-                Instruction::Tableswitch {
-                    default, offsets, ..
-                } => {
-                    let default_target = (*pc as isize + *default as isize) as usize;
-                    let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
-                    for (idx, offset) in offsets.iter().enumerate() {
-                        let target = (*pc as isize + *offset as isize) as usize;
-                        let _ = writeln!(cfg, "    node{pc} -->|{idx}| node{target}");
-                    }
-                }
-                Instruction::Lookupswitch { default, pairs } => {
-                    let default_target = (*pc as isize + *default as isize) as usize;
-                    let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
-                    for (match_val, offset) in pairs {
-                        let target = (*pc as isize + *offset as isize) as usize;
-                        let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{target}");
-                    }
-                }
-                _ => {
-                    // Everything else falls through
-                    if i + 1 < instructions.len() {
-                        let next_pc = instructions[i + 1].0;
-                        let _ = writeln!(cfg, "    node{pc} --> node{next_pc}");
-                    }
-                }
+            // Everything else falls through
+            if i + 1 < instructions.len() {
+                let next_pc = instructions[i + 1].0;
+                let _ = writeln!(cfg, "    node{pc} --> node{next_pc}");
             }
         }
     }
@@ -299,20 +294,13 @@ pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
             || matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))
         {
             complexity += 1;
-        } else {
-            match instr {
-                // Switch statements
-                Instruction::Tableswitch { offsets, .. } => {
-                    // Number of possible paths = offsets.len() + 1 (for default).
-                    // Subtract 1 because we start at 1 complexity inherently.
-                    complexity += offsets.len();
-                }
-                Instruction::Lookupswitch { pairs, .. } => {
-                    // Number of possible paths = pairs.len() + 1 (for default).
-                    complexity += pairs.len();
-                }
-                _ => {}
-            }
+        } else if let Instruction::Tableswitch { offsets, .. } = instr {
+            // Number of possible paths = offsets.len() + 1 (for default).
+            // Subtract 1 because we start at 1 complexity inherently.
+            complexity += offsets.len();
+        } else if let Instruction::Lookupswitch { pairs, .. } = instr {
+            // Number of possible paths = pairs.len() + 1 (for default).
+            complexity += pairs.len();
         }
     }
 
@@ -474,39 +462,34 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
                 let target = (*last_pc as isize + offset) as usize;
                 let _ = writeln!(cfg, "    block{block_id} -->|true| block{target}");
                 let _ = writeln!(cfg, "    block{block_id} -->|false| block{next_block_id}");
+            } else if let crate::Instruction::Tableswitch {
+                default,
+                low,
+                high: _,
+                offsets,
+            } = last_instr
+            {
+                let target = (*last_pc as isize + *default as isize) as usize;
+                let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                for (i, offset) in offsets.iter().enumerate() {
+                    let target = (*last_pc as isize + *offset as isize) as usize;
+                    let _ = writeln!(
+                        cfg,
+                        "    block{block_id} -->|{}| block{target}",
+                        (i as i32) + *low
+                    );
+                }
+            } else if let crate::Instruction::Lookupswitch { default, pairs } = last_instr {
+                let target = (*last_pc as isize + *default as isize) as usize;
+                let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                for (key, offset) in pairs {
+                    let target = (*last_pc as isize + *offset as isize) as usize;
+                    let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
+                }
             } else {
-                match last_instr {
-                    crate::Instruction::Tableswitch {
-                        default,
-                        low,
-                        high: _,
-                        offsets,
-                    } => {
-                        let target = (*last_pc as isize + *default as isize) as usize;
-                        let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
-                        for (i, offset) in offsets.iter().enumerate() {
-                            let target = (*last_pc as isize + *offset as isize) as usize;
-                            let _ = writeln!(
-                                cfg,
-                                "    block{block_id} -->|{}| block{target}",
-                                (i as i32) + *low
-                            );
-                        }
-                    }
-                    crate::Instruction::Lookupswitch { default, pairs } => {
-                        let target = (*last_pc as isize + *default as isize) as usize;
-                        let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
-                        for (key, offset) in pairs {
-                            let target = (*last_pc as isize + *offset as isize) as usize;
-                            let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
-                        }
-                    }
-                    _ => {
-                        // Fall-through
-                        if pc_to_block.contains_key(&next_block_id) {
-                            let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
-                        }
-                    }
+                // Fall-through
+                if pc_to_block.contains_key(&next_block_id) {
+                    let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
                 }
             }
         }

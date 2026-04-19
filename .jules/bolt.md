@@ -36,3 +36,6 @@
 **[String Substring Allocations]
 **Learning:** `.chars().collect::<String>()` allocates a temporary vector of characters under the hood before creating the new string.
 **Action:** Use `char_indices().nth(index)` to find precise byte bounds, validate against `chars().count()` for JVM UTF-16 compatibility, and use native Rust `&str[start..end]` slicing to prevent intermediate allocation and significantly boost performance.
+**Pre-allocate Minor GC Worklists**
+**Learning:** Found an optimization where `Vec::new()` without capacity was used for garbage collection worklists and `to_space` inside `crates/duke-gc/src/lib.rs`. By pre-allocating with `roots.len()` and `self.young.len()`, we save memory re-allocations on hot paths during minor GC collections.
+**Action:** Always pre-allocate vectors (`Vec::with_capacity()`) where the capacity is known from `len()` of root sources, especially in core routines like garbage collection.
