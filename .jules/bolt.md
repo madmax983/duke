@@ -33,3 +33,9 @@
 **[Optimizing Collection Construction in Loops]
 **Learning:** Iteratively pushing elements and cloning inside a loop into a `Vec` is measurably slower than taking a slice and calling `to_vec()` or `extend_from_slice()`. The slice operations can pre-allocate the exact required capacity and use more efficient batch operations instead of loop-driven reallocations and individual `.clone()` calls.
 **Action:** When gathering items from an existing slice/vector into sub-vectors (like segmenting basic blocks), keep track of slice indices instead of accumulating into a temporary `Vec` element by element. Convert the finalized slice via `to_vec()` when the boundary is reached.
+**[String Substring Allocations]
+**Learning:** `.chars().collect::<String>()` allocates a temporary vector of characters under the hood before creating the new string.
+**Action:** Use `char_indices().nth(index)` to find precise byte bounds, validate against `chars().count()` for JVM UTF-16 compatibility, and use native Rust `&str[start..end]` slicing to prevent intermediate allocation and significantly boost performance.
+**Pre-allocate Minor GC Worklists**
+**Learning:** Found an optimization where `Vec::new()` without capacity was used for garbage collection worklists and `to_space` inside `crates/duke-gc/src/lib.rs`. By pre-allocating with `roots.len()` and `self.young.len()`, we save memory re-allocations on hot paths during minor GC collections.
+**Action:** Always pre-allocate vectors (`Vec::with_capacity()`) where the capacity is known from `len()` of root sources, especially in core routines like garbage collection.

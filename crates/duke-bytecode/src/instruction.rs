@@ -429,6 +429,12 @@ impl Instruction {
         }
     }
 
+    /// Returns `true` if the instruction is a switch statement.
+    #[must_use]
+    pub const fn is_switch(&self) -> bool {
+        matches!(self, Self::Tableswitch { .. } | Self::Lookupswitch { .. })
+    }
+
     /// Returns `true` if the instruction halts execution in the current frame.
     #[must_use]
     pub const fn is_return(&self) -> bool {

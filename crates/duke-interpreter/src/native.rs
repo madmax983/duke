@@ -1,3 +1,56 @@
+
+use std::sync::{RwLock, OnceLock};
+use std::sync::atomic::{AtomicI32, Ordering};
+
+fn zip_files() -> &'static RwLock<HashMap<i32, duke_loader::ZipReader>> {
+    static ZIP_FILES: OnceLock<RwLock<HashMap<i32, duke_loader::ZipReader>>> = OnceLock::new();
+    ZIP_FILES.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+static NEXT_ZIP_ID: AtomicI32 = AtomicI32::new(100_000_000);
+
+fn zip_open(path: &std::path::Path) -> VmResult<i32> {
+    let reader = duke_loader::ZipReader::open(path).map_err(|err| match err {
+        duke_loader::LoadError::Io { .. } => VmError::JavaException {
+            class_name: "java/io/FileNotFoundException".to_string(),
+        },
+        _ => VmError::JavaException {
+            class_name: "java/util/zip/ZipException".to_string(),
+        },
+    })?;
+    let id = NEXT_ZIP_ID.fetch_add(1, Ordering::Relaxed);
+    zip_files().write().unwrap().insert(id, reader);
+    Ok(id)
+}
+
+fn zip_entry_count(id: i32) -> VmResult<usize> {
+    let map = zip_files().read().unwrap();
+    map.get(&id).map_or_else(
+        || Err(VmError::JavaException { class_name: "java/io/IOException".into() }),
+        |reader| Ok(reader.entry_count())
+    )
+}
+
+fn zip_get_entry_info(id: i32, name: &str) -> VmResult<Option<duke_loader::ZipEntryInfo>> {
+    let map = zip_files().read().unwrap();
+    map.get(&id).map_or_else(
+        || Err(VmError::JavaException { class_name: "java/io/IOException".into() }),
+        |reader| Ok(reader.get_entry(name).cloned())
+    )
+}
+
+fn zip_read_entry(id: i32, name: &str) -> VmResult<Vec<u8>> {
+    let map = zip_files().read().unwrap();
+    map.get(&id).map_or_else(
+        || Err(VmError::JavaException { class_name: "java/io/IOException".into() }),
+        |reader| reader.read_entry(name).map_err(|_| VmError::JavaException { class_name: "java/util/zip/ZipException".into() })
+    )
+}
+
+fn zip_close(id: i32) {
+    zip_files().write().unwrap().remove(&id);
+}
+
 fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
     args.get(idx).copied().unwrap_or(Slot::Reference(None))
 }
@@ -682,7 +735,7 @@ pub(crate) fn native_zip_file_init(
         .as_deref()
         .ok_or(VmError::NullPointerException)?
         .to_string();
-    let fd = heap.open_host_zip(std::path::Path::new(&path_str))?;
+    let fd = zip_open(std::path::Path::new(&path_str))?;
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(fd);
     Ok(None)
@@ -698,7 +751,7 @@ pub(crate) fn native_jar_file_init_from_file(
     let this_ref = extract_ref_arg(args, 0)?;
     let file_ref = extract_ref_arg(args, 1)?;
     let path = file_path_from_ref(file_ref, heap)?;
-    let fd = heap.open_host_zip(&path)?;
+    let fd = zip_open(&path)?;
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(fd);
     Ok(None)
@@ -730,7 +783,7 @@ pub(crate) fn native_jar_file_get_manifest(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = extract_io_fd(heap, this_ref)?;
-    let Ok(manifest_bytes) = heap.zip_read_entry(fd, "META-INF/MANIFEST.MF") else {
+    let Ok(manifest_bytes) = zip_read_entry(fd, "META-INF/MANIFEST.MF") else {
         return Ok(Some(Slot::Reference(None)));
     };
     let manifest_ref = allocate_manifest_from_bytes(heap, &manifest_bytes)?;
@@ -869,7 +922,7 @@ pub(crate) fn native_zip_file_get_entry(
         .as_deref()
         .ok_or(VmError::NullPointerException)?
         .to_string();
-    let info = heap.zip_get_entry_info(fd, &entry_name)?;
+    let info = zip_get_entry_info(fd, &entry_name)?;
     let Some(info) = info else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -908,7 +961,7 @@ pub(crate) fn native_zip_file_get_input_stream(
         .ok_or(VmError::NullPointerException)?
         .to_string();
     // Decompress the entry and wrap in a ByteBuffer.
-    let data = heap.zip_read_entry(fd, &entry_name)?;
+    let data = zip_read_entry(fd, &entry_name)?;
     let buf_fd = heap.open_host_byte_buffer(data);
     let is_ref = heap.allocate("duke/zip/ByteBufferInputStream".to_string(), 1);
     let is_obj = heap.get_mut(is_ref)?;
@@ -928,7 +981,7 @@ pub(crate) fn native_zip_file_close(
         Some(Slot::Int(id)) => *id,
         _ => return Ok(None),
     };
-    heap.close_host_file(fd);
+    zip_close(fd);
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(0);
     Ok(None)
@@ -944,7 +997,7 @@ pub(crate) fn native_zip_file_size(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fd = extract_io_fd(heap, this_ref)?;
-    let count = heap.zip_entry_count(fd)?;
+    let count = zip_entry_count(fd)?;
     Ok(Some(Slot::Int(count as i32)))
 }
 
@@ -7695,13 +7748,15 @@ pub(crate) fn native_string_substring(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        if begin > s.len() {
+        let char_count = s.chars().count();
+        if begin > char_count {
             return Err(VmError::ArrayIndexOutOfBounds {
                 index: i32::try_from(begin).unwrap_or(i32::MAX),
-                length: s.len(),
+                length: char_count,
             });
         }
-        s.chars().skip(begin).collect::<String>()
+        let byte_begin = s.char_indices().nth(begin).map_or(s.len(), |(i, _)| i);
+        s[byte_begin..].to_string()
     };
 
     let r = heap.allocate_string(sub);
@@ -7723,13 +7778,16 @@ pub(crate) fn native_string_substring_range(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        if begin > end || end > s.len() {
+        let char_count = s.chars().count();
+        if begin > end || end > char_count {
             return Err(VmError::ArrayIndexOutOfBounds {
                 index: i32::try_from(end).unwrap_or(i32::MAX),
-                length: s.len(),
+                length: char_count,
             });
         }
-        s.chars().skip(begin).take(end - begin).collect::<String>()
+        let byte_begin = s.char_indices().nth(begin).map_or(s.len(), |(i, _)| i);
+        let byte_end = s.char_indices().nth(end).map_or(s.len(), |(i, _)| i);
+        s[byte_begin..byte_end].to_string()
     };
 
     let r = heap.allocate_string(sub);
@@ -25164,5 +25222,47 @@ mod havoc_string_indent_overflow {
         let mut control = NativeControl::default();
 
         let _ = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
+    }
+}
+
+#[cfg(test)]
+mod tests_zip_coverage {
+    use super::*;
+
+    #[test]
+    fn zip_registry_error_coverage() {
+        // ID 999 doesn't exist
+        let err = zip_entry_count(999).unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
+
+        let err = zip_get_entry_info(999, "test").unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
+
+        let err = zip_read_entry(999, "test").unwrap_err();
+        assert!(matches!(err, VmError::JavaException { .. }));
+
+        // Removing non-existent shouldn't panic
+        zip_close(999);
+    }
+}
+
+#[cfg(test)]
+mod tests_zip_open_coverage {
+    use super::*;
+
+    #[test]
+    fn zip_open_io_error() {
+        let err = zip_open(std::path::Path::new("/does/not/exist/ever/zip.zip")).unwrap_err();
+        assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException"));
+    }
+
+    #[test]
+    fn zip_open_format_error() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("bad_zip_format.zip");
+        std::fs::write(&path, b"not a zip file").unwrap();
+        let err = zip_open(&path).unwrap_err();
+        assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException"));
+        std::fs::remove_file(&path).unwrap();
     }
 }

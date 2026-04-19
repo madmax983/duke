@@ -49,8 +49,6 @@ pub enum HostFileHandle {
     SocketReader(std::net::TcpStream),
     /// The write half of an accepted or connected TCP socket.
     SocketWriter(std::net::TcpStream),
-    /// An opened ZIP/JAR archive (parsed and indexed).
-    ZipArchive(duke_loader::ZipReader),
     /// An in-memory byte buffer (e.g. decompressed ZIP entry for `InputStream`).
     ByteBuffer(std::io::Cursor<Vec<u8>>),
     /// An owned child process plus any cached exit status.
@@ -340,74 +338,6 @@ impl Heap {
         process.child.kill().map_err(|_| VmError::JavaException {
             class_name: "java/io/IOException".into(),
         })
-    }
-
-    /// Opens a ZIP/JAR archive on the host OS, parses and indexes it.
-    ///
-    /// # Errors
-    /// Returns `ZipException` if the file is not a valid ZIP, or
-    /// `FileNotFoundException` if the path does not exist.
-    pub fn open_host_zip(&mut self, path: &std::path::Path) -> VmResult<i32> {
-        let reader = duke_loader::ZipReader::open(path).map_err(|err| match err {
-            duke_loader::LoadError::Io { .. } => VmError::JavaException {
-                class_name: "java/io/FileNotFoundException".to_string(),
-            },
-            _ => VmError::JavaException {
-                class_name: "java/util/zip/ZipException".to_string(),
-            },
-        })?;
-        let id = self.next_host_file_id;
-        self.next_host_file_id = self.next_host_file_id.saturating_add(1);
-        self.host_files
-            .insert(id, HostFileHandle::ZipArchive(reader));
-        Ok(id)
-    }
-
-    /// Returns the number of entries in an opened ZIP archive.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the handle is invalid or not a ZIP archive.
-    pub fn zip_entry_count(&self, id: i32) -> VmResult<usize> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.entry_count()),
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
-    }
-
-    /// Looks up a ZIP entry by name, returning a clone of its metadata.
-    ///
-    /// # Errors
-    /// Returns `IOException` if the handle is invalid or not a ZIP archive.
-    pub fn zip_get_entry_info(
-        &self,
-        id: i32,
-        name: &str,
-    ) -> VmResult<Option<duke_loader::ZipEntryInfo>> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => Ok(reader.get_entry(name).cloned()),
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
-    }
-
-    /// Reads and decompresses a ZIP entry's bytes.
-    ///
-    /// # Errors
-    /// Returns `ZipException` on decompression failure, `IOException` for invalid handles.
-    pub fn zip_read_entry(&self, id: i32, name: &str) -> VmResult<Vec<u8>> {
-        match self.host_files.get(&id) {
-            Some(HostFileHandle::ZipArchive(reader)) => {
-                reader.read_entry(name).map_err(|_| VmError::JavaException {
-                    class_name: "java/util/zip/ZipException".into(),
-                })
-            }
-            _ => Err(VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            }),
-        }
     }
 
     /// Creates an in-memory byte buffer handle (for reading decompressed data
@@ -766,30 +696,6 @@ fn spawn_host_process_io_error() {
 }
 
 #[test]
-fn test_try_host_process_exit_value_io_error() {
-    let mut heap = Heap::new();
-    // Since we mock child, wait is hard to trigger err. Let's cover zip
-    let zip_id = heap.open_host_byte_buffer(vec![1, 2, 3]);
-    // accessing entry count on non-zip
-    let err = heap.zip_entry_count(zip_id).unwrap_err();
-    assert!(
-        matches!(err, VmError::JavaException { class_name } if class_name == "java/io/IOException")
-    );
-
-    // accessing get_entry_info on non-zip
-    let err = heap.zip_get_entry_info(zip_id, "test").unwrap_err();
-    assert!(
-        matches!(err, VmError::JavaException { class_name } if class_name == "java/io/IOException")
-    );
-
-    // accessing read_entry on non-zip
-    let err = heap.zip_read_entry(zip_id, "test").unwrap_err();
-    assert!(
-        matches!(err, VmError::JavaException { class_name } if class_name == "java/io/IOException")
-    );
-}
-
-#[test]
 fn spawn_host_process_handles_invalid_command_as_io_exception() {
     let mut heap = Heap::new();
     let result = heap.spawn_host_process(&["/invalid/nonexistent".to_string()], None);
@@ -893,38 +799,6 @@ fn close_host_file_on_various_types() {
     heap.close_host_file(p_ids.stdout_id); // should drop ProcessStdout
     heap.close_host_file(p_ids.stderr_id); // should drop ProcessStderr
     heap.close_host_file(p_ids.process_id); // should drop Process
-}
-
-#[test]
-fn open_host_zip_file_success() {
-    let mut heap = Heap::new();
-    let _id = heap.open_host_zip(std::path::Path::new("../../tests/fixtures/hello.jar"));
-    // This won't work easily if path is not right. Let's create a dummy valid zip or use a known one.
-    // Actually duke-loader has a valid zip in tests/fixtures. Let's use that.
-    let zip_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("tests")
-        .join("fixtures")
-        .join("hello.jar");
-
-    let id = heap.open_host_zip(&zip_path);
-    if let Ok(id) = id {
-        let count = heap.zip_entry_count(id).unwrap();
-        assert!(count > 0);
-
-        // Just get the first entry name if possible
-        if let Some(HostFileHandle::ZipArchive(reader)) = heap.host_files.get(&id) {
-            let name = reader.entry_names().next().unwrap();
-            let info = heap.zip_get_entry_info(id, name).unwrap();
-            assert_eq!(info.unwrap().name, name);
-
-            let data = heap.zip_read_entry(id, name).unwrap();
-            assert!(data.len() == data.len());
-        }
-    }
 }
 
 #[test]

@@ -28,3 +28,6 @@
 
 **Confusion:** The `generate_basic_block_cfg` function in `crates/duke-bytecode/src/cfg.rs` lacked a doc comment explaining its purpose and how to use it, causing a `missing_docs` warning. Also, multiple modules in `duke-telemetry` were missing module level `//!` docs.
 **Clarification:** Added a detailed doc comment with an executable doctest to `generate_basic_block_cfg` to show how to pass a mock `BasicBlock` and assert on the Mermaid graph output. Additionally, added module level docs to the missing telemetry modules.
+## 2024-05-24 - `clippy::doc_markdown` and Documentation Formatting
+**Confusion:** Sometimes valid words in documentation are flagged by the Rust compiler (via `clippy::doc_markdown`) if they look like CamelCase or technical terms without backticks, causing CI failures.
+**Clarification:** Ensure that any code-like elements, Java class names (e.g., `ProtectionDomain`), or technical terms in documentation comments are properly enclosed in backticks to satisfy the linter when compiling with `#![warn(missing_docs)]` and `-D warnings`.
