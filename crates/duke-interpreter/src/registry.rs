@@ -186,7 +186,7 @@ pub struct ClassRegistry {
     lambdas: HashMap<String, LambdaInfo>,
     /// Monotonic counter for generating unique lambda class names.
     lambda_counter: u64,
-    /// Default code source path used for lightweight `ProtectionDomain` emulation.
+    /// Default code source path used for lightweight ``ProtectionDomain`` emulation.
     default_code_source: Option<String>,
     /// ZIP/JAR-backed class loaders keyed by their stable archive path.
     archive_loaders: HashMap<String, Arc<dyn ClassLoader + Send + Sync>>,
@@ -241,24 +241,77 @@ impl ClassRegistry {
         self.lambdas.get(class_name)
     }
 
-    /// Check if a class has been initialized (clinit has run).
+    /// Checks if a class has been successfully initialized (its `<clinit>` method has completed).
+    ///
+    /// This prevents the JVM from redundantly re-initializing the same class
+    /// during subsequent method invocations or object instantiations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// assert!(!registry.is_initialized("java/lang/String"));
+    /// registry.mark_initialized("java/lang/String");
+    /// assert!(registry.is_initialized("java/lang/String"));
+    /// ```
     #[must_use]
     pub fn is_initialized(&self, name: &str) -> bool {
         self.initialized.contains(name)
     }
 
-    /// Mark a class as initialized.
+    /// Marks a class as fully initialized.
+    ///
+    /// Once a class's `<clinit>` method finishes successfully, the JVM calls this
+    /// to record that the class is ready for use, skipping future initialization checks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// registry.mark_initialized("java/util/List");
+    /// assert!(registry.is_initialized("java/util/List"));
+    /// ```
     pub fn mark_initialized(&mut self, name: &str) {
         self.initialized.insert(name.to_string());
     }
 
-    /// Set the default code source path used when Java code asks for a class's
-    /// protection domain before Duke has full per-class provenance tracking.
+    /// Sets the fallback code source path for classes loaded by the VM.
+    ///
+    /// This is used primarily to furnish a `ProtectionDomain` for classes when
+    /// explicit, per-class provenance tracking (e.g., loaded from a specific JAR)
+    /// has not been recorded yet.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// registry.set_default_code_source("/usr/lib/jvm/rt.jar");
+    /// assert_eq!(registry.default_code_source(), Some("/usr/lib/jvm/rt.jar"));
+    /// ```
     pub fn set_default_code_source(&mut self, path: impl Into<String>) {
         self.default_code_source = Some(path.into());
     }
 
-    /// Read the configured default code source path, if any.
+    /// Reads the globally configured fallback code source path, if one was set.
+    ///
+    /// Returns `None` if no default has been established.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_interpreter::ClassRegistry;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// assert_eq!(registry.default_code_source(), None);
+    /// registry.set_default_code_source("bootstrap.jar");
+    /// assert_eq!(registry.default_code_source(), Some("bootstrap.jar"));
+    /// ```
     #[must_use]
     pub fn default_code_source(&self) -> Option<&str> {
         self.default_code_source.as_deref()
