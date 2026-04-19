@@ -28,3 +28,7 @@
 
 **Confusion:** The `generate_basic_block_cfg` function in `crates/duke-bytecode/src/cfg.rs` lacked a doc comment explaining its purpose and how to use it, causing a `missing_docs` warning. Also, multiple modules in `duke-telemetry` were missing module level `//!` docs.
 **Clarification:** Added a detailed doc comment with an executable doctest to `generate_basic_block_cfg` to show how to pass a mock `BasicBlock` and assert on the Mermaid graph output. Additionally, added module level docs to the missing telemetry modules.
+## 2026-04-19 - Module-level documentation required
+
+**Confusion:** A build using `RUSTFLAGS="-W missing_docs"` fails because several modules across multiple crates (e.g., `duke-interpreter/src/stdlib.rs`, `duke-telemetry/src/helpers.rs`, and various `fuzz.rs` and `tests.rs` files) were missing the required `//!` outer module-level documentation. This creates gaps where the overall purpose of a file or sub-system is left unexplained to developers browsing the source or reading `cargo doc` output.
+**Clarification:** Added appropriate `//!` outer documentation summarizing the purpose and behavior at the top of each missing module, ensuring `missing_docs` validation passes on strict configurations while providing necessary context to future contributors. Test and fuzz files received `#![allow(missing_docs)]` after an initial `//!` line to quiet downstream noise without needing a doc comment per function.

@@ -1,3 +1,5 @@
+//! Integration tests and test suites for the interpreter execution engine.
+#![allow(missing_docs)]
 use super::*;
 
 macro_rules! wrap_simple_native_for_tests {

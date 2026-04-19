@@ -1,3 +1,5 @@
+//! Fuzzing targets for the garbage collector.
+#![allow(missing_docs)]
 #[cfg(test)]
 mod tests {
     use crate::Heap;

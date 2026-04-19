@@ -1,3 +1,7 @@
+//! Provides the minimal Java standard library needed for JVM execution.
+//!
+//! Contains bootstrapping functions to create the minimal set of classes
+//! (like `java/lang/System`, `java/io/PrintStream`) without needing a full `rt.jar`.
 use crate::context::{ClassContext, ClassLoadSource, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]

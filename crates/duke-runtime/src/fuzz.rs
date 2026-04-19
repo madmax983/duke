@@ -1,3 +1,5 @@
+//! Fuzzing targets for the runtime data structures.
+#![allow(missing_docs)]
 #[cfg(test)]
 mod tests {
     use crate::frame::Frame;

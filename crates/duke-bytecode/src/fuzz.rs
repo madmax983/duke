@@ -1,3 +1,5 @@
+//! Fuzzing targets for the bytecode decoding and manipulation logic.
+#![allow(missing_docs)]
 #[cfg(test)]
 mod tests {
     use crate::decoder::decode;

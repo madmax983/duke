@@ -1,3 +1,5 @@
+//! Fuzzing targets for the classfile parser.
+#![allow(missing_docs)]
 #[cfg(test)]
 mod tests {
     use crate::parse;

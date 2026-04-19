@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #[test]
 fn havoc_zip_reader_cd_entry_extends_past_bounds() {
     let mut data = vec![0u8; 100];

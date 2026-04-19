@@ -1,3 +1,6 @@
+//! Serialization helpers for telemetry data.
+//!
+//! Provides custom serializers to make telemetry output deterministic and human-readable.
 #[cfg(feature = "telemetry")]
 pub mod ser_helpers {
     use std::collections::HashMap;
