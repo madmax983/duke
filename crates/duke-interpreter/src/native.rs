@@ -16028,7 +16028,14 @@ pub(crate) fn native_sb_delete(
         .ok()
         .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
         .unwrap_or(buf.len());
-    buf.drain(start_byte..end_byte);
+
+    if start <= end && start_byte <= end_byte && end_byte <= buf.len() {
+        buf.drain(start_byte..end_byte);
+    } else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/StringIndexOutOfBoundsException".to_string(),
+        });
+    }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 
@@ -16050,6 +16057,10 @@ pub(crate) fn native_sb_delete_char_at(
         .and_then(|i| buf.char_indices().nth(i).map(|(b, _)| b))
     {
         buf.remove(i);
+    } else {
+        return Err(VmError::JavaException {
+            class_name: "java/lang/StringIndexOutOfBoundsException".to_string(),
+        });
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -25164,5 +25175,26 @@ mod havoc_string_indent_overflow {
         let mut control = NativeControl::default();
 
         let _ = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
+    }
+}
+
+#[cfg(test)]
+mod havoc_tests {
+    use super::*;
+    use std::io::sink;
+    use duke_gc::Heap;
+
+    #[test]
+    fn havoc_sb_delete_panic() {
+        let mut heap = Heap::new();
+        let sb_ref = heap.allocate_string("hello".to_string());
+        let mut control = NativeControl::default();
+
+        let args = [
+            Slot::Reference(Some(sb_ref)),
+            Slot::Int(3), // start
+            Slot::Int(1), // end
+        ];
+        let _ = native_sb_delete(&args, &mut heap, &mut sink(), &mut control);
     }
 }
