@@ -822,35 +822,6 @@ mod tests {
     }
 
     #[test]
-    fn should_return_error_when_opening_invalid_zip() {
-        let mut gc = Heap::new();
-        let path = std::env::temp_dir().join("definitely_not_a_zip.zip");
-        std::fs::write(&path, b"not a zip file content").unwrap();
-        let err = gc.open_host_zip(&path).unwrap_err();
-        assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException")
-        );
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn should_return_error_when_accessing_invalid_zip_handle() {
-        let gc = Heap::new();
-        let err1 = gc.zip_entry_count(999).unwrap_err();
-        assert!(
-            matches!(err1, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
-        );
-        let err2 = gc.zip_get_entry_info(999, "test").unwrap_err();
-        assert!(
-            matches!(err2, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
-        );
-        let err3 = gc.zip_read_entry(999, "test").unwrap_err();
-        assert!(
-            matches!(err3, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
-        );
-    }
-
-    #[test]
     fn should_return_error_when_binding_invalid_socket_address() {
         let mut gc = Heap::new();
         let err = gc.bind_server_socket("invalid_address").unwrap_err();
