@@ -429,6 +429,29 @@ impl Instruction {
         }
     }
 
+    /// Returns the switch targets if the instruction is a switch statement.
+    /// It returns `Some((default_offset, Vec<(match_value, branch_offset)>))`.
+    #[must_use]
+    pub fn switch_targets(&self) -> Option<(i32, Vec<(i32, i32)>)> {
+        match self {
+            Self::Tableswitch {
+                default,
+                low,
+                offsets,
+                ..
+            } => {
+                let targets = offsets
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &offset)| (i32::try_from(i).unwrap_or(0) + *low, offset))
+                    .collect();
+                Some((*default, targets))
+            }
+            Self::Lookupswitch { default, pairs } => Some((*default, pairs.clone())),
+            _ => None,
+        }
+    }
+
     /// Returns `true` if the instruction is a switch statement.
     #[must_use]
     pub const fn is_switch(&self) -> bool {
