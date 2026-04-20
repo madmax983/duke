@@ -1,7 +1,7 @@
 use loom::sync::Mutex;
 use loom::thread;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 // This loom test verifies a time-of-check to time-of-use (TOCTOU) race condition.
 // `native_system_set_property` previously called `system_property_value(key)`,
@@ -39,8 +39,12 @@ fn test_system_property_toctou_race_simulation() {
         let final_val = overrides.lock().unwrap().get("foo").cloned().unwrap();
 
         let mut seen = std::collections::HashSet::new();
-        if let Some(v) = r1 { seen.insert(v); }
-        if let Some(v) = r2 { seen.insert(v); }
+        if let Some(v) = r1 {
+            seen.insert(v);
+        }
+        if let Some(v) = r2 {
+            seen.insert(v);
+        }
         seen.insert(final_val);
 
         // With the fix, we guarantee atomicity: one thread gets None and sets its value,
