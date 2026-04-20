@@ -13687,6 +13687,16 @@ fn spawn_java_thread(
 /// Execute a Java entrypoint and keep the VM alive until any spawned worker
 /// threads have either finished or been joined.
 ///
+/// # Examples
+///
+/// ```ignore
+/// let mut registry = ClassRegistry::new();
+/// let mut heap = Heap::new();
+/// let mut stdout = std::io::stdout();
+/// // Starts the main thread and waits for all daemon threads
+/// execute_class_to_completion("Main", vec![], &mut registry, &loader, &mut heap, &mut stdout)?;
+/// ```
+///
 /// # Errors
 ///
 /// Returns `VmError` if class resolution, method dispatch, or bytecode
@@ -13828,6 +13838,15 @@ struct CallFrame {
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
+///
+/// # Examples
+///
+/// ```ignore
+/// let bytes = std::fs::read("MyClass.class").unwrap();
+/// let class_file = duke_classfile::parser::parse(&bytes).unwrap();
+/// let context = build_class_context(&class_file);
+/// assert_eq!(context.internal_name, "MyClass");
+/// ```
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
