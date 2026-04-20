@@ -13871,10 +13871,7 @@ struct CallFrame {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use duke_interpreter::context::ClassContext;
-/// use duke_interpreter::native::build_class_context;
-///
+/// ```
 /// // The `ClassFile` parse and `build_class_context` is tested heavily
 /// // during integration tests via loading the stdlib.
 /// ```
