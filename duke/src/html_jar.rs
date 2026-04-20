@@ -14,8 +14,12 @@ use crate::html::generate_html_report;
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 #[allow(clippy::collapsible_if)]
 pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Result<()> {
-    let loader = ZipLoader::open(Path::new(jar_path))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("duke: failed to open JAR '{jar_path}': {e}")))?;
+    let loader = ZipLoader::open(Path::new(jar_path)).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("duke: failed to open JAR '{jar_path}': {e}"),
+        )
+    })?;
 
     fs::create_dir_all(output_dir)?;
 
