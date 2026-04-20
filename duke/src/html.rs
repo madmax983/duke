@@ -295,6 +295,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_generate_html_report_complex_class_with_interfaces_fields() {
+        use duke_classfile::access_flags::FieldAccessFlags;
+        use duke_classfile::types::FieldInfo;
+
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }),
+                Some(CpEntry::Utf8("java/lang/Object".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(4),
+                }),
+                Some(CpEntry::Utf8("MyClass".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(6),
+                }),
+                Some(CpEntry::Utf8("java/lang/Runnable".to_string())),
+                Some(CpEntry::Utf8("myField".to_string())),
+                Some(CpEntry::Utf8("I".to_string())),
+            ],
+            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(3),
+            super_class: CpIndex(1),
+            interfaces: vec![CpIndex(5)],
+            fields: vec![FieldInfo {
+                access_flags: FieldAccessFlags::PRIVATE,
+                name_index: CpIndex(7),
+                descriptor_index: CpIndex(8),
+                attributes: vec![],
+            }],
+            methods: vec![],
+            attributes: vec![],
+        };
+        let html = generate_html_report(&cf);
+
+        assert!(html.contains("Duke Class Report: MyClass"));
+        assert!(html.contains("<code>java/lang/Runnable</code>"));
+        assert!(html.contains("<td><code>myField</code></td>"));
+    }
+
+    #[test]
     fn test_generate_html_report_empty_class() {
         let cf = ClassFile {
             major_version: 61,
