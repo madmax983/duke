@@ -17,7 +17,11 @@ duke-gc = { path = "../crates/duke-gc" }
 duke-interpreter = { path = "../crates/duke-interpreter", features = [] }
 
 [features]
+nova = []
 telemetry = ["duke-interpreter/telemetry"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile = "3.8.1"
