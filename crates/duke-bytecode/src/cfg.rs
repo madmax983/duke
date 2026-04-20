@@ -264,7 +264,7 @@ mod tests {
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::{Instruction, cfg::cyclomatic_complexity};
+/// use duke_bytecode::{Instruction, cyclomatic_complexity};
 ///
 /// let instructions = vec![
 ///     (0, Instruction::Iconst0),
@@ -387,7 +387,7 @@ mod complexity_tests {
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::{Instruction, basic_block::BasicBlock, cfg::generate_basic_block_cfg};
+/// use duke_bytecode::{Instruction, BasicBlock, generate_basic_block_cfg};
 ///
 /// let blocks = vec![
 ///     BasicBlock {
