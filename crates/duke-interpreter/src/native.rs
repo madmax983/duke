@@ -7487,6 +7487,39 @@ fn system_property_overrides() -> &'static std::sync::Mutex<HashMap<String, Stri
     SYSTEM_PROPERTY_OVERRIDES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
+
+fn system_property_value_fallback(key: &str) -> Option<String> {
+    match key {
+        "java.io.tmpdir" => Some(std::env::temp_dir().to_string_lossy().into_owned()),
+        "file.separator" => Some(std::path::MAIN_SEPARATOR.to_string()),
+        "path.separator" => Some(if cfg!(windows) { ";" } else { ":" }.to_string()),
+        "line.separator" => Some(if cfg!(windows) { "\r\n" } else { "\n" }.to_string()),
+        "user.dir" => std::env::current_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned()),
+        "user.home" => std::env::var("USERPROFILE")
+            .ok()
+            .or_else(|| std::env::var("HOME").ok()),
+        "os.name" => Some(
+            if cfg!(windows) {
+                "Windows"
+            } else if cfg!(target_os = "macos") {
+                "Mac OS X"
+            } else {
+                "Linux"
+            }
+            .to_string(),
+        ),
+        "os.arch" => Some(std::env::consts::ARCH.to_string()),
+        "os.version" => Some("1.0".to_string()),
+        "user.name" => std::env::var("USERNAME")
+            .ok()
+            .or_else(|| std::env::var("USER").ok()),
+        "java.version" => Some("1.8.0".to_string()),
+        _ => None,
+    }
+}
+
 fn system_property_value(key: &str) -> Option<String> {
     let override_value = system_property_overrides()
         .lock()
@@ -7549,11 +7582,14 @@ pub(crate) fn native_system_set_property(
     let value_ref = extract_ref_arg(args, 1)?;
     let key = string_value_from_ref(heap, key_ref)?;
     let value = string_value_from_ref(heap, value_ref)?;
-    let previous = system_property_value(&key);
-    system_property_overrides()
-        .lock()
-        .expect("system property overrides mutex poisoned")
-        .insert(key, value);
+    let previous = {
+        let mut overrides = system_property_overrides()
+            .lock()
+            .expect("system property overrides mutex poisoned");
+        let prev = overrides.get(&key).cloned().or_else(|| system_property_value_fallback(&key));
+        overrides.insert(key, value);
+        prev
+    };
     let result = previous.map_or(Slot::Reference(None), |previous| {
         Slot::Reference(Some(heap.allocate_string(previous)))
     });
@@ -7991,6 +8027,10 @@ pub(crate) fn native_string_trim(
 }
 
 /// Native: `String.toCharArray()` — convert string to char array.
+///
+/// **Bolt Optimization:**
+/// Eliminates an intermediate `.collect::<Vec<char>>()` allocation by pre-computing
+/// the character length via `.count()` and iterating characters directly into the heap array.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 pub(crate) fn native_string_tochararray(
     args: &[Slot],
@@ -8000,9 +8040,9 @@ pub(crate) fn native_string_tochararray(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let chars: Vec<char> = s.chars().collect();
-    let arr_ref = heap.allocate("[C".to_string(), chars.len());
-    for (i, &c) in chars.iter().enumerate() {
+    let char_count = s.chars().count();
+    let arr_ref = heap.allocate("[C".to_string(), char_count);
+    for (i, c) in s.chars().enumerate() {
         heap.get_mut(arr_ref)?.fields[i] = Slot::Int(c as i32);
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
@@ -13687,16 +13727,6 @@ fn spawn_java_thread(
 /// Execute a Java entrypoint and keep the VM alive until any spawned worker
 /// threads have either finished or been joined.
 ///
-/// # Examples
-///
-/// ```ignore
-/// let mut registry = ClassRegistry::new();
-/// let mut heap = Heap::new();
-/// let mut stdout = std::io::stdout();
-/// // Starts the main thread and waits for all daemon threads
-/// execute_class_to_completion("Main", vec![], &mut registry, &loader, &mut heap, &mut stdout)?;
-/// ```
-///
 /// # Errors
 ///
 /// Returns `VmError` if class resolution, method dispatch, or bytecode
@@ -13842,10 +13872,11 @@ struct CallFrame {
 /// # Examples
 ///
 /// ```ignore
-/// let bytes = std::fs::read("MyClass.class").unwrap();
-/// let class_file = duke_classfile::parser::parse(&bytes).unwrap();
-/// let context = build_class_context(&class_file);
-/// assert_eq!(context.internal_name, "MyClass");
+/// use duke_interpreter::context::ClassContext;
+/// use duke_interpreter::native::build_class_context;
+///
+/// // The `ClassFile` parse and `build_class_context` is tested heavily
+/// // during integration tests via loading the stdlib.
 /// ```
 #[must_use]
 #[allow(clippy::too_many_lines)]
@@ -25047,6 +25078,10 @@ pub(crate) fn native_string_indent(
 }
 
 /// Native: `StringBuilder.setCharAt(int, char) -> void`
+///
+/// **Bolt Optimization:**
+/// Eliminates a `Vec<char>` intermediate allocation by utilizing `char_indices` to map
+/// character indexes to byte offsets, allowing direct, in-place `replace_range` mutations on the `String`.
 pub(crate) fn native_stringbuilder_set_char_at(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -25059,17 +25094,14 @@ pub(crate) fn native_stringbuilder_set_char_at(
         Some(Slot::Int(v)) => char::from_u32(u32::from_ne_bytes(v.to_ne_bytes())).unwrap_or('\0'),
         _ => '\0',
     };
-    let s = heap
+    let buf = heap
         .get_mut(this_ref)?
         .string_value
-        .get_or_insert_with(String::new)
-        .clone();
-    let mut chars: Vec<char> = s.chars().collect();
-    if idx < chars.len() {
-        chars[idx] = ch;
+        .get_or_insert_with(String::new);
+    if let Some((byte_offset, old_ch)) = buf.char_indices().nth(idx) {
+        let mut b = [0; 4];
+        buf.replace_range(byte_offset..byte_offset + old_ch.len_utf8(), ch.encode_utf8(&mut b));
     }
-    let new_s: String = chars.into_iter().collect();
-    heap.get_mut(this_ref)?.string_value = Some(new_s);
     Ok(None)
 }
 
@@ -25284,4 +25316,27 @@ mod tests_zip_open_coverage {
         assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException"));
         std::fs::remove_file(&path).unwrap();
     }
+
+
+
+
+
+
+
+#[cfg(test)]
+mod havoc_coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_system_property_value_fallback() {
+        assert!(system_property_value_fallback("file.separator").is_some());
+        assert!(system_property_value_fallback("path.separator").is_some());
+        assert!(system_property_value_fallback("line.separator").is_some());
+        assert!(system_property_value_fallback("os.name").is_some());
+        assert!(system_property_value_fallback("unknown.property").is_none());
+        assert!(system_property_value_fallback("java.version").is_some());
+        assert!(system_property_value_fallback("user.dir").is_some());
+    }
+}
+
 }

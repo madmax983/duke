@@ -9,6 +9,8 @@ mod analyze;
 mod deps_graph;
 mod histogram;
 mod html;
+#[cfg(feature = "nova")]
+mod html_jar;
 mod jar_analyze;
 mod scan;
 mod search;
@@ -222,6 +224,9 @@ fn main() {
         eprintln!("Usage: duke <classfile.class>");
         eprintln!("       duke dump <classfile.class>");
         eprintln!("       duke html <classfile.class> [output.html]");
+
+        #[cfg(feature = "nova")]
+        eprintln!("       duke html-jar <file.jar> <output_dir>");
         eprintln!("       duke deps-graph <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
@@ -265,6 +270,15 @@ fn main() {
     }
 
     // Dispatch `html`: output HTML report for class.
+
+    #[cfg(feature = "nova")]
+    if args.len() >= 4 && args[1] == "html-jar" {
+        if let Err(e) = html_jar::generate_jar_html_site(&args[2], &args[3]) {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+        return;
+    }
     if args.len() >= 3 && args[1] == "html" {
         let output_path = if args.len() >= 4 {
             Some(args[3].as_str())
