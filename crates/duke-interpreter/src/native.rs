@@ -7487,6 +7487,7 @@ fn system_property_overrides() -> &'static std::sync::Mutex<HashMap<String, Stri
     SYSTEM_PROPERTY_OVERRIDES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
+
 fn system_property_value_fallback(key: &str) -> Option<String> {
     match key {
         "java.io.tmpdir" => Some(std::env::temp_dir().to_string_lossy().into_owned()),
@@ -7582,11 +7583,11 @@ pub(crate) fn native_system_set_property(
     let key = string_value_from_ref(heap, key_ref)?;
     let value = string_value_from_ref(heap, value_ref)?;
     let previous = {
-        let mut lock = system_property_overrides()
+        let mut overrides = system_property_overrides()
             .lock()
             .expect("system property overrides mutex poisoned");
-        let prev = lock.get(&key).cloned().or_else(|| system_property_value_fallback(&key));
-        lock.insert(key, value);
+        let prev = overrides.get(&key).cloned().or_else(|| system_property_value_fallback(&key));
+        overrides.insert(key, value);
         prev
     };
     let result = previous.map_or(Slot::Reference(None), |previous| {
@@ -25300,4 +25301,27 @@ mod tests_zip_open_coverage {
         assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/util/zip/ZipException"));
         std::fs::remove_file(&path).unwrap();
     }
+
+
+
+
+
+
+
+#[cfg(test)]
+mod havoc_coverage_tests {
+    use super::*;
+
+    #[test]
+    fn test_system_property_value_fallback() {
+        assert!(system_property_value_fallback("file.separator").is_some());
+        assert!(system_property_value_fallback("path.separator").is_some());
+        assert!(system_property_value_fallback("line.separator").is_some());
+        assert!(system_property_value_fallback("os.name").is_some());
+        assert!(system_property_value_fallback("unknown.property").is_none());
+        assert!(system_property_value_fallback("java.version").is_some());
+        assert!(system_property_value_fallback("user.dir").is_some());
+    }
+}
+
 }
