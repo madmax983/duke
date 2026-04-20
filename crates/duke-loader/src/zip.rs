@@ -198,6 +198,13 @@ impl ZipReader {
 
         let compressed_size = usize::try_from(info.compressed_size).unwrap_or(usize::MAX);
 
+        let max_compressed = 1024 * 1024 * 256; // 256 MB max compressed size
+        if compressed_size > max_compressed {
+            return Err(LoadError::ZipFormat {
+                msg: format!("entry '{}' compressed size {} exceeds limit {}", info.name, compressed_size, max_compressed),
+            });
+        }
+
         if data_start
             .checked_add(compressed_size)
             .is_none_or(|end| end > self.data.len())

@@ -219,6 +219,12 @@ impl JImageReader {
         } else {
             usize::try_from(info.uncompressed).unwrap_or(usize::MAX)
         };
+        let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+        if raw_len > max_size {
+            return Err(LoadError::JImageFormat {
+                msg: format!("resource '{path}' length {raw_len} exceeds limit {max_size}"),
+            });
+        }
         let offset = usize::try_from(info.offset).unwrap_or(usize::MAX);
         let start =
             self.data_offset
