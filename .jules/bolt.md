@@ -39,3 +39,7 @@
 **Pre-allocate Minor GC Worklists**
 **Learning:** Found an optimization where `Vec::new()` without capacity was used for garbage collection worklists and `to_space` inside `crates/duke-gc/src/lib.rs`. By pre-allocating with `roots.len()` and `self.young.len()`, we save memory re-allocations on hot paths during minor GC collections.
 **Action:** Always pre-allocate vectors (`Vec::with_capacity()`) where the capacity is known from `len()` of root sources, especially in core routines like garbage collection.
+
+## String Character Replacement Optimization
+**Learning:** `.chars().collect::<Vec<char>>()` and `.chars().collect::<String>()` allocate temporary vectors when trying to mutate a specific character or reverse a string. For reversals, `String` implements `FromIterator<char>` which can be used via `.chars().rev().collect::<String>()` without the intermediate `Vec`. For replacing characters at a specific index, you can use `.char_indices().nth(idx)` to find the byte offset, and mutate the String directly via `.replace_range()`.
+**Action:** Use `.char_indices()` to map char indexes to byte indexes for in-place string manipulation and avoid intermediate allocation where possible.
