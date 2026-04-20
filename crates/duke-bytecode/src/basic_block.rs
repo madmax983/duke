@@ -89,26 +89,14 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
             true
         } else if instr.is_return() {
             true
-        } else {
-            match instr {
-                Instruction::Tableswitch {
-                    default, offsets, ..
-                } => {
-                    leaders.insert((*pc as isize + *default as isize) as usize);
-                    for offset in offsets {
-                        leaders.insert((*pc as isize + *offset as isize) as usize);
-                    }
-                    true
-                }
-                Instruction::Lookupswitch { default, pairs } => {
-                    leaders.insert((*pc as isize + *default as isize) as usize);
-                    for (_, offset) in pairs {
-                        leaders.insert((*pc as isize + *offset as isize) as usize);
-                    }
-                    true
-                }
-                _ => false,
+        } else if let Some((default, pairs)) = instr.switch_targets() {
+            leaders.insert((*pc as isize + default as isize) as usize);
+            for (_, offset) in pairs {
+                leaders.insert((*pc as isize + offset as isize) as usize);
             }
+            true
+        } else {
+            false
         };
 
         if is_branch_or_return && i + 1 < instructions.len() {
