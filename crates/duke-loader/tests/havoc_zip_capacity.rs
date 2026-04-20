@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Tests for Havoc ZIP OOM issues
 
 #[test]

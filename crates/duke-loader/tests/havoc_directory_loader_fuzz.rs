@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Fuzz testing for the `DirectoryLoader`.
 
 use duke_loader::{ClassLoader, DirectoryLoader};

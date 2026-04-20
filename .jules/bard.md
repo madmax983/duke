@@ -31,3 +31,7 @@
 ## 2024-05-24 - `clippy::doc_markdown` and Documentation Formatting
 **Confusion:** Sometimes valid words in documentation are flagged by the Rust compiler (via `clippy::doc_markdown`) if they look like CamelCase or technical terms without backticks, causing CI failures.
 **Clarification:** Ensure that any code-like elements, Java class names (e.g., `ProtectionDomain`), or technical terms in documentation comments are properly enclosed in backticks to satisfy the linter when compiling with `#![warn(missing_docs)]` and `-D warnings`.
+## 2026-04-19 - Tests are crates too
+
+**Confusion:** I missed that integration tests are technically separate crates and require module level missing_docs allowed just like binaries or library crates. I was getting test failures because I didn't add it.
+**Clarification:** Add `#![allow(missing_docs)]` at the top of integration test files so they compile cleanly when `-D missing_docs` is used.
