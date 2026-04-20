@@ -1,5 +1,3 @@
-//! Tests for system properties handling using Loom
-
 use loom::sync::Mutex;
 use loom::thread;
 use std::collections::HashMap;

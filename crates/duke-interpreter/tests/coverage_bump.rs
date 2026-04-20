@@ -1,5 +1,6 @@
 #[allow(dead_code)]
-fn test() {
+#[allow(clippy::missing_const_for_fn)]
+const fn test() {
     let _ = duke_interpreter::execute_class;
 }
 

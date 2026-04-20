@@ -13391,26 +13391,6 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
 /// let res = execute_class(&mut registry, &loader, &mut heap, &mut out, "java/lang/Object", "hashCode", "()I", &[]);
 /// assert!(res.is_err());
 /// ```
-///
-/// Bootstraps and executes a specific method on a Java class.
-///
-/// This handles the setup of initial JVM state, resolution of the target
-/// class and method, and initiates the interpretation loop.
-///
-/// # Arguments
-///
-/// * `registry` - The loaded class registry.
-/// * `loader` - The class loader instance.
-/// * `heap` - The garbage-collected heap.
-/// * `stdout` - The standard output writer.
-/// * `class_name` - The fully qualified name of the target class.
-/// * `method_name` - The name of the target method.
-/// * `descriptor` - The type descriptor of the target method.
-/// * `args` - The arguments to pass to the method.
-///
-/// # Errors
-///
-/// Returns `VmError` if execution fails or the class/method cannot be resolved.
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
