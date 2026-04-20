@@ -224,6 +224,7 @@ dependencies = [
  "duke-interpreter",
  "duke-loader",
  "duke-runtime",
+ "tempfile",
 ]
 
 [[package]]
