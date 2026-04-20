@@ -7991,6 +7991,10 @@ pub(crate) fn native_string_trim(
 }
 
 /// Native: `String.toCharArray()` — convert string to char array.
+///
+/// **Bolt Optimization:**
+/// Eliminates an intermediate `.collect::<Vec<char>>()` allocation by pre-computing
+/// the character length via `.count()` and iterating characters directly into the heap array.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 pub(crate) fn native_string_tochararray(
     args: &[Slot],
@@ -8000,9 +8004,9 @@ pub(crate) fn native_string_tochararray(
 ) -> VmResult<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let chars: Vec<char> = s.chars().collect();
-    let arr_ref = heap.allocate("[C".to_string(), chars.len());
-    for (i, &c) in chars.iter().enumerate() {
+    let char_count = s.chars().count();
+    let arr_ref = heap.allocate("[C".to_string(), char_count);
+    for (i, c) in s.chars().enumerate() {
         heap.get_mut(arr_ref)?.fields[i] = Slot::Int(c as i32);
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
@@ -25028,6 +25032,10 @@ pub(crate) fn native_string_indent(
 }
 
 /// Native: `StringBuilder.setCharAt(int, char) -> void`
+///
+/// **Bolt Optimization:**
+/// Eliminates a `Vec<char>` intermediate allocation by utilizing `char_indices` to map
+/// character indexes to byte offsets, allowing direct, in-place `replace_range` mutations on the `String`.
 pub(crate) fn native_stringbuilder_set_char_at(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -25040,17 +25048,14 @@ pub(crate) fn native_stringbuilder_set_char_at(
         Some(Slot::Int(v)) => char::from_u32(u32::from_ne_bytes(v.to_ne_bytes())).unwrap_or('\0'),
         _ => '\0',
     };
-    let s = heap
+    let buf = heap
         .get_mut(this_ref)?
         .string_value
-        .get_or_insert_with(String::new)
-        .clone();
-    let mut chars: Vec<char> = s.chars().collect();
-    if idx < chars.len() {
-        chars[idx] = ch;
+        .get_or_insert_with(String::new);
+    if let Some((byte_offset, old_ch)) = buf.char_indices().nth(idx) {
+        let mut b = [0; 4];
+        buf.replace_range(byte_offset..byte_offset + old_ch.len_utf8(), ch.encode_utf8(&mut b));
     }
-    let new_s: String = chars.into_iter().collect();
-    heap.get_mut(this_ref)?.string_value = Some(new_s);
     Ok(None)
 }
 
