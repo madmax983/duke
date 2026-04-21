@@ -52,6 +52,16 @@ impl Frame {
     /// assert_eq!(frame.load_local(1).unwrap(), Slot::Int(0)); // zero-initialized
     /// ```
     pub fn new(max_stack: usize, max_locals: usize, args: Vec<Slot>) -> VmResult<Self> {
+        let max_size = 1024 * 1024;
+        if max_stack > max_size {
+            return Err(VmError::StackOverflow);
+        }
+        if max_locals > max_size {
+            return Err(VmError::LocalOutOfBounds {
+                index: 0,
+                max_locals,
+            });
+        }
         if args.len() > max_locals {
             return Err(VmError::LocalOutOfBounds {
                 index: args.len(),
