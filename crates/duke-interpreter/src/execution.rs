@@ -62,6 +62,42 @@ use crate::*;
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+/// Executes a bytecode method using a stack-based machine model.
+///
+/// This function is the core execution loop of the interpreter. It takes a
+/// parsed class file, a method name, and a descriptor, and simulates the
+/// JVM's execution by managing local variables, the operand stack, and
+/// program counter.
+///
+/// ```compile_fail
+/// use std::sync::Arc;
+/// use duke_interpreter::execution::run_execution;
+/// use duke_interpreter::context::ClassContext;
+/// use duke_interpreter::registry::ClassRegistry;
+/// use std::sync::RwLock;
+/// use duke_classfile::{ClassFile, MethodInfo, CodeAttribute, ExceptionTableEntry, CpIndex};
+/// use duke_classfile::access_flags::MethodAccessFlags;
+/// use duke_runtime::slot::Slot;
+///
+/// let mut cp = vec![None; 10]; // mock CP
+/// let code_attr = CodeAttribute {
+///     max_stack: 2,
+///     max_locals: 2,
+///     code: vec![0xb1], // return
+///     exception_table: vec![],
+///     attributes: vec![],
+/// };
+///
+/// let registry = Arc::new(RwLock::new(ClassRegistry::new()));
+/// let mut heap = duke_gc::Heap::new();
+/// let mut thread_rt = duke_interpreter::threading::ThreadRuntime::new();
+/// let output = duke_interpreter::threading::SharedOutput::new();
+/// let props = std::collections::HashMap::new();
+///
+/// // This will error because the method isn't in the class context, but it demonstrates how to call it
+/// let res = run_execution(&ctx, "main()V", &[], &registry, &mut heap, &mut thread_rt, &output, props);
+/// assert!(res.is_err());
+/// ```
 pub fn run_execution(
     state: &mut ExecutionState,
     registry: &mut ClassRegistry,

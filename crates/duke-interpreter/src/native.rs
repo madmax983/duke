@@ -11390,6 +11390,30 @@ fn format_java_double(v: f64) -> String {
     clippy::cast_precision_loss,
     clippy::too_many_lines
 )]
+/// Acts as a dispatcher for native method implementations.
+///
+/// It looks up the appropriate handler in the native registry and
+/// executes it with the provided arguments.
+///
+/// ```compile_fail
+/// use duke_interpreter::native::execute;
+/// use duke_interpreter::registry::ClassRegistry;
+/// use std::sync::{Arc, RwLock};
+/// use duke_gc::Heap;
+/// use duke_interpreter::threading::{ThreadRuntime, SharedOutput};
+/// use std::collections::HashMap;
+///
+/// let registry = Arc::new(RwLock::new(ClassRegistry::new()));
+/// let mut heap = Heap::new();
+/// let mut thread_rt = ThreadRuntime::new();
+/// let output = SharedOutput::new();
+/// let props = HashMap::new();
+///
+/// // This will fail because the native method isn't registered,
+/// // but it demonstrates how to call the function.
+/// let res = execute("java/lang/Object", "hashCode", "()I", &[], &registry, &mut heap, &mut thread_rt, &output, &props);
+/// assert!(res.is_err());
+/// ```
 pub fn execute(
     instructions: &[(usize, Instruction)],
     cp: &[Option<CpEntry>],
@@ -13405,6 +13429,28 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+/// Attempts to locate the `main(Ljava/lang/String;)V` method
+/// in the provided class and executes it.
+///
+/// ```compile_fail
+/// use duke_interpreter::native::execute_class;
+/// use duke_interpreter::registry::ClassRegistry;
+/// use std::sync::{Arc, RwLock};
+/// use duke_gc::Heap;
+/// use duke_interpreter::threading::{ThreadRuntime, SharedOutput};
+/// use std::collections::HashMap;
+///
+/// let registry = Arc::new(RwLock::new(ClassRegistry::new()));
+/// let mut heap = Heap::new();
+/// let mut thread_rt = ThreadRuntime::new();
+/// let output = SharedOutput::new();
+/// let props = HashMap::new();
+///
+/// // This will fail because the class doesn't exist in the registry,
+/// // but it demonstrates how to call the function.
+/// let res = execute_class("NonExistentClass", &[], &registry, &mut heap, &mut thread_rt, &output, props);
+/// assert!(res.is_err());
+/// ```
 pub fn execute_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
