@@ -467,4 +467,51 @@ mod tests {
         assert!(html.contains("<h4>Control Flow Graph</h4>"));
         assert!(html.contains("<h4>Basic Block Control Flow Graph</h4>"));
     }
+
+    #[test]
+    fn test_html_resolve_class_name_not_class_ref() {
+        use duke_classfile::types::CpEntry;
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Integer(42)), // not a class ref
+            ],
+            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+        let html = generate_html_report(&cf);
+        assert!(html.contains("&lt;not a class ref&gt;"));
+    }
+
+    #[test]
+    fn test_html_cp_str_not_utf8() {
+        use duke_classfile::types::CpEntry;
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }),
+                Some(CpEntry::Integer(42)), // not a utf8 string
+            ],
+            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+        let html = generate_html_report(&cf);
+        assert!(html.contains("&lt;invalid utf8&gt;"));
+    }
 }

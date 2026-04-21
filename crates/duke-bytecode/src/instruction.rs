@@ -964,4 +964,90 @@ mod tests {
             assert_eq!(instr.mnemonic(), expected);
         }
     }
+
+    #[test]
+    fn test_is_conditional_branch() {
+        assert!(Instruction::Ifeq(5).is_conditional_branch());
+        assert!(Instruction::Ifne(5).is_conditional_branch());
+        assert!(!Instruction::Iconst0.is_conditional_branch());
+    }
+
+    #[test]
+    fn test_conditional_branch_target() {
+        assert_eq!(Instruction::Ifeq(5).conditional_branch_target(), Some(5));
+        assert_eq!(Instruction::Ifne(5).conditional_branch_target(), Some(5));
+        assert_eq!(Instruction::Iconst0.conditional_branch_target(), None);
+    }
+
+    #[test]
+    fn test_is_unconditional_jump() {
+        assert!(Instruction::Goto(5).is_unconditional_jump());
+        assert!(Instruction::GotoW(5).is_unconditional_jump());
+        assert!(Instruction::Jsr(5).is_unconditional_jump());
+        assert!(Instruction::JsrW(5).is_unconditional_jump());
+        assert!(!Instruction::Iconst0.is_unconditional_jump());
+    }
+
+    #[test]
+    fn test_unconditional_jump_target() {
+        assert_eq!(Instruction::Goto(5).unconditional_jump_target(), Some(5));
+        assert_eq!(Instruction::GotoW(5).unconditional_jump_target(), Some(5));
+        assert_eq!(Instruction::Jsr(5).unconditional_jump_target(), Some(5));
+        assert_eq!(Instruction::JsrW(5).unconditional_jump_target(), Some(5));
+        assert_eq!(Instruction::Iconst0.unconditional_jump_target(), None);
+    }
+
+    #[test]
+    fn test_switch_targets() {
+        let tableswitch = Instruction::Tableswitch {
+            default: 5,
+            low: 10,
+            high: 12,
+            offsets: vec![100, 200, 300],
+        };
+        assert_eq!(
+            tableswitch.switch_targets(),
+            Some((5, vec![(10, 100), (11, 200), (12, 300)]))
+        );
+
+        let lookupswitch = Instruction::Lookupswitch {
+            default: 5,
+            pairs: vec![(10, 100), (20, 200)],
+        };
+        assert_eq!(
+            lookupswitch.switch_targets(),
+            Some((5, vec![(10, 100), (20, 200)]))
+        );
+
+        assert_eq!(Instruction::Iconst0.switch_targets(), None);
+    }
+
+    #[test]
+    fn test_is_switch() {
+        assert!(
+            Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 0,
+                offsets: vec![],
+            }
+            .is_switch()
+        );
+        assert!(
+            Instruction::Lookupswitch {
+                default: 0,
+                pairs: vec![],
+            }
+            .is_switch()
+        );
+        assert!(!Instruction::Iconst0.is_switch());
+    }
+
+    #[test]
+    fn test_is_return() {
+        assert!(Instruction::Return.is_return());
+        assert!(Instruction::Ireturn.is_return());
+        assert!(Instruction::Athrow.is_return());
+        assert!(!Instruction::Iconst0.is_return());
+    }
 }

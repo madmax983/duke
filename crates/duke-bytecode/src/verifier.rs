@@ -914,4 +914,24 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn test_verifier_short_form_loads_oob() {
+        assert!(matches!(
+            check_locals(&Instruction::Iload0, 0, 0),
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 0,
+                max_locals: 0
+            })
+        ));
+        assert!(matches!(
+            check_locals(&Instruction::Dload0, 0, 0),
+            Err(VerifyError::LocalOutOfBounds {
+                pc: 0,
+                index: 0,
+                max_locals: 0
+            })
+        ));
+    }
 }
