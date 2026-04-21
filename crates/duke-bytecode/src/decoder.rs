@@ -1050,6 +1050,38 @@ mod tests {
     }
 
     #[test]
+    fn test_decoder_invalid_tableswitch_high_less_than_low() {
+        // tableswitch, padding(3), default(4), low(4), high(4)
+        let code = [
+            op::TABLESWITCH,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0, // default
+            0,
+            0,
+            0,
+            5, // low = 5
+            0,
+            0,
+            0,
+            1, // high = 1
+        ];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidTableswitch {
+                pc: 0,
+                low: 5,
+                high: 1
+            }
+        ));
+    }
+
+    #[test]
     fn test_decoder_tableswitch_too_many_entries() {
         // count = high - low + 1 = 10 - 0 + 1 = 11, but only 4 bytes of offsets provided.
         let code = [
