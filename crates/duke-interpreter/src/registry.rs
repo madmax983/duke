@@ -21,7 +21,7 @@ fn class_internal_name_fragment(name: &str) -> &str {
 
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
 #[derive(Debug, Clone)]
-pub(crate) struct LambdaInfo {
+pub struct LambdaInfo {
     pub impl_class: String,
     pub impl_method: String,
     pub impl_desc: String,
@@ -230,14 +230,15 @@ impl ClassRegistry {
         }
     }
 
-    pub(crate) fn register_lambda(&mut self, info: LambdaInfo) -> String {
+    pub fn register_lambda(&mut self, info: LambdaInfo) -> String {
         let name = format!("$$Lambda${}", self.lambda_counter);
         self.lambda_counter += 1;
         self.lambdas.insert(name.clone(), info);
         name
     }
 
-    pub(crate) fn get_lambda(&self, class_name: &str) -> Option<&LambdaInfo> {
+    #[must_use]
+    pub fn get_lambda(&self, class_name: &str) -> Option<&LambdaInfo> {
         self.lambdas.get(class_name)
     }
 

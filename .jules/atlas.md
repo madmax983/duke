@@ -25,3 +25,6 @@
 **Refactoring duke-bytecode Modules**
 **Tangle:** The `duke-bytecode` crate had `pub mod` for all its modules (`call_graph`, `cfg`, `decoder`, `error`, `instruction`, `opcodes`, `verifier`). This exposed internal details and made the public API surface area larger than it needed to be.
 **Blueprint:** Applied the "Facade" pattern by changing these modules to `pub(crate) mod` and using `pub use` to selectively re-export only the necessary items in `lib.rs`. Also updated some unused public constants in `opcodes.rs` to `pub(crate)` and added `#[allow(dead_code)]` to prevent compiler warnings.
+**[Facade Refactoring]
+**Tangle:** Public modules (`pub mod`) were leaking inner structures and `test` dependencies unnecessarily through direct module paths, leading to leaky abstractions.
+**Blueprint:** Replaced `pub mod` with `pub(crate) mod` across workspace crates (like `duke_runtime`, `duke_loader`, `duke_telemetry`, `duke_gc`, `duke_interpreter`) to encapsulate implementation details. This forced tests and integration points to use the carefully curated `pub use` exports in the respective crate roots, strengthening the crate facade boundaries and enforcing domain boundaries without changing runtime behavior.
