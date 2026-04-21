@@ -54,3 +54,5 @@ mod tests;
 
 #[cfg(test)]
 mod fuzz;
+
+pub use threading::{SharedOutput, ThreadRecord, ThreadRuntime};

@@ -15,7 +15,7 @@ use duke_runtime::Slot;
 ///
 /// ```
 /// use duke_interpreter::ClassRegistry;
-/// use duke_interpreter::stdlib::bootstrap_stdlib;
+/// use duke_interpreter::bootstrap_stdlib;
 /// use duke_gc::Heap;
 ///
 /// let mut registry = ClassRegistry::new();
