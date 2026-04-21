@@ -38,3 +38,6 @@
 **Extract branch matchers**
 **Learning:** `build_basic_blocks` in `crates/duke-bytecode/src/basic_block.rs` contained a massive, 60-line inline `match` statement to identify conditional branches, unconditional jumps, and return instructions. This created deep nesting and duplicated logic.
 **Action:** Always extract boolean categorization logic and data extraction logic into public helper methods directly on the enum (e.g., `Instruction`) to DRY up matching code and dramatically flatten calling modules. Use `if-else` chains with these helpers instead of massive inline `match` blocks.
+**[Fixed clippy::io_other_error]
+**Learning:** `std::io::Error::new(std::io::ErrorKind::Other, ...)` is clunky and triggers the `clippy::io_other_error` lint.
+**Action:** Replace it with the more concise `std::io::Error::other(...)` to improve readability and conform to idiomatic Rust.
