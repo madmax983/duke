@@ -13,7 +13,7 @@ use duke_classfile::CpIndex;
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::instruction::ArrayType;
+/// use duke_bytecode::ArrayType;
 ///
 /// let int_array = ArrayType::from_u8(10).unwrap();
 /// assert_eq!(int_array, ArrayType::Int);

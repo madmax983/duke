@@ -586,7 +586,8 @@ mod tests {
         let size = content.len() as u32;
         let name_bytes = name.as_bytes();
 
-        let mut zip = Vec::new();
+        let cap = 30 + name_bytes.len() + content.len() + 46 + name_bytes.len() + 22;
+        let mut zip = Vec::with_capacity(cap);
 
         // ── Local file header ────────────────────────────────────────
         let local_offset = zip.len() as u32;
@@ -654,7 +655,8 @@ mod tests {
         let compressed_size = compressed.len() as u32;
         let name_bytes = name.as_bytes();
 
-        let mut zip = Vec::new();
+        let cap = 30 + name_bytes.len() + compressed.len() + 46 + name_bytes.len() + 22;
+        let mut zip = Vec::with_capacity(cap);
 
         // ── Local file header ────────────────────────────────────────
         let local_offset = zip.len() as u32;
@@ -711,7 +713,7 @@ mod tests {
     fn build_multi_entry_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let count = entries.len() as u16;
         let mut zip = Vec::new();
-        let mut local_offsets = Vec::new();
+        let mut local_offsets = Vec::with_capacity(entries.len());
 
         // ── Local file headers + data ────────────────────────────────
         for &(name, content) in entries {

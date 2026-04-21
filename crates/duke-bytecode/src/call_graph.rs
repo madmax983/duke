@@ -83,7 +83,7 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::call_graph::generate_mermaid_call_graph;
+/// use duke_bytecode::generate_mermaid_call_graph;
 /// use duke_classfile::{parse, types::ClassFile};
 ///
 /// // Create a dummy ClassFile from valid dummy bytecode:
@@ -140,9 +140,7 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
                         && let Some((target_class, target_method, target_descriptor)) =
                             extract_method_ref(cf, idx)
                     {
-                        let target_id =
-                            format!("{target_class}::{target_method}{target_descriptor}");
-                        edges.insert(format!("    \"{source_id}\" --> \"{target_id}\""));
+                        edges.insert(format!("    \"{source_id}\" --> \"{target_class}::{target_method}{target_descriptor}\""));
                     }
                 }
             }

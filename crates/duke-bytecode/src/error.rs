@@ -11,7 +11,7 @@ use thiserror::Error;
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::error::{Error, VerifyError};
+/// use duke_bytecode::{Error, VerifyError};
 ///
 /// let v_err = VerifyError::StackUnderflow { pc: 10 };
 /// let err: Error = v_err.into();
@@ -36,7 +36,7 @@ pub enum Error {
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::error::DecodeError;
+/// use duke_bytecode::DecodeError;
 ///
 /// let err = DecodeError::UnexpectedEof { pc: 10 };
 /// assert_eq!(err.to_string(), "unexpected end of bytecode at pc=10");
@@ -130,7 +130,7 @@ pub type DecodeResult<T> = std::result::Result<T, DecodeError>;
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::error::VerifyError;
+/// use duke_bytecode::VerifyError;
 ///
 /// let err = VerifyError::StackOverflow { pc: 5, depth: 3, max_stack: 2 };
 /// assert_eq!(
@@ -187,7 +187,7 @@ pub type VerifyResult<T> = std::result::Result<T, VerifyError>;
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::error::Result;
+/// use duke_bytecode::Result;
 ///
 /// fn my_func() -> Result<()> {
 ///     Ok(())

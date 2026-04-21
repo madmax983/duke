@@ -264,7 +264,7 @@ mod tests {
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::{Instruction, cfg::cyclomatic_complexity};
+/// use duke_bytecode::{Instruction, cyclomatic_complexity};
 ///
 /// let instructions = vec![
 ///     (0, Instruction::Iconst0),
@@ -387,7 +387,7 @@ mod complexity_tests {
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::{Instruction, basic_block::BasicBlock, cfg::generate_basic_block_cfg};
+/// use duke_bytecode::{Instruction, BasicBlock, generate_basic_block_cfg};
 ///
 /// let blocks = vec![
 ///     BasicBlock {
@@ -429,7 +429,8 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         let block_id = block.start_pc;
 
         // Node definition
-        let mut node_label = format!("Block {block_id}\n");
+        let mut node_label = String::with_capacity(32 + block.instructions.len() * 16);
+        let _ = writeln!(node_label, "Block {block_id}");
         for (pc, instr) in &block.instructions {
             let _ = writeln!(node_label, "{}: {}", pc, instr.mnemonic());
         }
@@ -532,6 +533,25 @@ mod basic_block_cfg_tests {
 
     #[test]
     fn test_generate_basic_block_cfg_switch_negative() {
+        let instructions = vec![(
+            0,
+            Instruction::Tableswitch {
+                default: 10,
+                low: -1,
+                high: 0,
+                offsets: vec![4, 6],
+            },
+        )];
+        let blocks = build_basic_blocks(&instructions);
+        let cfg = generate_basic_block_cfg(&blocks);
+        assert!(cfg.contains("graph TD"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|-1| block4"));
+        assert!(cfg.contains("block0 -->|0| block6"));
+    }
+
+    #[test]
+    fn test_generate_basic_block_cfg_tableswitch_negative() {
         let instructions = vec![(
             0,
             Instruction::Tableswitch {
