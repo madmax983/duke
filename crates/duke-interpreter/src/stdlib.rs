@@ -1,3 +1,4 @@
+//! Core standard library bootstrapper and minimal Java environment setup.
 use crate::context::{ClassContext, ClassLoadSource, FieldEntry};
 use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
