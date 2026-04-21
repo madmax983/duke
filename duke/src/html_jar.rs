@@ -21,13 +21,10 @@ pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Resu
 
     let mut class_names = Vec::new();
     let reader = loader.reader();
-    let entries: Vec<String> = reader
-        .entry_names()
-        .filter(|name| name.ends_with(".class"))
-        .map(std::string::ToString::to_string)
-        .collect();
-
-    for entry_name in entries {
+    for entry_name in reader.entry_names() {
+        if !entry_name.ends_with(".class") {
+            continue;
+        }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
         let Ok(bytes) = loader.find_class(class_name_internal) else {
             continue;
