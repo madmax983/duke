@@ -12,7 +12,6 @@ use crate::html::generate_html_report;
 /// an interconnected set of HTML reports for every class in a JAR, plus an index.
 #[cfg(feature = "nova")]
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
-#[allow(clippy::collapsible_if)]
 pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Result<()> {
     let loader = ZipLoader::open(Path::new(jar_path)).map_err(|e| {
         std::io::Error::other(format!("duke: failed to open JAR '{jar_path}': {e}"))
@@ -30,23 +29,37 @@ pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Resu
 
     for entry_name in entries {
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = parse(&bytes) {
-                let html = generate_html_report(&cf);
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
 
-                let safe_name = class_name_internal.replace('/', "_");
-                let file_name = format!("{safe_name}.html");
-                let out_path = Path::new(output_dir).join(&file_name);
+        let html = generate_html_report(&cf);
 
-                if fs::write(&out_path, html).is_ok() {
-                    class_names.push((class_name_internal.to_string(), file_name));
-                }
-            }
+        let safe_name = class_name_internal.replace('/', "_");
+        let file_name = format!("{safe_name}.html");
+        let out_path = Path::new(output_dir).join(&file_name);
+
+        if fs::write(&out_path, html).is_ok() {
+            class_names.push((class_name_internal.to_string(), file_name));
         }
     }
 
     class_names.sort();
 
+    let index_html = generate_index_html(jar_path, &class_names);
+
+    let index_path = Path::new(output_dir).join("index.html");
+    fs::write(&index_path, index_html)?;
+
+    println!("✅ Generated static HTML site at {output_dir}");
+    Ok(())
+}
+
+#[cfg(feature = "nova")]
+fn generate_index_html(jar_path: &str, class_names: &[(String, String)]) -> String {
     let mut index_html = String::new();
     let _ = writeln!(&mut index_html, "<!DOCTYPE html>");
     let _ = writeln!(&mut index_html, "<html>");
@@ -89,7 +102,7 @@ pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Resu
         class_names.len()
     );
     let _ = writeln!(&mut index_html, "  <ul>");
-    for (name, link) in &class_names {
+    for (name, link) in class_names {
         let display_name = name.replace('/', ".");
         let _ = writeln!(
             &mut index_html,
@@ -99,12 +112,7 @@ pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Resu
     let _ = writeln!(&mut index_html, "  </ul>");
     let _ = writeln!(&mut index_html, "</body>");
     let _ = writeln!(&mut index_html, "</html>");
-
-    let index_path = Path::new(output_dir).join("index.html");
-    fs::write(&index_path, index_html)?;
-
-    println!("✅ Generated static HTML site at {output_dir}");
-    Ok(())
+    index_html
 }
 
 #[cfg(test)]
