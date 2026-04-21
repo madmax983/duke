@@ -43,3 +43,6 @@
 ## String Character Replacement Optimization
 **Learning:** `.chars().collect::<Vec<char>>()` and `.chars().collect::<String>()` allocate temporary vectors when trying to mutate a specific character or reverse a string. For reversals, `String` implements `FromIterator<char>` which can be used via `.chars().rev().collect::<String>()` without the intermediate `Vec`. For replacing characters at a specific index, you can use `.char_indices().nth(idx)` to find the byte offset, and mutate the String directly via `.replace_range()`.
 **Action:** Use `.char_indices()` to map char indexes to byte indexes for in-place string manipulation and avoid intermediate allocation where possible.
+**Pre-allocating Vec capacity for zip builders**
+**Learning:** `Vec::with_capacity(n)` is a highly effective way to prevent multiple heap re-allocations when using `extend_from_slice` in loops or sequentially. When dynamically generating byte buffers, calculating the exact size upfront reduces memory pressure and execution time.
+**Action:** Look for instances of `Vec::new()` immediately followed by loops that push elements or sequential `extend_from_slice` calls. If the total size can be derived mathematically, replace `Vec::new()` with `Vec::with_capacity(cap)`.
