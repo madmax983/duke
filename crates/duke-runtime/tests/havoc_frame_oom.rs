@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use duke_runtime::Frame;
+use duke_runtime::frame::Frame;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 

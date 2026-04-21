@@ -17,7 +17,7 @@ fn havoc_zip_reader_cd_entry_extends_past_bounds() {
     data[cd_pos + 30..cd_pos + 32].copy_from_slice(&1000u16.to_le_bytes()); // extra_len = 1000, extends past CD bounds!
     data[cd_pos + 46..cd_pos + 50].copy_from_slice(b"test");
 
-    let res = duke_loader::ZipReader::from_bytes(data);
+    let res = duke_loader::zip::ZipReader::from_bytes(data);
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
         assert!(
@@ -46,7 +46,7 @@ fn havoc_zip_reader_cd_entry_truncated() {
     let cd_pos = 28;
     data[cd_pos..cd_pos + 4].copy_from_slice(&0x0201_4b50_u32.to_le_bytes()); // CD_SIGNATURE
 
-    let res = duke_loader::ZipReader::from_bytes(data);
+    let res = duke_loader::zip::ZipReader::from_bytes(data);
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
         assert!(msg.contains("central directory entry truncated"), "{}", msg);
@@ -73,7 +73,7 @@ fn havoc_zip_reader_cd_entry_length_overflow() {
     data[cd_pos + 30..cd_pos + 32].copy_from_slice(&65535u16.to_le_bytes()); // extra_len
     data[cd_pos + 32..cd_pos + 34].copy_from_slice(&65535u16.to_le_bytes()); // comment_len
 
-    let res = duke_loader::ZipReader::from_bytes(data);
+    let res = duke_loader::zip::ZipReader::from_bytes(data);
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
         assert!(
@@ -110,7 +110,7 @@ fn havoc_zip_reader_local_header_extends_past_archive() {
     data[local_pos..local_pos + 4].copy_from_slice(&0x0403_4b50_u32.to_le_bytes());
     data[local_pos + 26..local_pos + 28].copy_from_slice(&1000u16.to_le_bytes()); // filename_len = 1000, extends past EOF!
 
-    let reader = duke_loader::ZipReader::from_bytes(data).unwrap();
+    let reader = duke_loader::zip::ZipReader::from_bytes(data).unwrap();
     let res = reader.read_entry("test");
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
@@ -155,7 +155,7 @@ fn havoc_zip_reader_read_entry_info_panic() {
     // We can't directly change ZipEntryInfo compressed size without a valid CD header.
     data[cd_pos + 20..cd_pos + 24].copy_from_slice(&1000u32.to_le_bytes()); // compressed_size = 1000
 
-    let reader = duke_loader::ZipReader::from_bytes(data).unwrap();
+    let reader = duke_loader::zip::ZipReader::from_bytes(data).unwrap();
     let res = reader.read_entry("test");
     // Assert that we got an error, and it did not panic
     assert!(res.is_err());
@@ -192,7 +192,7 @@ fn havoc_zip_reader_local_header_offset_overflow() {
     data[cd_pos + 42..cd_pos + 46].copy_from_slice(&u32::MAX.to_le_bytes()); // local_header_offset = u32::MAX
     data[cd_pos + 46..cd_pos + 50].copy_from_slice(b"test");
 
-    let reader = duke_loader::ZipReader::from_bytes(data).unwrap();
+    let reader = duke_loader::zip::ZipReader::from_bytes(data).unwrap();
     let res = reader.read_entry("test");
     assert!(res.is_err());
     if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {

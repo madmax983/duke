@@ -37,17 +37,17 @@
 
 pub(crate) mod helpers;
 
-pub(crate) mod bytecode_cost;
+pub mod bytecode_cost;
 pub use bytecode_cost::*;
-pub(crate) mod object_lineage;
+pub mod object_lineage;
 pub use object_lineage::*;
-pub(crate) mod class_init_dag;
+pub mod class_init_dag;
 pub use class_init_dag::*;
-pub(crate) mod exception_flow;
+pub mod exception_flow;
 pub use exception_flow::*;
-pub(crate) mod dispatch_resolution;
+pub mod dispatch_resolution;
 pub use dispatch_resolution::*;
-pub(crate) mod native_boundary;
+pub mod native_boundary;
 pub use native_boundary::*;
 
 // -- TelemetryStore --------------------------------------------------------------

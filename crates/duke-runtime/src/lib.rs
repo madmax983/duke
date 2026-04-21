@@ -31,9 +31,9 @@
 //! assert_eq!(frame.pop_int().unwrap(), 30);
 //! ```
 
-pub(crate) mod error;
-pub(crate) mod frame;
-pub(crate) mod slot;
+pub mod error;
+pub mod frame;
+pub mod slot;
 
 pub use error::{Error, Result, VmError, VmResult};
 pub use frame::Frame;
