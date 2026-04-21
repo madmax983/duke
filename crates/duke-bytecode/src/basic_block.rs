@@ -14,7 +14,7 @@ use crate::Instruction;
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::{Instruction, basic_block::BasicBlock};
+/// use duke_bytecode::{Instruction, BasicBlock};
 ///
 /// let block = BasicBlock {
 ///     start_pc: 0,
@@ -47,7 +47,7 @@ pub struct BasicBlock {
 /// ## Examples
 ///
 /// ```
-/// use duke_bytecode::{Instruction, basic_block::{build_basic_blocks, BasicBlock}};
+/// use duke_bytecode::{Instruction, build_basic_blocks, BasicBlock};
 ///
 /// let instructions = vec![
 ///     (0, Instruction::Iload1),

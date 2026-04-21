@@ -23,8 +23,8 @@ pub use stdlib::bootstrap_stdlib;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 
+use duke_bytecode::ArrayType;
 use duke_bytecode::Instruction;
-use duke_bytecode::instruction::ArrayType;
 use duke_classfile::types::CpEntry;
 use duke_loader::ClassLoader;
 use duke_runtime::{Frame, Slot, VmError, VmResult};

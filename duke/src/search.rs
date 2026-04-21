@@ -101,6 +101,23 @@ mod tests {
     }
 
     #[test]
+    fn test_cp_str_non_utf8() {
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![None, Some(CpEntry::Integer(42))],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(0),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+        assert_eq!(cp_str(&cf, CpIndex(1)), None);
+    }
+
+    #[test]
     fn test_dump_search_no_match() {
         // Just testing cp_str helper mostly, dump_search is tested by its effects.
         let cf = ClassFile {

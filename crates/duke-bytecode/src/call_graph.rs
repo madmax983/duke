@@ -83,7 +83,7 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 /// # Examples
 ///
 /// ```
-/// use duke_bytecode::call_graph::generate_mermaid_call_graph;
+/// use duke_bytecode::generate_mermaid_call_graph;
 /// use duke_classfile::{parse, types::ClassFile};
 ///
 /// // Create a dummy ClassFile from valid dummy bytecode:

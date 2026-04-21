@@ -58,6 +58,12 @@ impl Frame {
                 max_locals,
             });
         }
+
+        let max_size = 1024 * 1024; // 1M slots max
+        if max_locals > max_size || max_stack > max_size {
+            return Err(VmError::OutOfMemory);
+        }
+
         // ⚡ Bolt: Re-use the existing `args` vector for `locals` to avoid an allocation
         // and explicit copy loop. `resize` extends it with zeroes if needed.
         let mut locals = args;

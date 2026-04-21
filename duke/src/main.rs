@@ -6,6 +6,8 @@
 use std::process;
 
 mod analyze;
+#[cfg(feature = "nova")]
+mod cycle_detect;
 mod deps_graph;
 mod histogram;
 mod html;
@@ -227,6 +229,8 @@ fn main() {
 
         #[cfg(feature = "nova")]
         eprintln!("       duke html-jar <file.jar> <output_dir>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke cycle-detect <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");

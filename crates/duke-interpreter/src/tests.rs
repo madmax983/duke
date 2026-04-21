@@ -10887,7 +10887,7 @@ fn execute_ificmplt_not_taken_when_equal() {
 
 #[test]
 fn execute_newarray_long_initializes_long_zero() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let r = execute(
         &[
             (0, Instruction::Iconst1),
@@ -10909,7 +10909,7 @@ fn execute_newarray_long_initializes_long_zero() {
 
 #[test]
 fn execute_newarray_float_initializes_float_zero() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let r = execute(
         &[
             (0, Instruction::Iconst1),
@@ -10931,7 +10931,7 @@ fn execute_newarray_float_initializes_float_zero() {
 
 #[test]
 fn execute_newarray_double_initializes_double_zero() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let r = execute(
         &[
             (0, Instruction::Iconst1),
@@ -10957,7 +10957,7 @@ fn execute_newarray_double_initializes_double_zero() {
 
 #[test]
 fn execute_lastore_and_laload_roundtrip() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     // Create long[2], store Lconst1 at index 0, load and return it.
     let r = execute(
         &[
@@ -10983,7 +10983,7 @@ fn execute_lastore_and_laload_roundtrip() {
 
 #[test]
 fn execute_laload_out_of_bounds_raises_error() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let err = execute(
         &[
             (0, Instruction::Iconst1),
@@ -11006,7 +11006,7 @@ fn execute_laload_out_of_bounds_raises_error() {
 
 #[test]
 fn execute_fastore_and_faload_roundtrip() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let r = execute(
         &[
             (0, Instruction::Iconst1),
@@ -11031,7 +11031,7 @@ fn execute_fastore_and_faload_roundtrip() {
 
 #[test]
 fn execute_dastore_and_daload_roundtrip() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let r = execute(
         &[
             (0, Instruction::Iconst1),
@@ -11056,7 +11056,7 @@ fn execute_dastore_and_daload_roundtrip() {
 
 #[test]
 fn execute_faload_out_of_bounds_raises_error() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let err = execute(
         &[
             (0, Instruction::Iconst1),
@@ -11079,7 +11079,7 @@ fn execute_faload_out_of_bounds_raises_error() {
 
 #[test]
 fn execute_daload_out_of_bounds_raises_error() {
-    use duke_bytecode::instruction::ArrayType;
+    use duke_bytecode::ArrayType;
     let err = execute(
         &[
             (0, Instruction::Iconst1),
@@ -13361,10 +13361,7 @@ fn ec_newarray_long_default_slot_is_long_zero() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Iconst1),
-            (
-                1,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
-            ),
+            (1, Instruction::Newarray(duke_bytecode::ArrayType::Long)),
             (3, Instruction::Astore0),
             (4, Instruction::Aload0),
             (5, Instruction::Iconst0),
@@ -13386,10 +13383,7 @@ fn ec_newarray_float_default_slot_is_float_zero() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Iconst1),
-            (
-                1,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
-            ),
+            (1, Instruction::Newarray(duke_bytecode::ArrayType::Float)),
             (3, Instruction::Astore0),
             (4, Instruction::Aload0),
             (5, Instruction::Iconst0),
@@ -13411,10 +13405,7 @@ fn ec_newarray_double_default_slot_is_double_zero() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Iconst1),
-            (
-                1,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
-            ),
+            (1, Instruction::Newarray(duke_bytecode::ArrayType::Double)),
             (3, Instruction::Astore0),
             (4, Instruction::Aload0),
             (5, Instruction::Iconst0),
@@ -13440,10 +13431,7 @@ fn ec_iaload_valid_idx0_succeeds() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Int)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Iconst0),
@@ -13466,10 +13454,7 @@ fn ec_iaload_valid_idx1_succeeds() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Int)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Iconst1),
@@ -13492,10 +13477,7 @@ fn ec_iaload_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Int)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)), // idx = length = OOB
@@ -13520,10 +13502,7 @@ fn ec_iastore_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Int),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Int)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)), // idx=3 = OOB
@@ -13550,10 +13529,7 @@ fn ec_laload_valid_idx0_succeeds() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Long)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Iconst0),
@@ -13576,10 +13552,7 @@ fn ec_laload_valid_idx1_succeeds() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Long)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Iconst1),
@@ -13602,10 +13575,7 @@ fn ec_laload_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Long)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)),
@@ -13630,10 +13600,7 @@ fn ec_lastore_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Long),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Long)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)), // idx=3 OOB
@@ -13660,10 +13627,7 @@ fn ec_faload_valid_idx0_succeeds() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Float)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Iconst0),
@@ -13685,10 +13649,7 @@ fn ec_faload_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Float)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)),
@@ -13712,10 +13673,7 @@ fn ec_fastore_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Float),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Float)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)), // idx=3 OOB
@@ -13741,10 +13699,7 @@ fn ec_daload_valid_idx0_succeeds() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Double)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Iconst0),
@@ -13766,10 +13721,7 @@ fn ec_daload_valid_idx1_succeeds() {
     let r = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Double)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Iconst1),
@@ -13791,10 +13743,7 @@ fn ec_daload_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Double)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)),
@@ -13818,10 +13767,7 @@ fn ec_dastore_oob_at_length_errors() {
     let err = execute_class_synthetic(
         vec![
             (0, Instruction::Bipush(3)),
-            (
-                2,
-                Instruction::Newarray(duke_bytecode::instruction::ArrayType::Double),
-            ),
+            (2, Instruction::Newarray(duke_bytecode::ArrayType::Double)),
             (4, Instruction::Astore0),
             (5, Instruction::Aload0),
             (6, Instruction::Bipush(3)), // idx=3 OOB
