@@ -429,7 +429,8 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         let block_id = block.start_pc;
 
         // Node definition
-        let mut node_label = format!("Block {block_id}\n");
+        let mut node_label = String::with_capacity(32 + block.instructions.len() * 16);
+        let _ = writeln!(node_label, "Block {block_id}");
         for (pc, instr) in &block.instructions {
             let _ = writeln!(node_label, "{}: {}", pc, instr.mnemonic());
         }

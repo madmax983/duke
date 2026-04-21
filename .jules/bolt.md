@@ -43,3 +43,6 @@
 ## String Character Replacement Optimization
 **Learning:** `.chars().collect::<Vec<char>>()` and `.chars().collect::<String>()` allocate temporary vectors when trying to mutate a specific character or reverse a string. For reversals, `String` implements `FromIterator<char>` which can be used via `.chars().rev().collect::<String>()` without the intermediate `Vec`. For replacing characters at a specific index, you can use `.char_indices().nth(idx)` to find the byte offset, and mutate the String directly via `.replace_range()`.
 **Action:** Use `.char_indices()` to map char indexes to byte indexes for in-place string manipulation and avoid intermediate allocation where possible.
+**[Avoiding format! allocations]
+**Learning:** Using String::with_capacity and writeln! avoids intermediate String allocations compared to format!
+**Action:** Pre-allocate Strings and use write macros instead of format! when building strings

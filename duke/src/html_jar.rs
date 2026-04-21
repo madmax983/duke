@@ -15,23 +15,17 @@ use crate::html::generate_html_report;
 #[allow(clippy::collapsible_if)]
 pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Result<()> {
     let loader = ZipLoader::open(Path::new(jar_path)).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("duke: failed to open JAR '{jar_path}': {e}"),
-        )
+        std::io::Error::other(format!("duke: failed to open JAR '{jar_path}': {e}"))
     })?;
 
     fs::create_dir_all(output_dir)?;
 
     let mut class_names = Vec::new();
     let reader = loader.reader();
-    let entries: Vec<String> = reader
-        .entry_names()
-        .filter(|name| name.ends_with(".class"))
-        .map(std::string::ToString::to_string)
-        .collect();
-
-    for entry_name in entries {
+    for entry_name in reader.entry_names() {
+        if !entry_name.ends_with(".class") {
+            continue;
+        }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
         if let Ok(bytes) = loader.find_class(class_name_internal) {
             if let Ok(cf) = parse(&bytes) {
