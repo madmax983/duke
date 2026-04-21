@@ -50,6 +50,9 @@ pub use dispatch_resolution::*;
 pub mod native_boundary;
 pub use native_boundary::*;
 
+pub(crate) mod markdown;
+pub(crate) mod print;
+
 // -- TelemetryStore --------------------------------------------------------------
 
 /// The root telemetry store.
@@ -125,86 +128,7 @@ impl TelemetryStore {
     /// store.print_report(&mut buf).unwrap();
     /// ```
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
-        writeln!(w, "=== Duke VM Telemetry Report ===")?;
-
-        writeln!(w, "\n-- bytecode_cost (top 10 by count) --")?;
-        let mut ops: Vec<_> = self.bytecode_cost.by_opcode.iter().collect();
-        ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
-        for (name, stat) in ops.iter().take(10) {
-            writeln!(w, "  {:20} count={:>10}", name, stat.count)?;
-        }
-
-        writeln!(
-            w,
-            "\n-- object_lineage (top 10 allocation sites by count) --"
-        )?;
-        let mut sites: Vec<_> = self.object_lineage.sites.iter().collect();
-        sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
-        for ((class, method, pc), site) in sites.iter().take(10) {
-            writeln!(
-                w,
-                "  {}::{} @{} allocs {} of {}",
-                class, method, pc, site.count, site.class_allocated
-            )?;
-        }
-
-        writeln!(
-            w,
-            "\n-- class_init_dag ({} clinit events) --",
-            self.class_init_dag.events.len()
-        )?;
-        for ev in &self.class_init_dag.events {
-            writeln!(
-                w,
-                "  {} (triggered by: {}, {}ns)",
-                ev.class, ev.triggered_by, ev.duration_ns
-            )?;
-        }
-
-        writeln!(
-            w,
-            "\n-- exception_flow ({} throw events) --",
-            self.exception_flow.events.len()
-        )?;
-        for ev in &self.exception_flow.events {
-            let catch = ev.catch_site.as_ref().map_or_else(
-                || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
-            );
-            writeln!(
-                w,
-                "  {} thrown at {:?} caught at {}",
-                ev.exception_class, ev.throw_site, catch
-            )?;
-        }
-
-        writeln!(w, "\n-- dispatch_resolution (top 10 virtual call sites) --")?;
-        let mut dsites: Vec<_> = self.dispatch_resolution.by_site.iter().collect();
-        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
-        for ((class, cp), stat) in dsites.iter().take(10) {
-            writeln!(
-                w,
-                "  {}[cp{}] calls={} targets={} walks={}",
-                class,
-                cp,
-                stat.calls,
-                stat.unique_targets.len(),
-                stat.hierarchy_walks
-            )?;
-        }
-
-        writeln!(w, "\n-- native_boundary (top 10 by call count) --")?;
-        let mut natives: Vec<_> = self.native_boundary.by_method.iter().collect();
-        natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
-        for ((class, method), stat) in natives.iter().take(10) {
-            writeln!(
-                w,
-                "  {}.{} calls={} errors={}",
-                class, method, stat.calls, stat.errors
-            )?;
-        }
-
-        Ok(())
+        print::print_report(self, w)
     }
 
     /// Generate a Markdown report containing all telemetry data and a visualized Mermaid graph.
@@ -214,154 +138,7 @@ impl TelemetryStore {
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn to_markdown_report(&self) -> String {
-        use std::fmt::Write;
-        let mut out = String::new();
-        writeln!(
-            &mut out,
-            "# Duke VM Telemetry Report
-"
-        )
-        .unwrap();
-
-        // Bytecode Cost
-        writeln!(
-            &mut out,
-            "## Bytecode Cost (Top 10)
-"
-        )
-        .unwrap();
-        writeln!(&mut out, "| Opcode | Count | Time (ns) |").unwrap();
-        writeln!(&mut out, "|--------|-------|-----------|").unwrap();
-        let mut ops: Vec<_> = self.bytecode_cost.by_opcode.iter().collect();
-        ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
-        for (name, stat) in ops.iter().take(10) {
-            writeln!(
-                &mut out,
-                "| `{name}` | {} | {} |",
-                stat.count, stat.total_ns
-            )
-            .unwrap();
-        }
-        writeln!(&mut out).unwrap();
-
-        // Object Lineage
-        writeln!(
-            &mut out,
-            "## Object Lineage (Top 10 Allocation Sites)
-"
-        )
-        .unwrap();
-        writeln!(&mut out, "| Location | Class Allocated | Count |").unwrap();
-        writeln!(&mut out, "|----------|-----------------|-------|").unwrap();
-        let mut sites: Vec<_> = self.object_lineage.sites.iter().collect();
-        sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
-        for ((class, method, pc), site) in sites.iter().take(10) {
-            writeln!(
-                &mut out,
-                "| `{class}::{method}` @{pc} | `{}` | {} |",
-                site.class_allocated, site.count
-            )
-            .unwrap();
-        }
-        writeln!(&mut out).unwrap();
-
-        // Class Init Dag Mermaid
-        writeln!(
-            &mut out,
-            "## Class Initialization DAG
-"
-        )
-        .unwrap();
-        if self.class_init_dag.events.is_empty() {
-            writeln!(
-                &mut out,
-                "No class initialization events recorded.
-"
-            )
-            .unwrap();
-        } else {
-            writeln!(
-                &mut out,
-                "```mermaid
-{}```
-",
-                self.class_init_dag.to_mermaid().trim()
-            )
-            .unwrap();
-        }
-
-        // Exception Flow
-        writeln!(
-            &mut out,
-            "## Exception Flow
-"
-        )
-        .unwrap();
-        writeln!(&mut out, "| Exception Class | Throw Site | Catch Site |").unwrap();
-        writeln!(&mut out, "|-----------------|------------|------------|").unwrap();
-        for ev in &self.exception_flow.events {
-            let throw = format!(
-                "{}::{} @{}",
-                ev.throw_site.0, ev.throw_site.1, ev.throw_site.2
-            );
-            let catch = ev.catch_site.as_ref().map_or_else(
-                || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
-            );
-            writeln!(
-                &mut out,
-                "| `{}` | `{throw}` | `{catch}` |",
-                ev.exception_class
-            )
-            .unwrap();
-        }
-        writeln!(&mut out).unwrap();
-
-        // Dispatch Resolution
-        writeln!(
-            &mut out,
-            "## Dispatch Resolution (Top 10 Virtual Call Sites)
-"
-        )
-        .unwrap();
-        writeln!(&mut out, "| Caller | Calls | Targets | Hierarchy Walks |").unwrap();
-        writeln!(&mut out, "|--------|-------|---------|-----------------|").unwrap();
-        let mut dsites: Vec<_> = self.dispatch_resolution.by_site.iter().collect();
-        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
-        for ((class, cp), stat) in dsites.iter().take(10) {
-            writeln!(
-                &mut out,
-                "| `{class}`[cp{cp}] | {} | {} | {} |",
-                stat.calls,
-                stat.unique_targets.len(),
-                stat.hierarchy_walks
-            )
-            .unwrap();
-        }
-        writeln!(&mut out).unwrap();
-
-        // Native Boundary
-        writeln!(
-            &mut out,
-            "## Native Boundary (Top 10 by Call Count)
-"
-        )
-        .unwrap();
-        writeln!(&mut out, "| Native Method | Calls | Errors | Time (ns) |").unwrap();
-        writeln!(&mut out, "|---------------|-------|--------|-----------|").unwrap();
-        let mut natives: Vec<_> = self.native_boundary.by_method.iter().collect();
-        natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
-        for ((class, method), stat) in natives.iter().take(10) {
-            writeln!(
-                &mut out,
-                "| `{class}.{method}` | {} | {} | {} |",
-                stat.calls, stat.errors, stat.total_ns
-            )
-            .unwrap();
-        }
-        writeln!(&mut out).unwrap();
-
-        out
+        markdown::generate_markdown_report(self)
     }
 }
 
