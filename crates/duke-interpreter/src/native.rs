@@ -11,7 +11,7 @@ static NEXT_ZIP_ID: AtomicI32 = AtomicI32::new(100_000_000);
 
 fn zip_open(path: &std::path::Path) -> VmResult<i32> {
     let reader = duke_loader::ZipReader::open(path).map_err(|err| match err {
-        duke_loader::LoadError::Io { .. } => VmError::JavaException {
+        duke_loader::Error::Io { .. } => VmError::JavaException {
             class_name: "java/io/FileNotFoundException".to_string(),
         },
         _ => VmError::JavaException {
@@ -6261,7 +6261,7 @@ fn boot_archive_predicate_accepts(
 
 fn open_boot_archive_reader(path: &std::path::Path) -> VmResult<duke_loader::ZipReader> {
     duke_loader::ZipReader::open(path).map_err(|err| match err {
-        duke_loader::LoadError::Io { .. } => VmError::JavaException {
+        duke_loader::Error::Io { .. } => VmError::JavaException {
             class_name: "java/io/IOException".to_string(),
         },
         _ => VmError::JavaException {
