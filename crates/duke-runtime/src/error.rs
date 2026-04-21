@@ -38,6 +38,10 @@ pub enum Error {
     #[error("integer division by zero")]
     DivisionByZero,
 
+    /// Out of memory during allocation.
+    #[error("out of memory")]
+    OutOfMemory,
+
     /// A branch target was outside the valid code range.
     #[error("invalid branch target: pc={pc}")]
     InvalidBranchTarget {

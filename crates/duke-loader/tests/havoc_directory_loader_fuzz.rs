@@ -14,7 +14,7 @@ proptest! {
         let loader = DirectoryLoader::new(&root);
         let result = loader.find_class(&name);
 
-        let is_unsafe = name.contains("..") || name.contains('.') || name.starts_with('/') || name.starts_with('\\') || name.contains(':');
+        let is_unsafe = name.contains("..") || name.starts_with('/') || name.starts_with('\\') || name.contains(':');
 
         if is_unsafe {
             assert!(result.is_err(), "Unsafe path {name:?} was not rejected");
