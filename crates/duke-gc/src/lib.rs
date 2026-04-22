@@ -145,6 +145,10 @@ impl Heap {
     ///
     /// # Examples
     ///
+    /// # Panics
+    ///
+    /// Panics if `field_count` exceeds 1,048,576 to prevent `OutOfMemory` capacity overflows.
+    ///
     /// ```
     /// use duke_gc::Heap;
     /// let heap = Heap::new();
@@ -189,6 +193,10 @@ impl Heap {
     }
 
     /// Allocate a new object in the young generation. Returns a young-gen reference.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `field_count` exceeds 1,048,576 to prevent `OutOfMemory` capacity overflows.
     ///
     /// # Examples
     ///
