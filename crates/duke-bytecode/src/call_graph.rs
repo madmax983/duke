@@ -361,4 +361,47 @@ mod tests {
         let cg = generate_mermaid_call_graph(&cf);
         assert!(cg.contains("\"MyClass::myMethod()V\" --> \"MyClass::targetMethod()V\""));
     }
+
+    #[test]
+    fn test_generate_mermaid_call_graph_invalid_code() {
+        let cf = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None, // 0
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }), // 1
+                Some(CpEntry::Utf8("MyClass".to_string())), // 2
+                Some(CpEntry::Utf8("myMethod".to_string())), // 3
+                Some(CpEntry::Utf8("()V".to_string())), // 4
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![MethodInfo {
+                access_flags: MethodAccessFlags::PUBLIC,
+                name_index: CpIndex(3),
+                descriptor_index: CpIndex(4),
+                attributes: vec![AttributeInfo {
+                    name_index: CpIndex(0),
+                    data: AttributeData::Code(CodeAttribute {
+                        max_stack: 1,
+                        max_locals: 1,
+                        // invalid code: impdep1
+                        code: vec![0xfe],
+                        exception_table: vec![],
+                        attributes: vec![],
+                    }),
+                }],
+            }],
+            attributes: vec![],
+        };
+
+        let cg = generate_mermaid_call_graph(&cf);
+        assert!(cg.contains("graph TD"));
+        assert!(!cg.contains("-->")); // no edges generated because decode fails
+    }
 }
