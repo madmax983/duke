@@ -17605,6 +17605,14 @@ pub(crate) fn native_string_repeat(
     let this_ref = extract_ref_arg(args, 0)?;
     let n = usize::try_from(extract_int_arg(args, 1)?.max(0)).unwrap_or(0);
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+
+    let max_size = 1024 * 1024 * 128; // 128 MB max string size
+    if n.checked_mul(s.len()).is_none_or(|len| len > max_size) {
+        return Err(duke_runtime::VmError::JavaException {
+            class_name: "java/lang/OutOfMemoryError".to_string(),
+        });
+    }
+
     let r = heap.allocate_string(s.repeat(n));
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -25351,4 +25359,25 @@ mod havoc_coverage_tests {
     }
 }
 
+}
+
+#[cfg(test)]
+mod havoc_string_repeat_oom {
+    use super::*;
+    use std::io::sink;
+    use duke_gc::Heap;
+    use duke_runtime::Slot;
+
+    #[test]
+    fn test_string_repeat_oom_trigger() {
+        let mut heap = Heap::new();
+        let r = heap.allocate_string("12345678901234567890".to_string());
+
+        let args = vec![Slot::Reference(Some(r)), Slot::Int(i32::MAX)];
+        let mut control = NativeControl::default();
+
+        let result = native_string_repeat(&args, &mut heap, &mut sink(), &mut control);
+        let err = result.unwrap_err();
+        assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
+    }
 }
