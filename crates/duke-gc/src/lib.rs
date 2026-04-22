@@ -145,6 +145,10 @@ impl Heap {
     ///
     /// # Examples
     ///
+    /// # Panics
+    ///
+    /// Panics if `field_count` exceeds 1,048,576 to prevent `OutOfMemory` capacity overflows.
+    ///
     /// ```
     /// use duke_gc::Heap;
     /// let heap = Heap::new();
@@ -190,6 +194,10 @@ impl Heap {
 
     /// Allocate a new object in the young generation. Returns a young-gen reference.
     ///
+    /// # Panics
+    ///
+    /// Panics if `field_count` exceeds 1,048,576 to prevent `OutOfMemory` capacity overflows.
+    ///
     /// # Examples
     ///
     /// ```
@@ -200,6 +208,14 @@ impl Heap {
     /// assert_eq!(heap.get(r).unwrap().class_name, "java/lang/Object");
     /// ```
     pub fn allocate(&mut self, class_name: String, field_count: usize) -> u64 {
+        // 👺 HAVOC: Stop OOM attacks!
+        // Prevent unbounded allocation which triggers stdlib capacity overflow and crashes the process.
+        // We explicitly assert limit. A "graceful" panic provides a backtrace and prevents
+        // uncontrolled heap exhaustions inside the VM execution layer.
+        assert!(
+            field_count <= 1024 * 1024,
+            "Allocation exceeded maximum allowed field count"
+        );
         self.alloc_since_gc += 1;
         self.live_count += 1;
         let idx = self.young_top as u64; // OLD_BIT == 0 → young ref

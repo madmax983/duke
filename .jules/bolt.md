@@ -53,3 +53,6 @@
 **Eliminate Heterogeneous Iterator Allocations**
 **Learning:** Returning a `Vec` from a function just to unify different iterator types (e.g. iterating over a `Vec` directly vs. generating items on the fly) incurs unnecessary heap allocations. Using `Box<dyn Iterator>` or `Vec` hides the complexity at a performance cost.
 **Action:** Define a custom `enum` that wraps the different iterator variants and implement `Iterator` and `ExactSizeIterator` manually to achieve zero-cost abstraction without allocations. When managing internal counters in such iterators, always use `.wrapping_add(1)` to prevent debug-mode panics from integer overflows (e.g., when reaching `i32::MAX`).
+**Arrays.toString Optimization**
+**Learning:** Avoid `format!` macros and intermediate `Vec<String>` allocations for simple formatting inside hot paths like `Arrays.toString`. You can safely write straight to a `String` buffer.
+**Action:** Use a pre-allocated `String` with `write!` directly for formatting, replacing maps with `.join()` which cause extra allocations.

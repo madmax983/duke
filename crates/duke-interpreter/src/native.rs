@@ -19974,16 +19974,25 @@ pub(crate) fn native_arrays_to_string_int(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
+    use std::fmt::Write as FmtWrite;
     let arr_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(arr_ref)?.fields.clone();
-    let parts: Vec<String> = fields
-        .iter()
-        .map(|s| match s {
-            Slot::Int(n) => n.to_string(),
-            _ => "0".to_string(),
-        })
-        .collect();
-    let result = format!("[{}]", parts.join(", "));
+
+    // ⚡ Bolt: Eliminate intermediate Vec<String> allocation, format! macro overhead,
+    // and .join() by appending directly to a single String buffer.
+    let mut result = String::with_capacity(fields.len() * 4 + 2);
+    result.push('[');
+    for (i, s) in fields.iter().enumerate() {
+        if i > 0 {
+            result.push_str(", ");
+        }
+        match s {
+            Slot::Int(n) => { let _ = write!(result, "{n}"); },
+            _ => result.push('0'),
+        }
+    }
+    result.push(']');
+
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -19995,23 +20004,36 @@ pub(crate) fn native_arrays_to_string_object(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
+    use std::fmt::Write as FmtWrite;
     let arr_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(arr_ref)?.fields.clone();
-    let mut parts: Vec<String> = Vec::with_capacity(fields.len());
-    for s in &fields {
-        let part = match s {
-            Slot::Reference(Some(r)) => heap
-                .get(*r)
-                .ok()
-                .and_then(|o| o.string_value.clone())
-                .unwrap_or_else(|| "null".to_string()),
-            Slot::Reference(None) => "null".to_string(),
-            Slot::Int(n) => n.to_string(),
-            _ => "?".to_string(),
-        };
-        parts.push(part);
+
+    // ⚡ Bolt: Eliminate intermediate Vec<String> allocation, format! macro overhead,
+    // and .join() by appending directly to a single String buffer.
+    let mut result = String::with_capacity(fields.len() * 8 + 2);
+    result.push('[');
+    for (i, s) in fields.iter().enumerate() {
+        if i > 0 {
+            result.push_str(", ");
+        }
+        match s {
+            Slot::Reference(Some(r)) => {
+                let part = heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| o.string_value.clone())
+                    .unwrap_or_else(|| "null".to_string());
+                result.push_str(&part);
+            }
+            Slot::Reference(None) => result.push_str("null"),
+            Slot::Int(n) => {
+                let _ = write!(result, "{n}");
+            }
+            _ => result.push('?'),
+        }
     }
-    let result = format!("[{}]", parts.join(", "));
+    result.push(']');
+
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }

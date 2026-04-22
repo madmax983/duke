@@ -2,11 +2,11 @@
 //!
 //! # Modules
 //!
-//! - [`opcodes`] — All JVM opcode byte constants (JVM SE 21 §6.5)
-//! - [`instruction`] — Typed [`Instruction`] enum with decoded operands
-//! - [`decoder`] — Decode raw `Code` bytes → `Vec<(pc, Instruction)>`
-//! - [`verifier`] — Structural pass: stack bounds, local bounds, empty stack on return
-//! - [`error`] — [`DecodeError`] and [`VerifyError`]
+//! - `opcodes` — All JVM opcode byte constants (JVM SE 21 §6.5)
+//! - `instruction` — Typed [`Instruction`] enum with decoded operands
+//! - `decoder` — Decode raw `Code` bytes → `Vec<(pc, Instruction)>`
+//! - `verifier` — Structural pass: stack bounds, local bounds, empty stack on return
+//! - `error` — [`DecodeError`] and [`VerifyError`]
 
 #[cfg(feature = "nova")]
 pub(crate) mod basic_block;
