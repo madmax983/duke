@@ -361,6 +361,50 @@ pub enum Instruction {
     },
 }
 
+/// An iterator over the match values and offsets of a switch statement.
+pub enum SwitchTargets<'a> {
+    /// Iterator for `tableswitch` instruction.
+    Tableswitch {
+        /// The lowest match value.
+        low: i32,
+        /// Iterator over the offsets.
+        offsets: std::slice::Iter<'a, i32>,
+        /// The current match value.
+        current: i32,
+    },
+    /// Iterator for `lookupswitch` instruction.
+    Lookupswitch(std::slice::Iter<'a, (i32, i32)>),
+}
+
+impl Iterator for SwitchTargets<'_> {
+    type Item = (i32, i32);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Tableswitch {
+                low: _,
+                offsets,
+                current,
+            } => {
+                let offset = offsets.next()?;
+                let val = *current;
+                *current = current.wrapping_add(1);
+                Some((val, *offset))
+            }
+            Self::Lookupswitch(pairs) => pairs.next().copied(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Tableswitch { offsets, .. } => offsets.size_hint(),
+            Self::Lookupswitch(pairs) => pairs.size_hint(),
+        }
+    }
+}
+
+impl ExactSizeIterator for SwitchTargets<'_> {}
+
 impl Instruction {
     /// Returns `true` if the instruction is a conditional branch.
     #[must_use]
@@ -430,24 +474,30 @@ impl Instruction {
     }
 
     /// Returns the switch targets if the instruction is a switch statement.
-    /// It returns `Some((default_offset, Vec<(match_value, branch_offset)>))`.
+    /// It returns `Some((default_offset, targets_iterator))`.
+    ///
+    /// ⚡ Bolt: By returning an iterator instead of allocating and collecting into
+    /// a new `Vec`, we eliminate heap allocations during CFG generation and
+    /// complexity calculation.
     #[must_use]
-    pub fn switch_targets(&self) -> Option<(i32, Vec<(i32, i32)>)> {
+    pub fn switch_targets(&self) -> Option<(i32, SwitchTargets<'_>)> {
         match self {
             Self::Tableswitch {
                 default,
                 low,
                 offsets,
                 ..
-            } => {
-                let targets = offsets
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &offset)| (i32::try_from(i).unwrap_or(0) + *low, offset))
-                    .collect();
-                Some((*default, targets))
+            } => Some((
+                *default,
+                SwitchTargets::Tableswitch {
+                    low: *low,
+                    offsets: offsets.iter(),
+                    current: *low,
+                },
+            )),
+            Self::Lookupswitch { default, pairs } => {
+                Some((*default, SwitchTargets::Lookupswitch(pairs.iter())))
             }
-            Self::Lookupswitch { default, pairs } => Some((*default, pairs.clone())),
             _ => None,
         }
     }
