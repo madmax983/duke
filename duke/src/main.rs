@@ -8,6 +8,8 @@ use std::process;
 mod analyze;
 #[cfg(feature = "nova")]
 mod cycle_detect;
+#[cfg(feature = "nova")]
+mod dead_code;
 mod deps_graph;
 mod histogram;
 mod html;
@@ -246,6 +248,10 @@ fn main() {
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("       duke stub <classfile.class>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke dead-code <classfile.class>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-dead-code <file.jar>");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
@@ -255,6 +261,23 @@ fn main() {
     }
 
     // Dispatch `-jar`: discover Main-Class from manifest and execute it.
+    if args.len() > 1 && args[1] == "jar-dead-code" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke jar-dead-code <file.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            dead_code::dump_jar_dead_code(&args[2]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'jar-dead-code'");
+            std::process::exit(1);
+        }
+    }
+
     if let Some(ref jar) = jar_path {
         let remaining_args: Vec<&str> = args[1..].iter().map(String::as_str).collect();
         run_jar(
@@ -388,6 +411,8 @@ fn main() {
     match subcommand {
         "dump" => dump_class_file(&class_file),
         "stub" => generate_stubs(&class_file),
+        #[cfg(feature = "nova")]
+        "dead-code" => dead_code::dump_dead_code(&class_file),
         other => {
             eprintln!("duke: unknown subcommand '{other}'");
             process::exit(1);
