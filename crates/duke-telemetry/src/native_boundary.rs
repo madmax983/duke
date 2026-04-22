@@ -67,6 +67,19 @@ impl NativeBoundaryStore {
     /// - `method`: The name of the native method.
     /// - `elapsed_ns`: How long the native execution took, in nanoseconds.
     /// - `is_err`: True if the method failed (e.g., returned a `VmError` or threw an exception).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::NativeBoundaryStore;
+    ///
+    /// let mut store = NativeBoundaryStore::default();
+    /// store.record_call("System", "exit", 100, false);
+    ///
+    /// let stat = &store.by_method[&("System".to_string(), "exit".to_string())];
+    /// assert_eq!(stat.calls, 1);
+    /// assert_eq!(stat.total_ns, 100);
+    /// ```
     pub fn record_call(&mut self, class: &str, method: &str, elapsed_ns: u64, is_err: bool) {
         let stat = self
             .by_method

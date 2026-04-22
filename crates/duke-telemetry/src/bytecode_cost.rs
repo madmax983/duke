@@ -69,6 +69,18 @@ impl BytecodeCostStore {
     /// - `method`: The name of the method currently executing.
     /// - `pc`: The program counter (instruction index) within the method.
     /// - `elapsed_ns`: How long the instruction took to execute, in nanoseconds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::BytecodeCostStore;
+    ///
+    /// let mut store = BytecodeCostStore::default();
+    /// store.record("iadd", "Math", "add", 0, 150);
+    ///
+    /// assert_eq!(store.by_opcode["iadd"].count, 1);
+    /// assert_eq!(store.by_opcode["iadd"].total_ns, 150);
+    /// ```
     pub fn record(
         &mut self,
         name: &'static str,

@@ -35,3 +35,7 @@
 
 **Confusion:** I missed that integration tests are technically separate crates and require module level missing_docs allowed just like binaries or library crates. I was getting test failures because I didn't add it.
 **Clarification:** Add `#![allow(missing_docs)]` at the top of integration test files so they compile cleanly when `-D missing_docs` is used.
+
+## 2024-04-22 - Missing Examples in Sub-Modules
+**Confusion:** Functions inside internal models were not covered by missing_docs and lacked `# Examples` doctests, making their usage unclear.
+**Clarification:** Executable examples were explicitly added to inner methods on stores like `BytecodeCostStore` and `ExceptionFlowStore`.

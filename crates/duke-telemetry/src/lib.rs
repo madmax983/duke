@@ -120,9 +120,13 @@ impl TelemetryStore {
     /// use duke_telemetry::TelemetryStore;
     ///
     /// let mut store = TelemetryStore::default();
+    /// store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
     /// let mut buf = Vec::<u8>::new();
-    /// #[cfg(feature = "telemetry")]
     /// store.print_report(&mut buf).unwrap();
+    ///
+    /// let output = String::from_utf8(buf).unwrap();
+    /// assert!(output.contains("=== Duke VM Telemetry Report ==="));
+    /// assert!(output.contains("iadd"));
     /// ```
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(w, "=== Duke VM Telemetry Report ===")?;
@@ -211,6 +215,20 @@ impl TelemetryStore {
     ///
     /// This exporter provides a GitHub-flavored Markdown representation of the telemetry
     /// data, making it easy to paste into PRs or issues for performance analysis.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::TelemetryStore;
+    ///
+    /// let mut store = TelemetryStore::default();
+    /// store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+    /// store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
+    ///
+    /// let md = store.to_markdown_report();
+    /// assert!(md.contains("# Duke VM Telemetry Report"));
+    /// assert!(md.contains("java/lang/System"));
+    /// ```
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn to_markdown_report(&self) -> String {
