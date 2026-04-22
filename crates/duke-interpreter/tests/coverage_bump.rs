@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #[allow(dead_code)]
 #[allow(clippy::missing_const_for_fn)]
 const fn test() {
