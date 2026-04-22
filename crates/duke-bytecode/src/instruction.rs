@@ -1055,21 +1055,26 @@ mod tests {
             high: 12,
             offsets: vec![100, 200, 300],
         };
+        let targets = tableswitch.switch_targets();
+        assert!(targets.is_some());
+        let (default, iter) = targets.unwrap();
+        assert_eq!(default, 5);
         assert_eq!(
-            tableswitch.switch_targets(),
-            Some((5, vec![(10, 100), (11, 200), (12, 300)]))
+            iter.collect::<Vec<_>>(),
+            vec![(10, 100), (11, 200), (12, 300)]
         );
 
         let lookupswitch = Instruction::Lookupswitch {
             default: 5,
             pairs: vec![(10, 100), (20, 200)],
         };
-        assert_eq!(
-            lookupswitch.switch_targets(),
-            Some((5, vec![(10, 100), (20, 200)]))
-        );
+        let targets = lookupswitch.switch_targets();
+        assert!(targets.is_some());
+        let (default, iter) = targets.unwrap();
+        assert_eq!(default, 5);
+        assert_eq!(iter.collect::<Vec<_>>(), vec![(10, 100), (20, 200)]);
 
-        assert_eq!(Instruction::Iconst0.switch_targets(), None);
+        assert!(Instruction::Iconst0.switch_targets().is_none());
     }
 
     #[test]
