@@ -62,6 +62,16 @@ impl ClassInitDagStore {
     /// - `class`: The JVM name of the class that was initialized.
     /// - `triggered_by`: The name of the class whose execution triggered this initialization.
     /// - `duration_ns`: Total time spent executing the `<clinit>` method.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::ClassInitDagStore;
+    ///
+    /// let mut store = ClassInitDagStore::default();
+    /// store.record("java/lang/String", "java/lang/System", 500);
+    /// assert_eq!(store.events.len(), 1);
+    /// ```
     pub fn record(&mut self, class: &str, triggered_by: &str, duration_ns: u64) {
         self.events.push(ClinitEvent {
             class: class.to_string(),
@@ -71,6 +81,17 @@ impl ClassInitDagStore {
     }
 
     /// Export the initialization DAG to a Graphviz DOT format string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::ClassInitDagStore;
+    ///
+    /// let mut store = ClassInitDagStore::default();
+    /// store.record("java/lang/String", "java/lang/System", 500);
+    /// let dot = store.to_dot();
+    /// assert!(dot.contains("digraph ClassInitDag"));
+    /// ```
     #[must_use]
     pub fn to_dot(&self) -> String {
         use std::fmt::Write;
@@ -94,6 +115,17 @@ impl ClassInitDagStore {
     }
 
     /// Export the initialization DAG to a Mermaid flowchart string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::ClassInitDagStore;
+    ///
+    /// let mut store = ClassInitDagStore::default();
+    /// store.record("java/lang/String", "java/lang/System", 500);
+    /// let mermaid = store.to_mermaid();
+    /// assert!(mermaid.contains("graph TD;"));
+    /// ```
     #[must_use]
     pub fn to_mermaid(&self) -> String {
         use std::fmt::Write;

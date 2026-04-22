@@ -76,6 +76,19 @@ impl DispatchResolutionStore {
     /// - `resolved_class`: The actual runtime class of the receiver object.
     /// - `hierarchy_walk`: True if the method implementation was found by walking
     ///   up the superclass chain; false if it was found directly on `resolved_class`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::DispatchResolutionStore;
+    ///
+    /// let mut store = DispatchResolutionStore::default();
+    /// store.record("Foo", 42, "SubA", true);
+    ///
+    /// let stat = &store.by_site[&("Foo".to_string(), 42)];
+    /// assert_eq!(stat.calls, 1);
+    /// assert_eq!(stat.hierarchy_walks, 1);
+    /// ```
     pub fn record(
         &mut self,
         caller_class: &str,

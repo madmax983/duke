@@ -66,6 +66,17 @@ impl ExceptionFlowStore {
     /// - `throw_class`: The class executing the `athrow` instruction.
     /// - `throw_method`: The method executing the `athrow` instruction.
     /// - `throw_pc`: Program counter of the `athrow` instruction.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::ExceptionFlowStore;
+    ///
+    /// let mut store = ExceptionFlowStore::default();
+    /// let idx = store.record_throw("Exception", "Main", "run", 10);
+    /// assert_eq!(idx, 0);
+    /// assert_eq!(store.events[0].exception_class, "Exception");
+    /// ```
     pub fn record_throw(
         &mut self,
         exception_class: &str,
@@ -88,6 +99,18 @@ impl ExceptionFlowStore {
     /// - `catch_class`: The class where the exception handler matched.
     /// - `catch_method`: The method where the exception handler matched.
     /// - `handler_pc`: The starting program counter of the exception handler block.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::ExceptionFlowStore;
+    ///
+    /// let mut store = ExceptionFlowStore::default();
+    /// let idx = store.record_throw("Exception", "Main", "run", 10);
+    /// store.record_catch(idx, "Main", "run", 20);
+    ///
+    /// assert_eq!(store.events[0].catch_site.as_ref().unwrap().2, 20);
+    /// ```
     pub fn record_catch(
         &mut self,
         event_idx: usize,

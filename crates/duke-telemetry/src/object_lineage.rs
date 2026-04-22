@@ -66,6 +66,18 @@ impl ObjectLineageStore {
     /// - `method`: The method executing the `new` instruction.
     /// - `pc`: Program counter of the allocation site.
     /// - `class_allocated`: The class name of the instantiated object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_telemetry::ObjectLineageStore;
+    ///
+    /// let mut store = ObjectLineageStore::default();
+    /// store.record("Main", "run", 5, "java/lang/String");
+    ///
+    /// let site = &store.sites[&("Main".to_string(), "run".to_string(), 5)];
+    /// assert_eq!(site.count, 1);
+    /// ```
     pub fn record(
         &mut self,
         allocating_class: &str,
