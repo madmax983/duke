@@ -8,17 +8,18 @@
 #![cfg_attr(test, allow(clippy::large_stack_arrays))]
 
 /// Core execution context types for methods and classes.
-pub mod context;
+pub(crate) mod context;
 pub(crate) mod execution;
 /// Repositories for loaded classes and registered native methods.
-pub mod registry;
+pub(crate) mod registry;
 /// Core standard library classes and methods bootstrap.
-pub mod stdlib;
-pub mod threading;
+pub(crate) mod stdlib;
+pub(crate) mod threading;
 
 pub use context::*;
 pub use registry::*;
 pub use stdlib::bootstrap_stdlib;
+pub use threading::{SharedOutput, ThreadPause, ThreadRecord, ThreadRuntime};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;

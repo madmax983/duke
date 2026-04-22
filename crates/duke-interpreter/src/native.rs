@@ -13378,7 +13378,7 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
 /// use std::io::sink;
 /// use duke_runtime::Slot;
 /// use duke_gc::Heap;
-/// use duke_loader::directory::DirectoryLoader;
+/// use duke_loader::DirectoryLoader;
 /// use duke_interpreter::{execute_class, ClassRegistry};
 ///
 /// let mut registry = ClassRegistry::new();
