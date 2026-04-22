@@ -49,3 +49,6 @@
 **Pre-allocating Vec capacity for zip builders**
 **Learning:** `Vec::with_capacity(n)` is a highly effective way to prevent multiple heap re-allocations when using `extend_from_slice` in loops or sequentially. When dynamically generating byte buffers, calculating the exact size upfront reduces memory pressure and execution time.
 **Action:** Look for instances of `Vec::new()` immediately followed by loops that push elements or sequential `extend_from_slice` calls. If the total size can be derived mathematically, replace `Vec::new()` with `Vec::with_capacity(cap)`.
+**Arrays.toString Optimization**
+**Learning:** Avoid `format!` macros and intermediate `Vec<String>` allocations for simple formatting inside hot paths like `Arrays.toString`. You can safely write straight to a `String` buffer.
+**Action:** Use a pre-allocated `String` with `write!` directly for formatting, replacing maps with `.join()` which cause extra allocations.
