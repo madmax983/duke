@@ -49,3 +49,7 @@
 **Pre-allocating Vec capacity for zip builders**
 **Learning:** `Vec::with_capacity(n)` is a highly effective way to prevent multiple heap re-allocations when using `extend_from_slice` in loops or sequentially. When dynamically generating byte buffers, calculating the exact size upfront reduces memory pressure and execution time.
 **Action:** Look for instances of `Vec::new()` immediately followed by loops that push elements or sequential `extend_from_slice` calls. If the total size can be derived mathematically, replace `Vec::new()` with `Vec::with_capacity(cap)`.
+
+**Eliminate Heterogeneous Iterator Allocations**
+**Learning:** Returning a `Vec` from a function just to unify different iterator types (e.g. iterating over a `Vec` directly vs. generating items on the fly) incurs unnecessary heap allocations. Using `Box<dyn Iterator>` or `Vec` hides the complexity at a performance cost.
+**Action:** Define a custom `enum` that wraps the different iterator variants and implement `Iterator` and `ExactSizeIterator` manually to achieve zero-cost abstraction without allocations. When managing internal counters in such iterators, always use `.wrapping_add(1)` to prevent debug-mode panics from integer overflows (e.g., when reaching `i32::MAX`).
