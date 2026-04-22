@@ -64,7 +64,7 @@ const ATTR_UNCOMPRESSED: u8 = 7;
 /// # Examples
 ///
 /// ```
-/// use duke_loader::jimage::ResourceInfo;
+/// use duke_loader::ResourceInfo;
 ///
 /// let info = ResourceInfo {
 ///     offset: 1024,
