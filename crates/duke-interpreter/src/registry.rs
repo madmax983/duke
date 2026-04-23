@@ -20,16 +20,40 @@ fn class_internal_name_fragment(name: &str) -> &str {
 }
 
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_interpreter::LambdaInfo;
+///
+/// let lambda = LambdaInfo {
+///     impl_class: "com/example/Main".to_string(),
+///     impl_method: "lambda$main$0".to_string(),
+///     impl_desc: "(Ljava/lang/String;)V".to_string(),
+///     impl_kind: 6, // REF_invokeStatic
+///     sam_method: "accept".to_string(),
+///     sam_desc: "(Ljava/lang/Object;)V".to_string(),
+///     sam_interface: "java/util/function/Consumer".to_string(),
+///     captured_count: 0,
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct LambdaInfo {
+    /// The internal name of the class where the lambda implementation method resides.
     pub impl_class: String,
+    /// The name of the synthetic or user-defined method that implements the lambda body.
     pub impl_method: String,
+    /// The JVM method descriptor of the implementation method.
     pub impl_desc: String,
+    /// The `java/lang/invoke/MethodHandleInfo` reference kind (e.g. `REF_invokeStatic` = 6).
     pub impl_kind: u8,
+    /// The name of the single abstract method (SAM) being implemented.
     pub sam_method: String,
+    /// The descriptor of the single abstract method (SAM) as expected by the functional interface.
     pub sam_desc: String,
     /// Functional interface this lambda implements, e.g. "java/util/function/Function".
     pub sam_interface: String,
+    /// The number of variables captured from the enclosing scope and stored within the proxy object.
     pub captured_count: usize,
 }
 
