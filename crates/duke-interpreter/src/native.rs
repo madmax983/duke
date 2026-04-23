@@ -13872,7 +13872,7 @@ struct CallFrame {
 #[allow(clippy::too_many_lines)]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_bytecode::decode;
-    use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
+    use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
     use duke_classfile::types::{AttributeData, CpEntry};
 
     // Resolve this_class -> class name string.
@@ -14105,7 +14105,7 @@ fn reflected_class_info_from_loader(
     loader: &dyn ClassLoader,
     internal_name: &str,
 ) -> Option<ReflectedClassInfo> {
-    use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
+    use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
 
     let bytes = loader.find_class(internal_name).ok()?;
     let class_file = duke_classfile::parse(&bytes).ok()?;

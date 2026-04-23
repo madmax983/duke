@@ -158,8 +158,8 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::access_flags::{ClassAccessFlags, MethodAccessFlags};
     use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
+    use duke_classfile::{ClassAccessFlags, MethodAccessFlags};
 
     #[test]
     fn test_generate_mermaid_call_graph_empty() {
