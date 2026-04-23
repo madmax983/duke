@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use duke_telemetry::TelemetryStore;
 
 #[test]
