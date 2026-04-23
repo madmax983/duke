@@ -41,3 +41,7 @@
 **[Fixed clippy::io_other_error]
 **Learning:** `std::io::Error::new(std::io::ErrorKind::Other, ...)` is clunky and triggers the `clippy::io_other_error` lint.
 **Action:** Replace it with the more concise `std::io::Error::other(...)` to improve readability and conform to idiomatic Rust.
+
+**Extract Subroutine Matchers**
+**Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
+**Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
