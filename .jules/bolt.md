@@ -1,58 +1,7 @@
-**Avoid Deep Clones in GC Phase**
-**Learning:** During a minor GC phase, moving an object using `.clone()` introduces massive allocations for nested elements (like `fields` vecs and `string`s). Moving the object via `.take()` and leaving a dummy forwarding object is zero-cost and preserves correctness.
-**Action:** Instead of `let copy = obj.clone()`, use `let copy = self.young[y_idx].take().unwrap()` to move the data, followed by installing a `forward: Some(new_ref)` tombstone in its place.
-**[JImage Index Map Preallocation]
-**Learning:** [HashMap::new() for large, known-size collections causes severe reallocation overhead during startup, especially when parsing files with 30,000+ entries like the JDK jimage file.]
-**Action:** [Always use `HashMap::with_capacity(capacity)` when the final size of the collection is already known from headers (e.g., `resource_count`).]
-**[Optimize Parser Allocations]
-**Learning:** Iterator chains like `.map().collect()` on complex structures returning `Result<Vec<T>, E>` can obscure exact allocations, even when the iterator length is known.
-**Action:** Replace these chains with explicit `Vec::with_capacity(count)` and `for` loops in hot parsing paths (like `duke-classfile/src/parser.rs`) to ensure zero intermediate allocations and explicit sizing.
-**Eliminate intermediate Vec allocation in StringJoiner**
-**Learning:** We identified a hot path string concatenation in `native_stringjoiner_tostring` where it was unnecessarily accumulating string representations into an intermediate `Vec<String>` before joining them.
-**Action:** Replaced `.collect::<Vec<_>>()` and `.join()` with a pre-allocated single String buffer and `.push_str()` direct appending. This eliminates overhead for allocating vector buffers and extra formatting strings.
-**[Eliminate HashMap Read Heap Allocations]
-**Learning:** [Replacing `.clone()` with `&` references for large collection reads (like `HashMap` queries `&heap.get(this_ref)?.fields`) eliminates O(N) heap allocations, but caution is required to ensure it doesn't create overlapping mutable borrows if the lookup function subsequently calls into the VM (e.g. `equals` invoking a method). Here it was safe as the lookup (`slots_equal`) did not mutate.]
-**Action:** [Prefer immutable borrows when querying heap structures like HashMaps in the interpreter, verifying first that the inner matching function `slots_equal` doesn't require a mutable reference to the `Heap`.]
+**Optimize Vector Allocations in Streams**
+**Learning:** `Vec::new()` requires constant reallocation when pushing elements, which is extremely expensive.
+**Action:** When you know the target size of a collection (e.g. mapping over a stream where elements match 1:1), always initialize using `Vec::with_capacity(elems.len())`.
 
-**Reduced String.clone() in Registry**
-**Learning:** `clone()` operations on large string keys or options inside tight loops (like class registry checks and super_class/interface iterations) unnecessarily allocate memory even when immutable references `&str` or simple value drops are perfectly valid.
-**Action:** Replace `clone()` with `.as_deref()` or borrow references (`&ctx.super_class`, `&ctx.interfaces`) when calling external methods, and limit string copies strictly to hash map insertion via moving or single string duplication.
-
-**Basic Block Vec Reallocation**
-**Learning:** `Vec::new()` inside looping parser instructions causes multi-level heap reallocations. For small arrays where capacity is known from slice bounds (like basic blocks bounds / leader offsets), `Vec::with_capacity` drastically minimizes heap allocation traffic.
-**Action:** When constructing `Vec` from parsed instruction iterators, pre-compute rough capacity based on slice metrics or known leaders array length.
-**[Eliminate HashMap/ArrayList `.fields.clone()` Allocations in Native Bindings]**
-**Learning:** [Many Java collection native mappings (like `ArrayList.remove/contains`, `HashMap.keySet/values`, `LocalDateTime.isAfter`) were cloning the entire `fields` vector from `duke_gc::Heap` objects just to iterate or read elements. Because the heap lookup functions (`heap.get`) return a reference to the `HeapObject`, we can just borrow `.fields` immutably for loops, or do direct length/index lookups, completely avoiding massive `Vec` cloning and reallocation overhead on hot execution paths.]
-**Action:** [Use immutable references `&heap.get(...)?.fields` for native execution functions that only need to read internal Java object states or iterate them. If mutation is required after a lookup, ensure the immutable borrow is dropped (e.g. by wrapping the lookup loop in a `{ ... }` block) before calling `heap.get_mut()`.]
-## 2026-04-13 - [Avoid Chained Iterators with Collect]
-**Learning:** Replaced `.drain().map().collect::<Vec<_>>().` pattern on a `HashMap` with an explicit `Vec::with_capacity()` and a for-loop. The chained iterators drop the size hint, causing unnecessary heap reallocations. Also, explicit `drop()` on lock guards avoids clippy warnings `clippy::significant_drop_tightening` when used immediately before long-running operations.
-**Action:** Use pre-allocated vectors and loops instead of chained iterator `collect`s when the size is known, especially around lock-managed states.
-**[Eliminate Slot Vec clones in Native Array/HashMap Iteration]
-**Learning:** [Many Java native methods like `native_arraylist_index_of` or `native_arrays_equals_int` were cloning the entire `fields` vector from `heap.get(this_ref)` simply to iterate and search. Since `Slot` is `Copy`, cloning the entire vector is wildly inefficient. A previous learning suggested borrowing with `&heap.get(...)?.fields`, but this causes borrow checker conflicts if the inner loop needs `heap` for operations like `slots_equal`.]
-**Action:** [Use an index-based loop (`for i in 0..len`) by getting `len` first, then retrieving `heap.get(this_ref)?.fields[i]` inside the loop. This avoids both full `Vec` cloning and holding overlapping `Heap` borrows across function calls.]
-**[Optimizing Collection Construction in Loops]
-**Learning:** Iteratively pushing elements and cloning inside a loop into a `Vec` is measurably slower than taking a slice and calling `to_vec()` or `extend_from_slice()`. The slice operations can pre-allocate the exact required capacity and use more efficient batch operations instead of loop-driven reallocations and individual `.clone()` calls.
-**Action:** When gathering items from an existing slice/vector into sub-vectors (like segmenting basic blocks), keep track of slice indices instead of accumulating into a temporary `Vec` element by element. Convert the finalized slice via `to_vec()` when the boundary is reached.
-**[String Substring Allocations]
-**Learning:** `.chars().collect::<String>()` allocates a temporary vector of characters under the hood before creating the new string.
-**Action:** Use `char_indices().nth(index)` to find precise byte bounds, validate against `chars().count()` for JVM UTF-16 compatibility, and use native Rust `&str[start..end]` slicing to prevent intermediate allocation and significantly boost performance.
-**Pre-allocate Minor GC Worklists**
-**Learning:** Found an optimization where `Vec::new()` without capacity was used for garbage collection worklists and `to_space` inside `crates/duke-gc/src/lib.rs`. By pre-allocating with `roots.len()` and `self.young.len()`, we save memory re-allocations on hot paths during minor GC collections.
-**Action:** Always pre-allocate vectors (`Vec::with_capacity()`) where the capacity is known from `len()` of root sources, especially in core routines like garbage collection.
-
-## String Character Replacement Optimization
-**Learning:** `.chars().collect::<Vec<char>>()` and `.chars().collect::<String>()` allocate temporary vectors when trying to mutate a specific character or reverse a string. For reversals, `String` implements `FromIterator<char>` which can be used via `.chars().rev().collect::<String>()` without the intermediate `Vec`. For replacing characters at a specific index, you can use `.char_indices().nth(idx)` to find the byte offset, and mutate the String directly via `.replace_range()`.
-**Action:** Use `.char_indices()` to map char indexes to byte indexes for in-place string manipulation and avoid intermediate allocation where possible.
-**[Avoiding format! allocations]
-**Learning:** Using String::with_capacity and writeln! avoids intermediate String allocations compared to format!
-**Action:** Pre-allocate Strings and use write macros instead of format! when building strings
-**Pre-allocating Vec capacity for zip builders**
-**Learning:** `Vec::with_capacity(n)` is a highly effective way to prevent multiple heap re-allocations when using `extend_from_slice` in loops or sequentially. When dynamically generating byte buffers, calculating the exact size upfront reduces memory pressure and execution time.
-**Action:** Look for instances of `Vec::new()` immediately followed by loops that push elements or sequential `extend_from_slice` calls. If the total size can be derived mathematically, replace `Vec::new()` with `Vec::with_capacity(cap)`.
-
-**Eliminate Heterogeneous Iterator Allocations**
-**Learning:** Returning a `Vec` from a function just to unify different iterator types (e.g. iterating over a `Vec` directly vs. generating items on the fly) incurs unnecessary heap allocations. Using `Box<dyn Iterator>` or `Vec` hides the complexity at a performance cost.
-**Action:** Define a custom `enum` that wraps the different iterator variants and implement `Iterator` and `ExactSizeIterator` manually to achieve zero-cost abstraction without allocations. When managing internal counters in such iterators, always use `.wrapping_add(1)` to prevent debug-mode panics from integer overflows (e.g., when reaching `i32::MAX`).
-**Arrays.toString Optimization**
-**Learning:** Avoid `format!` macros and intermediate `Vec<String>` allocations for simple formatting inside hot paths like `Arrays.toString`. You can safely write straight to a `String` buffer.
-**Action:** Use a pre-allocated `String` with `write!` directly for formatting, replacing maps with `.join()` which cause extra allocations.
+**String Allocation Truncation**
+**Learning:** Using `s.chars().take(n).collect::<String>()` allocates an entirely new String under the hood, traversing the utf-8 characters to build it.
+**Action:** For string truncation, calculate the precise UTF-8 byte boundary using `.char_indices().nth(n)` and use the in-place `String::truncate(byte_idx)` to perform a zero-allocation length modification.
