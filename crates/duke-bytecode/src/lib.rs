@@ -16,6 +16,8 @@ pub(crate) mod decoder;
 pub(crate) mod error;
 pub(crate) mod instruction;
 pub(crate) mod opcodes;
+#[cfg(feature = "nova")]
+pub mod reachability;
 pub(crate) mod verifier;
 
 #[cfg(feature = "nova")]
