@@ -19,12 +19,12 @@ fn zip_open(path: &std::path::Path) -> VmResult<i32> {
         },
     })?;
     let id = NEXT_ZIP_ID.fetch_add(1, Ordering::Relaxed);
-    zip_files().write().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(id, reader);
+    zip_files().write().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, reader);
     Ok(id)
 }
 
 fn zip_entry_count(id: i32) -> VmResult<usize> {
-    let map = zip_files().read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let map = zip_files().read().unwrap_or_else(std::sync::PoisonError::into_inner);
     map.get(&id).map_or_else(
         || Err(VmError::JavaException { class_name: "java/io/IOException".into() }),
         |reader| Ok(reader.entry_count())
@@ -32,7 +32,7 @@ fn zip_entry_count(id: i32) -> VmResult<usize> {
 }
 
 fn zip_get_entry_info(id: i32, name: &str) -> VmResult<Option<duke_loader::ZipEntryInfo>> {
-    let map = zip_files().read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let map = zip_files().read().unwrap_or_else(std::sync::PoisonError::into_inner);
     map.get(&id).map_or_else(
         || Err(VmError::JavaException { class_name: "java/io/IOException".into() }),
         |reader| Ok(reader.get_entry(name).cloned())
@@ -40,7 +40,7 @@ fn zip_get_entry_info(id: i32, name: &str) -> VmResult<Option<duke_loader::ZipEn
 }
 
 fn zip_read_entry(id: i32, name: &str) -> VmResult<Vec<u8>> {
-    let map = zip_files().read().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let map = zip_files().read().unwrap_or_else(std::sync::PoisonError::into_inner);
     map.get(&id).map_or_else(
         || Err(VmError::JavaException { class_name: "java/io/IOException".into() }),
         |reader| reader.read_entry(name).map_err(|_| VmError::JavaException { class_name: "java/util/zip/ZipException".into() })
@@ -48,7 +48,7 @@ fn zip_read_entry(id: i32, name: &str) -> VmResult<Vec<u8>> {
 }
 
 fn zip_close(id: i32) {
-    zip_files().write().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&id);
+    zip_files().write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
 }
 
 fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
@@ -7523,7 +7523,7 @@ fn system_property_value_fallback(key: &str) -> Option<String> {
 fn system_property_value(key: &str) -> Option<String> {
     let override_value = system_property_overrides()
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(key)
         .cloned();
     if let Some(value) = override_value {
@@ -7585,7 +7585,7 @@ pub(crate) fn native_system_set_property(
     let previous = {
         let mut overrides = system_property_overrides()
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let prev = overrides.get(&key).cloned().or_else(|| system_property_value_fallback(&key));
         overrides.insert(key, value);
         prev
@@ -13521,7 +13521,7 @@ fn join_java_thread(
 ) -> VmResult<()> {
     loop {
         let handle = {
-            let mut runtime = runtime.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let is_finished = runtime
                 .threads
                 .records()
@@ -13563,7 +13563,7 @@ fn wait_for_all_java_threads(
     let mut first_error = None;
     loop {
         let handles = {
-            let mut runtime = runtime.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if runtime.handles.is_empty() {
                 return first_error.unwrap_or(Ok(()));
             }
@@ -13613,7 +13613,7 @@ fn run_thread_to_completion(
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
 ) -> VmResult<()> {
     loop {
-        let mut shared_guard = shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let CompletionVm {
             registry,
             heap,
@@ -13654,7 +13654,7 @@ fn spawn_java_thread(
     thread_ref: u64,
 ) -> VmResult<()> {
     {
-        let mut shared_guard = shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let thread = shared_guard.heap.get_mut(thread_ref)?;
         let already_started = matches!(
             thread.fields.get(THREAD_ID_SLOT),
@@ -13667,7 +13667,7 @@ fn spawn_java_thread(
     }
 
     let thread_id = {
-        let mut runtime = runtime.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let thread_id = runtime.threads.allocate_thread_id();
         runtime
             .threads
@@ -13676,7 +13676,7 @@ fn spawn_java_thread(
     };
 
     let entry = {
-        let mut shared_guard = shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         {
             let thread = shared_guard.heap.get_mut(thread_ref)?;
             thread.fields[THREAD_ID_SLOT] = Slot::Int(thread_id);
@@ -13695,12 +13695,12 @@ fn spawn_java_thread(
         entry
     };
     let Some((dispatch_class, method_idx, args)) = entry else {
-        let _ = runtime.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).threads.mark_finished(thread_id);
+        let _ = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner).threads.mark_finished(thread_id);
         return Ok(());
     };
 
     let state = {
-        let shared = shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let shared = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         ExecutionState::new(&shared.registry, &dispatch_class, "run", method_idx, &args)?
     };
 
@@ -13710,7 +13710,7 @@ fn spawn_java_thread(
     let handle = std::thread::spawn(move || {
         let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
         {
-            let mut shared = shared_clone.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut shared = shared_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             shared.live_workers = shared.live_workers.saturating_sub(1);
         }
         let _ = runtime_clone
@@ -13720,7 +13720,7 @@ fn spawn_java_thread(
             .mark_finished_by_java_ref(thread_ref);
         result
     });
-    runtime.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).handles.insert(thread_id, handle);
+    runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner).handles.insert(thread_id, handle);
     Ok(())
 }
 
@@ -13794,7 +13794,7 @@ where
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(CompletionRuntime::default()));
 
     let run_result: VmResult<Option<Slot>> = loop {
-        let mut shared_guard = shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let CompletionVm {
             registry,
             heap,
@@ -25261,7 +25261,7 @@ mod havoc_thread_join_itself {
         });
 
         {
-            let mut rt = runtime.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut rt = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             rt.handles.insert(0, handle);
             let mut record = crate::threading::ThreadRecord::new(123, 0);
             record.finished = false;
