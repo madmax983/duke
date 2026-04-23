@@ -463,6 +463,12 @@ impl Instruction {
         )
     }
 
+    /// Returns `true` if the instruction is a subroutine call.
+    #[must_use]
+    pub const fn is_subroutine_call(&self) -> bool {
+        matches!(self, Self::Jsr(_) | Self::JsrW(_))
+    }
+
     /// Returns the target offset for an unconditional jump.
     #[must_use]
     pub const fn unconditional_jump_target(&self) -> Option<isize> {
@@ -1045,6 +1051,14 @@ mod tests {
         assert_eq!(Instruction::Jsr(5).unconditional_jump_target(), Some(5));
         assert_eq!(Instruction::JsrW(5).unconditional_jump_target(), Some(5));
         assert_eq!(Instruction::Iconst0.unconditional_jump_target(), None);
+    }
+
+    #[test]
+    fn test_is_subroutine_call() {
+        assert!(Instruction::Jsr(5).is_subroutine_call());
+        assert!(Instruction::JsrW(5).is_subroutine_call());
+        assert!(!Instruction::Goto(5).is_subroutine_call());
+        assert!(!Instruction::Iconst0.is_subroutine_call());
     }
 
     #[test]
