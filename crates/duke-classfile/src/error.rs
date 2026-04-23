@@ -9,7 +9,7 @@
 //! # Examples
 //!
 //! ```
-//! use duke_classfile::error::Error;
+//! use duke_classfile::Error;
 //!
 //! let err = Error::CpIndexZero;
 //! assert_eq!(err.to_string(), "constant pool index 0 is reserved and must not be used");
@@ -26,7 +26,7 @@ use thiserror::Error;
 /// # Examples
 ///
 /// ```
-/// use duke_classfile::error::Error;
+/// use duke_classfile::Error;
 ///
 /// let err = Error::UnexpectedEof { offset: 42 };
 /// match err {

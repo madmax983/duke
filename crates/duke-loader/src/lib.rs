@@ -2,12 +2,12 @@
 //!
 //! # Modules
 //!
-//! - [`bootstrap`] — The system bootstrap classloader.
-//! - [`directory`] — Loads classes from standard directories (e.g. `tests/fixtures`).
-//! - [`error`] — Errors encountered during class loading.
-//! - [`jimage`] — Reads JDK `modules` files (`JImage` format).
-//! - [`manifest`] — MANIFEST.MF parser for JAR files.
-//! - [`zip`] — Read-only ZIP/JAR archive support.
+//! - `bootstrap` — The system bootstrap classloader.
+//! - `directory` — Loads classes from standard directories (e.g. `tests/fixtures`).
+//! - `error` — Errors encountered during class loading.
+//! - `jimage` — Reads JDK `modules` files (`JImage` format).
+//! - `manifest` — MANIFEST.MF parser for JAR files.
+//! - `zip` — Read-only ZIP/JAR archive support.
 
 pub(crate) mod bootstrap;
 pub(crate) mod directory;

@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_generate_html_report_complex_class_with_interfaces_fields() {
-        use duke_classfile::access_flags::FieldAccessFlags;
+        use duke_classfile::FieldAccessFlags;
         use duke_classfile::types::FieldInfo;
 
         let cf = ClassFile {
@@ -319,7 +319,7 @@ mod tests {
                 Some(CpEntry::Utf8("myField".to_string())),
                 Some(CpEntry::Utf8("I".to_string())),
             ],
-            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            access_flags: duke_classfile::ClassAccessFlags::PUBLIC,
             this_class: CpIndex(3),
             super_class: CpIndex(1),
             interfaces: vec![CpIndex(5)],
@@ -345,7 +345,7 @@ mod tests {
             major_version: 61,
             minor_version: 0,
             constant_pool: vec![],
-            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            access_flags: duke_classfile::ClassAccessFlags::PUBLIC,
             this_class: CpIndex(0),
             super_class: CpIndex(0),
             interfaces: vec![],
@@ -360,10 +360,10 @@ mod tests {
 
     #[test]
     fn test_generate_html_report_complex_class() {
-        use duke_classfile::access_flags::{FieldAccessFlags, MethodAccessFlags};
         use duke_classfile::types::{
             AttributeData, AttributeInfo, CodeAttribute, FieldInfo, MethodInfo,
         };
+        use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
 
         let cf = ClassFile {
             major_version: 61,
@@ -390,7 +390,7 @@ mod tests {
                 Some(CpEntry::Utf8("<clinit>".to_string())), // 12
                 Some(CpEntry::Utf8("run".to_string())), // 13
             ],
-            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            access_flags: duke_classfile::ClassAccessFlags::PUBLIC,
             this_class: CpIndex(3),
             super_class: CpIndex(1),
             interfaces: vec![CpIndex(5)],
@@ -478,7 +478,7 @@ mod tests {
                 None,
                 Some(CpEntry::Integer(42)), // not a class ref
             ],
-            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            access_flags: duke_classfile::ClassAccessFlags::PUBLIC,
             this_class: CpIndex(1),
             super_class: CpIndex(0),
             interfaces: vec![],
@@ -503,7 +503,7 @@ mod tests {
                 }),
                 Some(CpEntry::Integer(42)), // not a utf8 string
             ],
-            access_flags: duke_classfile::access_flags::ClassAccessFlags::PUBLIC,
+            access_flags: duke_classfile::ClassAccessFlags::PUBLIC,
             this_class: CpIndex(1),
             super_class: CpIndex(0),
             interfaces: vec![],
