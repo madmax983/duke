@@ -249,8 +249,8 @@ mod tests {
     #[test]
     #[cfg(feature = "nova")]
     fn test_dump_dead_code() {
-        use duke_classfile::access_flags::{ClassAccessFlags, MethodAccessFlags};
         use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
+        use duke_classfile::{ClassAccessFlags, MethodAccessFlags};
 
         let cf = ClassFile {
             major_version: 61,

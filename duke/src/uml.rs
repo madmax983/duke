@@ -4,8 +4,7 @@
 //! representation using [Mermaid JS](https://mermaid.js.org/) `classDiagram`.
 
 use duke_classfile::{
-    ClassFile,
-    access_flags::{FieldAccessFlags, MethodAccessFlags},
+    ClassFile, FieldAccessFlags, MethodAccessFlags,
     types::{CpEntry, CpIndex},
 };
 use std::fmt::Write;
@@ -77,7 +76,7 @@ const fn method_visibility(flags: MethodAccessFlags) -> &'static str {
 /// ```ignore
 /// // Assumes a `ClassFile` structure exists.
 /// use duke::uml::generate_mermaid_uml;
-/// use duke_classfile::ClassFile;
+/// useClassFile;
 ///
 /// let cf: ClassFile = get_parsed_class_somehow();
 /// let diagram_string = generate_mermaid_uml(&cf);
@@ -130,8 +129,8 @@ pub fn generate_mermaid_uml(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
     use duke_classfile::types::{FieldInfo, MethodInfo};
+    use duke_classfile::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 
     #[test]
     fn test_generate_mermaid_uml() {

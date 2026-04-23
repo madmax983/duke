@@ -1303,8 +1303,8 @@ fn resolve_methodref_not_a_methodref() {
 
 #[test]
 fn build_class_context_initializes_static_defaults_by_descriptor() {
-    use duke_classfile::access_flags::{ClassAccessFlags, FieldAccessFlags};
     use duke_classfile::types::{ClassFile, CpIndex, FieldInfo};
+    use duke_classfile::{ClassAccessFlags, FieldAccessFlags};
 
     let cf = ClassFile {
         minor_version: 0,
