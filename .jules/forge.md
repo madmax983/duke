@@ -45,3 +45,7 @@
 **Extract Subroutine Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
 **Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
+
+**Extract God Methods to Data Types**
+**Learning:** The verifier module contained "God functions" like `stack_effect` and `check_locals` which performed exhaustive `match` statements across the entire `Instruction` enum just to inspect the instruction's properties. This disconnected data from behavior and cluttered the verifier. Furthermore, refactoring `is_return` without carefully matching the exact expected semantic subset of returns caused tests to fail.
+**Action:** Extract inherent property calculations directly onto the enum they inspect (e.g. `Instruction::stack_effect()`, `Instruction::local_index()`). When replacing matched functions, ensure the underlying semantic domain (e.g., normal returns vs all halting returns) is perfectly preserved. Use `#[allow(clippy::match_same_arms)]` to keep aligned structural mappings readable.

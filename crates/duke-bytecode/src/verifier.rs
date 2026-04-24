@@ -60,7 +60,7 @@ pub fn verify(
     for (pc, instr) in instructions {
         let pc = *pc;
 
-        let (pops, pushes) = stack_effect(instr);
+        let (pops, pushes) = instr.stack_effect();
 
         // Check locals before stack — gives a more meaningful error on load/store.
         check_locals(instr, pc, max_locals)?;
@@ -82,7 +82,7 @@ pub fn verify(
         }
 
         // Empty-stack-on-return check
-        if is_return(instr) && depth != 0 {
+        if instr.is_normal_return() && depth != 0 {
             return Err(VerifyError::NonEmptyStackOnReturn { pc, depth });
         }
 
@@ -105,347 +105,9 @@ pub fn verify(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::match_same_arms, clippy::too_many_lines)]
-const fn stack_effect(instr: &Instruction) -> (usize, usize) {
-    match instr {
-        // Constants — push 1
-        Instruction::Nop => (0, 0),
-        Instruction::AconstNull
-        | Instruction::IconstM1
-        | Instruction::Iconst0
-        | Instruction::Iconst1
-        | Instruction::Iconst2
-        | Instruction::Iconst3
-        | Instruction::Iconst4
-        | Instruction::Iconst5
-        | Instruction::Lconst0
-        | Instruction::Lconst1
-        | Instruction::Fconst0
-        | Instruction::Fconst1
-        | Instruction::Fconst2
-        | Instruction::Dconst0
-        | Instruction::Dconst1
-        | Instruction::Bipush(_)
-        | Instruction::Sipush(_)
-        | Instruction::Ldc(_)
-        | Instruction::LdcW(_)
-        | Instruction::Ldc2W(_) => (0, 1),
-
-        // Loads — push 1
-        Instruction::Iload(_)
-        | Instruction::Lload(_)
-        | Instruction::Fload(_)
-        | Instruction::Dload(_)
-        | Instruction::Aload(_)
-        | Instruction::Iload0
-        | Instruction::Iload1
-        | Instruction::Iload2
-        | Instruction::Iload3
-        | Instruction::Lload0
-        | Instruction::Lload1
-        | Instruction::Lload2
-        | Instruction::Lload3
-        | Instruction::Fload0
-        | Instruction::Fload1
-        | Instruction::Fload2
-        | Instruction::Fload3
-        | Instruction::Dload0
-        | Instruction::Dload1
-        | Instruction::Dload2
-        | Instruction::Dload3
-        | Instruction::Aload0
-        | Instruction::Aload1
-        | Instruction::Aload2
-        | Instruction::Aload3
-        | Instruction::IloadW(_)
-        | Instruction::LloadW(_)
-        | Instruction::FloadW(_)
-        | Instruction::DloadW(_)
-        | Instruction::AloadW(_) => (0, 1),
-
-        // Array loads — pop arrayref + index, push value
-        Instruction::Iaload
-        | Instruction::Laload
-        | Instruction::Faload
-        | Instruction::Daload
-        | Instruction::Aaload
-        | Instruction::Baload
-        | Instruction::Caload
-        | Instruction::Saload => (2, 1),
-
-        // Stores — pop 1
-        Instruction::Istore(_)
-        | Instruction::Lstore(_)
-        | Instruction::Fstore(_)
-        | Instruction::Dstore(_)
-        | Instruction::Astore(_)
-        | Instruction::Istore0
-        | Instruction::Istore1
-        | Instruction::Istore2
-        | Instruction::Istore3
-        | Instruction::Lstore0
-        | Instruction::Lstore1
-        | Instruction::Lstore2
-        | Instruction::Lstore3
-        | Instruction::Fstore0
-        | Instruction::Fstore1
-        | Instruction::Fstore2
-        | Instruction::Fstore3
-        | Instruction::Dstore0
-        | Instruction::Dstore1
-        | Instruction::Dstore2
-        | Instruction::Dstore3
-        | Instruction::Astore0
-        | Instruction::Astore1
-        | Instruction::Astore2
-        | Instruction::Astore3
-        | Instruction::IstoreW(_)
-        | Instruction::LstoreW(_)
-        | Instruction::FstoreW(_)
-        | Instruction::DstoreW(_)
-        | Instruction::AstoreW(_) => (1, 0),
-
-        // Array stores — pop arrayref + index + value
-        Instruction::Iastore
-        | Instruction::Lastore
-        | Instruction::Fastore
-        | Instruction::Dastore
-        | Instruction::Aastore
-        | Instruction::Bastore
-        | Instruction::Castore
-        | Instruction::Sastore => (3, 0),
-
-        // Stack ops
-        Instruction::Pop => (1, 0),
-        Instruction::Pop2 => (2, 0),
-        Instruction::Dup => (1, 2),
-        Instruction::DupX1 => (2, 3),
-        Instruction::DupX2 => (3, 4),
-        Instruction::Dup2 => (2, 4),
-        Instruction::Dup2X1 => (3, 5),
-        Instruction::Dup2X2 => (4, 6),
-        Instruction::Swap => (2, 2),
-
-        // Binary arithmetic — pop 2, push 1
-        Instruction::Iadd
-        | Instruction::Ladd
-        | Instruction::Fadd
-        | Instruction::Dadd
-        | Instruction::Isub
-        | Instruction::Lsub
-        | Instruction::Fsub
-        | Instruction::Dsub
-        | Instruction::Imul
-        | Instruction::Lmul
-        | Instruction::Fmul
-        | Instruction::Dmul
-        | Instruction::Idiv
-        | Instruction::Ldiv
-        | Instruction::Fdiv
-        | Instruction::Ddiv
-        | Instruction::Irem
-        | Instruction::Lrem
-        | Instruction::Frem
-        | Instruction::Drem
-        | Instruction::Ishl
-        | Instruction::Lshl
-        | Instruction::Ishr
-        | Instruction::Lshr
-        | Instruction::Iushr
-        | Instruction::Lushr
-        | Instruction::Iand
-        | Instruction::Land
-        | Instruction::Ior
-        | Instruction::Lor
-        | Instruction::Ixor
-        | Instruction::Lxor => (2, 1),
-
-        // Unary arithmetic — pop 1, push 1
-        Instruction::Ineg | Instruction::Lneg | Instruction::Fneg | Instruction::Dneg => (1, 1),
-
-        // iinc — operates on local, no stack change
-        Instruction::Iinc { .. } | Instruction::IincW { .. } => (0, 0),
-
-        // Conversions — pop 1, push 1
-        Instruction::I2l
-        | Instruction::I2f
-        | Instruction::I2d
-        | Instruction::L2i
-        | Instruction::L2f
-        | Instruction::L2d
-        | Instruction::F2i
-        | Instruction::F2l
-        | Instruction::F2d
-        | Instruction::D2i
-        | Instruction::D2l
-        | Instruction::D2f
-        | Instruction::I2b
-        | Instruction::I2c
-        | Instruction::I2s => (1, 1),
-
-        // Compare — pop 2, push 1 (int result: -1/0/1)
-        Instruction::Lcmp
-        | Instruction::Fcmpl
-        | Instruction::Fcmpg
-        | Instruction::Dcmpl
-        | Instruction::Dcmpg => (2, 1),
-
-        // Conditional branches — pop 1 (for if*) or 2 (for if_icmp* / if_acmp*)
-        Instruction::Ifeq(_)
-        | Instruction::Ifne(_)
-        | Instruction::Iflt(_)
-        | Instruction::Ifge(_)
-        | Instruction::Ifgt(_)
-        | Instruction::Ifle(_)
-        | Instruction::Ifnull(_)
-        | Instruction::Ifnonnull(_) => (1, 0),
-
-        Instruction::IfIcmpeq(_)
-        | Instruction::IfIcmpne(_)
-        | Instruction::IfIcmplt(_)
-        | Instruction::IfIcmpge(_)
-        | Instruction::IfIcmpgt(_)
-        | Instruction::IfIcmple(_)
-        | Instruction::IfAcmpeq(_)
-        | Instruction::IfAcmpne(_) => (2, 0),
-
-        // Unconditional branches — no stack change
-        Instruction::Goto(_) | Instruction::GotoW(_) => (0, 0),
-
-        // jsr pushes return address; ret pops nothing
-        Instruction::Jsr(_) | Instruction::JsrW(_) => (0, 1),
-        Instruction::Ret(_) | Instruction::RetW(_) => (0, 0),
-
-        // switch — pop 1
-        Instruction::Tableswitch { .. } | Instruction::Lookupswitch { .. } => (1, 0),
-
-        // Returns — pop 0 or 1 (void vs value return)
-        Instruction::Return => (0, 0),
-        Instruction::Ireturn
-        | Instruction::Lreturn
-        | Instruction::Freturn
-        | Instruction::Dreturn
-        | Instruction::Areturn => (1, 0),
-
-        // Field access
-        Instruction::Getstatic(_) => (0, 1),
-        Instruction::Putstatic(_) => (1, 0),
-        Instruction::Getfield(_) => (1, 1),
-        Instruction::Putfield(_) => (2, 0),
-
-        // Method invocations — conservative: just track the hidden receiver pop
-        // Proper argument counting requires descriptor resolution; tracked in Phase 3+
-        Instruction::Invokevirtual(_) | Instruction::Invokespecial(_) => (1, 0),
-        Instruction::Invokestatic(_) => (0, 0),
-        Instruction::Invokeinterface { .. } => (1, 0),
-        Instruction::Invokedynamic(_) => (0, 0),
-
-        // Object creation — push objectref
-        Instruction::New(_) => (0, 1),
-        Instruction::Newarray(_) | Instruction::Anewarray(_) => (1, 1),
-        Instruction::Multianewarray { dimensions, .. } => (*dimensions as usize, 1),
-        Instruction::Arraylength => (1, 1),
-
-        // Athrow — handled specially (resets depth) but structurally pops 1
-        Instruction::Athrow => (1, 0),
-
-        // Checkcast: pops objectref, pushes same (or throws)
-        Instruction::Checkcast(_) => (1, 1),
-        Instruction::Instanceof(_) => (1, 1),
-
-        Instruction::Monitorenter | Instruction::Monitorexit => (1, 0),
-    }
-}
-
-const fn is_return(instr: &Instruction) -> bool {
-    matches!(
-        instr,
-        Instruction::Return
-            | Instruction::Ireturn
-            | Instruction::Lreturn
-            | Instruction::Freturn
-            | Instruction::Dreturn
-            | Instruction::Areturn
-    )
-}
-
 /// Check that any local variable accesses are within `max_locals`.
 const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResult<()> {
-    let idx: Option<usize> = match instr {
-        Instruction::Iload(i)
-        | Instruction::Lload(i)
-        | Instruction::Fload(i)
-        | Instruction::Dload(i)
-        | Instruction::Aload(i)
-        | Instruction::Istore(i)
-        | Instruction::Lstore(i)
-        | Instruction::Fstore(i)
-        | Instruction::Dstore(i)
-        | Instruction::Astore(i)
-        | Instruction::Ret(i) => Some(*i as usize),
-
-        Instruction::Iinc { index, .. } => Some(*index as usize),
-
-        Instruction::IloadW(i)
-        | Instruction::LloadW(i)
-        | Instruction::FloadW(i)
-        | Instruction::DloadW(i)
-        | Instruction::AloadW(i)
-        | Instruction::IstoreW(i)
-        | Instruction::LstoreW(i)
-        | Instruction::FstoreW(i)
-        | Instruction::DstoreW(i)
-        | Instruction::AstoreW(i)
-        | Instruction::RetW(i) => Some(*i as usize),
-
-        Instruction::IincW { index, .. } => Some(*index as usize),
-
-        // Short-form loads/stores use fixed indices 0-3, always valid if max_locals >= 1
-        Instruction::Iload0
-        | Instruction::Lload0
-        | Instruction::Fload0
-        | Instruction::Dload0
-        | Instruction::Aload0
-        | Instruction::Istore0
-        | Instruction::Lstore0
-        | Instruction::Fstore0
-        | Instruction::Dstore0
-        | Instruction::Astore0 => Some(0),
-
-        Instruction::Iload1
-        | Instruction::Lload1
-        | Instruction::Fload1
-        | Instruction::Dload1
-        | Instruction::Aload1
-        | Instruction::Istore1
-        | Instruction::Lstore1
-        | Instruction::Fstore1
-        | Instruction::Dstore1
-        | Instruction::Astore1 => Some(1),
-
-        Instruction::Iload2
-        | Instruction::Lload2
-        | Instruction::Fload2
-        | Instruction::Dload2
-        | Instruction::Aload2
-        | Instruction::Istore2
-        | Instruction::Lstore2
-        | Instruction::Fstore2
-        | Instruction::Dstore2
-        | Instruction::Astore2 => Some(2),
-
-        Instruction::Iload3
-        | Instruction::Lload3
-        | Instruction::Fload3
-        | Instruction::Dload3
-        | Instruction::Aload3
-        | Instruction::Istore3
-        | Instruction::Lstore3
-        | Instruction::Fstore3
-        | Instruction::Dstore3
-        | Instruction::Astore3 => Some(3),
-
-        _ => None,
-    };
+    let idx: Option<usize> = instr.local_index();
 
     if let Some(i) = idx
         && i >= max_locals
@@ -467,278 +129,282 @@ mod tests {
     #[test]
     #[allow(clippy::too_many_lines)]
     fn test_stack_effect_coverage() {
-        assert_eq!(stack_effect(&Instruction::Nop), (0, 0));
-        assert_eq!(stack_effect(&Instruction::Lload0), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Daload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Dstore0), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Lastore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Pop2), (2, 0));
-        assert_eq!(stack_effect(&Instruction::Dup2X2), (4, 6));
-        assert_eq!(stack_effect(&Instruction::DupX2), (3, 4));
-        assert_eq!(stack_effect(&Instruction::Dup2), (2, 4));
-        assert_eq!(stack_effect(&Instruction::Istore0), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Istore1), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Istore2), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Istore3), (1, 0));
-        assert_eq!(stack_effect(&Instruction::IstoreW(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Swap), (2, 2));
-        assert_eq!(stack_effect(&Instruction::Iadd), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Dneg), (1, 1));
+        assert_eq!(Instruction::Nop.stack_effect(), (0, 0));
+        assert_eq!(Instruction::Lload0.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Daload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dstore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Pop2.stack_effect(), (2, 0));
+        assert_eq!(Instruction::Dup2X2.stack_effect(), (4, 6));
+        assert_eq!(Instruction::DupX2.stack_effect(), (3, 4));
+        assert_eq!(Instruction::Dup2.stack_effect(), (2, 4));
+        assert_eq!(Instruction::Istore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::IstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Swap.stack_effect(), (2, 2));
+        assert_eq!(Instruction::Iadd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dneg.stack_effect(), (1, 1));
         assert_eq!(
-            stack_effect(&Instruction::Iinc { index: 0, value: 1 }),
+            (Instruction::Iinc { index: 0, value: 1 }).stack_effect(),
             (0, 0)
         );
-        assert_eq!(stack_effect(&Instruction::I2l), (1, 1));
-        assert_eq!(stack_effect(&Instruction::Lcmp), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ifeq(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::IfIcmpne(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::Goto(0)), (0, 0));
-        assert_eq!(stack_effect(&Instruction::Jsr(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Ret(0)), (0, 0));
-        assert_eq!(stack_effect(&Instruction::RetW(0)), (0, 0));
-        assert_eq!(stack_effect(&Instruction::Return), (0, 0));
-        assert_eq!(stack_effect(&Instruction::IloadW(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Ireturn), (1, 0));
+        assert_eq!(Instruction::I2l.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Lcmp.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ifeq(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::IfIcmpne(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::Goto(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::Jsr(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Ret(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::RetW(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::Return.stack_effect(), (0, 0));
+        assert_eq!(Instruction::IloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Ireturn.stack_effect(), (1, 0));
         assert_eq!(
-            stack_effect(&Instruction::Getstatic(duke_classfile::CpIndex(1))),
+            Instruction::Getstatic(duke_classfile::CpIndex(1)).stack_effect(),
             (0, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Putstatic(duke_classfile::CpIndex(1))),
+            Instruction::Putstatic(duke_classfile::CpIndex(1)).stack_effect(),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Getfield(duke_classfile::CpIndex(1))),
+            Instruction::Getfield(duke_classfile::CpIndex(1)).stack_effect(),
             (1, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Putfield(duke_classfile::CpIndex(1))),
+            Instruction::Putfield(duke_classfile::CpIndex(1)).stack_effect(),
             (2, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Invokevirtual(duke_classfile::CpIndex(1))),
+            Instruction::Invokevirtual(duke_classfile::CpIndex(1)).stack_effect(),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Invokestatic(duke_classfile::CpIndex(1))),
+            Instruction::Invokestatic(duke_classfile::CpIndex(1)).stack_effect(),
             (0, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::New(duke_classfile::CpIndex(1))),
+            Instruction::New(duke_classfile::CpIndex(1)).stack_effect(),
             (0, 1)
         );
-        assert_eq!(stack_effect(&Instruction::Newarray(ArrayType::Int)), (1, 1));
+        assert_eq!(Instruction::Newarray(ArrayType::Int).stack_effect(), (1, 1));
         assert_eq!(
-            stack_effect(&Instruction::Multianewarray {
+            Instruction::Multianewarray {
                 index: duke_classfile::CpIndex(1),
                 dimensions: 2
-            }),
+            }
+            .stack_effect(),
             (2, 1)
         );
-        assert_eq!(stack_effect(&Instruction::Arraylength), (1, 1));
-        assert_eq!(stack_effect(&Instruction::Athrow), (1, 0));
+        assert_eq!(Instruction::Arraylength.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Athrow.stack_effect(), (1, 0));
         assert_eq!(
-            stack_effect(&Instruction::Checkcast(duke_classfile::CpIndex(1))),
+            Instruction::Checkcast(duke_classfile::CpIndex(1)).stack_effect(),
             (1, 1)
         );
-        assert_eq!(stack_effect(&Instruction::Monitorenter), (1, 0));
-        assert_eq!(stack_effect(&Instruction::DupX1), (2, 3));
-        assert_eq!(stack_effect(&Instruction::Dup2X1), (3, 5));
-        assert_eq!(stack_effect(&Instruction::Dup), (1, 2));
-        assert_eq!(stack_effect(&Instruction::DupX2), (3, 4));
-        assert_eq!(stack_effect(&Instruction::Dup2), (2, 4));
-        assert_eq!(stack_effect(&Instruction::Bipush(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Sipush(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Ldc(1)), (0, 1));
+        assert_eq!(Instruction::Monitorenter.stack_effect(), (1, 0));
+        assert_eq!(Instruction::DupX1.stack_effect(), (2, 3));
+        assert_eq!(Instruction::Dup2X1.stack_effect(), (3, 5));
+        assert_eq!(Instruction::Dup.stack_effect(), (1, 2));
+        assert_eq!(Instruction::DupX2.stack_effect(), (3, 4));
+        assert_eq!(Instruction::Dup2.stack_effect(), (2, 4));
+        assert_eq!(Instruction::Bipush(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Sipush(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Ldc(1).stack_effect(), (0, 1));
         assert_eq!(
-            stack_effect(&Instruction::LdcW(duke_classfile::CpIndex(1))),
+            Instruction::LdcW(duke_classfile::CpIndex(1)).stack_effect(),
             (0, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Ldc2W(duke_classfile::CpIndex(1))),
+            Instruction::Ldc2W(duke_classfile::CpIndex(1)).stack_effect(),
             (0, 1)
         );
-        assert_eq!(stack_effect(&Instruction::Iload(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Lload(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Fload(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Dload(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Aload(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Iload1), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Iload2), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Iload3), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Lload1), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Lload2), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Lload3), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Fload0), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Fload1), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Fload2), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Fload3), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Dload0), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Dload1), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Dload2), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Dload3), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Aload1), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Aload2), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Aload3), (0, 1));
-        assert_eq!(stack_effect(&Instruction::LloadW(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::FloadW(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::DloadW(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::AloadW(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Iaload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Laload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Faload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Aaload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Baload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Caload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Saload), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Istore(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Lstore(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Fstore(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Dstore(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Astore(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Istore1), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Istore2), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Istore3), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Lstore0), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Lstore1), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Lstore2), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Lstore3), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Fstore0), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Fstore1), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Fstore2), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Fstore3), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Dstore1), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Dstore2), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Dstore3), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Astore0), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Astore1), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Astore2), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Astore3), (1, 0));
-        assert_eq!(stack_effect(&Instruction::LstoreW(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::FstoreW(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::AstoreW(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Iastore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Fastore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Dastore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Aastore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Bastore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Castore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Sastore), (3, 0));
-        assert_eq!(stack_effect(&Instruction::Pop), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Ladd), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Fadd), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Dadd), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Isub), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lsub), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Fsub), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Dsub), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lmul), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Fmul), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Dmul), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Idiv), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ldiv), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Fdiv), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ddiv), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Irem), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lrem), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Frem), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Drem), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ishl), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lshl), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ishr), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lshr), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Iushr), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lushr), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Iand), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Land), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ior), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lor), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ixor), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Lxor), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ineg), (1, 1));
-        assert_eq!(stack_effect(&Instruction::Lneg), (1, 1));
-        assert_eq!(stack_effect(&Instruction::Fneg), (1, 1));
+        assert_eq!(Instruction::Iload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload0.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload0.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::LloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::FloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::DloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::AloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iaload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Laload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Faload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Aaload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Baload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Caload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Saload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Istore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::LstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::FstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::AstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Iastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Fastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Dastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Aastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Bastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Castore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Sastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Pop.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ladd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fadd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dadd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Isub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lsub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fsub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dsub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lmul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fmul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dmul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Idiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ldiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fdiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ddiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Irem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lrem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Frem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Drem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ishl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lshl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ishr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lshr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Iushr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lushr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Iand.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Land.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ior.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lor.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ixor.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lxor.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ineg.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Lneg.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Fneg.stack_effect(), (1, 1));
         assert_eq!(
-            stack_effect(&Instruction::IincW { index: 0, value: 1 }),
+            (Instruction::IincW { index: 0, value: 1 }).stack_effect(),
             (0, 0)
         );
-        assert_eq!(stack_effect(&Instruction::I2f), (1, 1));
-        assert_eq!(stack_effect(&Instruction::I2d), (1, 1));
-        assert_eq!(stack_effect(&Instruction::L2i), (1, 1));
-        assert_eq!(stack_effect(&Instruction::L2f), (1, 1));
-        assert_eq!(stack_effect(&Instruction::L2d), (1, 1));
-        assert_eq!(stack_effect(&Instruction::F2i), (1, 1));
-        assert_eq!(stack_effect(&Instruction::F2l), (1, 1));
-        assert_eq!(stack_effect(&Instruction::F2d), (1, 1));
-        assert_eq!(stack_effect(&Instruction::D2i), (1, 1));
-        assert_eq!(stack_effect(&Instruction::D2l), (1, 1));
-        assert_eq!(stack_effect(&Instruction::D2f), (1, 1));
-        assert_eq!(stack_effect(&Instruction::I2b), (1, 1));
-        assert_eq!(stack_effect(&Instruction::I2c), (1, 1));
-        assert_eq!(stack_effect(&Instruction::I2s), (1, 1));
-        assert_eq!(stack_effect(&Instruction::Fcmpl), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Fcmpg), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Dcmpl), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Dcmpg), (2, 1));
-        assert_eq!(stack_effect(&Instruction::Ifne(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Iflt(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Ifge(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Ifgt(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Ifle(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Ifnull(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Ifnonnull(0)), (1, 0));
-        assert_eq!(stack_effect(&Instruction::IfIcmpeq(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::IfIcmplt(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::IfIcmpge(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::IfIcmpgt(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::IfIcmple(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::IfAcmpeq(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::IfAcmpne(0)), (2, 0));
-        assert_eq!(stack_effect(&Instruction::GotoW(0)), (0, 0));
-        assert_eq!(stack_effect(&Instruction::JsrW(0)), (0, 1));
-        assert_eq!(stack_effect(&Instruction::Lreturn), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Freturn), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Dreturn), (1, 0));
-        assert_eq!(stack_effect(&Instruction::Areturn), (1, 0));
+        assert_eq!(Instruction::I2f.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2d.stack_effect(), (1, 1));
+        assert_eq!(Instruction::L2i.stack_effect(), (1, 1));
+        assert_eq!(Instruction::L2f.stack_effect(), (1, 1));
+        assert_eq!(Instruction::L2d.stack_effect(), (1, 1));
+        assert_eq!(Instruction::F2i.stack_effect(), (1, 1));
+        assert_eq!(Instruction::F2l.stack_effect(), (1, 1));
+        assert_eq!(Instruction::F2d.stack_effect(), (1, 1));
+        assert_eq!(Instruction::D2i.stack_effect(), (1, 1));
+        assert_eq!(Instruction::D2l.stack_effect(), (1, 1));
+        assert_eq!(Instruction::D2f.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2b.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2c.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2s.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Fcmpl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fcmpg.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dcmpl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dcmpg.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ifne(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Iflt(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifge(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifgt(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifle(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifnull(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifnonnull(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::IfIcmpeq(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmplt(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmpge(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmpgt(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmple(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfAcmpeq(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfAcmpne(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::GotoW(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::JsrW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lreturn.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Freturn.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dreturn.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Areturn.stack_effect(), (1, 0));
         assert_eq!(
-            stack_effect(&Instruction::Invokespecial(duke_classfile::CpIndex(1))),
+            Instruction::Invokespecial(duke_classfile::CpIndex(1)).stack_effect(),
             (1, 0)
         );
-        assert_eq!(stack_effect(&Instruction::Monitorexit), (1, 0));
+        assert_eq!(Instruction::Monitorexit.stack_effect(), (1, 0));
 
         assert_eq!(
-            stack_effect(&Instruction::Tableswitch {
+            Instruction::Tableswitch {
                 default: 0,
                 low: 0,
                 high: 0,
                 offsets: vec![],
-            }),
+            }
+            .stack_effect(),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Lookupswitch {
+            Instruction::Lookupswitch {
                 default: 0,
                 pairs: vec![],
-            }),
+            }
+            .stack_effect(),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Invokeinterface {
+            Instruction::Invokeinterface {
                 index: duke_classfile::CpIndex(1),
                 count: 1,
-            }),
+            }
+            .stack_effect(),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Invokedynamic(duke_classfile::CpIndex(1))),
+            Instruction::Invokedynamic(duke_classfile::CpIndex(1)).stack_effect(),
             (0, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Instanceof(duke_classfile::CpIndex(1))),
+            Instruction::Instanceof(duke_classfile::CpIndex(1)).stack_effect(),
             (1, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Anewarray(duke_classfile::CpIndex(1))),
+            Instruction::Anewarray(duke_classfile::CpIndex(1)).stack_effect(),
             (1, 1)
         );
     }
@@ -758,10 +424,10 @@ mod tests {
 
     #[test]
     fn test_stack_effect_math() {
-        assert_eq!(stack_effect(&Instruction::Imul), (2, 1));
-        assert_eq!(stack_effect(&Instruction::DupX2), (3, 4));
-        assert_eq!(stack_effect(&Instruction::Dup2X2), (4, 6));
-        assert_eq!(stack_effect(&Instruction::Swap), (2, 2));
+        assert_eq!(Instruction::Imul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::DupX2.stack_effect(), (3, 4));
+        assert_eq!(Instruction::Dup2X2.stack_effect(), (4, 6));
+        assert_eq!(Instruction::Swap.stack_effect(), (2, 2));
     }
 
     #[test]
