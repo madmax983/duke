@@ -587,11 +587,7 @@ impl Instruction {
             | Self::I2s => (1, 1),
 
             // Compare — pop 2, push 1 (int result: -1/0/1)
-            Self::Lcmp
-            | Self::Fcmpl
-            | Self::Fcmpg
-            | Self::Dcmpl
-            | Self::Dcmpg => (2, 1),
+            Self::Lcmp | Self::Fcmpl | Self::Fcmpg | Self::Dcmpl | Self::Dcmpg => (2, 1),
 
             // Conditional branches — pop 1 (for if*) or 2 (for if_icmp* / if_acmp*)
             Self::Ifeq(_)
@@ -624,11 +620,7 @@ impl Instruction {
 
             // Returns — pop 0 or 1 (void vs value return)
             Self::Return => (0, 0),
-            Self::Ireturn
-            | Self::Lreturn
-            | Self::Freturn
-            | Self::Dreturn
-            | Self::Areturn => (1, 0),
+            Self::Ireturn | Self::Lreturn | Self::Freturn | Self::Dreturn | Self::Areturn => (1, 0),
 
             // Field access
             Self::Getstatic(_) => (0, 1),
