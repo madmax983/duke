@@ -1,9 +1,36 @@
+//! Reachability Analysis.
+//!
+//! This module provides functionality to analyze the flow of execution
+//! through a sequence of [`BasicBlock`]s. It identifies valid execution paths,
+//! determines successor blocks, and finds unreachable (dead) code.
+
 #[cfg(feature = "nova")]
 use crate::basic_block::BasicBlock;
 #[cfg(feature = "nova")]
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Gets the successor PCs for a given basic block based on its last instruction.
+///
+/// This function identifies all possible next execution targets (e.g., jump destinations,
+/// branch targets, switch cases) to construct the edges of a control flow graph.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, BasicBlock, reachability::get_successors};
+///
+/// let block = BasicBlock {
+///     start_pc: 0,
+///     end_pc: 4,
+///     instructions: vec![
+///         (0, Instruction::Iload1),
+///         (1, Instruction::Ifeq(5)), // Branch to PC 6 (1 + 5)
+///     ],
+/// };
+///
+/// let successors = get_successors(&block);
+/// assert_eq!(successors, vec![6, 4]); // Target (6) and fallthrough (4)
+/// ```
 #[cfg(feature = "nova")]
 #[allow(
     clippy::cast_possible_wrap,
@@ -35,7 +62,27 @@ pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
 }
 
 /// Finds all dead (unreachable) basic blocks starting from the given entry PC.
-/// Returns a list of block `start_pc`s that are unreachable.
+///
+/// Returns a list of block `start_pc`s that are unreachable. This is useful
+/// for dead code elimination and verification.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, BasicBlock, build_basic_blocks, reachability::find_dead_blocks};
+///
+/// let instructions = vec![
+///     (0, Instruction::Goto(6)), // Unconditional jump to 6
+///     (3, Instruction::Iconst1), // Dead block starts here
+///     (4, Instruction::Ireturn),
+///     (6, Instruction::Iconst2), // Target
+///     (7, Instruction::Ireturn),
+/// ];
+/// let blocks = build_basic_blocks(&instructions);
+///
+/// let dead_blocks = find_dead_blocks(&blocks, 0);
+/// assert_eq!(dead_blocks, vec![3]);
+/// ```
 #[cfg(feature = "nova")]
 #[must_use]
 pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
@@ -77,7 +124,28 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
 
 /// Finds the shortest execution path (in terms of basic block transitions)
 /// from the entry block to a target block.
+///
 /// Returns a sequence of `start_pc` representing the path, or `None` if unreachable.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, BasicBlock, build_basic_blocks, reachability::find_shortest_path};
+///
+/// let instructions = vec![
+///     (0, Instruction::Ifeq(8)), // branch to 8
+///     (3, Instruction::Goto(7)), // branch to 10
+///     (6, Instruction::Ireturn), // unreachable
+///     (8, Instruction::Iconst1),
+///     (9, Instruction::Ireturn),
+///     (10, Instruction::Iconst2),
+///     (11, Instruction::Ireturn),
+/// ];
+/// let blocks = build_basic_blocks(&instructions);
+///
+/// let path = find_shortest_path(&blocks, 0, 10).unwrap();
+/// assert_eq!(path, vec![0, 3, 10]);
+/// ```
 ///
 /// # Panics
 ///
