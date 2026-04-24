@@ -45,3 +45,7 @@
 **Extract Subroutine Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
 **Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
+
+**String Pre-allocation in CFG generation**
+**Learning:** `generate_mermaid_cfg` in `crates/duke-bytecode/src/cfg.rs` initialized `cfg` using `String::from` and appended many dynamically formatted strings inside a loop using `writeln!`. This creates multiple intermediate string re-allocations which is highly inefficient for methods with many instructions.
+**Action:** Always replace empty or small strings with `String::with_capacity()` based on a reasonable heuristic size of the source data, then append elements cleanly.
