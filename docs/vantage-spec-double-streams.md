@@ -11,7 +11,7 @@ While Duke supports basic streams (`Stream<T>`) and integer streams (`IntStream`
 Success = A Java program running on Duke can successfully execute standard `DoubleStream` pipelines (such as `.mapToDouble(x -> ...).sum()`, `flatMapToDouble()`, and `.collect(Collectors.summingDouble(...))`) correctly producing the expected floating-point aggregate results.
 
 ## 🔍 Gap Analysis
-- **Current State:** Duke has TODOs indicating unimplemented native methods for `Stream.mapToDouble`, `LongStream.mapToDouble`, `Stream.flatMapToDouble`, `Collectors.summingDouble`, and `Collectors.averagingDouble` (as seen in `Phase49Test`, `Phase55Test`, and `Phase59Test`).
+- **Current State:** Duke has unimplemented native methods for `Stream.mapToDouble`, `LongStream.mapToDouble`, `Stream.flatMapToDouble`, `Collectors.summingDouble`, and `Collectors.averagingDouble`.
 - **Market/Standard Lib:** Standard Java 8 introduced `DoubleStream` alongside `IntStream` and `LongStream`. The standard library implements these using specialized spliterators and stream pipelines optimized for `double` arrays and elements.
 - **The Gap:** We need to implement the native JVM bridges for the missing stream mapping functions and collectors that deal with `DoubleStream` and `ToDoubleFunction`.
 
@@ -21,8 +21,8 @@ Success = A Java program running on Duke can successfully execute standard `Doub
 - Must implement `Stream.flatMapToDouble(Function<T, DoubleStream>)` returning a flattened `DoubleStream`.
 - Must implement `Collectors.summingDouble(ToDoubleFunction)` returning a Collector that computes the sum correctly.
 - Must implement `Collectors.averagingDouble(ToDoubleFunction)` returning a Collector that computes the average correctly.
-- Tests from `Phase49Test` (e.g., `testStreamMapToDouble`), `Phase55Test` (`testLongStreamMapToDouble`), and `Phase59Test` (`testStreamFlatMapToDouble`) must pass.
+- Tests from Phase 49, Phase 55, and Phase 59 covering these capabilities must pass.
 
 ## 🚫 Out of Scope
-- Creating brand new mathematical operations not in standard Java `DoubleStream`.
+- Parallel stream processing execution (`DoubleStream.parallel()`).
 - Auto-vectorization of DoubleStream pipelines at the native level (focus is strictly on functional correctness and baseline JVM compatibility).
