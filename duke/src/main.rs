@@ -33,9 +33,9 @@ use duke_interpreter::{
     ClassRegistry, bootstrap_stdlib, build_class_context, execute_class_to_completion,
 };
 use duke_loader::{
-    BootstrapLoader, ClassLoader, ClasspathEntry, DirectoryLoader, LoadResult, ZipLoader, ZipReader,
+    BootstrapLoader, ClassLoader, ClasspathEntry, DirectoryLoader, Result, ZipLoader, ZipReader,
 };
-use duke_runtime::{Slot, VmError};
+use duke_runtime::{Error, Slot};
 
 /// Where to write telemetry JSON after execution.
 #[derive(Debug, PartialEq)]
@@ -93,7 +93,7 @@ fn extract_jar_flag(args: &mut Vec<String>) -> Option<String> {
 struct CliLoader(Box<dyn ClassLoader + Send + Sync>);
 
 impl ClassLoader for CliLoader {
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         self.0.find_class(name)
     }
 }
@@ -153,13 +153,13 @@ fn make_loader(jdk_home: Option<&str>, classpath: &[std::path::PathBuf]) -> CliL
 struct ChainLoader(Vec<ClasspathEntry>);
 
 impl ClassLoader for ChainLoader {
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         for entry in &self.0 {
             if let Ok(bytes) = entry.find_class(name) {
                 return Ok(bytes);
             }
         }
-        Err(duke_loader::LoadError::NotFound {
+        Err(duke_loader::Error::NotFound {
             name: name.to_string(),
         })
     }
@@ -575,7 +575,7 @@ fn exec_method(
             println!("(void)");
             None
         }
-        Err(VmError::SystemExit { code }) => Some(code),
+        Err(Error::SystemExit { code }) => Some(code),
         Err(e) => {
             emit_mermaid_heap(&heap, mermaid_dest);
             emit_telemetry(&registry, telemetry);
@@ -656,7 +656,7 @@ fn run_main(
         &main_args,
     ) {
         Ok(_) => None,
-        Err(VmError::SystemExit { code }) => Some(code),
+        Err(Error::SystemExit { code }) => Some(code),
         Err(e) => {
             emit_mermaid_heap(&heap, mermaid_dest);
             emit_telemetry(&registry, telemetry);
@@ -749,7 +749,7 @@ fn run_jar(
         &main_args,
     ) {
         Ok(_) => None,
-        Err(VmError::SystemExit { code }) => Some(code),
+        Err(Error::SystemExit { code }) => Some(code),
         Err(e) => {
             emit_mermaid_heap(&heap, mermaid_dest);
             emit_telemetry(&registry, telemetry);
@@ -1052,7 +1052,7 @@ use std::fmt::Write;
 ///
 /// Scans the class for `native` methods and outputs a block of Rust code that includes
 /// a `register_natives` function to bind the handlers, along with placeholder stub
-/// implementations for each native method that return `VmError::Unimplemented`.
+/// implementations for each native method that return `Error::Unimplemented`.
 #[must_use]
 pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
     let mut out = String::new();
@@ -1101,15 +1101,13 @@ pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
         );
         let _ = write!(
             out,
-            "fn {fn_name}(\n    args: &[Slot],\n    heap: &mut duke_gc::Heap,\n    out: &mut dyn std::io::Write,\n    control: &mut duke_interpreter::NativeControl,\n) -> duke_runtime::VmResult<Option<Slot>> {{\n"
+            "fn {fn_name}(\n    args: &[Slot],\n    heap: &mut duke_gc::Heap,\n    out: &mut dyn std::io::Write,\n    control: &mut duke_interpreter::NativeControl,\n) -> duke_runtime::Result<Option<Slot>> {{\n"
         );
         let _ = writeln!(
             out,
             "    // TODO: Implement native method {class_name}.{name} {desc}"
         );
-        out.push_str(
-            "    Err(duke_runtime::VmError::Unimplemented { mnemonic: \"native_stub\" })\n",
-        );
+        out.push_str("    Err(duke_runtime::Error::Unimplemented { mnemonic: \"native_stub\" })\n");
         out.push_str("}\n\n");
     }
 

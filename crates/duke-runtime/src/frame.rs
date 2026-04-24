@@ -4,7 +4,7 @@
 //! and operand stack for a single method invocation.
 
 use crate::{
-    error::{VmError, VmResult},
+    error::{Error, Result},
     slot::Slot,
 };
 
@@ -40,7 +40,7 @@ impl Frame {
     ///
     /// # Errors
     ///
-    /// Returns [`VmError::LocalOutOfBounds`] if `args.len() > max_locals`.
+    /// Returns [`Error::LocalOutOfBounds`] if `args.len() > max_locals`.
     ///
     /// # Examples
     ///
@@ -51,9 +51,9 @@ impl Frame {
     /// assert_eq!(frame.load_local(0).unwrap(), Slot::Int(1));
     /// assert_eq!(frame.load_local(1).unwrap(), Slot::Int(0)); // zero-initialized
     /// ```
-    pub fn new(max_stack: usize, max_locals: usize, args: Vec<Slot>) -> VmResult<Self> {
+    pub fn new(max_stack: usize, max_locals: usize, args: Vec<Slot>) -> Result<Self> {
         if args.len() > max_locals {
-            return Err(VmError::LocalOutOfBounds {
+            return Err(Error::LocalOutOfBounds {
                 index: args.len(),
                 max_locals,
             });
@@ -61,7 +61,7 @@ impl Frame {
 
         let max_size = 1024 * 1024; // 1M slots max
         if max_locals > max_size || max_stack > max_size {
-            return Err(VmError::OutOfMemory);
+            return Err(Error::OutOfMemory);
         }
 
         // ⚡ Bolt: Re-use the existing `args` vector for `locals` to avoid an allocation
@@ -134,7 +134,7 @@ impl Frame {
     ///
     /// # Errors
     ///
-    /// Returns [`VmError::StackOverflow`] if the stack is already at `max_stack`.
+    /// Returns [`Error::StackOverflow`] if the stack is already at `max_stack`.
     ///
     /// # Examples
     ///
@@ -145,9 +145,9 @@ impl Frame {
     /// frame.push(Slot::Int(1)).unwrap(); // ok
     /// assert!(frame.push(Slot::Int(2)).is_err()); // overflow
     /// ```
-    pub fn push(&mut self, slot: Slot) -> VmResult<()> {
+    pub fn push(&mut self, slot: Slot) -> Result<()> {
         if self.stack.len() >= self.max_stack {
-            return Err(VmError::StackOverflow);
+            return Err(Error::StackOverflow);
         }
         self.stack.push(slot);
         Ok(())
@@ -157,7 +157,7 @@ impl Frame {
     ///
     /// # Errors
     ///
-    /// Returns [`VmError::StackUnderflow`] if the stack is empty.
+    /// Returns [`Error::StackUnderflow`] if the stack is empty.
     ///
     /// # Examples
     ///
@@ -169,14 +169,14 @@ impl Frame {
     /// assert_eq!(frame.pop().unwrap(), Slot::Int(42));
     /// assert!(frame.pop().is_err()); // underflow
     /// ```
-    pub fn pop(&mut self) -> VmResult<Slot> {
-        self.stack.pop().ok_or(VmError::StackUnderflow)
+    pub fn pop(&mut self) -> Result<Slot> {
+        self.stack.pop().ok_or(Error::StackUnderflow)
     }
 
     /// Pop and unwrap as `i32`.
     ///
     /// # Errors
-    /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    /// Returns [`Error::StackUnderflow`] or [`Error::TypeMismatch`].
     ///
     /// # Examples
     ///
@@ -187,14 +187,14 @@ impl Frame {
     /// frame.push(Slot::Int(42)).unwrap();
     /// assert_eq!(frame.pop_int().unwrap(), 42);
     /// ```
-    pub fn pop_int(&mut self) -> VmResult<i32> {
+    pub fn pop_int(&mut self) -> Result<i32> {
         self.pop()?.as_int()
     }
 
     /// Pop and unwrap as `i64`.
     ///
     /// # Errors
-    /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    /// Returns [`Error::StackUnderflow`] or [`Error::TypeMismatch`].
     ///
     /// # Examples
     ///
@@ -205,14 +205,14 @@ impl Frame {
     /// frame.push(Slot::Long(42)).unwrap();
     /// assert_eq!(frame.pop_long().unwrap(), 42);
     /// ```
-    pub fn pop_long(&mut self) -> VmResult<i64> {
+    pub fn pop_long(&mut self) -> Result<i64> {
         self.pop()?.as_long()
     }
 
     /// Pop and unwrap as `f32`.
     ///
     /// # Errors
-    /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    /// Returns [`Error::StackUnderflow`] or [`Error::TypeMismatch`].
     ///
     /// # Examples
     ///
@@ -223,14 +223,14 @@ impl Frame {
     /// frame.push(Slot::Float(3.14)).unwrap();
     /// assert_eq!(frame.pop_float().unwrap(), 3.14);
     /// ```
-    pub fn pop_float(&mut self) -> VmResult<f32> {
+    pub fn pop_float(&mut self) -> Result<f32> {
         self.pop()?.as_float()
     }
 
     /// Pop and unwrap as `f64`.
     ///
     /// # Errors
-    /// Returns [`VmError::StackUnderflow`] or [`VmError::TypeMismatch`].
+    /// Returns [`Error::StackUnderflow`] or [`Error::TypeMismatch`].
     ///
     /// # Examples
     ///
@@ -241,15 +241,15 @@ impl Frame {
     /// frame.push(Slot::Double(3.14)).unwrap();
     /// assert_eq!(frame.pop_double().unwrap(), 3.14);
     /// ```
-    pub fn pop_double(&mut self) -> VmResult<f64> {
+    pub fn pop_double(&mut self) -> Result<f64> {
         self.pop()?.as_double()
     }
 
     /// Pop and unwrap as a non-null heap reference.
     ///
     /// # Errors
-    /// Returns [`VmError::StackUnderflow`], [`VmError::TypeMismatch`], or
-    /// [`VmError::NullPointerException`] if the reference is null.
+    /// Returns [`Error::StackUnderflow`], [`Error::TypeMismatch`], or
+    /// [`Error::NullPointerException`] if the reference is null.
     ///
     /// # Examples
     ///
@@ -260,11 +260,11 @@ impl Frame {
     /// frame.push(Slot::Reference(Some(1))).unwrap();
     /// assert_eq!(frame.pop_ref().unwrap(), 1);
     /// ```
-    pub fn pop_ref(&mut self) -> VmResult<u64> {
+    pub fn pop_ref(&mut self) -> Result<u64> {
         match self.pop()? {
             Slot::Reference(Some(r)) => Ok(r),
-            Slot::Reference(None) => Err(VmError::NullPointerException),
-            other => Err(VmError::TypeMismatch {
+            Slot::Reference(None) => Err(Error::NullPointerException),
+            other => Err(Error::TypeMismatch {
                 expected: "reference",
                 got: other.type_name(),
             }),
@@ -292,7 +292,7 @@ impl Frame {
     ///
     /// # Errors
     ///
-    /// Returns [`VmError::LocalOutOfBounds`] if `index >= max_locals`.
+    /// Returns [`Error::LocalOutOfBounds`] if `index >= max_locals`.
     ///
     /// # Examples
     ///
@@ -303,11 +303,11 @@ impl Frame {
     /// assert_eq!(frame.load_local(0).unwrap(), Slot::Int(42));
     /// assert!(frame.load_local(5).is_err());
     /// ```
-    pub fn load_local(&self, index: usize) -> VmResult<Slot> {
+    pub fn load_local(&self, index: usize) -> Result<Slot> {
         self.locals
             .get(index)
             .copied()
-            .ok_or(VmError::LocalOutOfBounds {
+            .ok_or(Error::LocalOutOfBounds {
                 index,
                 max_locals: self.locals.len(),
             })
@@ -317,7 +317,7 @@ impl Frame {
     ///
     /// # Errors
     ///
-    /// Returns [`VmError::LocalOutOfBounds`] if `index >= max_locals`.
+    /// Returns [`Error::LocalOutOfBounds`] if `index >= max_locals`.
     ///
     /// # Examples
     ///
@@ -328,12 +328,12 @@ impl Frame {
     /// frame.store_local(0, Slot::Int(42)).unwrap();
     /// assert_eq!(frame.load_local(0).unwrap(), Slot::Int(42));
     /// ```
-    pub fn store_local(&mut self, index: usize, slot: Slot) -> VmResult<()> {
+    pub fn store_local(&mut self, index: usize, slot: Slot) -> Result<()> {
         if let Some(s) = self.locals.get_mut(index) {
             *s = slot;
             Ok(())
         } else {
-            Err(VmError::LocalOutOfBounds {
+            Err(Error::LocalOutOfBounds {
                 index,
                 max_locals: self.locals.len(),
             })
@@ -390,11 +390,8 @@ impl Frame {
     /// assert_eq!(frame.peek_at(0).unwrap(), Slot::Int(10));
     /// assert_eq!(frame.peek_at(1).unwrap(), Slot::Int(20));
     /// ```
-    pub fn peek_at(&self, index: usize) -> VmResult<Slot> {
-        self.stack
-            .get(index)
-            .copied()
-            .ok_or(VmError::StackUnderflow)
+    pub fn peek_at(&self, index: usize) -> Result<Slot> {
+        self.stack.get(index).copied().ok_or(Error::StackUnderflow)
     }
 
     /// Current depth of the operand stack.
@@ -500,7 +497,7 @@ mod tests {
         let mut f2 = Frame::from_pool_bufs(locals_buf, stack_buf, 4);
         assert_eq!(f2.load_local(0).unwrap(), Slot::Int(99));
         assert_eq!(f2.load_local(1).unwrap(), Slot::Int(0));
-        assert_eq!(f2.pop().unwrap_err(), VmError::StackUnderflow);
+        assert_eq!(f2.pop().unwrap_err(), Error::StackUnderflow);
     }
 
     #[test]
@@ -523,7 +520,7 @@ mod tests {
         f.push(Slot::Int(2)).unwrap();
         f.push(Slot::Int(3)).unwrap();
         f.clear_stack();
-        assert_eq!(f.pop().unwrap_err(), VmError::StackUnderflow);
+        assert_eq!(f.pop().unwrap_err(), Error::StackUnderflow);
     }
 
     #[test]
@@ -576,11 +573,11 @@ mod tests {
     fn new_frame_too_many_args_returns_error() {
         let result = Frame::new(4, 1, vec![Slot::Int(1), Slot::Int(2)]);
         match result {
-            Err(VmError::LocalOutOfBounds { index, max_locals }) => {
+            Err(Error::LocalOutOfBounds { index, max_locals }) => {
                 assert_eq!(index, 2);
                 assert_eq!(max_locals, 1);
             }
-            _ => panic!("Expected VmError::LocalOutOfBounds"),
+            _ => panic!("Expected Error::LocalOutOfBounds"),
         }
     }
 
@@ -590,7 +587,7 @@ mod tests {
         let err = f.load_local(1).unwrap_err();
         assert_eq!(
             err,
-            VmError::LocalOutOfBounds {
+            Error::LocalOutOfBounds {
                 index: 1,
                 max_locals: 1
             }
@@ -603,7 +600,7 @@ mod tests {
         let err = f.store_local(1, Slot::Int(99)).unwrap_err();
         assert_eq!(
             err,
-            VmError::LocalOutOfBounds {
+            Error::LocalOutOfBounds {
                 index: 1,
                 max_locals: 1
             }
@@ -616,7 +613,7 @@ mod tests {
         f.push(Slot::Int(1)).unwrap();
         assert_eq!(f.peek_at(0).unwrap(), Slot::Int(1));
         let err = f.peek_at(1).unwrap_err();
-        assert_eq!(err, VmError::StackUnderflow);
+        assert_eq!(err, Error::StackUnderflow);
     }
 
     #[test]
@@ -644,7 +641,7 @@ mod tests {
         f.push(Slot::Long(42)).unwrap();
         assert_eq!(
             f.pop_int().unwrap_err(),
-            VmError::TypeMismatch {
+            Error::TypeMismatch {
                 expected: "int",
                 got: "long"
             }
@@ -653,7 +650,7 @@ mod tests {
         f.push(Slot::Int(42)).unwrap();
         assert_eq!(
             f.pop_long().unwrap_err(),
-            VmError::TypeMismatch {
+            Error::TypeMismatch {
                 expected: "long",
                 got: "int"
             }
@@ -662,7 +659,7 @@ mod tests {
         f.push(Slot::Double(42.0)).unwrap();
         assert_eq!(
             f.pop_float().unwrap_err(),
-            VmError::TypeMismatch {
+            Error::TypeMismatch {
                 expected: "float",
                 got: "double"
             }
@@ -671,7 +668,7 @@ mod tests {
         f.push(Slot::Float(42.0)).unwrap();
         assert_eq!(
             f.pop_double().unwrap_err(),
-            VmError::TypeMismatch {
+            Error::TypeMismatch {
                 expected: "double",
                 got: "float"
             }
@@ -680,7 +677,7 @@ mod tests {
         f.push(Slot::Int(42)).unwrap();
         assert_eq!(
             f.pop_ref().unwrap_err(),
-            VmError::TypeMismatch {
+            Error::TypeMismatch {
                 expected: "reference",
                 got: "int"
             }
@@ -691,10 +688,10 @@ mod tests {
     fn pop_typed_methods_underflow() {
         let mut f = Frame::new(4, 1, vec![]).unwrap();
 
-        assert_eq!(f.pop_int().unwrap_err(), VmError::StackUnderflow);
-        assert_eq!(f.pop_long().unwrap_err(), VmError::StackUnderflow);
-        assert_eq!(f.pop_float().unwrap_err(), VmError::StackUnderflow);
-        assert_eq!(f.pop_double().unwrap_err(), VmError::StackUnderflow);
-        assert_eq!(f.pop_ref().unwrap_err(), VmError::StackUnderflow);
+        assert_eq!(f.pop_int().unwrap_err(), Error::StackUnderflow);
+        assert_eq!(f.pop_long().unwrap_err(), Error::StackUnderflow);
+        assert_eq!(f.pop_float().unwrap_err(), Error::StackUnderflow);
+        assert_eq!(f.pop_double().unwrap_err(), Error::StackUnderflow);
+        assert_eq!(f.pop_ref().unwrap_err(), Error::StackUnderflow);
     }
 }

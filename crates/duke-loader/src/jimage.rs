@@ -36,7 +36,7 @@ use std::{collections::HashMap, io::Read, path::Path};
 
 use flate2::read::DeflateDecoder;
 
-use crate::{ClassLoader, LoadError, LoadResult};
+use crate::{ClassLoader, Error, Result};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -125,8 +125,8 @@ impl JImageReader {
     ///
     /// # Errors
     ///
-    /// Returns [`LoadError::Io`] if the file cannot be read, or
-    /// [`LoadError::JImageFormat`] if the file is not a valid jimage.
+    /// Returns [`Error::Io`] if the file cannot be read, or
+    /// [`Error::JImageFormat`] if the file is not a valid jimage.
     ///
     /// # Examples
     ///
@@ -141,8 +141,8 @@ impl JImageReader {
     /// // It will gracefully return an Io error if the file is not found.
     /// assert!(result.is_err());
     /// ```
-    pub fn open(path: &Path) -> LoadResult<Self> {
-        let data = std::fs::read(path).map_err(|e| LoadError::Io {
+    pub fn open(path: &Path) -> Result<Self> {
+        let data = std::fs::read(path).map_err(|e| Error::Io {
             path: path.display().to_string(),
             source: e,
         })?;
@@ -162,7 +162,7 @@ impl JImageReader {
         let data_offset = strings_offset + ss;
 
         if data.len() < data_offset {
-            return Err(LoadError::JImageFormat {
+            return Err(Error::JImageFormat {
                 msg: format!(
                     "file too small: {} bytes, need at least {}",
                     data.len(),
@@ -206,11 +206,11 @@ impl JImageReader {
     ///
     /// # Errors
     ///
-    /// Returns [`LoadError::NotFound`] if the path is not in the index,
-    /// [`LoadError::JImageFormat`] if the data is out of bounds, or
-    /// [`LoadError::Decompress`] if decompression fails.
-    pub fn read_resource(&self, path: &str) -> LoadResult<Vec<u8>> {
-        let info = self.index.get(path).ok_or_else(|| LoadError::NotFound {
+    /// Returns [`Error::NotFound`] if the path is not in the index,
+    /// [`Error::JImageFormat`] if the data is out of bounds, or
+    /// [`Error::Decompress`] if decompression fails.
+    pub fn read_resource(&self, path: &str) -> Result<Vec<u8>> {
+        let info = self.index.get(path).ok_or_else(|| Error::NotFound {
             name: path.to_string(),
         })?;
 
@@ -220,18 +220,18 @@ impl JImageReader {
             usize::try_from(info.uncompressed).unwrap_or(usize::MAX)
         };
         let offset = usize::try_from(info.offset).unwrap_or(usize::MAX);
-        let start =
-            self.data_offset
-                .checked_add(offset)
-                .ok_or_else(|| LoadError::JImageFormat {
-                    msg: format!("resource '{path}' offset overflow"),
-                })?;
+        let start = self
+            .data_offset
+            .checked_add(offset)
+            .ok_or_else(|| Error::JImageFormat {
+                msg: format!("resource '{path}' offset overflow"),
+            })?;
 
         if start
             .checked_add(raw_len)
             .is_none_or(|end| end > self.data.len())
         {
-            return Err(LoadError::JImageFormat {
+            return Err(Error::JImageFormat {
                 msg: format!("resource '{path}' data out of bounds"),
             });
         }
@@ -244,7 +244,7 @@ impl JImageReader {
             let decoder = DeflateDecoder::new(raw);
             let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
             if cap > max_size {
-                return Err(LoadError::JImageFormat {
+                return Err(Error::JImageFormat {
                     msg: format!(
                         "resource '{path}' uncompressed size {cap} exceeds limit {max_size}"
                     ),
@@ -254,7 +254,7 @@ impl JImageReader {
             decoder
                 .take(max_size as u64)
                 .read_to_end(&mut out)
-                .map_err(|_| LoadError::Decompress {
+                .map_err(|_| Error::Decompress {
                     name: path.to_string(),
                 })?;
             Ok(out)
@@ -284,7 +284,7 @@ const PROBE_MODULES: &[&str] = &[
 ];
 
 impl ClassLoader for JImageReader {
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         let (parent, base) = split_class_name(name);
         let mut path = String::with_capacity(64);
         for module in PROBE_MODULES {
@@ -294,7 +294,7 @@ impl ClassLoader for JImageReader {
                 return self.read_resource(&path);
             }
         }
-        Err(LoadError::NotFound {
+        Err(Error::NotFound {
             name: name.to_string(),
         })
     }
@@ -305,23 +305,23 @@ impl ClassLoader for JImageReader {
 // ---------------------------------------------------------------------------
 
 /// Returns `(resource_count, table_length, locations_size, strings_size)`.
-fn parse_header(data: &[u8]) -> LoadResult<(u32, u32, u32, u32)> {
+fn parse_header(data: &[u8]) -> Result<(u32, u32, u32, u32)> {
     if data.len() < HEADER_SIZE {
-        return Err(LoadError::JImageFormat {
+        return Err(Error::JImageFormat {
             msg: format!("file too small for header: {} bytes", data.len()),
         });
     }
 
     let magic = read_u32_le(data, 0);
     if magic != JIMAGE_MAGIC {
-        return Err(LoadError::JImageFormat {
+        return Err(Error::JImageFormat {
             msg: format!("bad magic: {magic:#010x} (expected {JIMAGE_MAGIC:#010x})"),
         });
     }
 
     let version = read_u32_le(data, 4);
     if version != JIMAGE_VERSION {
-        return Err(LoadError::JImageFormat {
+        return Err(Error::JImageFormat {
             msg: format!("unsupported jimage version: {version:#010x}"),
         });
     }
@@ -829,7 +829,7 @@ mod tests {
         let reader = make_reader(vec![0xFF, 0xFF, 0xFF, 0, 0, 0], 3, 1000);
         let result = reader.read_resource("r");
         assert!(
-            !matches!(result, Err(LoadError::JImageFormat { .. })),
+            !matches!(result, Err(Error::JImageFormat { .. })),
             "should use compressed length (3), not uncompressed (1000)"
         );
     }
@@ -842,7 +842,7 @@ mod tests {
         let reader = make_reader(vec![0xFF, 0xFF, 0, 0, 0], 2, 5);
         let result = reader.read_resource("r");
         assert!(
-            matches!(result, Err(LoadError::Decompress { .. })),
+            matches!(result, Err(Error::Decompress { .. })),
             "compressed > 0 must trigger decompression: {result:?}"
         );
     }
@@ -867,7 +867,7 @@ mod tests {
         let reader = make_reader(vec![0xFF, 0xFF, 0, 0, 0], 2, u64::MAX);
         let result = reader.read_resource("r");
         assert!(
-            matches!(result, Err(LoadError::JImageFormat { .. })),
+            matches!(result, Err(Error::JImageFormat { .. })),
             "should safely fail decompression with JImageFormat, not panic with capacity overflow"
         );
     }
@@ -875,7 +875,7 @@ mod tests {
     #[test]
     fn test_jimage_parse_header_too_small() {
         let err = super::parse_header(&[0; 10]).unwrap_err();
-        assert!(matches!(err, super::LoadError::JImageFormat { .. }));
+        assert!(matches!(err, super::Error::JImageFormat { .. }));
     }
 }
 

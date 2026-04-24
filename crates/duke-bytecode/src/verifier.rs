@@ -11,7 +11,7 @@
 //! (abstract interpretation with type states at merge points) is Phase 2b.
 
 use crate::{
-    error::{VerifyError, VerifyResult},
+    error::{Result, VerifyError},
     instruction::Instruction,
 };
 
@@ -52,7 +52,7 @@ pub fn verify(
     instructions: &[(usize, Instruction)],
     max_stack: u16,
     max_locals: u16,
-) -> VerifyResult<()> {
+) -> Result<()> {
     let max_stack = max_stack as usize;
     let max_locals = max_locals as usize;
     let mut depth: usize = 0;
@@ -67,23 +67,26 @@ pub fn verify(
 
         // Underflow check
         if depth < pops {
-            return Err(VerifyError::StackUnderflow { pc });
+            return Err(crate::Error::Verify(VerifyError::StackUnderflow { pc }));
         }
         depth -= pops;
 
         // Overflow check
         depth += pushes;
         if depth > max_stack {
-            return Err(VerifyError::StackOverflow {
+            return Err(crate::Error::Verify(VerifyError::StackOverflow {
                 pc,
                 depth,
                 max_stack,
-            });
+            }));
         }
 
         // Empty-stack-on-return check
         if is_return(instr) && depth != 0 {
-            return Err(VerifyError::NonEmptyStackOnReturn { pc, depth });
+            return Err(crate::Error::Verify(VerifyError::NonEmptyStackOnReturn {
+                pc,
+                depth,
+            }));
         }
 
         // athrow consumes the exception reference; stack is conceptually cleared
@@ -369,7 +372,7 @@ const fn is_return(instr: &Instruction) -> bool {
 }
 
 /// Check that any local variable accesses are within `max_locals`.
-const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> VerifyResult<()> {
+const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> Result<()> {
     let idx: Option<usize> = match instr {
         Instruction::Iload(i)
         | Instruction::Lload(i)
@@ -450,11 +453,11 @@ const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> Veri
     if let Some(i) = idx
         && i >= max_locals
     {
-        return Err(VerifyError::LocalOutOfBounds {
+        return Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
             pc,
             index: i,
             max_locals,
-        });
+        }));
     }
     Ok(())
 }
@@ -770,14 +773,20 @@ mod tests {
         let res = verify(&instructions, 1, 5); // max locals is 5, index 5 is out of bounds
         assert!(matches!(
             res,
-            Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                index: 5,
+                ..
+            }))
         ));
 
         let instructions_w = vec![(0, Instruction::RetW(10)), (3, Instruction::Return)];
         let res_w = verify(&instructions_w, 1, 10);
         assert!(matches!(
             res_w,
-            Err(VerifyError::LocalOutOfBounds { index: 10, .. })
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                index: 10,
+                ..
+            }))
         ));
 
         // Test valid RetW
@@ -792,14 +801,20 @@ mod tests {
         let res = verify(&instructions, 1, 5); // max locals is 5, index 5 is out of bounds
         assert!(matches!(
             res,
-            Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                index: 5,
+                ..
+            }))
         ));
 
         let instructions_store = vec![(0, Instruction::IstoreW(10)), (3, Instruction::Return)];
         let res = verify(&instructions_store, 1, 10);
         assert!(matches!(
             res,
-            Err(VerifyError::LocalOutOfBounds { index: 10, .. })
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                index: 10,
+                ..
+            }))
         ));
     }
 
@@ -812,7 +827,10 @@ mod tests {
         let res = verify(&instructions, 1, 5);
         assert!(matches!(
             res,
-            Err(VerifyError::LocalOutOfBounds { index: 5, .. })
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                index: 5,
+                ..
+            }))
         ));
 
         let instructions_wide = vec![
@@ -828,7 +846,10 @@ mod tests {
         let res = verify(&instructions_wide, 1, 10);
         assert!(matches!(
             res,
-            Err(VerifyError::LocalOutOfBounds { index: 10, .. })
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                index: 10,
+                ..
+            }))
         ));
 
         // Test valid IincW
@@ -852,66 +873,66 @@ mod tests {
         let result = check_locals(&instr, 0, 4);
         assert!(matches!(
             result,
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 5,
                 max_locals: 4
-            })
+            }))
         ));
 
         let instr = Instruction::Dload(5);
         let result = check_locals(&instr, 0, 4);
         assert!(matches!(
             result,
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 5,
                 max_locals: 4
-            })
+            }))
         ));
 
         let instr = Instruction::IincW { index: 5, value: 1 };
         let result = check_locals(&instr, 0, 4);
         assert!(matches!(
             result,
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 5,
                 max_locals: 4
-            })
+            }))
         ));
 
         let instr = Instruction::Dload(5);
         let result = check_locals(&instr, 0, 4);
         assert!(matches!(
             result,
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 5,
                 max_locals: 4
-            })
+            }))
         ));
 
         let instr = Instruction::DloadW(5);
         let result = check_locals(&instr, 0, 4);
         assert!(matches!(
             result,
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 5,
                 max_locals: 4
-            })
+            }))
         ));
 
         let instr = Instruction::IincW { index: 5, value: 1 };
         let result = check_locals(&instr, 0, 4);
         assert!(matches!(
             result,
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 5,
                 max_locals: 4
-            })
+            }))
         ));
     }
 
@@ -919,19 +940,19 @@ mod tests {
     fn test_verifier_short_form_loads_oob() {
         assert!(matches!(
             check_locals(&Instruction::Iload0, 0, 0),
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 0,
                 max_locals: 0
-            })
+            }))
         ));
         assert!(matches!(
             check_locals(&Instruction::Dload0, 0, 0),
-            Err(VerifyError::LocalOutOfBounds {
+            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
                 pc: 0,
                 index: 0,
                 max_locals: 0
-            })
+            }))
         ));
     }
 }

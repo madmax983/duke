@@ -66,7 +66,7 @@ impl NativeBoundaryStore {
     /// - `class`: The class on which the native method is defined.
     /// - `method`: The name of the native method.
     /// - `elapsed_ns`: How long the native execution took, in nanoseconds.
-    /// - `is_err`: True if the method failed (e.g., returned a `VmError` or threw an exception).
+    /// - `is_err`: True if the method failed (e.g., returned a `Error` or threw an exception).
     ///
     /// # Examples
     ///

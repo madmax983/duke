@@ -4,7 +4,7 @@
 //! of the instruction within the Code array (as used by branch targets).
 
 use crate::{
-    error::{DecodeError, DecodeResult},
+    error::{DecodeError, Result},
     instruction::{ArrayType, Instruction},
     opcodes as op,
 };
@@ -35,7 +35,7 @@ use duke_classfile::CpIndex;
 /// assert_eq!(decoded[0], (0, Instruction::Iconst1));
 /// assert_eq!(decoded[1], (1, Instruction::Ireturn));
 /// ```
-pub fn decode(code: &[u8]) -> DecodeResult<Vec<(usize, Instruction)>> {
+pub fn decode(code: &[u8]) -> Result<Vec<(usize, Instruction)>> {
     let mut cursor = Cursor::new(code);
     // ⚡ Bolt: Pre-allocate capacity for the decoded instructions vector to avoid
     // multiple reallocations during parsing. A heuristic of 3 bytes per instruction
@@ -70,30 +70,32 @@ impl<'a> Cursor<'a> {
         self.pos < self.data.len()
     }
 
-    fn read_u8(&mut self) -> DecodeResult<u8> {
+    fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
-            return Err(DecodeError::UnexpectedEof { pc: self.pos });
+            return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
+                pc: self.pos,
+            }));
         }
         let b = self.data[self.pos];
         self.pos += 1;
         Ok(b)
     }
 
-    fn read_i8(&mut self) -> DecodeResult<i8> {
+    fn read_i8(&mut self) -> Result<i8> {
         Ok(self.read_u8()?.cast_signed())
     }
 
-    fn read_u16(&mut self) -> DecodeResult<u16> {
+    fn read_u16(&mut self) -> Result<u16> {
         let b0 = self.read_u8()?;
         let b1 = self.read_u8()?;
         Ok(u16::from_be_bytes([b0, b1]))
     }
 
-    fn read_i16(&mut self) -> DecodeResult<i16> {
+    fn read_i16(&mut self) -> Result<i16> {
         Ok(self.read_u16()?.cast_signed())
     }
 
-    fn read_u32(&mut self) -> DecodeResult<u32> {
+    fn read_u32(&mut self) -> Result<u32> {
         let b0 = self.read_u8()?;
         let b1 = self.read_u8()?;
         let b2 = self.read_u8()?;
@@ -101,11 +103,11 @@ impl<'a> Cursor<'a> {
         Ok(u32::from_be_bytes([b0, b1, b2, b3]))
     }
 
-    fn read_i32(&mut self) -> DecodeResult<i32> {
+    fn read_i32(&mut self) -> Result<i32> {
         Ok(self.read_u32()?.cast_signed())
     }
 
-    fn read_cp(&mut self) -> DecodeResult<CpIndex> {
+    fn read_cp(&mut self) -> Result<CpIndex> {
         Ok(CpIndex(self.read_u16()?))
     }
 
@@ -123,7 +125,7 @@ impl<'a> Cursor<'a> {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_lines)]
-fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruction> {
+fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     let instr = match opcode {
         // -- Constants -------------------------------------------------------
         op::NOP => Instruction::Nop,
@@ -341,7 +343,9 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             let count = c.read_u8()?;
             let zero = c.read_u8()?;
             if zero != 0 {
-                return Err(DecodeError::InvalidInvokeinterfaceReserved { pc, reserved: zero });
+                return Err(crate::Error::Decode(
+                    DecodeError::InvalidInvokeinterfaceReserved { pc, reserved: zero },
+                ));
             }
             Instruction::Invokeinterface { index, count }
         }
@@ -350,11 +354,13 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
             let zero1 = c.read_u8()?;
             let zero2 = c.read_u8()?;
             if zero1 != 0 || zero2 != 0 {
-                return Err(DecodeError::InvalidInvokedynamicReserved {
-                    pc,
-                    reserved1: zero1,
-                    reserved2: zero2,
-                });
+                return Err(crate::Error::Decode(
+                    DecodeError::InvalidInvokedynamicReserved {
+                        pc,
+                        reserved1: zero1,
+                        reserved2: zero2,
+                    },
+                ));
             }
             Instruction::Invokedynamic(index)
         }
@@ -390,13 +396,18 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> DecodeResult<Instruc
         op::JSR_W => Instruction::JsrW(c.read_i32()?),
 
         // -- Unknown ---------------------------------------------------------
-        other => return Err(DecodeError::UnknownOpcode { pc, opcode: other }),
+        other => {
+            return Err(crate::Error::Decode(DecodeError::UnknownOpcode {
+                pc,
+                opcode: other,
+            }));
+        }
     };
     Ok(instr)
 }
 
 // ---------------------------------------------------------------------------
-fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
+fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     // `pc` is the offset of the tableswitch opcode byte.
     // After reading the opcode, cursor is at pc+1.
     // Align to 4-byte boundary from start of code array.
@@ -405,14 +416,22 @@ fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction
     let low = c.read_i32()?;
     let high = c.read_i32()?;
     if high < low {
-        return Err(DecodeError::InvalidTableswitch { pc, low, high });
+        return Err(crate::Error::Decode(DecodeError::InvalidTableswitch {
+            pc,
+            low,
+            high,
+        }));
     }
     // Use i64 to avoid i32 overflow when low is very negative.
     let count_i64 = i64::from(high) - i64::from(low) + 1;
     // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
     let max_possible = c.data.len().saturating_sub(c.pos) / 4;
     if count_i64 < 0 || usize::try_from(count_i64).unwrap_or(usize::MAX) > max_possible {
-        return Err(DecodeError::InvalidTableswitch { pc, low, high });
+        return Err(crate::Error::Decode(DecodeError::InvalidTableswitch {
+            pc,
+            low,
+            high,
+        }));
     }
     let count = usize::try_from(count_i64).unwrap_or(0);
     let mut offsets = Vec::with_capacity(count.min(c.data.len().saturating_sub(c.pos) / 4));
@@ -427,16 +446,22 @@ fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction
     })
 }
 
-fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
+fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     c.align4();
     let default = c.read_i32()?;
     let npairs = c.read_i32()?;
     if npairs < 0 {
-        return Err(DecodeError::InvalidLookupswitch { pc, npairs });
+        return Err(crate::Error::Decode(DecodeError::InvalidLookupswitch {
+            pc,
+            npairs,
+        }));
     }
     let remaining_pairs = c.data.len().saturating_sub(c.pos) / 8;
     if usize::try_from(npairs).unwrap_or(usize::MAX) > remaining_pairs {
-        return Err(DecodeError::InvalidLookupswitch { pc, npairs });
+        return Err(crate::Error::Decode(DecodeError::InvalidLookupswitch {
+            pc,
+            npairs,
+        }));
     }
     let npairs_usize = usize::try_from(npairs).unwrap_or(0);
     let mut pairs = Vec::with_capacity(npairs_usize.min(c.data.len().saturating_sub(c.pos) / 8));
@@ -451,7 +476,7 @@ fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instructio
 // Wide prefix handler
 // ---------------------------------------------------------------------------
 
-fn decode_wide(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
+fn decode_wide(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     let opcode = c.read_u8()?;
     let instr = match opcode {
         op::ILOAD => Instruction::IloadW(c.read_u16()?),
@@ -469,7 +494,12 @@ fn decode_wide(c: &mut Cursor<'_>, pc: usize) -> DecodeResult<Instruction> {
             index: c.read_u16()?,
             value: c.read_i16()?,
         },
-        other => return Err(DecodeError::InvalidWideTarget { pc, opcode: other }),
+        other => {
+            return Err(crate::Error::Decode(DecodeError::InvalidWideTarget {
+                pc,
+                opcode: other,
+            }));
+        }
     };
     Ok(instr)
 }
@@ -483,7 +513,10 @@ mod tests {
         // Sipush needs 2 bytes, only 1 provided
         let code = [op::SIPUSH, 0x01];
         let err = decode(&code).unwrap_err();
-        assert!(matches!(err, DecodeError::UnexpectedEof { pc: 2 }));
+        assert!(matches!(
+            err,
+            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 2 })
+        ));
     }
 
     #[test]
@@ -492,10 +525,10 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::UnknownOpcode {
+            crate::Error::Decode(DecodeError::UnknownOpcode {
                 pc: 0,
                 opcode: 0xFF
-            }
+            })
         ));
     }
 
@@ -506,10 +539,10 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::InvalidWideTarget {
+            crate::Error::Decode(DecodeError::InvalidWideTarget {
                 pc: 0,
                 opcode: op::NOP
-            }
+            })
         ));
     }
 
@@ -925,7 +958,7 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::InvalidLookupswitch { pc: 0, npairs: -1 }
+            crate::Error::Decode(DecodeError::InvalidLookupswitch { pc: 0, npairs: -1 })
         ));
     }
 
@@ -1009,10 +1042,10 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::InvalidNewarrayType {
+            crate::Error::Decode(DecodeError::InvalidNewarrayType {
                 pc: 0,
                 type_code: 0xFF
-            }
+            })
         ));
     }
 
@@ -1041,11 +1074,11 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::InvalidTableswitch {
+            crate::Error::Decode(DecodeError::InvalidTableswitch {
                 pc: 0,
                 low: 5,
                 high: 1
-            }
+            })
         ));
     }
 
@@ -1073,11 +1106,11 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::InvalidTableswitch {
+            crate::Error::Decode(DecodeError::InvalidTableswitch {
                 pc: 0,
                 low: 5,
                 high: 1
-            }
+            })
         ));
     }
 
@@ -1109,11 +1142,11 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::InvalidTableswitch {
+            crate::Error::Decode(DecodeError::InvalidTableswitch {
                 pc: 0,
                 low: 0,
                 high: 10
-            }
+            })
         ));
     }
 
@@ -1145,7 +1178,7 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::InvalidLookupswitch { pc: 0, npairs: 10 }
+            crate::Error::Decode(DecodeError::InvalidLookupswitch { pc: 0, npairs: 10 })
         ));
     }
 }

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
-use crate::{ClassLoader, LoadError, LoadResult};
+use crate::{ClassLoader, Error, Result};
 
 // ───────────────────────────────────────────────────────────────────────────
 // ZIP format constants
@@ -119,10 +119,10 @@ impl ZipReader {
     /// record and central directory, and builds an in-memory index.
     ///
     /// # Errors
-    /// Returns [`LoadError::Io`] on read failure, or [`LoadError::ZipFormat`]
+    /// Returns [`Error::Io`] on read failure, or [`Error::ZipFormat`]
     /// if the file is not a valid ZIP archive.
-    pub fn open(path: &Path) -> LoadResult<Self> {
-        let data = std::fs::read(path).map_err(|source| LoadError::Io {
+    pub fn open(path: &Path) -> Result<Self> {
+        let data = std::fs::read(path).map_err(|source| Error::Io {
             path: path.display().to_string(),
             source,
         })?;
@@ -132,8 +132,8 @@ impl ZipReader {
     /// Build a `ZipReader` from raw bytes (useful for tests).
     ///
     /// # Errors
-    /// Returns [`LoadError::ZipFormat`] if the data is not a valid ZIP archive.
-    pub fn from_bytes(data: Vec<u8>) -> LoadResult<Self> {
+    /// Returns [`Error::ZipFormat`] if the data is not a valid ZIP archive.
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         let eocd_pos = find_eocd(&data)?;
         let index = parse_eocd_and_central_directory(&data, eocd_pos)?;
         Ok(Self { data, index })
@@ -150,11 +150,11 @@ impl ZipReader {
     /// Validates the CRC-32 after decompression.
     ///
     /// # Errors
-    /// Returns [`LoadError::NotFound`] if the entry doesn't exist,
-    /// [`LoadError::ZipFormat`] on decompression failure, or
-    /// [`LoadError::ZipCrc32`] on checksum mismatch.
-    pub fn read_entry(&self, name: &str) -> LoadResult<Vec<u8>> {
-        let info = self.index.get(name).ok_or_else(|| LoadError::NotFound {
+    /// Returns [`Error::NotFound`] if the entry doesn't exist,
+    /// [`Error::ZipFormat`] on decompression failure, or
+    /// [`Error::ZipCrc32`] on checksum mismatch.
+    pub fn read_entry(&self, name: &str) -> Result<Vec<u8>> {
+        let info = self.index.get(name).ok_or_else(|| Error::NotFound {
             name: name.to_string(),
         })?;
         self.read_entry_info(info)
@@ -163,10 +163,10 @@ impl ZipReader {
     /// Read entry bytes given a pre-looked-up `ZipEntryInfo`.
     ///
     /// # Errors
-    /// Returns [`LoadError::ZipFormat`] on decompression or format errors,
-    /// or [`LoadError::ZipCrc32`] on checksum mismatch.
+    /// Returns [`Error::ZipFormat`] on decompression or format errors,
+    /// or [`Error::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn read_entry_info(&self, info: &ZipEntryInfo) -> LoadResult<Vec<u8>> {
+    pub fn read_entry_info(&self, info: &ZipEntryInfo) -> Result<Vec<u8>> {
         let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
 
         // Validate local file header signature.
@@ -174,13 +174,13 @@ impl ZipReader {
             .checked_add(30)
             .is_none_or(|end| end > self.data.len())
         {
-            return Err(LoadError::ZipFormat {
+            return Err(Error::ZipFormat {
                 msg: format!("local header at offset {offset} is truncated"),
             });
         }
         let sig = read_u32_le(&self.data, offset);
         if sig != LOCAL_SIGNATURE {
-            return Err(LoadError::ZipFormat {
+            return Err(Error::ZipFormat {
                 msg: format!("expected local header signature at offset {offset}, got {sig:#010x}"),
             });
         }
@@ -192,7 +192,7 @@ impl ZipReader {
             .checked_add(30)
             .and_then(|v| v.checked_add(filename_len))
             .and_then(|v| v.checked_add(extra_len))
-            .ok_or_else(|| LoadError::ZipFormat {
+            .ok_or_else(|| Error::ZipFormat {
                 msg: format!("entry '{}' local header offset overflow", info.name),
             })?;
 
@@ -202,7 +202,7 @@ impl ZipReader {
             .checked_add(compressed_size)
             .is_none_or(|end| end > self.data.len())
         {
-            return Err(LoadError::ZipFormat {
+            return Err(Error::ZipFormat {
                 msg: format!("entry '{}' data extends past end of archive", info.name),
             });
         }
@@ -216,7 +216,7 @@ impl ZipReader {
                 let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
                 let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
                 if cap > max_size {
-                    return Err(LoadError::ZipFormat {
+                    return Err(Error::ZipFormat {
                         msg: format!(
                             "entry '{}' uncompressed size {} exceeds limit {}",
                             info.name, cap, max_size
@@ -227,14 +227,14 @@ impl ZipReader {
                 decoder
                     .take(max_size as u64)
                     .read_to_end(&mut buf)
-                    .map_err(|_| LoadError::ZipFormat {
+                    .map_err(|_| Error::ZipFormat {
                         msg: format!("failed to deflate entry '{}'", info.name),
                     })?;
 
                 buf
             }
             other => {
-                return Err(LoadError::ZipFormat {
+                return Err(Error::ZipFormat {
                     msg: format!(
                         "unsupported compression method {other} for entry '{}'",
                         info.name
@@ -246,7 +246,7 @@ impl ZipReader {
         // Validate CRC-32.
         let actual_crc = crc32_checksum(&decompressed);
         if actual_crc != info.crc32 {
-            return Err(LoadError::ZipCrc32 {
+            return Err(Error::ZipCrc32 {
                 name: info.name.clone(),
                 expected: info.crc32,
                 actual: actual_crc,
@@ -307,11 +307,11 @@ impl ZipLoader {
     ///
     /// # Errors
     ///
-    /// Returns [`LoadError`] if:
+    /// Returns [`Error`] if:
     /// * The file does not exist or cannot be read.
     /// * The file is not a structurally valid ZIP archive (missing End of Central Directory).
     /// * The archive uses unsupported features (like ZIP64 or encryption).
-    pub fn open(path: &Path) -> LoadResult<Self> {
+    pub fn open(path: &Path) -> Result<Self> {
         Self::from_reader(ZipReader::open(path)?)
     }
 
@@ -335,7 +335,7 @@ impl ZipLoader {
         &self.reader
     }
 
-    fn from_reader(reader: ZipReader) -> LoadResult<Self> {
+    fn from_reader(reader: ZipReader) -> Result<Self> {
         let nested_libs = nested_boot_inf_lib_loaders(&reader)?;
         Ok(Self {
             reader,
@@ -345,7 +345,7 @@ impl ZipLoader {
 }
 
 impl ClassLoader for ZipLoader {
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         // Pre-allocate a single buffer large enough for the longest path
         // "BOOT-INF/classes/".len() == 17, ".class".len() == 6. Total = 23
         let mut entry_name = String::with_capacity(name.len() + 23);
@@ -354,7 +354,7 @@ impl ClassLoader for ZipLoader {
         entry_name.push_str(name);
         entry_name.push_str(".class");
         match self.reader.read_entry(&entry_name) {
-            Err(LoadError::NotFound { .. }) => {}
+            Err(Error::NotFound { .. }) => {}
             result => return result,
         }
 
@@ -364,23 +364,23 @@ impl ClassLoader for ZipLoader {
         entry_name.push_str(name);
         entry_name.push_str(".class");
         match self.reader.read_entry(&entry_name) {
-            Err(LoadError::NotFound { .. }) => {}
+            Err(Error::NotFound { .. }) => {}
             result => return result,
         }
 
         for nested_lib in &self.nested_libs {
             match nested_lib.find_class(name) {
-                Err(LoadError::NotFound { .. }) => {}
+                Err(Error::NotFound { .. }) => {}
                 result => return result,
             }
         }
-        Err(LoadError::NotFound {
+        Err(Error::NotFound {
             name: name.to_string(),
         })
     }
 }
 
-fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> LoadResult<Vec<ZipLoader>> {
+fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> Result<Vec<ZipLoader>> {
     let mut nested_entry_names: Vec<&str> = reader
         .entry_names()
         .filter(|name| is_nested_boot_inf_lib_archive(name))
@@ -427,9 +427,9 @@ fn read_u32_le(data: &[u8], offset: usize) -> u32 {
 }
 
 /// Scan backwards from end of file to find the EOCD signature.
-fn find_eocd(data: &[u8]) -> LoadResult<usize> {
+fn find_eocd(data: &[u8]) -> Result<usize> {
     if data.len() < EOCD_MIN_SIZE {
-        return Err(LoadError::ZipFormat {
+        return Err(Error::ZipFormat {
             msg: "file too small to be a valid ZIP archive".to_string(),
         });
     }
@@ -445,7 +445,7 @@ fn find_eocd(data: &[u8]) -> LoadResult<usize> {
         }
         pos -= 1;
     }
-    Err(LoadError::ZipFormat {
+    Err(Error::ZipFormat {
         msg: "could not find end-of-central-directory record".to_string(),
     })
 }
@@ -454,7 +454,7 @@ fn find_eocd(data: &[u8]) -> LoadResult<usize> {
 fn parse_eocd_and_central_directory(
     data: &[u8],
     eocd_pos: usize,
-) -> LoadResult<HashMap<String, ZipEntryInfo>> {
+) -> Result<HashMap<String, ZipEntryInfo>> {
     // EOCD layout (22 bytes minimum):
     //  0: signature (4)
     //  4: disk number (2)
@@ -472,7 +472,7 @@ fn parse_eocd_and_central_directory(
         .checked_add(cd_size)
         .is_none_or(|end| end > data.len())
     {
-        return Err(LoadError::ZipFormat {
+        return Err(Error::ZipFormat {
             msg: "central directory extends past end of file".to_string(),
         });
     }
@@ -486,7 +486,7 @@ fn parse_central_directory(
     cd_offset: usize,
     cd_size: usize,
     expected_count: usize,
-) -> LoadResult<HashMap<String, ZipEntryInfo>> {
+) -> Result<HashMap<String, ZipEntryInfo>> {
     let safe_capacity = expected_count.min(cd_size / 46);
     let mut index = HashMap::with_capacity(safe_capacity);
     let cd_end = cd_offset + cd_size;
@@ -495,13 +495,13 @@ fn parse_central_directory(
     for _ in 0..expected_count {
         // Each central directory header is at least 46 bytes.
         if pos.checked_add(46).is_none_or(|end| end > cd_end) {
-            return Err(LoadError::ZipFormat {
+            return Err(Error::ZipFormat {
                 msg: "central directory entry truncated".to_string(),
             });
         }
         let sig = read_u32_le(data, pos);
         if sig != CD_SIGNATURE {
-            return Err(LoadError::ZipFormat {
+            return Err(Error::ZipFormat {
                 msg: format!(
                     "expected central directory signature at offset {pos}, got {sig:#010x}"
                 ),
@@ -522,7 +522,7 @@ fn parse_central_directory(
             .checked_add(filename_len)
             .is_none_or(|end| end > cd_end)
         {
-            return Err(LoadError::ZipFormat {
+            return Err(Error::ZipFormat {
                 msg: "central directory entry filename truncated".to_string(),
             });
         }
@@ -546,12 +546,12 @@ fn parse_central_directory(
             .checked_add(filename_len)
             .and_then(|v| v.checked_add(extra_len))
             .and_then(|v| v.checked_add(comment_len))
-            .ok_or_else(|| LoadError::ZipFormat {
+            .ok_or_else(|| Error::ZipFormat {
                 msg: "central directory entry length overflow".to_string(),
             })?;
 
         if pos > cd_end {
-            return Err(LoadError::ZipFormat {
+            return Err(Error::ZipFormat {
                 msg: "central directory entry extends past CD bounds".to_string(),
             });
         }
@@ -794,7 +794,7 @@ mod tests {
     #[test]
     fn zip_open_io_error() {
         let err = ZipReader::open(Path::new("/does/not/exist/ever/zip.zip")).unwrap_err();
-        assert!(matches!(err, LoadError::Io { .. }));
+        assert!(matches!(err, Error::Io { .. }));
     }
 
     #[test]
@@ -808,8 +808,8 @@ mod tests {
         corrupted_info.local_header_offset = (reader.data.len() - 10) as u64;
 
         let err = reader.read_entry_info(&corrupted_info).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
-        if let LoadError::ZipFormat { msg } = err {
+        assert!(matches!(err, Error::ZipFormat { .. }));
+        if let Error::ZipFormat { msg } = err {
             assert!(msg.contains("is truncated"));
         }
     }
@@ -824,8 +824,8 @@ mod tests {
         let info = reader.get_entry("test.txt").unwrap();
 
         let err = reader.read_entry_info(info).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
-        if let LoadError::ZipFormat { msg } = err {
+        assert!(matches!(err, Error::ZipFormat { .. }));
+        if let Error::ZipFormat { msg } = err {
             assert!(msg.contains("expected local header signature"));
         }
     }
@@ -840,8 +840,8 @@ mod tests {
         corrupted_info.compressed_size = (reader.data.len() + 10) as u64;
 
         let err = reader.read_entry_info(&corrupted_info).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
-        if let LoadError::ZipFormat { msg } = err {
+        assert!(matches!(err, Error::ZipFormat { .. }));
+        if let Error::ZipFormat { msg } = err {
             assert!(msg.contains("data extends past end of archive"));
         }
     }
@@ -856,8 +856,8 @@ mod tests {
         corrupted_info.compression_method = 99; // 99 is unsupported
 
         let err = reader.read_entry_info(&corrupted_info).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
-        if let LoadError::ZipFormat { msg } = err {
+        assert!(matches!(err, Error::ZipFormat { .. }));
+        if let Error::ZipFormat { msg } = err {
             assert!(msg.contains("unsupported compression method"));
         }
     }
@@ -873,8 +873,8 @@ mod tests {
         let info = reader.get_entry("test.txt").unwrap();
 
         let err = reader.read_entry_info(info).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
-        if let LoadError::ZipFormat { msg } = err {
+        assert!(matches!(err, Error::ZipFormat { .. }));
+        if let Error::ZipFormat { msg } = err {
             assert!(msg.contains("failed to deflate entry"));
         }
     }
@@ -968,7 +968,7 @@ mod tests {
             let res = ZipReader::from_bytes(case.data);
             assert!(res.is_err(), "Test case failed: {}", case.name);
             let err = res.unwrap_err();
-            if let LoadError::ZipFormat { msg } = err {
+            if let Error::ZipFormat { msg } = err {
                 assert!(
                     msg.contains(case.expected_msg),
                     "Case '{}' expected msg containing '{}', got '{}'",
@@ -1026,7 +1026,7 @@ mod tests {
         let zip = build_stored_zip("exists.txt", b"data");
         let reader = ZipReader::from_bytes(zip).expect("should parse");
         let err = reader.read_entry("missing.txt").unwrap_err();
-        assert!(matches!(err, LoadError::NotFound { .. }));
+        assert!(matches!(err, Error::NotFound { .. }));
     }
 
     #[test]
@@ -1044,19 +1044,19 @@ mod tests {
         zip[38] ^= 0xFF;
         let reader = ZipReader::from_bytes(zip).expect("index should parse");
         let err = reader.read_entry("data.bin").unwrap_err();
-        assert!(matches!(err, LoadError::ZipCrc32 { .. }));
+        assert!(matches!(err, Error::ZipCrc32 { .. }));
     }
 
     #[test]
     fn bad_eocd_signature() {
         let err = ZipReader::from_bytes(vec![0; 30]).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        assert!(matches!(err, Error::ZipFormat { .. }));
     }
 
     #[test]
     fn file_too_small() {
         let err = ZipReader::from_bytes(vec![0; 10]).unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        assert!(matches!(err, Error::ZipFormat { .. }));
     }
 
     #[test]
@@ -1103,7 +1103,7 @@ mod tests {
         std::fs::write(&tmp, &zip).unwrap();
         let loader = ZipLoader::open(&tmp).expect("should open");
         let err = loader.find_class("Missing").unwrap_err();
-        assert!(matches!(err, LoadError::NotFound { .. }));
+        assert!(matches!(err, Error::NotFound { .. }));
         std::fs::remove_file(&tmp).ok();
     }
 
@@ -1116,7 +1116,7 @@ mod tests {
         std::fs::write(&tmp, &zip).unwrap();
         let loader = ZipLoader::open(&tmp).expect("should open");
         let err = loader.find_class("Bad").unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        assert!(matches!(err, Error::ZipFormat { .. }));
         std::fs::remove_file(&tmp).ok();
     }
 
@@ -1129,7 +1129,7 @@ mod tests {
         std::fs::write(&tmp, &zip).unwrap();
         let loader = ZipLoader::open(&tmp).expect("should open");
         let err = loader.find_class("Bad").unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        assert!(matches!(err, Error::ZipFormat { .. }));
         std::fs::remove_file(&tmp).ok();
     }
 
@@ -1145,7 +1145,7 @@ mod tests {
         // The inner ZipReader will fail to read "Bad.class" during find_class
         // and should bubble the error out.
         let err = loader.find_class("Bad").unwrap_err();
-        assert!(matches!(err, super::LoadError::ZipFormat { .. }));
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
         std::fs::remove_file(&tmp).ok();
     }
 
@@ -1159,7 +1159,7 @@ mod tests {
         std::fs::write(&tmp, &outer_zip).unwrap();
         let loader = ZipLoader::open(&tmp).expect("should open");
         let err = loader.find_class("Bad").unwrap_err();
-        assert!(matches!(err, LoadError::ZipFormat { .. }));
+        assert!(matches!(err, Error::ZipFormat { .. }));
         std::fs::remove_file(&tmp).ok();
     }
 
@@ -1219,7 +1219,7 @@ mod tests {
         let zip_bytes = vec![0u8; 100];
         let err = ZipReader::from_bytes(zip_bytes).unwrap_err();
         assert!(
-            matches!(err, LoadError::ZipFormat { ref msg } if msg == "could not find end-of-central-directory record")
+            matches!(err, Error::ZipFormat { ref msg } if msg == "could not find end-of-central-directory record")
         );
     }
 
@@ -1231,7 +1231,7 @@ mod tests {
         zip_bytes[eocd_pos + 12..eocd_pos + 16].copy_from_slice(&u32::MAX.to_le_bytes());
         let err = ZipReader::from_bytes(zip_bytes).unwrap_err();
         assert!(
-            matches!(err, LoadError::ZipFormat { ref msg } if msg == "central directory extends past end of file")
+            matches!(err, Error::ZipFormat { ref msg } if msg == "central directory extends past end of file")
         );
     }
 
@@ -1244,7 +1244,7 @@ mod tests {
         std::fs::write(&tmp, &outer_zip).unwrap();
         let loader = ZipLoader::open(&tmp).expect("should open outer zip");
         let err = loader.find_class("Bad").unwrap_err();
-        assert!(matches!(err, super::LoadError::ZipFormat { .. }));
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
         std::fs::remove_file(&tmp).ok();
     }
 }

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::{ClassLoader, DirectoryLoader, JImageReader, LoadError, LoadResult, ZipLoader};
+use crate::{ClassLoader, DirectoryLoader, Error, JImageReader, Result, ZipLoader};
 
 /// A single classpath entry — either a directory or a ZIP/JAR archive.
 ///
@@ -23,7 +23,7 @@ pub enum ClasspathEntry {
 }
 
 impl ClassLoader for ClasspathEntry {
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         match self {
             Self::Directory(d) => d.find_class(name),
             Self::Zip(z) => z.find_class(name),
@@ -69,7 +69,7 @@ impl BootstrapLoader {
     ///
     /// # Errors
     ///
-    /// Returns [`LoadError`] if the jimage file or any JAR cannot be opened.
+    /// Returns [`Error`] if the jimage file or any JAR cannot be opened.
     ///
     /// # Examples
     ///
@@ -78,7 +78,7 @@ impl BootstrapLoader {
     /// use std::path::PathBuf;
     ///
     /// // In practice, `modules_path` points to a real JDK 21 `lib/modules` file.
-    /// // If the file is missing or invalid, it returns a LoadError.
+    /// // If the file is missing or invalid, it returns a Error.
     /// let result = BootstrapLoader::new(
     ///     &PathBuf::from("/invalid/path/to/lib/modules"),
     ///     vec!["my_classes", "other_classes"]
@@ -86,7 +86,7 @@ impl BootstrapLoader {
     ///
     /// assert!(result.is_err());
     /// ```
-    pub fn new(modules_path: &Path, classpath_paths: Vec<impl AsRef<Path>>) -> LoadResult<Self> {
+    pub fn new(modules_path: &Path, classpath_paths: Vec<impl AsRef<Path>>) -> Result<Self> {
         let jimage = JImageReader::open(modules_path)?;
         let mut classpath = Vec::with_capacity(classpath_paths.len());
         for p in classpath_paths {
@@ -97,7 +97,7 @@ impl BootstrapLoader {
 }
 
 impl ClassLoader for BootstrapLoader {
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         // Standard library: try jimage first
         if let Ok(bytes) = self.jimage.find_class(name) {
             return Ok(bytes);
@@ -108,7 +108,7 @@ impl ClassLoader for BootstrapLoader {
                 return Ok(bytes);
             }
         }
-        Err(LoadError::NotFound {
+        Err(Error::NotFound {
             name: name.to_string(),
         })
     }
@@ -116,7 +116,7 @@ impl ClassLoader for BootstrapLoader {
 
 /// Auto-detect whether a path is a JAR/ZIP or a directory and build the
 /// appropriate classpath entry.
-fn classpath_entry_for(path: &Path) -> LoadResult<ClasspathEntry> {
+fn classpath_entry_for(path: &Path) -> Result<ClasspathEntry> {
     let is_archive = path
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"));
@@ -175,7 +175,7 @@ mod tests {
         let err = entry
             .find_class("java/lang/Missing")
             .expect_err("Class should not be found in empty zip");
-        assert!(matches!(err, LoadError::NotFound { .. }));
+        assert!(matches!(err, Error::NotFound { .. }));
 
         // Drop the entry to release the file handle before attempting to delete the directory
         drop(entry);
@@ -216,7 +216,7 @@ mod tests {
         let err = entry
             .find_class("java/lang/Missing")
             .expect_err("Class should not be found");
-        assert!(matches!(err, LoadError::NotFound { .. }));
+        assert!(matches!(err, Error::NotFound { .. }));
 
         fs::remove_dir_all(&root).unwrap();
     }
@@ -226,8 +226,8 @@ mod tests {
         // Provide an invalid jimage path
         let result = BootstrapLoader::new(Path::new("/does/not/exist"), Vec::<&Path>::new());
         match result {
-            Err(LoadError::Io { .. }) => {}
-            _ => panic!("Expected LoadError::Io, got something else"),
+            Err(Error::Io { .. }) => {}
+            _ => panic!("Expected Error::Io, got something else"),
         }
     }
 
@@ -251,7 +251,7 @@ mod tests {
         let err = loader
             .find_class("java/lang/Missing")
             .expect_err("Should not find missing class");
-        assert!(matches!(err, LoadError::NotFound { .. }));
+        assert!(matches!(err, Error::NotFound { .. }));
 
         fs::remove_dir_all(&root).unwrap();
     }

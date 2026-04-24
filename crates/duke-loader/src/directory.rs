@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{ClassLoader, LoadError, LoadResult};
+use crate::{ClassLoader, Error, Result};
 
 /// Loads `.class` files from a filesystem directory.
 ///
@@ -49,7 +49,7 @@ impl DirectoryLoader {
 }
 
 impl ClassLoader for DirectoryLoader {
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>> {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         let mut path = self.root.clone();
         // name is "java/lang/Object" — split on '/' to build OS path + ".class"
 
@@ -60,14 +60,14 @@ impl ClassLoader for DirectoryLoader {
             || name.starts_with('\\')
             || name.contains(':')
         {
-            return Err(LoadError::NotFound {
+            return Err(Error::NotFound {
                 name: name.to_string(),
             });
         }
 
         for component in name.split(['/', '\\']) {
             if component.is_empty() {
-                return Err(LoadError::NotFound {
+                return Err(Error::NotFound {
                     name: name.to_string(),
                 });
             }
@@ -75,7 +75,7 @@ impl ClassLoader for DirectoryLoader {
         }
         path.set_extension("class");
 
-        std::fs::read(&path).map_err(|_| LoadError::NotFound {
+        std::fs::read(&path).map_err(|_| Error::NotFound {
             name: name.to_string(),
         })
     }
@@ -104,7 +104,7 @@ mod tests {
         // If it successfully reads "SENSITIVE_DATA", we have a vulnerability.
         // Red Phase: Ensure that it returns an error instead!
         assert!(
-            matches!(result, Err(LoadError::NotFound { .. })),
+            matches!(result, Err(Error::NotFound { .. })),
             "Vulnerability triggered! Got {result:?}"
         );
     }
@@ -114,7 +114,7 @@ mod tests {
         let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
         let result = loader.find_class("C:\\Windows\\System32\\cmd");
         assert!(
-            matches!(result, Err(LoadError::NotFound { .. })),
+            matches!(result, Err(Error::NotFound { .. })),
             "Vulnerability triggered! Got {result:?}"
         );
     }
@@ -123,6 +123,6 @@ mod tests {
     fn directory_loader_returns_not_found_on_empty_component() {
         let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
         let err = loader.find_class("java//lang/Object").unwrap_err();
-        assert!(matches!(err, LoadError::NotFound { .. }));
+        assert!(matches!(err, Error::NotFound { .. }));
     }
 }

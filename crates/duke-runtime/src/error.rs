@@ -7,12 +7,12 @@ use thiserror::Error;
 /// # Examples
 ///
 /// ```
-/// use duke_runtime::VmError;
+/// use duke_runtime::Error;
 ///
-/// let err = VmError::NullPointerException;
+/// let err = Error::NullPointerException;
 /// assert_eq!(err.to_string(), "null pointer dereference");
 ///
-/// let err = VmError::DivisionByZero;
+/// let err = Error::DivisionByZero;
 /// assert_eq!(err.to_string(), "integer division by zero");
 /// ```
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -182,16 +182,16 @@ pub enum Error {
     },
 }
 
-/// Convenience alias for `Result<T, VmError>`.
+/// Convenience alias for `Result<T, Error>`.
 ///
 /// # Examples
 ///
 /// ```
-/// use duke_runtime::{VmError, VmResult};
+/// use duke_runtime::{Error, Result};
 ///
-/// fn might_fail(fail: bool) -> VmResult<i32> {
+/// fn might_fail(fail: bool) -> Result<i32> {
 ///     if fail {
-///         Err(VmError::StackUnderflow)
+///         Err(Error::StackUnderflow)
 ///     } else {
 ///         Ok(42)
 ///     }
@@ -201,27 +201,3 @@ pub enum Error {
 /// assert_eq!(might_fail(false).unwrap(), 42);
 /// ```
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// Compatibility alias for [`enum@Error`], to avoid naming conflicts with `std::error::Error`.
-///
-/// # Examples
-///
-/// ```
-/// use duke_runtime::VmError;
-/// let e: VmError = duke_runtime::Error::StackOverflow;
-/// assert_eq!(e.to_string(), "operand stack overflow");
-/// ```
-pub type VmError = Error;
-
-/// Compatibility alias for [`Result`], a specialized `Result` type for `duke_runtime` operations.
-///
-/// # Examples
-///
-/// ```
-/// use duke_runtime::{VmError, VmResult};
-/// fn always_fails() -> VmResult<()> {
-///     Err(VmError::StackUnderflow)
-/// }
-/// assert!(always_fails().is_err());
-/// ```
-pub type VmResult<T> = Result<T>;

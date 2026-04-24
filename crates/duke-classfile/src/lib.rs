@@ -30,7 +30,7 @@ pub mod types {
 }
 
 pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
-pub use error::{Error, ParseError, ParseResult, Result};
+pub use error::{Error, Result};
 pub use parser::parse;
 pub use types::{
     AttributeData, AttributeInfo, ClassFile, CodeAttribute, CpEntry, CpIndex, ExceptionTableEntry,
@@ -41,7 +41,7 @@ pub use types::{
 mod tests {
     use super::*;
     use crate::access_flags::ClassAccessFlags;
-    use crate::error::ParseError;
+    use crate::error::Error;
 
     // -----------------------------------------------------------------------
     // Helpers
@@ -226,7 +226,7 @@ mod tests {
     fn reject_empty_input() {
         let err = parse(&[]).unwrap_err();
         assert!(
-            matches!(err, ParseError::UnexpectedEof { .. }),
+            matches!(err, Error::UnexpectedEof { .. }),
             "empty input should be UnexpectedEof, got: {err}"
         );
     }
@@ -237,7 +237,7 @@ mod tests {
         bytes[0] = 0xDE; // corrupt magic
         let err = parse(&bytes).unwrap_err();
         assert!(
-            matches!(err, ParseError::BadMagic { .. }),
+            matches!(err, Error::BadMagic { .. }),
             "bad magic should fail, got: {err}"
         );
     }
@@ -248,7 +248,7 @@ mod tests {
         let bytes = [0xCA, 0xFE, 0xBA, 0xBE];
         let err = parse(&bytes).unwrap_err();
         assert!(
-            matches!(err, ParseError::UnexpectedEof { .. }),
+            matches!(err, Error::UnexpectedEof { .. }),
             "truncated after magic should be UnexpectedEof, got: {err}"
         );
     }
@@ -260,7 +260,7 @@ mod tests {
         bytes.truncate(10);
         let err = parse(&bytes).unwrap_err();
         assert!(
-            matches!(err, ParseError::UnexpectedEof { .. }),
+            matches!(err, Error::UnexpectedEof { .. }),
             "truncated CP should be UnexpectedEof, got: {err}"
         );
     }
@@ -273,7 +273,7 @@ mod tests {
         bytes[7] = 0x42;
         let err = parse(&bytes).unwrap_err();
         assert!(
-            matches!(err, ParseError::UnsupportedVersion { major: 66, .. }),
+            matches!(err, Error::UnsupportedVersion { major: 66, .. }),
             "version 66 should be unsupported, got: {err}"
         );
     }
@@ -286,7 +286,7 @@ mod tests {
         bytes[10] = 99;
         let err = parse(&bytes).unwrap_err();
         assert!(
-            matches!(err, ParseError::UnknownCpTag { tag: 99, .. }),
+            matches!(err, Error::UnknownCpTag { tag: 99, .. }),
             "unknown tag should fail, got: {err}"
         );
     }
@@ -442,7 +442,7 @@ mod tests {
 
         let err = parse(&v2).unwrap_err();
         assert!(
-            matches!(err, ParseError::InvalidMethodHandleKind { kind: 0 }),
+            matches!(err, Error::InvalidMethodHandleKind { kind: 0 }),
             "kind=0 should be rejected: {err}"
         );
         // Silence unused warning from variable
