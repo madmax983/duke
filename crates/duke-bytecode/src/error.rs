@@ -118,8 +118,6 @@ pub enum DecodeError {
     },
 }
 
-/// A generic result type for operations returning a [`DecodeError`].
-
 /// Errors produced by the structural bytecode verifier.
 ///
 /// These errors occur when a decoded instruction stream is structurally
@@ -177,8 +175,6 @@ pub enum VerifyError {
         depth: usize,
     },
 }
-
-/// A generic result type for operations returning a [`VerifyError`].
 
 /// A generic result type for operations returning an [`enum@Error`].
 ///
