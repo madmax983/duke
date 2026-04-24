@@ -4449,7 +4449,7 @@ pub(crate) fn native_stream_flat_map(
     };
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut flat: Vec<Slot> = Vec::new();
+    let mut flat: Vec<Slot> = Vec::with_capacity(elems.len());
     for elem in elems {
         let inner = ops.invoke(
             heap,
@@ -4757,7 +4757,7 @@ pub(crate) fn native_int_stream_filter(
     };
     let elems = int_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4816,7 +4816,7 @@ pub(crate) fn native_int_stream_map(
     };
     let elems = int_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -13993,7 +13993,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         })
         .collect();
 
-    let mut fields = Vec::new();
+    let mut fields = Vec::with_capacity(cf.fields.len());
     let mut static_fields = Vec::new();
     let mut instance_count = 0usize;
 
@@ -16201,9 +16201,11 @@ pub(crate) fn native_sb_set_length(
         .string_value
         .get_or_insert_with(String::new);
     let char_count = buf.chars().count();
-    if new_len <= char_count {
-        *buf = buf.chars().take(new_len).collect();
-    } else {
+    if new_len < char_count {
+        if let Some((byte_idx, _)) = buf.char_indices().nth(new_len) {
+            buf.truncate(byte_idx);
+        }
+    } else if new_len > char_count {
         buf.extend(std::iter::repeat_n('\0', new_len - char_count));
     }
     Ok(None)
@@ -21056,7 +21058,7 @@ pub(crate) fn native_long_stream_filter(
     };
     let elems = long_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -21088,7 +21090,7 @@ pub(crate) fn native_long_stream_map(
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -21152,7 +21154,7 @@ pub(crate) fn native_long_stream_map_to_int(
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -21332,7 +21334,7 @@ pub(crate) fn native_double_stream_filter(
     };
     let elems = double_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -21367,7 +21369,7 @@ pub(crate) fn native_double_stream_map(
     };
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -21621,7 +21623,7 @@ pub(crate) fn native_int_stream_map_to_long(
     };
     let elems = int_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -22227,7 +22229,7 @@ pub(crate) fn native_int_stream_take_while(
     let elems = int_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let pred_slot = Slot::Reference(Some(pred_ref));
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -22263,7 +22265,7 @@ pub(crate) fn native_int_stream_drop_while(
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let pred_slot = Slot::Reference(Some(pred_ref));
     let mut dropping = true;
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         if dropping {
             let result = ops.invoke(
@@ -22301,7 +22303,7 @@ pub(crate) fn native_long_stream_take_while(
     let elems = long_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let pred_slot = Slot::Reference(Some(pred_ref));
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -22337,7 +22339,7 @@ pub(crate) fn native_long_stream_drop_while(
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let pred_slot = Slot::Reference(Some(pred_ref));
     let mut dropping = true;
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         if dropping {
             let result = ops.invoke(
@@ -22378,7 +22380,7 @@ pub(crate) fn native_double_stream_take_while(
     let elems = double_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let pred_slot = Slot::Reference(Some(pred_ref));
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -22417,7 +22419,7 @@ pub(crate) fn native_double_stream_drop_while(
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let pred_slot = Slot::Reference(Some(pred_ref));
     let mut dropping = true;
-    let mut kept = Vec::new();
+    let mut kept = Vec::with_capacity(elems.len());
     for v in elems {
         if dropping {
             let result = ops.invoke(
@@ -22829,7 +22831,7 @@ pub(crate) fn native_int_stream_flat_map(
     };
     let elems = int_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let sub = ops.invoke(
             heap,
@@ -22898,7 +22900,7 @@ pub(crate) fn native_long_stream_flat_map(
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let sub = ops.invoke(
             heap,
@@ -23229,7 +23231,7 @@ pub(crate) fn native_double_stream_flat_map(
     };
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let sub = ops.invoke(
             heap,
@@ -23263,7 +23265,7 @@ pub(crate) fn native_double_stream_map_to_int(
     };
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -23296,7 +23298,7 @@ pub(crate) fn native_double_stream_map_to_long(
     };
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -23431,7 +23433,7 @@ pub(crate) fn native_long_stream_map_to_double(
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(elems.len());
     for v in elems {
         let r = ops.invoke(
             heap,
