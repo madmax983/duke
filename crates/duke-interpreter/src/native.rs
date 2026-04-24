@@ -16202,7 +16202,9 @@ pub(crate) fn native_sb_set_length(
         .get_or_insert_with(String::new);
     let char_count = buf.chars().count();
     if new_len <= char_count {
-        *buf = buf.chars().take(new_len).collect();
+        // Using char_indices and truncate avoids unnecessary intermediate string allocations.
+        let byte_idx = buf.char_indices().nth(new_len).map_or(buf.len(), |(i, _)| i);
+        buf.truncate(byte_idx);
     } else {
         buf.extend(std::iter::repeat_n('\0', new_len - char_count));
     }
