@@ -14,3 +14,6 @@
 
 **Learning:** It can be hard to reach coverage for visual representation helpers (like html rendering for a class) because sometimes they depend on specific bytecodes being present, or having enough fields to match strings properly. Also, simple errors (like io errors) are easy to reach in testing by creating explicit fake classes, or using small code snippets with specific constraints (like testing `test_decoder_invalid_tableswitch_high_less_than_low` instead of `test_decoder_tableswitch_too_many_entries`).
 **Action:** When increasing coverage for simple visualizer components, use isolated, fake class definitions with specific interfaces and fields to verify html layout. When doing bytecode decoding, craft small custom byte buffers to simulate exact errors instead of large, complex byte buffers.
+## 2024-04-24 - Formatting Unwraps in Reports
+**Learning:** Using a custom struct that implements `Write` and intentionally returns `io::Error` is a clean way to test the error paths of display or report functions, making sure that errors propagate or get handled instead of just running the happy path.
+**Action:** Implement a `FailingWriter` dummy object for testing formatting and printing APIs.
