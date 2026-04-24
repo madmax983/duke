@@ -10276,7 +10276,7 @@ pub(crate) fn native_math_floor_div_int(
         return Err(VmError::DivisionByZero);
     }
     Ok(Some(Slot::Int(
-        a.div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
+        a.wrapping_div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
     )))
 }
 
@@ -25379,5 +25379,45 @@ mod havoc_string_repeat_oom {
         let result = native_string_repeat(&args, &mut heap, &mut sink(), &mut control);
         let err = result.unwrap_err();
         assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
+    }
+}
+
+
+
+
+
+#[cfg(test)]
+mod havoc_math_proptest {
+    use super::*;
+    use proptest::prelude::*;
+
+    #[test]
+    fn test_math_floor_div_int_min_neg1() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let args = vec![Slot::Int(i32::MIN), Slot::Int(-1)];
+        let _ = native_math_floor_div_int(&args, &mut heap, &mut out, &mut control);
+    }
+
+    proptest! {
+        #[test]
+        fn test_math_floor_div_int_proptest(a in any::<i32>(), b in any::<i32>()) {
+            let mut heap = duke_gc::Heap::new();
+            let mut out = Vec::new();
+            let mut control = NativeControl::default();
+            let args = vec![Slot::Int(a), Slot::Int(b)];
+
+            let _ = native_math_floor_div_int(&args, &mut heap, &mut out, &mut control);
+        }
+
+        #[test]
+        fn test_math_floor_mod_int_proptest(a in any::<i32>(), b in any::<i32>()) {
+            let mut heap = duke_gc::Heap::new();
+            let mut out = Vec::new();
+            let mut control = NativeControl::default();
+            let args = vec![Slot::Int(a), Slot::Int(b)];
+            let _ = native_math_floor_mod_int(&args, &mut heap, &mut out, &mut control);
+        }
     }
 }
