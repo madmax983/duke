@@ -17638,73 +17638,92 @@ pub(crate) fn native_string_formatted(
 }
 
 /// Native: `String.join(CharSequence, CharSequence[])String` — joins array elements with delimiter.
+///
+/// ⚡ Bolt Optimization: Eliminated intermediate `Vec<String>` allocations and temporary string creation
+/// by appending directly to a single pre-allocated String buffer using `std::fmt::Write`.
 pub(crate) fn native_string_join(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> VmResult<Option<Slot>> {
+    use std::fmt::Write as _;
     let delim_ref = extract_ref_arg(args, 0)?;
     let delim = heap
         .get(delim_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
+
+    let mut joined = String::new();
+
     // args[1] can be an Object[] array (varargs) or a single Iterable (ArrayList)
-    let parts: Vec<String> = match args.get(1) {
-        Some(Slot::Reference(Some(arr_ref))) => {
-            let obj = heap.get(*arr_ref)?;
-            if obj.class_name.starts_with('[') {
-                // It's an array — fields are the elements.
-                let len = obj.fields.len();
-                let mut result = Vec::with_capacity(len);
-                let slots: Vec<Slot> = obj.fields.clone();
-                let _ = obj;
-                for slot in slots {
-                    let s = match slot {
-                        Slot::Reference(Some(r)) => heap
-                            .get(r)?
-                            .string_value
-                            .clone()
-                            .unwrap_or_else(|| "null".to_string()),
-                        Slot::Reference(None) => "null".to_string(),
-                        Slot::Int(n) => n.to_string(),
-                        Slot::Long(n) => n.to_string(),
-                        other => format!("{other:?}"),
-                    };
-                    result.push(s);
+    if let Some(Slot::Reference(Some(arr_ref))) = args.get(1) {
+        let obj = heap.get(*arr_ref)?;
+        if obj.class_name.starts_with('[') {
+            // It's an array — fields are the elements.
+            let slots: Vec<Slot> = obj.fields.clone();
+            let _ = obj;
+            for (i, slot) in slots.into_iter().enumerate() {
+                if i > 0 {
+                    joined.push_str(&delim);
                 }
-                result
-            } else {
-                // ArrayList or similar — fields[0]=size, fields[1..]=elements
-                let size_val = match obj.fields.first() {
-                    Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-                    _ => 0,
-                };
-                let elems: Vec<Slot> =
-                    obj.fields[1..=size_val.min(obj.fields.len().saturating_sub(1))].to_vec();
-                let _ = obj;
-                let mut result = Vec::with_capacity(size_val);
-                for slot in elems {
-                    let s = match slot {
-                        Slot::Reference(Some(r)) => heap
-                            .get(r)?
-                            .string_value
-                            .clone()
-                            .unwrap_or_else(|| "null".to_string()),
-                        Slot::Reference(None) => "null".to_string(),
-                        Slot::Int(n) => n.to_string(),
-                        Slot::Long(n) => n.to_string(),
-                        other => format!("{other:?}"),
-                    };
-                    result.push(s);
+                match slot {
+                    Slot::Reference(Some(r)) => {
+                        if let Some(s) = heap.get(r)?.string_value.as_deref() {
+                            joined.push_str(s);
+                        } else {
+                            joined.push_str("null");
+                        }
+                    }
+                    Slot::Reference(None) => joined.push_str("null"),
+                    Slot::Int(n) => {
+                        let _ = write!(joined, "{n}");
+                    }
+                    Slot::Long(n) => {
+                        let _ = write!(joined, "{n}");
+                    }
+                    other => {
+                        let _ = write!(joined, "{other:?}");
+                    }
                 }
-                result
+            }
+        } else {
+            // ArrayList or similar — fields[0]=size, fields[1..]=elements
+            let size_val = match obj.fields.first() {
+                Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+                _ => 0,
+            };
+            let elems: Vec<Slot> =
+                obj.fields[1..=size_val.min(obj.fields.len().saturating_sub(1))].to_vec();
+            let _ = obj;
+            for (i, slot) in elems.into_iter().enumerate() {
+                if i > 0 {
+                    joined.push_str(&delim);
+                }
+                match slot {
+                    Slot::Reference(Some(r)) => {
+                        if let Some(s) = heap.get(r)?.string_value.as_deref() {
+                            joined.push_str(s);
+                        } else {
+                            joined.push_str("null");
+                        }
+                    }
+                    Slot::Reference(None) => joined.push_str("null"),
+                    Slot::Int(n) => {
+                        let _ = write!(joined, "{n}");
+                    }
+                    Slot::Long(n) => {
+                        let _ = write!(joined, "{n}");
+                    }
+                    other => {
+                        let _ = write!(joined, "{other:?}");
+                    }
+                }
             }
         }
-        _ => Vec::new(),
-    };
-    let joined = parts.join(&delim);
+    }
+
     let r = heap.allocate_string(joined);
     Ok(Some(Slot::Reference(Some(r))))
 }
