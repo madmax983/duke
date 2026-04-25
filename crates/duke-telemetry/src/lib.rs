@@ -100,8 +100,7 @@ impl TelemetryStore {
     ///
     /// ```
     /// use duke_telemetry::TelemetryStore;
-    ///
-    /// let mut store = TelemetryStore::default();
+    /// let store = TelemetryStore::default();
     /// #[cfg(feature = "telemetry")]
     /// let json = store.to_json();
     /// ```
@@ -124,15 +123,12 @@ impl TelemetryStore {
     ///
     /// ```
     /// use duke_telemetry::TelemetryStore;
-    ///
     /// let mut store = TelemetryStore::default();
     /// store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-    /// let mut buf = Vec::<u8>::new();
-    /// store.print_report(&mut buf).unwrap();
     ///
-    /// let output = String::from_utf8(buf).unwrap();
-    /// assert!(output.contains("=== Duke VM Telemetry Report ==="));
-    /// assert!(output.contains("iadd"));
+    /// let mut out = Vec::new();
+    /// store.print_report(&mut out).unwrap();
+    /// assert!(String::from_utf8(out).unwrap().contains("iadd"));
     /// ```
     pub fn print_report(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(w, "=== Duke VM Telemetry Report ===")?;
@@ -175,14 +171,16 @@ impl TelemetryStore {
     fn print_class_init_dag(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(
             w,
-            "\n-- class_init_dag ({} clinit events) --",
-            self.class_init_dag.events.len()
+            "\n-- class_init_dag (top 10 initializations by duration) --"
         )?;
-        for ev in &self.class_init_dag.events {
+        let mut events: Vec<_> = self.class_init_dag.events.iter().collect();
+        events.sort_by_key(|e| std::cmp::Reverse(e.duration_ns));
+        for ev in events.iter().take(10) {
+            let trigger = &ev.triggered_by;
             writeln!(
                 w,
                 "  {} (triggered by: {}, {}ns)",
-                ev.class, ev.triggered_by, ev.duration_ns
+                ev.class, trigger, ev.duration_ns
             )?;
         }
         Ok(())
@@ -191,27 +189,30 @@ impl TelemetryStore {
     fn print_exception_flow(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
         writeln!(
             w,
-            "\n-- exception_flow ({} throw events) --",
-            self.exception_flow.events.len()
+            "\n-- exception_flow (top 10 throws by exception class) --"
         )?;
-        for ev in &self.exception_flow.events {
-            let catch = ev.catch_site.as_ref().map_or_else(
+        // Just print raw for now
+        for ev in self.exception_flow.events.iter().take(10) {
+            let catch_str = ev.catch_site.as_ref().map_or_else(
                 || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
+                |cs| format!("{}::{} @{}", cs.0, cs.1, cs.2),
             );
             writeln!(
                 w,
                 "  {} thrown at {:?} caught at {}",
-                ev.exception_class, ev.throw_site, catch
+                ev.exception_class, ev.throw_site, catch_str
             )?;
         }
         Ok(())
     }
 
     fn print_dispatch_resolution(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
-        writeln!(w, "\n-- dispatch_resolution (top 10 virtual call sites) --")?;
+        writeln!(
+            w,
+            "\n-- dispatch_resolution (top 10 megamorphic call sites) --"
+        )?;
         let mut dsites: Vec<_> = self.dispatch_resolution.by_site.iter().collect();
-        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
+        dsites.sort_by_key(|b| std::cmp::Reverse(b.1.unique_targets.len()));
         for ((class, cp), stat) in dsites.iter().take(10) {
             writeln!(
                 w,
@@ -227,7 +228,7 @@ impl TelemetryStore {
     }
 
     fn print_native_boundary(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
-        writeln!(w, "\n-- native_boundary (top 10 by call count) --")?;
+        writeln!(w, "\n-- native_boundary (top 10 native calls by count) --")?;
         let mut natives: Vec<_> = self.native_boundary.by_method.iter().collect();
         natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
         for ((class, method), stat) in natives.iter().take(10) {
@@ -380,11 +381,113 @@ impl TelemetryStore {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "telemetry")]
-    use crate::TelemetryStore;
+    use super::*;
+
+    #[test]
+    fn test_telemetry_new() {
+        let _store = TelemetryStore::new();
+    }
+
+    #[test]
+    fn test_telemetry_print() {
+        let mut store = TelemetryStore::new();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let idx = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store.exception_flow.record_catch(idx, "Foo", "bar", 20);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("=== Duke VM Telemetry Report ==="));
+        assert!(output.contains("iadd"));
+        assert!(output.contains("java/lang/String"));
+    }
+
+    #[test]
+    fn test_telemetry_markdown() {
+        let mut store = TelemetryStore::new();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let idx = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store.exception_flow.record_catch(idx, "Foo", "bar", 20);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let output = store.to_markdown_report();
+        assert!(output.contains("# Duke VM Telemetry Report"));
+        assert!(output.contains("iadd"));
+        assert!(output.contains("java/lang/String"));
+    }
+
+    #[test]
+    fn test_telemetry_markdown_empty() {
+        let store = TelemetryStore::new();
+        let output = store.to_markdown_report();
+        assert!(output.contains("# Duke VM Telemetry Report"));
+        assert!(output.contains("No class initialization events recorded."));
+    }
 
     #[test]
     #[cfg(feature = "telemetry")]
+    fn test_telemetry_json() {
+        let mut store = TelemetryStore::new();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        let output = store.to_json();
+        assert!(output.contains("bytecode_cost"));
+    }
+
+    #[test]
+    fn test_telemetry_print_uncaught() {
+        let mut store = TelemetryStore::new();
+        let _idx = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        // leave uncaught
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("=== Duke VM Telemetry Report ==="));
+        assert!(output.contains("uncaught"));
+    }
+
+    #[test]
+    fn test_telemetry_markdown_uncaught() {
+        let mut store = TelemetryStore::new();
+        let _idx = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        let output = store.to_markdown_report();
+        assert!(output.contains("# Duke VM Telemetry Report"));
+        assert!(output.contains("uncaught"));
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[test]
     fn telemetry_store_to_markdown_report() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
@@ -395,28 +498,22 @@ mod tests {
         let md = store.to_markdown_report();
         assert!(md.contains("# Duke VM Telemetry Report"));
         assert!(md.contains("| `iadd` | 1 | 100 |"));
-        assert!(md.contains(
-            "```mermaid
-"
-        ));
-        assert!(md.contains(
-            "graph TD;
-"
-        ));
+        assert!(md.contains("```mermaid\n"));
+        assert!(md.contains("graph TD;\n"));
         assert!(md.contains("\"java/lang/System\" -->|500ns| \"java/lang/String\";"));
         assert!(md.contains("```"));
     }
 
-    #[test]
     #[cfg(feature = "telemetry")]
+    #[test]
     fn should_indicate_empty_class_initialization_in_markdown_report() {
         let empty_store = TelemetryStore::default();
         let empty_md = empty_store.to_markdown_report();
         assert!(empty_md.contains("No class initialization events recorded."));
     }
 
-    #[test]
     #[cfg(feature = "telemetry")]
+    #[test]
     fn should_correctly_format_print_report_with_populated_data() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
@@ -457,8 +554,8 @@ mod tests {
         assert!(s.contains("java/lang/String.intern calls=1 errors=1"));
     }
 
-    #[test]
     #[cfg(feature = "telemetry")]
+    #[test]
     fn should_correctly_serialize_telemetry_store_to_json() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);

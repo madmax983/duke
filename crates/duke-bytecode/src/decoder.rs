@@ -1148,4 +1148,28 @@ mod tests {
             DecodeError::InvalidLookupswitch { pc: 0, npairs: 10 }
         ));
     }
+
+    #[test]
+    fn test_decoder_invalid_invokeinterface_reserved() {
+        let code = [op::INVOKEINTERFACE, 0x00, 0x01, 0x01, 0x01];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidInvokeinterfaceReserved { pc: 0, reserved: 1 }
+        ));
+    }
+
+    #[test]
+    fn test_decoder_invalid_invokedynamic_reserved() {
+        let code = [op::INVOKEDYNAMIC, 0x00, 0x01, 0x01, 0x00];
+        let err = decode(&code).unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidInvokedynamicReserved {
+                pc: 0,
+                reserved1: 1,
+                reserved2: 0
+            }
+        ));
+    }
 }
