@@ -13869,34 +13869,54 @@ struct CallFrame {
 /// Decodes all methods with a Code attribute and extracts field metadata.
 /// Methods without Code (abstract, native) are silently skipped.
 #[must_use]
-#[allow(clippy::too_many_lines)]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
+    let class_name = resolve_this_class(cf);
+    let methods = extract_methods(cf);
+    let (fields, static_fields, instance_field_count) = extract_fields(cf);
+    let super_class = extract_super_class(cf);
+    let interfaces = extract_interfaces(cf);
+    let bootstrap_methods = extract_bootstrap_methods(cf);
+
+    ClassContext {
+        class_name,
+        super_class,
+        interfaces,
+        constant_pool: cf.constant_pool.clone(),
+        methods,
+        fields,
+        static_fields,
+        instance_field_count,
+        bootstrap_methods,
+        load_source: ClassLoadSource::Classfile,
+    }
+}
+
+fn resolve_this_class(cf: &duke_classfile::ClassFile) -> String {
+    use duke_classfile::types::CpEntry;
+    let entry = cf
+        .constant_pool
+        .get(cf.this_class.0 as usize)
+        .and_then(|e| e.as_ref());
+    if let Some(CpEntry::Class { name_index }) = entry {
+        match cf
+            .constant_pool
+            .get(name_index.0 as usize)
+            .and_then(|e| e.as_ref())
+        {
+            Some(CpEntry::Utf8(s)) => s.clone(),
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    }
+}
+
+fn extract_methods(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
-    use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
+    use duke_classfile::MethodAccessFlags;
     use duke_classfile::types::{AttributeData, CpEntry};
 
-    // Resolve this_class -> class name string.
-    let class_name = {
-        let entry = cf
-            .constant_pool
-            .get(cf.this_class.0 as usize)
-            .and_then(|e| e.as_ref());
-        if let Some(CpEntry::Class { name_index }) = entry {
-            match cf
-                .constant_pool
-                .get(name_index.0 as usize)
-                .and_then(|e| e.as_ref())
-            {
-                Some(CpEntry::Utf8(s)) => s.clone(),
-                _ => String::new(),
-            }
-        } else {
-            String::new()
-        }
-    };
-
-    let methods = cf
-        .methods
+    cf.methods
         .iter()
         .filter_map(|m| {
             let name = match cf.constant_pool.get(m.name_index.0 as usize) {
@@ -13991,7 +14011,12 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                 pc_to_idx: std::sync::Arc::new(pc_to_idx_map),
             })
         })
-        .collect();
+        .collect()
+}
+
+fn extract_fields(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<Slot>, usize) {
+    use duke_classfile::FieldAccessFlags;
+    use duke_classfile::types::CpEntry;
 
     let mut fields = Vec::with_capacity(cf.fields.len());
     let mut static_fields = Vec::new();
@@ -14018,24 +14043,27 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
             is_static,
         });
     }
+    (fields, static_fields, instance_count)
+}
 
-    // Resolve super_class: if the index is 0, this is java/lang/Object (no super).
-    let super_class = if cf.super_class.0 != 0 {
+fn extract_super_class(cf: &duke_classfile::ClassFile) -> Option<String> {
+    if cf.super_class.0 != 0 {
         resolve_class_name(&cf.constant_pool, cf.super_class.0 as usize).ok()
     } else {
         None
-    };
+    }
+}
 
-    // Resolve directly-implemented interfaces.
-    let interfaces: Vec<String> = cf
-        .interfaces
+fn extract_interfaces(cf: &duke_classfile::ClassFile) -> Vec<String> {
+    cf.interfaces
         .iter()
         .filter_map(|idx| resolve_class_name(&cf.constant_pool, idx.0 as usize).ok())
-        .collect();
+        .collect()
+}
 
-    // Extract BootstrapMethods from class-level attributes.
-    let bootstrap_methods = cf
-        .attributes
+fn extract_bootstrap_methods(cf: &duke_classfile::ClassFile) -> Vec<duke_classfile::types::BootstrapMethodEntry> {
+    use duke_classfile::types::AttributeData;
+    cf.attributes
         .iter()
         .find_map(|a| {
             if let AttributeData::BootstrapMethods(entries) = &a.data {
@@ -14044,20 +14072,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                 None
             }
         })
-        .unwrap_or_default();
-
-    ClassContext {
-        class_name,
-        super_class,
-        interfaces,
-        constant_pool: cf.constant_pool.clone(),
-        methods,
-        fields,
-        static_fields,
-        instance_field_count: instance_count,
-        bootstrap_methods,
-        load_source: ClassLoadSource::Classfile,
-    }
+        .unwrap_or_default()
 }
 
 /// Resolve a CP Class entry to its name string.

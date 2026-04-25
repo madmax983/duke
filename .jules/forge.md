@@ -45,3 +45,6 @@
 **Extract Subroutine Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
 **Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
+**Extract God Function (build_class_context)**
+**Learning:** `build_class_context` in `crates/duke-interpreter/src/native.rs` was a massive 200+ line God Function that parsed methods, fields, interfaces, and bootstrap methods in one go, requiring `#[allow(clippy::too_many_lines)]`.
+**Action:** Extract the complex loops into focused helper functions like `extract_methods`, `extract_fields`, etc. to cleanly shorten the main logic and drop the clippy suppression.
