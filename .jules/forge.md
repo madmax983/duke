@@ -45,3 +45,7 @@
 **Extract Subroutine Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
 **Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
+
+**Extract Basic Block Leader Discovery**
+**Learning:** `build_basic_blocks` in `crates/duke-bytecode/src/basic_block.rs` mixed leader discovery logic with block chunking logic, resulting in a large, hard-to-read function that required `clippy::too_many_lines` suppression.
+**Action:** Extract the complex leader discovery loop into a strictly-typed helper function (`find_leaders`) to separate the algorithmic phases, flatten the main function, and remove the need for linter suppressions.
