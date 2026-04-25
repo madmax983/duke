@@ -25383,3 +25383,296 @@ mod havoc_string_repeat_oom {
         assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
     }
 }
+
+
+#[cfg(test)]
+mod tests_coverage {
+    use super::*;
+    use duke_runtime::Slot;
+
+    #[test]
+    fn test_extract_args_type_mismatch() {
+        let args = [Slot::Int(1), Slot::Reference(None)];
+
+        let res = extract_float_arg(&args, 0);
+        assert!(res.is_err());
+
+        let res = extract_double_arg(&args, 0);
+        assert!(res.is_err());
+
+        let res = extract_long_arg(&args, 0);
+        assert!(res.is_err());
+
+        let res = extract_int_arg(&args, 1);
+        assert!(res.is_err());
+
+        let res = extract_ref_arg(&args, 0);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_native_server_socket_accept_ok() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let server_id = heap.bind_server_socket("0.0.0.0:0").unwrap();
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Int(server_id);
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let port = heap.server_socket_local_port(server_id).unwrap();
+        let _ = heap.connect_socket(&format!("127.0.0.1:{port}"));
+
+        let res = native_server_socket_accept(&args, &mut heap, &mut out, &mut control);
+        assert!(res.is_ok());
+        let socket_ref = res.unwrap().unwrap();
+        if let Slot::Reference(Some(r)) = socket_ref {
+            assert!(heap.get(r).unwrap().fields.len() >= 2);
+        } else {
+            panic!("Expected reference");
+        }
+    }
+
+    #[test]
+    fn test_native_server_socket_accept_invalid_refs() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Int(-1);
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let res = native_server_socket_accept(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::JavaException { .. })));
+
+        let this_ref2 = heap.allocate("java/net/ServerSocket".to_string(), 0);
+        let args2 = [Slot::Reference(Some(this_ref2))];
+        let res2 = native_server_socket_accept(&args2, &mut heap, &mut out, &mut control);
+        assert!(matches!(res2, Err(VmError::JavaException { .. })));
+
+        let this_ref3 = heap.allocate("java/net/ServerSocket".to_string(), 1);
+        heap.get_mut(this_ref3).unwrap().fields[0] = Slot::Reference(None);
+        let args3 = [Slot::Reference(Some(this_ref3))];
+        let res3 = native_server_socket_accept(&args3, &mut heap, &mut out, &mut control);
+        assert!(matches!(res3, Err(VmError::JavaException { .. })));
+    }
+
+    #[test]
+    fn test_native_server_socket_get_local_port() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        heap.get_mut(this_ref).unwrap().fields[1] = Slot::Reference(None);
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let res = native_server_socket_get_local_port(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::JavaException { .. })));
+
+        heap.get_mut(this_ref).unwrap().fields[1] = Slot::Int(8080);
+        let res2 = native_server_socket_get_local_port(&args, &mut heap, &mut out, &mut control);
+        assert!(res2.is_ok());
+        assert_eq!(res2.unwrap(), Some(Slot::Int(8080)));
+    }
+
+    #[test]
+    fn test_native_file_output_stream_init_invalid_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/io/FileOutputStream".to_string(), 0);
+        let args = [Slot::Reference(Some(this_ref)), Slot::Reference(None)];
+
+        let res = native_file_output_stream_init(&args, &mut heap, &mut out, &mut control);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_native_file_input_stream_init_invalid_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/io/FileInputStream".to_string(), 0);
+        let args = [Slot::Reference(Some(this_ref)), Slot::Reference(None)];
+
+        let res = native_file_input_stream_init(&args, &mut heap, &mut out, &mut control);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_native_file_output_stream_write_bytes_invalid_byte() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/io/FileOutputStream".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Int(1);
+
+        let arr_ref = heap.allocate("[B".to_string(), 1);
+        heap.get_mut(arr_ref).unwrap().fields[0] = Slot::Reference(None);
+
+        let args = [Slot::Reference(Some(this_ref)), Slot::Reference(Some(arr_ref))];
+
+        let res = native_file_output_stream_write_bytes(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::TypeMismatch { .. })));
+    }
+
+    #[test]
+    fn test_native_file_output_stream_close_invalid_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/io/FileOutputStream".to_string(), 0);
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let res = native_file_output_stream_close(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::JavaException { .. })));
+    }
+
+    #[test]
+    fn test_native_file_init_invalid_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/io/File".to_string(), 0);
+        let args = [Slot::Reference(Some(this_ref)), Slot::Reference(None)];
+
+        let res = native_file_init(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::InvalidRef { .. })));
+    }
+
+    #[test]
+    fn test_native_server_socket_init_invalid_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 0);
+        let args = [Slot::Reference(Some(this_ref)), Slot::Int(0)];
+
+        let res = native_server_socket_init(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::InvalidRef { .. })));
+    }
+
+    #[test]
+    fn test_file_stream_id_from_this_io_exception() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/io/FileInputStream".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(None);
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let res = file_stream_id_from_this(&args, &heap);
+        assert!(matches!(res, Err(VmError::JavaException { .. })));
+    }
+
+    #[test]
+    fn test_extract_io_fd_io_exception() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/io/FileInputStream".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(None);
+
+        let res = extract_io_fd(&heap, this_ref);
+        assert!(matches!(res, Err(VmError::JavaException { .. })));
+    }
+
+    #[test]
+    fn test_native_server_socket_close() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 1);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(None);
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let res = native_server_socket_close(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::JavaException { .. })));
+    }
+
+    #[test]
+    fn test_native_socket_init_invalid_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/net/Socket".to_string(), 0);
+        let host_ref = heap.allocate("java/lang/String".to_string(), 0);
+        heap.get_mut(host_ref).unwrap().string_value = Some("localhost".to_string());
+
+        let args = [Slot::Reference(Some(this_ref)), Slot::Reference(Some(host_ref)), Slot::Int(80)];
+
+        let res = native_socket_init(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(res, Err(VmError::InvalidRef { .. })) || matches!(res, Err(VmError::JavaException { .. })));
+    }
+
+    #[test]
+    fn test_native_file_exists_is_file_is_directory_invalid_ref() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/io/File".to_string(), 0); // No path field
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let res = native_file_exists(&args, &mut heap, &mut out, &mut control);
+        assert!(res.is_err());
+
+        let res = native_file_is_file(&args, &mut heap, &mut out, &mut control);
+        assert!(res.is_err());
+
+        let res = native_file_is_directory(&args, &mut heap, &mut out, &mut control);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_box_primitive_slot() {
+        let mut heap = duke_gc::Heap::new();
+
+        let s = Slot::Int(42);
+        let boxed = box_primitive_slot(s, &mut heap);
+        if let Slot::Reference(Some(r)) = boxed {
+            let obj = heap.get(r).unwrap();
+            assert_eq!(obj.class_name, "java/lang/Integer");
+            assert_eq!(obj.fields[0], Slot::Int(42));
+        } else {
+            panic!("Expected reference");
+        }
+
+        let s = Slot::Long(42);
+        let boxed = box_primitive_slot(s, &mut heap);
+        if let Slot::Reference(Some(r)) = boxed {
+            let obj = heap.get(r).unwrap();
+            assert_eq!(obj.class_name, "java/lang/Long");
+            assert_eq!(obj.fields[0], Slot::Long(42));
+        } else {
+            panic!("Expected reference");
+        }
+
+        let s = Slot::Float(42.0);
+        let boxed = box_primitive_slot(s, &mut heap);
+        if let Slot::Reference(Some(r)) = boxed {
+            let obj = heap.get(r).unwrap();
+            assert_eq!(obj.class_name, "java/lang/Float");
+            assert_eq!(obj.fields[0], Slot::Float(42.0));
+        } else {
+            panic!("Expected reference");
+        }
+
+        let s = Slot::Double(42.0);
+        let boxed = box_primitive_slot(s, &mut heap);
+        if let Slot::Reference(Some(r)) = boxed {
+            let obj = heap.get(r).unwrap();
+            assert_eq!(obj.class_name, "java/lang/Double");
+            assert_eq!(obj.fields[0], Slot::Double(42.0));
+        } else {
+            panic!("Expected reference");
+        }
+    }
+}

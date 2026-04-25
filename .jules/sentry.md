@@ -14,3 +14,7 @@
 
 **Learning:** It can be hard to reach coverage for visual representation helpers (like html rendering for a class) because sometimes they depend on specific bytecodes being present, or having enough fields to match strings properly. Also, simple errors (like io errors) are easy to reach in testing by creating explicit fake classes, or using small code snippets with specific constraints (like testing `test_decoder_invalid_tableswitch_high_less_than_low` instead of `test_decoder_tableswitch_too_many_entries`).
 **Action:** When increasing coverage for simple visualizer components, use isolated, fake class definitions with specific interfaces and fields to verify html layout. When doing bytecode decoding, craft small custom byte buffers to simulate exact errors instead of large, complex byte buffers.
+
+## 2026-04-25 - Extracted Tests that Depend on Exact Error Matching
+**Learning:** Checking for precise sub-messages using exact string assertions against `VmError::TypeMismatch` etc., is brittle when error types evolve (like changing "Reference expected but got None" to "Invalid Ref").
+**Action:** Use `matches!(res, Err(VmError::TypeMismatch { .. }))` or similar macro patterns rather than unwrapping and matching exact strings to maintain test stability over time.
