@@ -14023,6 +14023,46 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
     (fields, static_fields, instance_count)
 }
 
+/// Constructs a `ClassContext` from a parsed `ClassFile`.
+///
+/// The `ClassContext` serves as the runtime representation of a loaded class.
+/// It bridges the raw structure provided by `duke_classfile` and the execution environment
+/// required by the interpreter. It encapsulates resolved metadata (like the class name and superclass),
+/// method representations (including code and handlers), fields (both static and instance), and
+/// bootstrap methods required for dynamic invocation (`invokedynamic`).
+///
+/// # Arguments
+///
+/// * `cf` - A reference to the parsed `duke_classfile::ClassFile`.
+///
+/// # Examples
+///
+/// ```
+/// # use duke_interpreter::build_class_context;
+/// # use duke_classfile::{ClassFile, ClassAccessFlags};
+/// # use duke_classfile::types::{CpIndex, CpEntry};
+/// // A minimal class file representation of `java/lang/Object`.
+/// let cf = ClassFile {
+///     minor_version: 0,
+///     major_version: 52,
+///     constant_pool: vec![
+///         // Index 0 is implicit in Java constant pools, but duke_classfile uses 0-indexed vec
+///         // Let's create a minimal valid pool where index 0 is a Utf8 and index 1 is a Class.
+///         Some(CpEntry::Utf8("java/lang/Object".to_string())),
+///         Some(CpEntry::Class { name_index: CpIndex(0) }),
+///     ],
+///     access_flags: ClassAccessFlags::empty(),
+///     this_class: CpIndex(1), // Points to the Class entry at index 1
+///     super_class: CpIndex(0), // No superclass
+///     interfaces: vec![],
+///     fields: vec![],
+///     methods: vec![],
+///     attributes: vec![],
+/// };
+///
+/// let context = build_class_context(&cf);
+/// assert_eq!(context.class_name, "java/lang/Object"); // Name is correctly resolved
+/// ```
 #[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_classfile::types::{AttributeData, CpEntry};
@@ -25424,13 +25464,13 @@ mod sentry_tests {
         let invalid_id = -999;
 
         let count_err = zip_entry_count(invalid_id).unwrap_err();
-        assert!(matches!(count_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(count_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let info_err = zip_get_entry_info(invalid_id, "test").unwrap_err();
-        assert!(matches!(info_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(info_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let read_err = zip_read_entry(invalid_id, "test").unwrap_err();
-        assert!(matches!(read_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(read_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         // This shouldn't panic
         zip_close(invalid_id);
