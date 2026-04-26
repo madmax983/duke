@@ -16,6 +16,8 @@ mod html;
 #[cfg(feature = "nova")]
 mod html_jar;
 mod jar_analyze;
+#[cfg(feature = "nova")]
+mod pathfinding;
 mod scan;
 mod search;
 mod uml;
@@ -235,6 +237,8 @@ fn main() {
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke bbcfg <classfile.class> <method>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke shortest-path <classfile.class> <method> <start_pc> <target_pc>");
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
@@ -323,6 +327,20 @@ fn main() {
     // Dispatch `bbcfg`: dump basic block control flow graph for a method.
     if args.len() >= 4 && args[1] == "bbcfg" {
         dump_bbcfg(&args[2], &args[3]);
+        return;
+    }
+
+    // Dispatch `shortest-path`: find shortest execution path.
+    if args.len() >= 6 && args[1] == "shortest-path" {
+        #[cfg(feature = "nova")]
+        pathfinding::dump_shortest_path(
+            &args[2],
+            &args[3],
+            args[4].parse().unwrap_or(0),
+            args[5].parse().unwrap_or(0),
+        );
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'shortest-path' command requires the 'nova' feature flag.");
         return;
     }
 
