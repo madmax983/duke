@@ -531,6 +531,33 @@ impl Instruction {
         )
     }
 
+    /// Returns all possible target PCs for control flow instructions.
+    /// This resolves relative offsets to absolute PCs.
+    /// Returns an empty vector for non-branching or return instructions.
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::option_if_let_else
+    )]
+    #[must_use]
+    pub fn control_flow_targets(&self, current_pc: usize) -> Vec<usize> {
+        let pc = current_pc as isize;
+        if let Some(offset) = self.unconditional_jump_target() {
+            vec![(pc + offset) as usize]
+        } else if let Some(offset) = self.conditional_branch_target() {
+            vec![(pc + offset) as usize]
+        } else if let Some((default, pairs)) = self.switch_targets() {
+            let mut targets = Vec::with_capacity(1 + pairs.len());
+            targets.push((pc + default as isize) as usize);
+            for (_, offset) in pairs {
+                targets.push((pc + offset as isize) as usize);
+            }
+            targets
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
     #[allow(clippy::too_many_lines)]

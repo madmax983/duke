@@ -45,3 +45,7 @@
 **Extract Subroutine Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
 **Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
+
+**Extract CFG Target Logic**
+**Learning:** `crates/duke-bytecode/src/cfg.rs` and `reachability.rs` contained multiple deeply nested `if-else` chains repeatedly extracting target PCs from instructions (`conditional_branch_target`, `unconditional_jump_target`, `switch_targets`). This led to duplicated logic and bloated graph generation code.
+**Action:** Extract control flow target extraction logic into a unified `control_flow_targets` method directly on the `Instruction` enum to DRY up graph edges and reachability checks, dramatically flattening the structure of basic block and CFG generators.

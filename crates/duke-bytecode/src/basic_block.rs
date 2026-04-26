@@ -81,18 +81,12 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
     leaders.insert(instructions[0].0);
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
-        let is_branch_or_return = if let Some(offset) = instr.conditional_branch_target() {
-            leaders.insert((*pc as isize + offset) as usize);
+        let targets = instr.control_flow_targets(*pc);
+        let is_branch_or_return = if instr.is_return() {
             true
-        } else if let Some(offset) = instr.unconditional_jump_target() {
-            leaders.insert((*pc as isize + offset) as usize);
-            true
-        } else if instr.is_return() {
-            true
-        } else if let Some((default, pairs)) = instr.switch_targets() {
-            leaders.insert((*pc as isize + default as isize) as usize);
-            for (_, offset) in pairs {
-                leaders.insert((*pc as isize + offset as isize) as usize);
+        } else if !targets.is_empty() {
+            for target in targets {
+                leaders.insert(target);
             }
             true
         } else {

@@ -17,18 +17,17 @@ pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
         let next_block_id = block.end_pc;
         if last_instr.is_return() {
             // No successors
-        } else if let Some(offset) = last_instr.unconditional_jump_target() {
-            successors.push((*last_pc as isize + offset) as usize);
-        } else if let Some(offset) = last_instr.conditional_branch_target() {
-            successors.push((*last_pc as isize + offset) as usize);
-            successors.push(next_block_id);
-        } else if let Some((default, pairs)) = last_instr.switch_targets() {
-            successors.push((*last_pc as isize + default as isize) as usize);
-            for (_, offset) in pairs {
-                successors.push((*last_pc as isize + offset as isize) as usize);
-            }
         } else {
-            successors.push(next_block_id);
+            let mut targets = last_instr.control_flow_targets(*last_pc);
+            if targets.is_empty() {
+                // Fallthrough
+                successors.push(next_block_id);
+            } else {
+                successors.append(&mut targets);
+                if last_instr.is_conditional_branch() {
+                    successors.push(next_block_id);
+                }
+            }
         }
     }
     successors
