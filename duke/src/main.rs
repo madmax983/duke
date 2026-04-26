@@ -9,10 +9,10 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
-mod diff;
-#[cfg(feature = "nova")]
 mod dead_code;
 mod deps_graph;
+#[cfg(feature = "nova")]
+mod diff;
 mod histogram;
 mod html;
 #[cfg(feature = "nova")]
