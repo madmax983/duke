@@ -1119,4 +1119,89 @@ mod tests {
         assert!(Instruction::Athrow.is_return());
         assert!(!Instruction::Iconst0.is_return());
     }
+
+    #[test]
+    fn test_instruction_is_conditional_branch() {
+        assert!(Instruction::Ifeq(0).is_conditional_branch());
+        assert!(Instruction::Ifne(0).is_conditional_branch());
+        assert!(Instruction::Iflt(0).is_conditional_branch());
+        assert!(Instruction::Ifge(0).is_conditional_branch());
+        assert!(Instruction::Ifgt(0).is_conditional_branch());
+        assert!(Instruction::Ifle(0).is_conditional_branch());
+        assert!(Instruction::IfIcmpeq(0).is_conditional_branch());
+        assert!(Instruction::IfIcmpne(0).is_conditional_branch());
+        assert!(Instruction::IfIcmplt(0).is_conditional_branch());
+        assert!(Instruction::IfIcmpge(0).is_conditional_branch());
+        assert!(Instruction::IfIcmpgt(0).is_conditional_branch());
+        assert!(Instruction::IfIcmple(0).is_conditional_branch());
+        assert!(Instruction::IfAcmpeq(0).is_conditional_branch());
+        assert!(Instruction::IfAcmpne(0).is_conditional_branch());
+        assert!(Instruction::Ifnull(0).is_conditional_branch());
+        assert!(Instruction::Ifnonnull(0).is_conditional_branch());
+
+        assert!(!Instruction::Goto(0).is_conditional_branch());
+        assert!(!Instruction::Nop.is_conditional_branch());
+    }
+
+    #[test]
+    fn test_instruction_conditional_branch_target() {
+        assert_eq!(Instruction::Ifeq(10).conditional_branch_target(), Some(10));
+        assert_eq!(Instruction::Ifne(-5).conditional_branch_target(), Some(-5));
+        assert_eq!(Instruction::Iflt(0).conditional_branch_target(), Some(0));
+        assert_eq!(Instruction::Ifge(10).conditional_branch_target(), Some(10));
+        assert_eq!(Instruction::Ifgt(10).conditional_branch_target(), Some(10));
+        assert_eq!(Instruction::Ifle(10).conditional_branch_target(), Some(10));
+        assert_eq!(
+            Instruction::IfIcmpeq(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::IfIcmpne(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::IfIcmplt(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::IfIcmpge(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::IfIcmpgt(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::IfIcmple(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::IfAcmpeq(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::IfAcmpne(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::Ifnull(10).conditional_branch_target(),
+            Some(10)
+        );
+        assert_eq!(
+            Instruction::Ifnonnull(10).conditional_branch_target(),
+            Some(10)
+        );
+
+        assert_eq!(Instruction::Goto(10).conditional_branch_target(), None);
+        assert_eq!(Instruction::Nop.conditional_branch_target(), None);
+    }
+
+    #[test]
+    fn test_instruction_is_unconditional_jump() {
+        assert!(Instruction::Goto(0).is_unconditional_jump());
+        assert!(Instruction::GotoW(0).is_unconditional_jump());
+
+        assert!(!Instruction::Ifeq(0).is_unconditional_jump());
+        assert!(!Instruction::Nop.is_unconditional_jump());
+    }
 }
