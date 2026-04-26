@@ -45,3 +45,7 @@
 **Extract Subroutine Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
 **Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
+
+**Extract Struct Building Functions**
+**Learning:** `build_class_context` was over 200 lines long, performing all the sequential parsing to populate a large `ClassContext` struct.
+**Action:** Extract large sequential parsing chunks (e.g. mapping over methods and fields) into small helper functions returning the parsed components (`build_method_entries`, `build_field_entries`).

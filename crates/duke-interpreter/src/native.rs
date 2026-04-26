@@ -13870,32 +13870,12 @@ struct CallFrame {
 /// Methods without Code (abstract, native) are silently skipped.
 #[must_use]
 #[allow(clippy::too_many_lines)]
-pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
+fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
-    use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
+    use duke_classfile::MethodAccessFlags;
     use duke_classfile::types::{AttributeData, CpEntry};
 
-    // Resolve this_class -> class name string.
-    let class_name = {
-        let entry = cf
-            .constant_pool
-            .get(cf.this_class.0 as usize)
-            .and_then(|e| e.as_ref());
-        if let Some(CpEntry::Class { name_index }) = entry {
-            match cf
-                .constant_pool
-                .get(name_index.0 as usize)
-                .and_then(|e| e.as_ref())
-            {
-                Some(CpEntry::Utf8(s)) => s.clone(),
-                _ => String::new(),
-            }
-        } else {
-            String::new()
-        }
-    };
-
-    let methods = cf
+    cf
         .methods
         .iter()
         .filter_map(|m| {
@@ -13991,7 +13971,12 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
                 pc_to_idx: std::sync::Arc::new(pc_to_idx_map),
             })
         })
-        .collect();
+        .collect()
+}
+
+fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<Slot>, usize) {
+    use duke_classfile::FieldAccessFlags;
+    use duke_classfile::types::CpEntry;
 
     let mut fields = Vec::with_capacity(cf.fields.len());
     let mut static_fields = Vec::new();
@@ -14019,6 +14004,36 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         });
     }
 
+
+    (fields, static_fields, instance_count)
+}
+
+#[must_use]
+pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
+    use duke_classfile::types::{AttributeData, CpEntry};
+
+    // Resolve this_class -> class name string.
+    let class_name = {
+        let entry = cf
+            .constant_pool
+            .get(cf.this_class.0 as usize)
+            .and_then(|e| e.as_ref());
+        if let Some(CpEntry::Class { name_index }) = entry {
+            match cf
+                .constant_pool
+                .get(name_index.0 as usize)
+                .and_then(|e| e.as_ref())
+            {
+                Some(CpEntry::Utf8(s)) => s.clone(),
+                _ => String::new(),
+            }
+        } else {
+            String::new()
+        }
+    };
+
+    let methods = build_method_entries(cf);
+    let (fields, static_fields, instance_field_count) = build_field_entries(cf);
     // Resolve super_class: if the index is 0, this is java/lang/Object (no super).
     let super_class = if cf.super_class.0 != 0 {
         resolve_class_name(&cf.constant_pool, cf.super_class.0 as usize).ok()
@@ -14054,7 +14069,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         methods,
         fields,
         static_fields,
-        instance_field_count: instance_count,
+        instance_field_count,
         bootstrap_methods,
         load_source: ClassLoadSource::Classfile,
     }
