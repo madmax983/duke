@@ -5,3 +5,7 @@
 **String Allocation Truncation**
 **Learning:** Using `s.chars().take(n).collect::<String>()` allocates an entirely new String under the hood, traversing the utf-8 characters to build it.
 **Action:** For string truncation, calculate the precise UTF-8 byte boundary using `.char_indices().nth(n)` and use the in-place `String::truncate(byte_idx)` to perform a zero-allocation length modification.
+
+**String Concatenation with Prefix and Suffix**
+**Learning:** Using `filter_map` to build a `Vec<String>`, then `.join()` and finally using `format!` macro for prefix and suffix generates multiple intermediate heap allocations and string operations.
+**Action:** Calculate the total capacity, allocate a single `String::with_capacity()`, and `.push_str()` the prefix, items (with delim in between), and suffix directly to eliminate intermediate `Vec`s and `String`s.

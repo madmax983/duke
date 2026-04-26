@@ -1,13 +1,9 @@
-1. **Smell identified:** Deep nesting and duplicated logic when checking for subroutine branches (`Jsr` and `JsrW`).
-2. **Action:**
-   - Extract a new helper method `is_subroutine_call()` on the `Instruction` enum in `crates/duke-bytecode/src/instruction.rs`.
-   - Implement it using `matches!(self, Self::Jsr(_) | Self::JsrW(_))`.
-   - Update `crates/duke-bytecode/src/cfg.rs` to use `is_subroutine_call()` instead of inline `matches!`.
-   - Ensure a test for `is_subroutine_call()` is added to `instruction.rs`.
-3. **Pre-commit:**
-   - Run `cargo clippy --all-targets --all-features -- -D warnings`.
-   - Run `cargo fmt --all`.
-   - Run `cargo test`.
-4. **Submit PR:**
-   - Add journal entry to `.jules/forge.md`.
-   - Commit with title `⚒️ Forge: Extract subroutine branch matchers`.
+1. **Optimize `JoiningCollector` joining in `duke-interpreter/src/native.rs`**
+   - The original code used a filter-map to build a `Vec<String>`, then `.join(&delim)` inside `format!("{prefix}{joined}{suffix}")`.
+   - This caused multiple intermediate string allocations.
+   - We replaced it with a single `String::with_capacity` allocation that iterates through `elems` and pushes strings directly, avoiding `.join()` and `format!`.
+   - The test pass successfully and benchmarking shows improvement or at least similar performance with less allocation.
+   - We will append our learning to `.jules/bolt.md`.
+2. **Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.**
+3. **Submit the change**
+   - Submit the PR with the required Bolt format.

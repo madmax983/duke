@@ -2852,14 +2852,29 @@ pub(crate) fn native_stream_collect(
         let delim = read_str_field(heap, 0);
         let prefix = read_str_field(heap, 1);
         let suffix = read_str_field(heap, 2);
-        let parts: Vec<String> = elems
-            .iter()
-            .filter_map(|s| match s {
-                Slot::Reference(Some(r)) => heap.get(*r).ok()?.string_value.clone(),
-                _ => None,
-            })
-            .collect();
-        let joined = format!("{}{}{}", prefix, parts.join(&delim), suffix);
+
+        // ⚡ Bolt: Eliminate intermediate Vec<String> allocation, format! macro overhead,
+        // and .join() by appending directly to a single String buffer.
+        let mut joined = String::with_capacity(prefix.len() + suffix.len() + elems.len() * (10 + delim.len()));
+        joined.push_str(&prefix);
+        let mut first = true;
+        for s in &elems {
+            #[allow(clippy::collapsible_if)]
+            if let Slot::Reference(Some(r)) = s {
+                #[allow(clippy::collapsible_if)]
+                if let Ok(obj) = heap.get(*r) {
+                    if let Some(s_val) = &obj.string_value {
+                        if !first {
+                            joined.push_str(&delim);
+                        }
+                        joined.push_str(s_val);
+                        first = false;
+                    }
+                }
+            }
+        }
+        joined.push_str(&suffix);
+
         let result_ref = heap.allocate_string(joined);
         Ok(Some(Slot::Reference(Some(result_ref))))
     } else if collector_class == "duke/util/CountingCollector" {
