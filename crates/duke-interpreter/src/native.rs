@@ -25383,3 +25383,26 @@ mod havoc_string_repeat_oom {
         assert!(matches!(err, VmError::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
     }
 }
+
+#[cfg(test)]
+mod sentry_tests {
+    use super::*;
+
+
+    #[test]
+    fn test_zip_functions_error_cases() {
+        let invalid_id = -999;
+
+        let count_err = zip_entry_count(invalid_id).unwrap_err();
+        assert!(matches!(count_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+
+        let info_err = zip_get_entry_info(invalid_id, "test").unwrap_err();
+        assert!(matches!(info_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+
+        let read_err = zip_read_entry(invalid_id, "test").unwrap_err();
+        assert!(matches!(read_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+
+        // This shouldn't panic
+        zip_close(invalid_id);
+    }
+}
