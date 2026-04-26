@@ -65,7 +65,11 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
                 if let Some((_, pairs)) = instr.switch_targets() {
                     let _ = writeln!(cfg, "    node{pc} -->|default| node{}", targets[0]);
                     for (idx, (match_val, _)) in pairs.into_iter().enumerate() {
-                        let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{}", targets[idx + 1]);
+                        let _ = writeln!(
+                            cfg,
+                            "    node{pc} -->|{match_val}| node{}",
+                            targets[idx + 1]
+                        );
                     }
                 }
             } else if instr.is_conditional_branch() || instr.is_subroutine_call() {
@@ -443,9 +447,14 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
                     }
                 } else if last_instr.is_switch() {
                     if let Some((_, pairs)) = last_instr.switch_targets() {
-                        let _ = writeln!(cfg, "    block{block_id} -->|default| block{}", targets[0]);
+                        let _ =
+                            writeln!(cfg, "    block{block_id} -->|default| block{}", targets[0]);
                         for (idx, (key, _)) in pairs.into_iter().enumerate() {
-                            let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{}", targets[idx + 1]);
+                            let _ = writeln!(
+                                cfg,
+                                "    block{block_id} -->|{key}| block{}",
+                                targets[idx + 1]
+                            );
                         }
                     }
                 } else if last_instr.is_conditional_branch() || last_instr.is_subroutine_call() {
