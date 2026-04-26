@@ -6,7 +6,7 @@ pub mod ser_helpers {
     use serde::Serialize;
 
     /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.
-    fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
+    pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
     where
         K: Eq + std::hash::Hash,
         V: Serialize,
@@ -87,17 +87,29 @@ mod tests {
         set: HashSet<String>,
     }
 
+    #[derive(Serialize)]
+    struct MapWrapper {
+        #[serde(serialize_with = "custom_keyed_map")]
+        map: HashMap<i32, &'static str>,
+    }
+
+    fn custom_keyed_map<S: serde::Serializer>(
+        map: &HashMap<i32, &'static str>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+    }
+
     #[test]
     fn test_keyed_map() {
         let mut map = HashMap::new();
         map.insert(1, "one");
+        map.insert(2, "two");
 
-        let mut string_map = HashMap::new();
-        string_map.insert("1".to_string(), &"one");
-
-        // This is indirectly tested by the other functions
-        let _ = map;
-        let _ = string_map;
+        let w = MapWrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains("\"key_1\":\"one\""));
+        assert!(json.contains("\"key_2\":\"two\""));
     }
 
     #[test]
