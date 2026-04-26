@@ -5,3 +5,7 @@
 **String Allocation Truncation**
 **Learning:** Using `s.chars().take(n).collect::<String>()` allocates an entirely new String under the hood, traversing the utf-8 characters to build it.
 **Action:** For string truncation, calculate the precise UTF-8 byte boundary using `.char_indices().nth(n)` and use the in-place `String::truncate(byte_idx)` to perform a zero-allocation length modification.
+
+**Pre-allocate Heap Argument Vectors**
+**Learning:** `Vec::new()` requires reallocation when building Java arguments before main execution.
+**Action:** When creating argument vectors where the count of arguments is known (`string_args.len()`), use `Vec::with_capacity(string_args.len())` to eliminate multiple allocations.
