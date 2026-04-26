@@ -45,3 +45,7 @@
 **Extract Subroutine Matchers**
 **Learning:** `crates/duke-bytecode/src/cfg.rs` contained duplicated inline `matches!(instr, Instruction::Jsr(_) | Instruction::JsrW(_))` boilerplate which cluttered logic and hid intent.
 **Action:** Extract categorization logic into cleanly named helper methods directly on the enum (e.g., `is_subroutine_call()`) to DRY up matching code and flatten the calling modules.
+
+**Extract Central Directory Parser**
+**Learning:** `parse_central_directory` inside `crates/duke-loader/src/zip.rs` contained a massive loop (70+ lines) unpacking and validating the fields of every single central directory entry. This logic caused the method to become deeply nested and bloated, violating the "God Function" smell and making it harder to read the overarching parsing loop.
+**Action:** Extracted the core loop logic into a helper function `parse_central_directory_entry`, flattening the loop into just a few lines. Always extract complex per-item decoding from parsing loops.
