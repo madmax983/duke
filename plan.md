@@ -1,13 +1,6 @@
-1. **Smell identified:** Deep nesting and duplicated logic when checking for subroutine branches (`Jsr` and `JsrW`).
-2. **Action:**
-   - Extract a new helper method `is_subroutine_call()` on the `Instruction` enum in `crates/duke-bytecode/src/instruction.rs`.
-   - Implement it using `matches!(self, Self::Jsr(_) | Self::JsrW(_))`.
-   - Update `crates/duke-bytecode/src/cfg.rs` to use `is_subroutine_call()` instead of inline `matches!`.
-   - Ensure a test for `is_subroutine_call()` is added to `instruction.rs`.
-3. **Pre-commit:**
-   - Run `cargo clippy --all-targets --all-features -- -D warnings`.
-   - Run `cargo fmt --all`.
-   - Run `cargo test`.
-4. **Submit PR:**
-   - Add journal entry to `.jules/forge.md`.
-   - Commit with title `⚒️ Forge: Extract subroutine branch matchers`.
+1. **Explore the Workspace:** Check `crates/` to see which ones have `pub mod` exposing internal details.
+2. **Apply the Facade Pattern in `duke-bytecode` and `duke-telemetry`:** Change `pub mod` to `pub(crate) mod` to encapsulate internal modules like `reachability.rs` and `helpers.rs`.
+3. **Apply the Facade Pattern in `duke-classfile`:** Make `pub mod types` private (`pub(crate) mod types`). Fix downstream crates (`duke-bytecode`, `duke-interpreter`, `duke`) to import `types` elements directly from `duke_classfile::` instead of `duke_classfile::types::`. Ensure `duke-classfile` re-exports everything required by downstreams.
+4. **Update `.jules/atlas.md`:** Add an entry for the structural fix applied to `duke-classfile` and other crates.
+5. **Pre-commit Steps:** Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done (e.g. `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, `cargo fmt --all`).
+6. **Submit PR:** Submit the change with title "🗺️ Atlas: [architectural change]" and appropriate description.

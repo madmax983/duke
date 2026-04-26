@@ -400,8 +400,7 @@ fn fixture(name: &str) -> std::path::PathBuf {
 fn run_static_int(class_name: &str, method_name: &str, args: Vec<i32>) -> i32 {
     use duke_bytecode::decode;
     use duke_classfile::{
-        parse,
-        types::{AttributeData, CpEntry},
+        parse, {AttributeData, CpEntry},
     };
 
     let bytes = std::fs::read(fixture(class_name)).expect("fixture not found");
@@ -697,7 +696,7 @@ fn class_method_not_found() {
 
 #[test]
 fn invokevirtual_missing_loaded_method_returns_method_not_found() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -781,7 +780,7 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
 
 #[test]
 fn object_constructor_dispatches_via_invokespecial() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -861,7 +860,7 @@ fn object_constructor_dispatches_via_invokespecial() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -980,7 +979,7 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn registered_native_overrides_loaded_bytecode_method() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -1099,7 +1098,7 @@ fn registered_native_overrides_loaded_bytecode_method() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn registered_callback_native_overrides_loaded_bytecode_static_method() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -1264,7 +1263,7 @@ fn make_cp(entries: Vec<Option<CpEntry>>) -> Vec<Option<CpEntry>> {
 
 #[test]
 fn resolve_methodref_valid() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = make_cp(vec![
         Some(CpEntry::Methodref {
             class_index: CpIndex(2),
@@ -1303,8 +1302,8 @@ fn resolve_methodref_not_a_methodref() {
 
 #[test]
 fn build_class_context_initializes_static_defaults_by_descriptor() {
-    use duke_classfile::types::{ClassFile, CpIndex, FieldInfo};
     use duke_classfile::{ClassAccessFlags, FieldAccessFlags};
+    use duke_classfile::{ClassFile, CpIndex, FieldInfo};
 
     let cf = ClassFile {
         minor_version: 0,
@@ -1383,7 +1382,7 @@ fn build_class_context_initializes_static_defaults_by_descriptor() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn hashset_iterator_supports_invokeinterface_iteration() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -1586,7 +1585,7 @@ fn point_sum_symmetry() {
 
 #[test]
 fn resolve_fieldref_valid() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = make_cp(vec![
         Some(CpEntry::Fieldref {
             class_index: CpIndex(2),
@@ -9564,7 +9563,7 @@ fn execute_lshr_large_shift_masked_to_63() {
 
 #[test]
 fn execute_ldc_string_from_utf8_cp() {
-    use duke_classfile::types::{CpEntry, CpIndex};
+    use duke_classfile::{CpEntry, CpIndex};
     // CP: [None, Some(String{string_index:2}), Some(Utf8("hi"))]
     let cp: Vec<Option<CpEntry>> = vec![
         None,
@@ -9587,7 +9586,7 @@ fn execute_ldc_string_from_utf8_cp() {
 
 #[test]
 fn execute_ldcw_string_from_utf8_cp() {
-    use duke_classfile::types::{CpEntry, CpIndex};
+    use duke_classfile::{CpEntry, CpIndex};
     let cp: Vec<Option<CpEntry>> = vec![
         None,
         Some(CpEntry::String {
@@ -11248,7 +11247,7 @@ fn default_slot_for_descriptor_int_and_others_are_int_zero() {
 
 #[test]
 fn resolve_cp_string_from_string_entry() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Utf8("hello".to_string())),
@@ -11261,7 +11260,7 @@ fn resolve_cp_string_from_string_entry() {
 
 #[test]
 fn resolve_cp_string_from_utf8_entry() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Utf8("world".to_string())),
@@ -11274,7 +11273,7 @@ fn resolve_cp_string_from_utf8_entry() {
 
 #[test]
 fn resolve_cp_string_missing_utf8_raises_error() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         None, // missing Utf8
@@ -14579,7 +14578,7 @@ fn execute_tableswitch_nonzero_low_matches_key() {
 #[test]
 fn execute_checkcast_null_passes() {
     // Mutant: delete null arm → null falls to _ → TypeMismatch error
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14600,7 +14599,7 @@ fn execute_checkcast_null_passes() {
 #[test]
 fn execute_checkcast_matching_ref_passes() {
     // Kills == → != (matching class → pass; mutant rejects when class matches)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14625,7 +14624,7 @@ fn execute_checkcast_matching_ref_passes() {
 #[test]
 fn execute_instanceof_null_returns_zero() {
     // Mutant: delete null arm → null falls to _ → TypeMismatch error
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14645,7 +14644,7 @@ fn execute_instanceof_null_returns_zero() {
 #[test]
 fn execute_instanceof_matching_ref_returns_one() {
     // Kills == → != (matching class → 1; mutant returns 0 when class matches)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14809,7 +14808,7 @@ fn execute_lrem_returns_remainder() {
 #[test]
 fn execute_anewarray_zero_count_succeeds() {
     // count=0: kills < → == (0==0→error) and < → <= (0<=0→error)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14838,7 +14837,7 @@ fn execute_anewarray_zero_count_succeeds() {
 #[test]
 fn execute_anewarray_one_count_succeeds() {
     // count=1: kills < → > (1>0=true→error; correct: 1<0=false→ok)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14867,7 +14866,7 @@ fn execute_anewarray_one_count_succeeds() {
 #[test]
 fn execute_anewarray_negative_count_errors() {
     // count=-1: correct -1<0=true→error; mutant > 0: -1>0=false→no error
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14897,7 +14896,7 @@ fn execute_anewarray_negative_count_errors() {
 #[test]
 fn execute_aaload_valid_idx0_returns_null() {
     // idx=0: kills < → == (0==0→error) and < → <= (0<=0→error)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14928,7 +14927,7 @@ fn execute_aaload_valid_idx0_returns_null() {
 #[test]
 fn execute_aaload_valid_idx1_returns_null() {
     // idx=1: kills < → > (1>0=true→error; correct: 1<0=false→ok)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14959,7 +14958,7 @@ fn execute_aaload_valid_idx1_returns_null() {
 #[test]
 fn execute_aaload_oob_at_length_errors() {
     // idx=2=length: kills || → && (false && true = false → no error, but panics)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -14994,7 +14993,7 @@ fn execute_aaload_oob_at_length_errors() {
 #[test]
 fn execute_aastore_valid_idx0_stores() {
     // idx=0: kills < → == and < → <=; stack: ref, idx=0, null
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -15027,7 +15026,7 @@ fn execute_aastore_valid_idx0_stores() {
 #[test]
 fn execute_aastore_valid_idx1_stores() {
     // idx=1: kills < → > (1>0=true→error)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -15060,7 +15059,7 @@ fn execute_aastore_valid_idx1_stores() {
 #[test]
 fn execute_aastore_oob_at_length_errors() {
     // idx=2=length: kills || → &&
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let cp = vec![
         None,
         Some(CpEntry::Class {
@@ -15966,7 +15965,7 @@ fn ec_tableswitch_nonzero_low_matches_key() {
 fn ec_checkcast_null_passes() {
     // Kills: delete Slot::Reference(None) arm → null falls to _ → TypeMismatch
     // Null arm exits before CP lookup, so CpIndex(0) (None entry) is safe here
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     let instructions = vec![
         (0, Instruction::AconstNull),
         (1, Instruction::Checkcast(CpIndex(0))),
@@ -15984,7 +15983,7 @@ fn ec_checkcast_null_passes() {
 #[test]
 fn ec_multianewarray_negative_dim_errors() {
     // dim=-1: kills < → == (-1==0=false→no error; correct: -1<0=true→error)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::sync::Arc;
     let instructions = vec![
         (0, Instruction::IconstM1),
@@ -16058,7 +16057,7 @@ fn ec_multianewarray_negative_dim_errors() {
 #[test]
 fn ec_multianewarray_zero_dim_succeeds() {
     // dim=0: kills < → <= (0<=0=true→error; correct: 0<0=false→ok)
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::sync::Arc;
     let instructions = vec![
         (0, Instruction::Iconst0),
@@ -16400,7 +16399,7 @@ fn ec_fcmpg_a_less_than_b_returns_minus_one() {
 
 #[test]
 fn ec_ldcw_string_pushes_nonnull_ref() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::sync::Arc;
     // CP: [0]=None, [1]=String{string_index:2}, [2]=Utf8("hi")
     let cp = vec![
@@ -16471,7 +16470,7 @@ fn ec_ldcw_string_pushes_nonnull_ref() {
 
 #[test]
 fn ec_ldcw_class_constant_pushes_nonnull_ref() {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::sync::Arc;
     // CP: [0]=None, [1]=Class{name_index:2}, [2]=Utf8("java/lang/Object")
     let cp = vec![
@@ -16553,7 +16552,7 @@ fn ec_new_initialises_reference_field_to_null() {
     //   8518 (< → ==): slot_idx never == len → never writes → stays Int(0)
     //   8518 (< → >): 0 > 2 = false → never writes
     //   8522 (+= → *=1): slot_idx stays 0, writes to intField slot → refField unchanged
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::sync::Arc;
 
     // CP for "SynTest" calling class:
@@ -18520,7 +18519,7 @@ fn install_loader_keyed_hello_world_probe(
     instructions: Vec<(usize, Instruction)>,
     exception_table: Vec<ExceptionEntry>,
 ) {
-    use duke_classfile::types::CpIndex;
+    use duke_classfile::CpIndex;
     use std::sync::Arc;
 
     let pc_to_idx: std::collections::HashMap<usize, usize> = instructions
@@ -20337,10 +20336,7 @@ fn loader_qualified_instanceof_uses_current_class_provenance() {
         "(Ljava/lang/Object;)I",
         vec![
             (0, Instruction::Aload0),
-            (
-                1,
-                Instruction::Instanceof(duke_classfile::types::CpIndex(1)),
-            ),
+            (1, Instruction::Instanceof(duke_classfile::CpIndex(1))),
             (4, Instruction::Ireturn),
         ],
         vec![],
@@ -20387,7 +20383,7 @@ fn loader_qualified_checkcast_uses_current_class_provenance() {
         "(Ljava/lang/Object;)I",
         vec![
             (0, Instruction::Aload0),
-            (1, Instruction::Checkcast(duke_classfile::types::CpIndex(1))),
+            (1, Instruction::Checkcast(duke_classfile::CpIndex(1))),
             (4, Instruction::Pop),
             (5, Instruction::Iconst1),
             (6, Instruction::Ireturn),

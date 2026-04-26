@@ -23,7 +23,7 @@ pub(crate) mod error;
 pub(crate) mod parser;
 
 /// Compatibility module re-exporting the split type structures.
-pub mod types {
+pub(crate) mod types {
     pub use crate::attributes::*;
     pub use crate::class::*;
     pub use crate::constant_pool::*;
@@ -33,8 +33,8 @@ pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, ParseError, ParseResult, Result};
 pub use parser::parse;
 pub use types::{
-    AttributeData, AttributeInfo, ClassFile, CodeAttribute, CpEntry, CpIndex, ExceptionTableEntry,
-    FieldInfo, LineNumberEntry, LocalVariableEntry, MethodInfo,
+    AttributeData, AttributeInfo, BootstrapMethodEntry, ClassFile, CodeAttribute, CpEntry, CpIndex,
+    ExceptionTableEntry, FieldInfo, LineNumberEntry, LocalVariableEntry, MethodInfo,
 };
 
 #[cfg(test)]

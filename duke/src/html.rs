@@ -1,7 +1,6 @@
 use duke_bytecode::{build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_cfg};
 use duke_classfile::{
-    ClassFile,
-    types::{AttributeData, CpEntry, CpIndex},
+    ClassFile, {AttributeData, CpEntry, CpIndex},
 };
 use std::fmt::Write;
 
@@ -14,7 +13,7 @@ fn escape_html(s: &str) -> String {
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -31,7 +30,7 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<duke_classfile::CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
     } else {
@@ -297,7 +296,7 @@ mod tests {
     #[test]
     fn test_generate_html_report_complex_class_with_interfaces_fields() {
         use duke_classfile::FieldAccessFlags;
-        use duke_classfile::types::FieldInfo;
+        use duke_classfile::FieldInfo;
 
         let cf = ClassFile {
             major_version: 61,
@@ -360,9 +359,7 @@ mod tests {
 
     #[test]
     fn test_generate_html_report_complex_class() {
-        use duke_classfile::types::{
-            AttributeData, AttributeInfo, CodeAttribute, FieldInfo, MethodInfo,
-        };
+        use duke_classfile::{AttributeData, AttributeInfo, CodeAttribute, FieldInfo, MethodInfo};
         use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
 
         let cf = ClassFile {
@@ -470,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_html_resolve_class_name_not_class_ref() {
-        use duke_classfile::types::CpEntry;
+        use duke_classfile::CpEntry;
         let cf = ClassFile {
             major_version: 61,
             minor_version: 0,
@@ -492,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_html_cp_str_not_utf8() {
-        use duke_classfile::types::CpEntry;
+        use duke_classfile::CpEntry;
         let cf = ClassFile {
             major_version: 61,
             minor_version: 0,

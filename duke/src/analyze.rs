@@ -1,14 +1,13 @@
 use duke_bytecode::{cyclomatic_complexity, decode};
 use duke_classfile::{
-    ClassFile,
-    types::{AttributeData, CpEntry, CpIndex},
+    ClassFile, {AttributeData, CpEntry, CpIndex},
 };
 use std::fmt::Write;
 
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -25,7 +24,7 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<duke_classfile::CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
     } else {
@@ -105,7 +104,7 @@ pub fn generate_analysis_report(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
+    use duke_classfile::{AttributeInfo, CodeAttribute, MethodInfo};
     use duke_classfile::{ClassAccessFlags, MethodAccessFlags};
 
     #[test]

@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
     clippy::cast_possible_truncation
 )]
 #[must_use]
+#[allow(dead_code)]
 pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
     let mut successors = Vec::new();
     if let Some((last_pc, last_instr)) = block.instructions.last() {
@@ -38,6 +39,7 @@ pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
 /// Returns a list of block `start_pc`s that are unreachable.
 #[cfg(feature = "nova")]
 #[must_use]
+#[allow(dead_code)]
 pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
     if blocks.is_empty() {
         return Vec::new();
@@ -84,6 +86,7 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
 /// Panics if the internal graph traversal fails to find a parent for a node on a confirmed path.
 #[cfg(feature = "nova")]
 #[must_use]
+#[allow(dead_code)]
 pub fn find_shortest_path(
     blocks: &[BasicBlock],
     start_pc: usize,

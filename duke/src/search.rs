@@ -1,14 +1,13 @@
 use duke_bytecode::decode;
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, {AttributeData, CpEntry, CpIndex},
 };
 use std::process;
 
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -88,7 +87,7 @@ pub fn dump_search(path: &str, query: &str) {
 mod tests {
     use super::*;
     use duke_classfile::ClassAccessFlags;
-    use duke_classfile::types::ClassFile;
+    use duke_classfile::ClassFile;
 
     #[test]
     fn test_dump_search_valid() {

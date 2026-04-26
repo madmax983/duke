@@ -17,7 +17,7 @@ pub(crate) mod error;
 pub(crate) mod instruction;
 pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
-pub mod reachability;
+pub(crate) mod reachability;
 pub(crate) mod verifier;
 
 #[cfg(feature = "nova")]
@@ -35,8 +35,7 @@ pub use verifier::verify;
 mod tests {
     use super::*;
     use duke_classfile::{
-        parse,
-        types::{AttributeData, CpEntry},
+        parse, {AttributeData, CpEntry},
     };
 
     // -----------------------------------------------------------------------

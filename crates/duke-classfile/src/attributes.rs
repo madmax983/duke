@@ -31,7 +31,7 @@ use crate::constant_pool::CpIndex;
 /// # Examples
 ///
 /// ```
-/// use duke_classfile::types::{AttributeInfo, AttributeData, CpIndex};
+/// use duke_classfile::{AttributeInfo, AttributeData, CpIndex};
 ///
 /// let attr = AttributeInfo {
 ///     name_index: CpIndex(1),
