@@ -1,4 +1,87 @@
 
+use duke_bytecode::decode;
+use duke_classfile::{
+    parse,
+    types::{AttributeData, CpEntry, CpIndex, ClassFile},
+};
+use std::collections::HashSet;
+
+fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|slot| slot.as_ref())
+        .and_then(|entry| {
+            if let CpEntry::Utf8(s) = entry {
+                Some(s.as_str())
+            } else {
+                None
+            }
+        })
+}
+
+#[cfg(feature = "nova")]
+pub fn dump_diff(path1: &str, path2: &str) {
+    let bytes1 = std::fs::read(path1).unwrap();
+    let bytes2 = std::fs::read(path2).unwrap();
+
+    let cf1 = parse(&bytes1).unwrap();
+    let cf2 = parse(&bytes2).unwrap();
+
+    let get_methods = |cf: &ClassFile| {
+        let mut methods = std::collections::HashMap::new();
+        for m in &cf.methods {
+            let name = cp_str(cf, m.name_index).unwrap_or("<invalid>");
+            let desc = cp_str(cf, m.descriptor_index).unwrap_or("<invalid>");
+            let mut instructions = Vec::new();
+            for attr in &m.attributes {
+                if let AttributeData::Code(code) = &attr.data {
+                    if let Ok(instrs) = decode(&code.code) {
+                        for (_, i) in instrs {
+                            instructions.push(i.mnemonic().to_string());
+                        }
+                    }
+                }
+            }
+            methods.insert(format!("{}{}", name, desc), instructions);
+        }
+        methods
+    };
+
+    let m1 = get_methods(&cf1);
+    let m2 = get_methods(&cf2);
+
+    let k1: HashSet<_> = m1.keys().cloned().collect();
+    let k2: HashSet<_> = m2.keys().cloned().collect();
+
+    for added in k2.difference(&k1) {
+        println!("+ Method added: {}", added);
+    }
+    for removed in k1.difference(&k2) {
+        println!("- Method removed: {}", removed);
+    }
+
+    for common in k1.intersection(&k2) {
+        let i1 = m1.get(common).unwrap();
+        let i2 = m2.get(common).unwrap();
+
+        if i1 != i2 {
+            println!("~ Method changed: {}", common);
+            let max_len = std::cmp::max(i1.len(), i2.len());
+            for i in 0..max_len {
+                let inst1 = i1.get(i).map_or("<none>", |s| s.as_str());
+                let inst2 = i2.get(i).map_or("<none>", |s| s.as_str());
+                if inst1 != inst2 {
+                    println!("  - {}", inst1);
+                    println!("  + {}", inst2);
+                } else {
+                    println!("    {}", inst1);
+                }
+            }
+        }
+    }
+}
+
+
     #[test]
     fn test_dump_diff_handles_files() {
         let valid_bytes1 = vec![
@@ -107,7 +190,6 @@
         std::fs::remove_file(&path1).unwrap();
         std::fs::remove_file(&path2).unwrap();
     }
-}
 
     #[test]
     fn test_dump_diff_changed_methods_with_different_instructions() {
@@ -187,4 +269,3 @@
         std::fs::remove_file(&path1).unwrap();
         std::fs::remove_file(&path2).unwrap();
     }
-}

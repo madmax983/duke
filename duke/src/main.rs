@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
+mod diff;
+#[cfg(feature = "nova")]
 mod dead_code;
 mod deps_graph;
 mod histogram;
@@ -235,6 +237,8 @@ fn main() {
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke bbcfg <classfile.class> <method>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke diff <classfile1.class> <classfile2.class>");
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
@@ -327,6 +331,13 @@ fn main() {
     }
 
     // Dispatch `cg`: dump call graph for a class.
+
+    #[cfg(feature = "nova")]
+    if args.len() >= 4 && args[1] == "diff" {
+        diff::dump_diff(&args[2], &args[3]);
+        return;
+    }
+
     if args.len() >= 3 && args[1] == "cg" {
         dump_cg(&args[2]);
         return;
