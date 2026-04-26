@@ -1,8 +1,5 @@
 use duke_bytecode::decode;
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 use std::process;
 
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
@@ -88,7 +85,7 @@ pub fn dump_search(path: &str, query: &str) {
 mod tests {
     use super::*;
     use duke_classfile::ClassAccessFlags;
-    use duke_classfile::types::ClassFile;
+    use duke_classfile::ClassFile;
 
     #[test]
     fn test_dump_search_valid() {

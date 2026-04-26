@@ -1,8 +1,5 @@
 use duke_bytecode::{build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_cfg};
-use duke_classfile::{
-    ClassFile,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, ClassFile, CpEntry, CpIndex};
 use std::fmt::Write;
 
 fn escape_html(s: &str) -> String {
@@ -297,7 +294,7 @@ mod tests {
     #[test]
     fn test_generate_html_report_complex_class_with_interfaces_fields() {
         use duke_classfile::FieldAccessFlags;
-        use duke_classfile::types::FieldInfo;
+        use duke_classfile::FieldInfo;
 
         let cf = ClassFile {
             major_version: 61,
@@ -360,9 +357,7 @@ mod tests {
 
     #[test]
     fn test_generate_html_report_complex_class() {
-        use duke_classfile::types::{
-            AttributeData, AttributeInfo, CodeAttribute, FieldInfo, MethodInfo,
-        };
+        use duke_classfile::{AttributeData, AttributeInfo, CodeAttribute, FieldInfo, MethodInfo};
         use duke_classfile::{FieldAccessFlags, MethodAccessFlags};
 
         let cf = ClassFile {
@@ -470,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_html_resolve_class_name_not_class_ref() {
-        use duke_classfile::types::CpEntry;
+        use duke_classfile::CpEntry;
         let cf = ClassFile {
             major_version: 61,
             minor_version: 0,
@@ -492,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_html_cp_str_not_utf8() {
-        use duke_classfile::types::CpEntry;
+        use duke_classfile::CpEntry;
         let cf = ClassFile {
             major_version: 61,
             minor_version: 0,

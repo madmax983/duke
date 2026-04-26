@@ -24,10 +24,7 @@ use duke_bytecode::{
     build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_call_graph,
     generate_mermaid_cfg,
 };
-use duke_classfile::{
-    ClassFile, MethodAccessFlags, parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, ClassFile, CpEntry, CpIndex, MethodAccessFlags, parse};
 use duke_gc::Heap;
 use duke_interpreter::{
     ClassRegistry, bootstrap_stdlib, build_class_context, execute_class_to_completion,
@@ -1392,10 +1389,7 @@ mod tests {
 
     #[test]
     fn test_generate_native_stubs_code_empty() {
-        use duke_classfile::{
-            ClassAccessFlags,
-            types::{ClassFile, CpEntry, CpIndex},
-        };
+        use duke_classfile::{ClassAccessFlags, ClassFile, CpEntry, CpIndex};
 
         let cf = ClassFile {
             minor_version: 0,
@@ -1423,8 +1417,7 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code() {
         use duke_classfile::{
-            ClassAccessFlags, MethodAccessFlags,
-            types::{ClassFile, CpEntry, CpIndex, MethodInfo},
+            ClassAccessFlags, ClassFile, CpEntry, CpIndex, MethodAccessFlags, MethodInfo,
         };
 
         let cf = ClassFile {

@@ -12,7 +12,7 @@
 /// # Examples
 ///
 /// ```
-/// use duke_classfile::types::CpIndex;
+/// use duke_classfile::CpIndex;
 ///
 /// let index = CpIndex(42);
 /// assert_eq!(index.0, 42);

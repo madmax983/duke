@@ -1,8 +1,5 @@
 use duke_bytecode::{cyclomatic_complexity, decode};
-use duke_classfile::{
-    ClassFile,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, ClassFile, CpEntry, CpIndex};
 use std::fmt::Write;
 
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
@@ -105,7 +102,7 @@ pub fn generate_analysis_report(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
+    use duke_classfile::{AttributeInfo, CodeAttribute, MethodInfo};
     use duke_classfile::{ClassAccessFlags, MethodAccessFlags};
 
     #[test]
