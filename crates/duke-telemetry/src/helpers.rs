@@ -6,7 +6,7 @@ pub mod ser_helpers {
     use serde::Serialize;
 
     /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.
-    fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
+    pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
     where
         K: Eq + std::hash::Hash,
         V: Serialize,
@@ -89,15 +89,16 @@ mod tests {
 
     #[test]
     fn test_keyed_map() {
+        use serde_json::Serializer;
         let mut map = HashMap::new();
         map.insert(1, "one");
 
-        let mut string_map = HashMap::new();
-        string_map.insert("1".to_string(), &"one");
+        let mut buf = Vec::new();
+        let mut ser = Serializer::new(&mut buf);
+        keyed_map(&map, &mut ser, |k: &i32| k.to_string()).unwrap();
 
-        // This is indirectly tested by the other functions
-        let _ = map;
-        let _ = string_map;
+        let json = String::from_utf8(buf).unwrap();
+        assert_eq!(json, r#"{"1":"one"}"#);
     }
 
     #[test]

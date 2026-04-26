@@ -14,3 +14,6 @@
 
 **Learning:** It can be hard to reach coverage for visual representation helpers (like html rendering for a class) because sometimes they depend on specific bytecodes being present, or having enough fields to match strings properly. Also, simple errors (like io errors) are easy to reach in testing by creating explicit fake classes, or using small code snippets with specific constraints (like testing `test_decoder_invalid_tableswitch_high_less_than_low` instead of `test_decoder_tableswitch_too_many_entries`).
 **Action:** When increasing coverage for simple visualizer components, use isolated, fake class definitions with specific interfaces and fields to verify html layout. When doing bytecode decoding, craft small custom byte buffers to simulate exact errors instead of large, complex byte buffers.
+## 2026-04-26 - Test markdown generation for telemetry
+**Learning:** The markdown generation in `duke-telemetry` lacked test coverage for channels that had not received recorded events.
+**Action:** When adding tests for formatting outputs, make sure to add mock data to the different internal channels so that the string formatting code lines are evaluated and correctly asserted against.

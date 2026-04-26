@@ -459,6 +459,48 @@ mod tests {
 
     #[test]
     #[cfg(feature = "telemetry")]
+    fn should_correctly_format_markdown_report_with_populated_data() {
+        let mut store = TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .exception_flow
+            .record_catch(0, "java/lang/Exception", "catch_handler", 20);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let md = store.to_markdown_report();
+        assert!(md.contains("# Duke VM Telemetry Report"));
+        assert!(md.contains("## Bytecode Cost (Top 10)"));
+        assert!(md.contains("| `iadd` | 1 | 100 |"));
+        assert!(md.contains("## Object Lineage (Top 10 Allocation Sites)"));
+        assert!(md.contains("| `java/lang/String::Foo` @10 | `bar` | 1 |"));
+        assert!(md.contains("## Class Initialization DAG"));
+        assert!(md.contains("\"java/lang/System\" -->|500ns| \"java/lang/String\""));
+        assert!(md.contains("## Exception Flow"));
+        assert!(md.contains(
+            "| `java/lang/Exception` | `Foo::bar @10` | `java/lang/Exception::catch_handler @20` |"
+        ));
+        assert!(md.contains("## Dispatch Resolution (Top 10 Virtual Call Sites)"));
+        assert!(md.contains("| `Foo`[cp42] | 1 | 1 | 1 |"));
+        assert!(md.contains("## Native Boundary (Top 10 by Call Count)"));
+        assert!(md.contains("| `java/lang/String.intern` | 1 | 1 | 100 |"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
     fn should_correctly_serialize_telemetry_store_to_json() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
