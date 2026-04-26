@@ -223,7 +223,7 @@ impl ZipReader {
                         ),
                     });
                 }
-                let mut buf = Vec::with_capacity(cap.min(1024 * 1024 * 32));
+                let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
                 decoder
                     .take(max_size as u64)
                     .read_to_end(&mut buf)

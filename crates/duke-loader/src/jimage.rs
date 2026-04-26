@@ -250,7 +250,7 @@ impl JImageReader {
                     ),
                 });
             }
-            let mut out = Vec::with_capacity(cap.min(1024 * 1024 * 32));
+            let mut out = Vec::with_capacity(cap.min(raw.len().saturating_mul(2)));
             decoder
                 .take(max_size as u64)
                 .read_to_end(&mut out)
