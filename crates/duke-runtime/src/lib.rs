@@ -3,7 +3,7 @@
 //! This crate provides the foundational data structures required for JVM execution:
 //! - [`crate::frame::Frame`]: The execution state for a single method invocation (operand stack, local variables).
 //! - [`crate::slot::Slot`]: The unit of data storage in the JVM (representing variables like `int`, `float`, or references).
-//! - [`crate::error::VmError`]: The canonical error type for runtime failures (e.g., `StackOverflow`, `NullPointerException`).
+//! - [`crate::error::Error`]: The canonical error type for runtime failures (e.g., `StackOverflow`, `NullPointerException`).
 //!
 //! These types are entirely decoupled from the actual bytecode instruction set, ensuring that
 //! memory and execution state semantics are strictly isolated from the decoding and interpretation logic.
@@ -13,7 +13,7 @@
 //! Setting up a basic execution frame and manipulating the operand stack:
 //!
 //! ```
-//! use duke_runtime::{Frame, Slot, VmError};
+//! use duke_runtime::{Frame, Slot, Error};
 //!
 //! // Create a new frame with max_stack = 4, max_locals = 2, and 0 arguments
 //! let mut frame = Frame::new(4, 2, vec![]).unwrap();
@@ -35,7 +35,7 @@ pub(crate) mod error;
 pub(crate) mod frame;
 pub(crate) mod slot;
 
-pub use error::{Error, Result, VmError, VmResult};
+pub use error::{Error, Result};
 pub use frame::Frame;
 pub use slot::Slot;
 
@@ -69,14 +69,14 @@ mod tests {
         let mut frame = Frame::new(1, 1, vec![]).expect("new frame");
         frame.push(Slot::Int(1)).expect("push 1");
         let err = frame.push(Slot::Int(2)).unwrap_err();
-        assert!(matches!(err, VmError::StackOverflow));
+        assert!(matches!(err, Error::StackOverflow));
     }
 
     #[test]
     fn frame_stack_underflow() {
         let mut frame = Frame::new(4, 1, vec![]).expect("new frame");
         let err = frame.pop().unwrap_err();
-        assert!(matches!(err, VmError::StackUnderflow));
+        assert!(matches!(err, Error::StackUnderflow));
     }
 
     #[test]
@@ -92,13 +92,13 @@ mod tests {
         f.push(Slot::Reference(None)).unwrap();
         assert!(matches!(
             f.pop_ref().unwrap_err(),
-            VmError::NullPointerException
+            Error::NullPointerException
         ));
     }
 
     #[test]
     fn array_index_oob_error_message() {
-        let e = VmError::ArrayIndexOutOfBounds {
+        let e = Error::ArrayIndexOutOfBounds {
             index: 5,
             length: 3,
         };
@@ -107,13 +107,13 @@ mod tests {
 
     #[test]
     fn negative_array_size_error_message() {
-        let e = VmError::NegativeArraySize { size: -1 };
+        let e = Error::NegativeArraySize { size: -1 };
         assert_eq!(e.to_string(), "negative array size: -1");
     }
 
     #[test]
     fn java_exception_error_message() {
-        let e = VmError::JavaException {
+        let e = Error::JavaException {
             class_name: "java/lang/RuntimeException".to_string(),
         };
         assert_eq!(e.to_string(), "java exception: java/lang/RuntimeException");
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn class_cast_exception_error_message() {
-        let e = VmError::ClassCastException {
+        let e = Error::ClassCastException {
             from: "java/lang/RuntimeException".to_string(),
             to: "java/lang/String".to_string(),
         };
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn class_not_found_error_message() {
-        let e = VmError::ClassNotFound {
+        let e = Error::ClassNotFound {
             name: "com/example/Missing".to_string(),
         };
         assert_eq!(e.to_string(), "class not found: com/example/Missing");
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn ambiguous_class_name_error_message() {
-        let e = VmError::AmbiguousClassName {
+        let e = Error::AmbiguousClassName {
             name: "HelloWorld".to_string(),
             matches: vec![
                 "HelloWorld\0loader:1".to_string(),
@@ -158,93 +158,93 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn vm_error_display_messages() {
         let cases = vec![
-            (VmError::StackOverflow, "operand stack overflow"),
-            (VmError::StackUnderflow, "operand stack underflow"),
+            (Error::StackOverflow, "operand stack overflow"),
+            (Error::StackUnderflow, "operand stack underflow"),
             (
-                VmError::LocalOutOfBounds {
+                Error::LocalOutOfBounds {
                     index: 5,
                     max_locals: 3,
                 },
                 "local variable index 5 out of bounds (max_locals=3)",
             ),
-            (VmError::DivisionByZero, "integer division by zero"),
+            (Error::DivisionByZero, "integer division by zero"),
             (
-                VmError::InvalidBranchTarget { pc: 42 },
+                Error::InvalidBranchTarget { pc: 42 },
                 "invalid branch target: pc=42",
             ),
             (
-                VmError::FellOffEnd,
+                Error::FellOffEnd,
                 "fell off end of bytecode without a return instruction",
             ),
             (
-                VmError::TypeMismatch {
+                Error::TypeMismatch {
                     expected: "int",
                     got: "long",
                 },
                 "type mismatch: expected int, got long",
             ),
             (
-                VmError::Unimplemented { mnemonic: "nop" },
+                Error::Unimplemented { mnemonic: "nop" },
                 "unimplemented instruction: nop",
             ),
             (
-                VmError::InvalidCpIndex { index: 99 },
+                Error::InvalidCpIndex { index: 99 },
                 "invalid constant pool index 99",
             ),
             (
-                VmError::MethodNotFound {
+                Error::MethodNotFound {
                     name: "foo".to_string(),
                     descriptor: "()V".to_string(),
                 },
                 "method not found: foo()V",
             ),
             (
-                VmError::InvalidMethodref { index: 42 },
+                Error::InvalidMethodref { index: 42 },
                 "constant pool index 42 is not a valid Methodref",
             ),
-            (VmError::NullPointerException, "null pointer dereference"),
+            (Error::NullPointerException, "null pointer dereference"),
             (
-                VmError::InvalidRef {
+                Error::InvalidRef {
                     address: 0xDEAD_BEEF,
                 },
                 "invalid heap reference: address=3735928559",
             ),
             (
-                VmError::InvalidFieldref { index: 12 },
+                Error::InvalidFieldref { index: 12 },
                 "constant pool index 12 is not a valid Fieldref",
             ),
             (
-                VmError::ArrayIndexOutOfBounds {
+                Error::ArrayIndexOutOfBounds {
                     index: 5,
                     length: 3,
                 },
                 "array index 5 out of bounds for length 3",
             ),
             (
-                VmError::NegativeArraySize { size: -1 },
+                Error::NegativeArraySize { size: -1 },
                 "negative array size: -1",
             ),
             (
-                VmError::JavaException {
+                Error::JavaException {
                     class_name: "java/lang/RuntimeException".to_string(),
                 },
                 "java exception: java/lang/RuntimeException",
             ),
             (
-                VmError::ClassCastException {
+                Error::ClassCastException {
                     from: "java/lang/RuntimeException".to_string(),
                     to: "java/lang/String".to_string(),
                 },
                 "class cast exception: java/lang/RuntimeException cannot be cast to java/lang/String",
             ),
             (
-                VmError::ClassNotFound {
+                Error::ClassNotFound {
                     name: "com/example/Missing".to_string(),
                 },
                 "class not found: com/example/Missing",
             ),
             (
-                VmError::AmbiguousClassName {
+                Error::AmbiguousClassName {
                     name: "HelloWorld".to_string(),
                     matches: vec![
                         "HelloWorld\0loader:1".to_string(),
@@ -253,15 +253,15 @@ mod tests {
                 },
                 "ambiguous class name: HelloWorld matches [\"HelloWorld\\0loader:1\", \"HelloWorld\\0loader:2\"]",
             ),
-            (VmError::SystemExit { code: 42 }, "System.exit(42)"),
+            (Error::SystemExit { code: 42 }, "System.exit(42)"),
             (
-                VmError::InstantiationError {
+                Error::InstantiationError {
                     class_name: "java/lang/Number".to_string(),
                 },
                 "InstantiationError: cannot instantiate abstract class java/lang/Number",
             ),
             (
-                VmError::AbstractMethodError {
+                Error::AbstractMethodError {
                     class_name: "java/lang/Number".to_string(),
                     method_name: "intValue".to_string(),
                 },

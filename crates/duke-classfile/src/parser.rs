@@ -8,7 +8,7 @@ use crate::{
     },
     class::{ClassFile, FieldInfo, MethodInfo},
     constant_pool::{CpEntry, CpIndex},
-    error::{ParseError, ParseResult},
+    error::{Error, Result},
 };
 
 const MAGIC: u32 = 0xCAFE_BABE;
@@ -21,7 +21,7 @@ const MAX_MAJOR_VERSION: u16 = 65;
 
 /// Byte-level cursor over an immutable slice.
 ///
-/// Every read operation checks bounds and returns `ParseError::UnexpectedEof`
+/// Every read operation checks bounds and returns `Error::UnexpectedEof`
 /// on failure — no panics on malformed input.
 struct Cursor<'a> {
     data: &'a [u8],
@@ -43,64 +43,64 @@ impl<'a> Cursor<'a> {
         self.data.len() - self.pos
     }
 
-    fn read_u8(&mut self) -> ParseResult<u8> {
+    fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
-            return Err(ParseError::UnexpectedEof { offset: self.pos });
+            return Err(Error::UnexpectedEof { offset: self.pos });
         }
         let b = self.data[self.pos];
         self.pos += 1;
         Ok(b)
     }
 
-    fn read_u16(&mut self) -> ParseResult<u16> {
+    fn read_u16(&mut self) -> Result<u16> {
         let hi = u16::from(self.read_u8()?);
         let lo = u16::from(self.read_u8()?);
         Ok((hi << 8) | lo)
     }
 
     #[allow(dead_code)]
-    fn read_i16(&mut self) -> ParseResult<i16> {
+    fn read_i16(&mut self) -> Result<i16> {
         Ok(self.read_u16()?.cast_signed())
     }
 
-    fn read_u32(&mut self) -> ParseResult<u32> {
+    fn read_u32(&mut self) -> Result<u32> {
         let hi = u32::from(self.read_u16()?);
         let lo = u32::from(self.read_u16()?);
         Ok((hi << 16) | lo)
     }
 
-    fn read_i32(&mut self) -> ParseResult<i32> {
+    fn read_i32(&mut self) -> Result<i32> {
         Ok(self.read_u32()?.cast_signed())
     }
 
-    fn read_u64(&mut self) -> ParseResult<u64> {
+    fn read_u64(&mut self) -> Result<u64> {
         let hi = u64::from(self.read_u32()?);
         let lo = u64::from(self.read_u32()?);
         Ok((hi << 32) | lo)
     }
 
-    fn read_i64(&mut self) -> ParseResult<i64> {
+    fn read_i64(&mut self) -> Result<i64> {
         Ok(self.read_u64()?.cast_signed())
     }
 
-    fn read_f32(&mut self) -> ParseResult<f32> {
+    fn read_f32(&mut self) -> Result<f32> {
         Ok(f32::from_bits(self.read_u32()?))
     }
 
-    fn read_f64(&mut self) -> ParseResult<f64> {
+    fn read_f64(&mut self) -> Result<f64> {
         Ok(f64::from_bits(self.read_u64()?))
     }
 
-    fn read_bytes(&mut self, len: usize) -> ParseResult<&'a [u8]> {
+    fn read_bytes(&mut self, len: usize) -> Result<&'a [u8]> {
         if self.pos + len > self.data.len() {
-            return Err(ParseError::UnexpectedEof { offset: self.pos });
+            return Err(Error::UnexpectedEof { offset: self.pos });
         }
         let slice = &self.data[self.pos..self.pos + len];
         self.pos += len;
         Ok(slice)
     }
 
-    fn read_cp_index(&mut self) -> ParseResult<CpIndex> {
+    fn read_cp_index(&mut self) -> Result<CpIndex> {
         Ok(CpIndex(self.read_u16()?))
     }
 }
@@ -111,7 +111,7 @@ impl<'a> Cursor<'a> {
 
 /// Parse a JVM `.class` file from raw bytes.
 ///
-/// Returns a fully-parsed [`ClassFile`] or a [`ParseError`] describing
+/// Returns a fully-parsed [`ClassFile`] or a [`Error`] describing
 /// exactly why the input is invalid.
 ///
 /// # Errors
@@ -129,7 +129,7 @@ impl<'a> Cursor<'a> {
 /// let result = parse(&bytes);
 /// assert!(result.is_err());
 /// ```
-pub fn parse(bytes: &[u8]) -> ParseResult<ClassFile> {
+pub fn parse(bytes: &[u8]) -> Result<ClassFile> {
     let mut cursor = Cursor::new(bytes);
     let mut class_file = parse_class_file(&mut cursor)?;
 
@@ -165,7 +165,7 @@ fn parse_class_members(
     minor_version: u16,
     major_version: u16,
     constant_pool: Vec<Option<CpEntry>>,
-) -> ParseResult<ClassFile> {
+) -> Result<ClassFile> {
     let cp_len = constant_pool.len(); // for bounds validation helpers
 
     let access_flags = ClassAccessFlags::from_bits_truncate(c.read_u16()?);
@@ -210,17 +210,17 @@ fn parse_class_members(
     })
 }
 
-fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
+fn parse_class_file(c: &mut Cursor<'_>) -> Result<ClassFile> {
     // §4.1 — magic
     let magic = c.read_u32()?;
     if magic != MAGIC {
-        return Err(ParseError::BadMagic { got: magic });
+        return Err(Error::BadMagic { got: magic });
     }
 
     let minor_version = c.read_u16()?;
     let major_version = c.read_u16()?;
     if major_version > MAX_MAJOR_VERSION {
-        return Err(ParseError::UnsupportedVersion {
+        return Err(Error::UnsupportedVersion {
             major: major_version,
             minor: minor_version,
         });
@@ -234,7 +234,7 @@ fn parse_class_file(c: &mut Cursor<'_>) -> ParseResult<ClassFile> {
 // Constant pool (§4.4)
 // ---------------------------------------------------------------------------
 
-fn parse_cp_entry(c: &mut Cursor<'_>, tag: u8, i: usize) -> ParseResult<CpEntry> {
+fn parse_cp_entry(c: &mut Cursor<'_>, tag: u8, i: usize) -> Result<CpEntry> {
     match tag {
         1 => {
             let len = c.read_u16()? as usize;
@@ -271,7 +271,7 @@ fn parse_cp_entry(c: &mut Cursor<'_>, tag: u8, i: usize) -> ParseResult<CpEntry>
         15 => {
             let reference_kind = c.read_u8()?;
             if !(1..=9).contains(&reference_kind) {
-                return Err(ParseError::InvalidMethodHandleKind {
+                return Err(Error::InvalidMethodHandleKind {
                     kind: reference_kind,
                 });
             }
@@ -297,14 +297,14 @@ fn parse_cp_entry(c: &mut Cursor<'_>, tag: u8, i: usize) -> ParseResult<CpEntry>
         20 => Ok(CpEntry::Package {
             name_index: c.read_cp_index()?,
         }),
-        other => Err(ParseError::UnknownCpTag {
+        other => Err(Error::UnknownCpTag {
             tag: other,
             index: u16::try_from(i).unwrap_or(u16::MAX),
         }),
     }
 }
 
-fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> {
+fn parse_constant_pool(c: &mut Cursor<'_>) -> Result<Vec<Option<CpEntry>>> {
     let count = c.read_u16()? as usize;
     // Index 0 is unused; spec uses 1-based indexing.
     // `count` is one more than the actual number of entries.
@@ -332,7 +332,7 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> ParseResult<Vec<Option<CpEntry>>> 
 // Fields and methods
 // ---------------------------------------------------------------------------
 
-fn parse_field(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<FieldInfo> {
+fn parse_field(c: &mut Cursor<'_>, cp_len: usize) -> Result<FieldInfo> {
     let access_flags = FieldAccessFlags::from_bits_truncate(c.read_u16()?);
     let name_index = c.read_cp_index()?;
     let descriptor_index = c.read_cp_index()?;
@@ -345,7 +345,7 @@ fn parse_field(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<FieldInfo> {
     })
 }
 
-fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<MethodInfo> {
+fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> Result<MethodInfo> {
     let access_flags = MethodAccessFlags::from_bits_truncate(c.read_u16()?);
     let name_index = c.read_cp_index()?;
     let descriptor_index = c.read_cp_index()?;
@@ -362,7 +362,7 @@ fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<MethodInfo> {
 // Attributes (§4.7)
 // ---------------------------------------------------------------------------
 
-fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<Vec<AttributeInfo>> {
+fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> Result<Vec<AttributeInfo>> {
     let count = c.read_u16()?;
     let mut attributes = Vec::with_capacity((count as usize).min(c.remaining() / 6));
     for _ in 0..count {
@@ -371,7 +371,7 @@ fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> ParseResult<Vec<Attrib
     Ok(attributes)
 }
 
-fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> ParseResult<AttributeInfo> {
+fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> {
     let name_index = c.read_cp_index()?;
     let attr_len = c.read_u32()? as usize;
 
@@ -400,10 +400,7 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> ParseResult<AttributeI
 ///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
-pub fn resolve_attributes(
-    attrs: &mut [AttributeInfo],
-    pool: &[Option<CpEntry>],
-) -> ParseResult<()> {
+pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
         let raw = match &mut attr.data {
@@ -415,7 +412,7 @@ pub fn resolve_attributes(
     Ok(())
 }
 
-fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> {
+fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
     let mut c = Cursor::new(raw);
     let data = match name {
         "ConstantValue" => AttributeData::ConstantValue {
@@ -438,15 +435,15 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> ParseResult<AttributeData> 
     Ok(data)
 }
 
-fn decode_constant_value(c: &mut Cursor<'_>) -> ParseResult<CpIndex> {
+fn decode_constant_value(c: &mut Cursor<'_>) -> Result<CpIndex> {
     c.read_cp_index()
 }
 
-fn decode_source_file(c: &mut Cursor<'_>) -> ParseResult<CpIndex> {
+fn decode_source_file(c: &mut Cursor<'_>) -> Result<CpIndex> {
     c.read_cp_index()
 }
 
-fn decode_line_number_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LineNumberEntry>> {
+fn decode_line_number_table(c: &mut Cursor<'_>) -> Result<Vec<LineNumberEntry>> {
     let len = c.read_u16()? as usize;
     let mut entries = Vec::with_capacity(len.min(c.remaining() / 4));
     for _ in 0..len {
@@ -458,7 +455,7 @@ fn decode_line_number_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LineNumberEnt
     Ok(entries)
 }
 
-fn decode_local_variable_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LocalVariableEntry>> {
+fn decode_local_variable_table(c: &mut Cursor<'_>) -> Result<Vec<LocalVariableEntry>> {
     let len = c.read_u16()? as usize;
     let mut entries = Vec::with_capacity(len.min(c.remaining() / 10));
     for _ in 0..len {
@@ -473,7 +470,7 @@ fn decode_local_variable_table(c: &mut Cursor<'_>) -> ParseResult<Vec<LocalVaria
     Ok(entries)
 }
 
-fn decode_exceptions(c: &mut Cursor<'_>) -> ParseResult<Vec<CpIndex>> {
+fn decode_exceptions(c: &mut Cursor<'_>) -> Result<Vec<CpIndex>> {
     let num = c.read_u16()? as usize;
     let mut table = Vec::with_capacity(num.min(c.remaining() / 2));
     for _ in 0..num {
@@ -482,7 +479,7 @@ fn decode_exceptions(c: &mut Cursor<'_>) -> ParseResult<Vec<CpIndex>> {
     Ok(table)
 }
 
-fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> ParseResult<Vec<BootstrapMethodEntry>> {
+fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> Result<Vec<BootstrapMethodEntry>> {
     let num = c.read_u16()? as usize;
     let mut entries = Vec::with_capacity(num.min(c.remaining() / 4));
     for _ in 0..num {
@@ -501,7 +498,7 @@ fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> ParseResult<Vec<BootstrapMeth
 }
 
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
-fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
+fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
     let max_stack = c.read_u16()?;
     let max_locals = c.read_u16()?;
     let code_len = c.read_u32()? as usize;
@@ -546,15 +543,15 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> ParseResult<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
-pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> ParseResult<&str> {
+pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {
-        return Err(ParseError::CpIndexZero);
+        return Err(Error::CpIndexZero);
     }
     match pool.get(i) {
-        Some(None) => Err(ParseError::CpPhantomSlot { index: idx.0 }),
+        Some(None) => Err(Error::CpPhantomSlot { index: idx.0 }),
         Some(Some(CpEntry::Utf8(s))) => Ok(s.as_str()),
-        None | Some(Some(_)) => Err(ParseError::CpIndexOutOfBounds {
+        None | Some(Some(_)) => Err(Error::CpIndexOutOfBounds {
             index: idx.0,
             pool_size: pool.len(),
         }),
@@ -570,8 +567,8 @@ mod tests {
         let pool = vec![];
         let result = cp_utf8(&pool, CpIndex(0));
         assert!(
-            matches!(result, Err(ParseError::CpIndexZero)),
-            "Expected ParseError::CpIndexZero, got {result:?}"
+            matches!(result, Err(Error::CpIndexZero)),
+            "Expected Error::CpIndexZero, got {result:?}"
         );
     }
 
@@ -580,8 +577,8 @@ mod tests {
         let pool = vec![None, None]; // phantom slot
         let result = cp_utf8(&pool, CpIndex(1));
         assert!(
-            matches!(result, Err(ParseError::CpPhantomSlot { index: 1 })),
-            "Expected ParseError::CpPhantomSlot, got {result:?}"
+            matches!(result, Err(Error::CpPhantomSlot { index: 1 })),
+            "Expected Error::CpPhantomSlot, got {result:?}"
         );
     }
 
@@ -590,17 +587,14 @@ mod tests {
         let pool = vec![None, Some(CpEntry::Integer(42))];
         let result = cp_utf8(&pool, CpIndex(1));
         assert!(
-            matches!(result, Err(ParseError::CpIndexOutOfBounds { index: 1, .. })),
-            "Expected ParseError::CpIndexOutOfBounds for wrong type, got {result:?}"
+            matches!(result, Err(Error::CpIndexOutOfBounds { index: 1, .. })),
+            "Expected Error::CpIndexOutOfBounds for wrong type, got {result:?}"
         );
 
         let result = cp_utf8(&pool, CpIndex(99));
         assert!(
-            matches!(
-                result,
-                Err(ParseError::CpIndexOutOfBounds { index: 99, .. })
-            ),
-            "Expected ParseError::CpIndexOutOfBounds for missing index, got {result:?}"
+            matches!(result, Err(Error::CpIndexOutOfBounds { index: 99, .. })),
+            "Expected Error::CpIndexOutOfBounds for missing index, got {result:?}"
         );
     }
 

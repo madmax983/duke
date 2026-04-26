@@ -18,7 +18,7 @@ pub(crate) mod zip;
 
 pub use bootstrap::{BootstrapLoader, ClasspathEntry};
 pub use directory::DirectoryLoader;
-pub use error::{Error, LoadError, LoadResult, Result};
+pub use error::{Error, Result};
 pub use jimage::{JImageReader, ResourceInfo};
 pub use manifest::parse_main_class;
 pub use zip::{ZipEntryInfo, ZipLoader, ZipReader};
@@ -31,9 +31,9 @@ pub trait ClassLoader {
     ///
     /// # Errors
     ///
-    /// Returns [`LoadError::NotFound`] if the class cannot be found, or
-    /// another [`LoadError`] variant on I/O or format errors.
-    fn find_class(&self, name: &str) -> LoadResult<Vec<u8>>;
+    /// Returns [`Error::NotFound`] if the class cannot be found, or
+    /// another [`Error`] variant on I/O or format errors.
+    fn find_class(&self, name: &str) -> Result<Vec<u8>>;
 }
 
 #[cfg(test)]
@@ -79,7 +79,7 @@ mod tests {
     fn directory_loader_returns_not_found() {
         let loader = DirectoryLoader::new("/nonexistent/path");
         let err = loader.find_class("NoSuchClass").unwrap_err();
-        assert!(matches!(err, LoadError::NotFound { .. }));
+        assert!(matches!(err, Error::NotFound { .. }));
     }
 
     // -----------------------------------------------------------------------

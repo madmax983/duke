@@ -27,7 +27,7 @@ pub use call_graph::generate_mermaid_call_graph;
 pub use cfg::generate_basic_block_cfg;
 pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
-pub use error::{DecodeError, DecodeResult, Error, Result, VerifyError, VerifyResult};
+pub use error::{DecodeError, Error, Result, VerifyError};
 pub use instruction::{ArrayType, Instruction};
 pub use verifier::verify;
 
@@ -170,7 +170,7 @@ mod tests {
         let code = [0x10]; // BIPUSH opcode only
         let err = decode(&code).unwrap_err();
         assert!(
-            matches!(err, DecodeError::UnexpectedEof { .. }),
+            matches!(err, crate::Error::Decode(DecodeError::UnexpectedEof { .. })),
             "truncated operand: {err}"
         );
     }
@@ -180,7 +180,10 @@ mod tests {
         let code = [0xFE]; // IMPDEP1 — reserved, invalid in class files
         let err = decode(&code).unwrap_err();
         assert!(
-            matches!(err, DecodeError::UnknownOpcode { opcode: 0xFE, .. }),
+            matches!(
+                err,
+                crate::Error::Decode(DecodeError::UnknownOpcode { opcode: 0xFE, .. })
+            ),
             "should reject reserved opcode: {err}"
         );
     }
@@ -215,7 +218,10 @@ mod tests {
         ];
         let err = decode(&code).unwrap_err();
         assert!(
-            matches!(err, DecodeError::InvalidLookupswitch { npairs: 1, .. }),
+            matches!(
+                err,
+                crate::Error::Decode(DecodeError::InvalidLookupswitch { npairs: 1, .. })
+            ),
             "invalid lookupswitch should be rejected: {err}"
         );
     }
@@ -234,11 +240,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                DecodeError::InvalidTableswitch {
+                crate::Error::Decode(DecodeError::InvalidTableswitch {
                     low: 0,
                     high: 1,
                     ..
-                }
+                })
             ),
             "invalid tableswitch should be rejected: {err}"
         );
@@ -252,7 +258,10 @@ mod tests {
         assert!(
             matches!(
                 err,
-                DecodeError::InvalidInvokeinterfaceReserved { reserved: 1, .. }
+                crate::Error::Decode(DecodeError::InvalidInvokeinterfaceReserved {
+                    reserved: 1,
+                    ..
+                })
             ),
             "non-zero invokeinterface reserved byte should be rejected: {err}"
         );
@@ -266,11 +275,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                DecodeError::InvalidInvokedynamicReserved {
+                crate::Error::Decode(DecodeError::InvalidInvokedynamicReserved {
                     reserved1: 0,
                     reserved2: 1,
                     ..
-                }
+                })
             ),
             "non-zero invokedynamic reserved bytes should be rejected: {err}"
         );
@@ -296,7 +305,7 @@ mod tests {
         ];
         let err = verify(&instrs, 1, 1).unwrap_err();
         assert!(
-            matches!(err, VerifyError::StackOverflow { .. }),
+            matches!(err, crate::Error::Verify(VerifyError::StackOverflow { .. })),
             "should detect overflow: {err}"
         );
     }
@@ -307,7 +316,10 @@ mod tests {
         let instrs = vec![(0, Instruction::Pop)];
         let err = verify(&instrs, 2, 1).unwrap_err();
         assert!(
-            matches!(err, VerifyError::StackUnderflow { .. }),
+            matches!(
+                err,
+                crate::Error::Verify(VerifyError::StackUnderflow { .. })
+            ),
             "should detect underflow: {err}"
         );
     }
@@ -547,7 +559,10 @@ mod tests {
         ];
         let err = decode(&code).unwrap_err();
         assert!(
-            matches!(err, DecodeError::InvalidLookupswitch { npairs: 1, .. }),
+            matches!(
+                err,
+                crate::Error::Decode(DecodeError::InvalidLookupswitch { npairs: 1, .. })
+            ),
             "truncated pair data should be rejected: {err}"
         );
     }
@@ -588,7 +603,10 @@ mod tests {
         let err = verify(&instrs, 4, 1).unwrap_err();
         // ireturn pops 1 (the return value); depth goes 2→1; check fires at depth=1
         assert!(
-            matches!(err, VerifyError::NonEmptyStackOnReturn { pc: 2, depth: 1 }),
+            matches!(
+                err,
+                crate::Error::Verify(VerifyError::NonEmptyStackOnReturn { pc: 2, depth: 1 })
+            ),
             "should reject return with non-empty stack: {err}"
         );
     }
@@ -606,11 +624,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds {
+                crate::Error::Verify(VerifyError::LocalOutOfBounds {
                     index: 5,
                     max_locals: 3,
                     ..
-                }
+                })
             ),
             "{err}"
         );
@@ -624,11 +642,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds {
+                crate::Error::Verify(VerifyError::LocalOutOfBounds {
                     index: 3,
                     max_locals: 2,
                     ..
-                }
+                })
             ),
             "{err}"
         );
@@ -640,7 +658,10 @@ mod tests {
         let instrs = vec![(0, Instruction::IloadW(100))];
         let err = verify(&instrs, 10, 10).unwrap_err();
         assert!(
-            matches!(err, VerifyError::LocalOutOfBounds { index: 100, .. }),
+            matches!(
+                err,
+                crate::Error::Verify(VerifyError::LocalOutOfBounds { index: 100, .. })
+            ),
             "{err}"
         );
     }
@@ -653,11 +674,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds {
+                crate::Error::Verify(VerifyError::LocalOutOfBounds {
                     index: 5,
                     max_locals: 3,
                     ..
-                }
+                })
             ),
             "{err}"
         );
@@ -672,11 +693,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds {
+                crate::Error::Verify(VerifyError::LocalOutOfBounds {
                     index: 0,
                     max_locals: 0,
                     ..
-                }
+                })
             ),
             "{err}"
         );
@@ -691,11 +712,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds {
+                crate::Error::Verify(VerifyError::LocalOutOfBounds {
                     index: 1,
                     max_locals: 1,
                     ..
-                }
+                })
             ),
             "{err}"
         );
@@ -710,11 +731,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds {
+                crate::Error::Verify(VerifyError::LocalOutOfBounds {
                     index: 2,
                     max_locals: 2,
                     ..
-                }
+                })
             ),
             "{err}"
         );
@@ -729,11 +750,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                VerifyError::LocalOutOfBounds {
+                crate::Error::Verify(VerifyError::LocalOutOfBounds {
                     index: 3,
                     max_locals: 3,
                     ..
-                }
+                })
             ),
             "{err}"
         );

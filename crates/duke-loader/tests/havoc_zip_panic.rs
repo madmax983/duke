@@ -19,7 +19,7 @@ fn havoc_zip_reader_cd_entry_extends_past_bounds() {
 
     let res = duke_loader::ZipReader::from_bytes(data);
     assert!(res.is_err());
-    if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
+    if let Err(duke_loader::Error::ZipFormat { msg }) = res {
         assert!(
             msg.contains("central directory entry extends past CD bounds")
                 || msg.contains("length overflow"),
@@ -48,7 +48,7 @@ fn havoc_zip_reader_cd_entry_truncated() {
 
     let res = duke_loader::ZipReader::from_bytes(data);
     assert!(res.is_err());
-    if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
+    if let Err(duke_loader::Error::ZipFormat { msg }) = res {
         assert!(msg.contains("central directory entry truncated"), "{}", msg);
     } else {
         panic!("Expected ZipFormat error");
@@ -75,7 +75,7 @@ fn havoc_zip_reader_cd_entry_length_overflow() {
 
     let res = duke_loader::ZipReader::from_bytes(data);
     assert!(res.is_err());
-    if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
+    if let Err(duke_loader::Error::ZipFormat { msg }) = res {
         assert!(
             msg.contains("central directory entry filename truncated")
                 || msg.contains("length overflow"),
@@ -113,7 +113,7 @@ fn havoc_zip_reader_local_header_extends_past_archive() {
     let reader = duke_loader::ZipReader::from_bytes(data).unwrap();
     let res = reader.read_entry("test");
     assert!(res.is_err());
-    if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
+    if let Err(duke_loader::Error::ZipFormat { msg }) = res {
         assert!(
             msg.contains("local header extends past archive")
                 || msg.contains("data extends past")
@@ -162,7 +162,7 @@ fn havoc_zip_reader_read_entry_info_panic() {
 
     if let Err(e) = res {
         match e {
-            duke_loader::LoadError::ZipFormat { msg } => {
+            duke_loader::Error::ZipFormat { msg } => {
                 assert!(
                     msg.contains("data extends past end of archive")
                         || msg.contains("overflow")
@@ -195,7 +195,7 @@ fn havoc_zip_reader_local_header_offset_overflow() {
     let reader = duke_loader::ZipReader::from_bytes(data).unwrap();
     let res = reader.read_entry("test");
     assert!(res.is_err());
-    if let Err(duke_loader::LoadError::ZipFormat { msg }) = res {
+    if let Err(duke_loader::Error::ZipFormat { msg }) = res {
         assert!(
             msg.contains("local header at offset") && msg.contains("truncated"),
             "{}",

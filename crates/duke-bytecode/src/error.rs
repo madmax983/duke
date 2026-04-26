@@ -118,9 +118,6 @@ pub enum DecodeError {
     },
 }
 
-/// A generic result type for operations returning a [`DecodeError`].
-pub type DecodeResult<T> = std::result::Result<T, DecodeError>;
-
 /// Errors produced by the structural bytecode verifier.
 ///
 /// These errors occur when a decoded instruction stream is structurally
@@ -178,9 +175,6 @@ pub enum VerifyError {
         depth: usize,
     },
 }
-
-/// A generic result type for operations returning a [`VerifyError`].
-pub type VerifyResult<T> = std::result::Result<T, VerifyError>;
 
 /// A generic result type for operations returning an [`enum@Error`].
 ///

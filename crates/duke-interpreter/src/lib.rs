@@ -28,7 +28,7 @@ use duke_bytecode::ArrayType;
 use duke_bytecode::Instruction;
 use duke_classfile::types::CpEntry;
 use duke_loader::ClassLoader;
-use duke_runtime::{Frame, Slot, VmError, VmResult};
+use duke_runtime::{Error, Frame, Result, Slot};
 
 // Registry of loaded classes — maps class name to its `ClassContext`.
 //

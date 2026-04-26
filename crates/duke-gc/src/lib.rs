@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use duke_runtime::{Slot, VmError, VmResult};
+use duke_runtime::{Error, Result, Slot};
 
 pub(crate) mod host;
 mod mermaid;
@@ -249,8 +249,8 @@ impl Heap {
     /// Clones an existing object in the heap. Returns the reference of the new object.
     ///
     /// # Errors
-    /// Returns `VmError::NullPointerException` if the source reference is invalid.
-    pub fn clone_object(&mut self, src_ref: u64) -> VmResult<u64> {
+    /// Returns `Error::NullPointerException` if the source reference is invalid.
+    pub fn clone_object(&mut self, src_ref: u64) -> Result<u64> {
         let src = self.get(src_ref)?;
         let class_name = src.class_name.clone();
         let fields = src.fields.clone();
@@ -282,7 +282,7 @@ impl Heap {
     /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
-    /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    /// Returns [`Error::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     ///
     /// # Panics
     /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
@@ -297,26 +297,26 @@ impl Heap {
     /// let obj_ref = heap.allocate("MyClass".to_string(), 0);
     /// assert_eq!(heap.get(obj_ref).unwrap().class_name, "MyClass");
     /// ```
-    pub fn get(&self, r: u64) -> VmResult<&HeapObject> {
+    pub fn get(&self, r: u64) -> Result<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
             self.old
                 .get(idx)
                 .and_then(|s| s.as_ref())
-                .ok_or(VmError::InvalidRef { address: r })
+                .ok_or(Error::InvalidRef { address: r })
         } else {
             let idx = usize::try_from(r).unwrap();
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
-                .ok_or(VmError::InvalidRef { address: r })
+                .ok_or(Error::InvalidRef { address: r })
         }
     }
 
     /// Returns a mutable reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
-    /// Returns [`VmError::InvalidRef`] if `r` is out of bounds or the slot is `None`.
+    /// Returns [`Error::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     ///
     /// # Panics
     /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
@@ -332,19 +332,19 @@ impl Heap {
     /// let obj_ref = heap.allocate("MyClass".to_string(), 1);
     /// heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(123);
     /// ```
-    pub fn get_mut(&mut self, r: u64) -> VmResult<&mut HeapObject> {
+    pub fn get_mut(&mut self, r: u64) -> Result<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
             self.old
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
-                .ok_or(VmError::InvalidRef { address: r })
+                .ok_or(Error::InvalidRef { address: r })
         } else {
             let idx = usize::try_from(r).unwrap();
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
-                .ok_or(VmError::InvalidRef { address: r })
+                .ok_or(Error::InvalidRef { address: r })
         }
     }
 
@@ -428,7 +428,7 @@ impl Heap {
     /// minor GC will scan it for cross-generational pointers.
     ///
     /// # Errors
-    /// Returns [`VmError::InvalidRef`] if `obj_ref` is invalid.
+    /// Returns [`Error::InvalidRef`] if `obj_ref` is invalid.
     ///
     /// # Examples
     ///
@@ -441,7 +441,7 @@ impl Heap {
     /// heap.write_field(obj_ref, 0, Slot::Int(42)).unwrap();
     /// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
     /// ```
-    pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> VmResult<()> {
+    pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> Result<()> {
         if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
             self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
         }
@@ -735,7 +735,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.read_host_file_byte(999).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
     }
 
@@ -744,7 +744,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.write_host_file_byte(999, 65).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
     }
 
@@ -755,7 +755,7 @@ mod tests {
         let id = gc.open_host_output_file(&path).unwrap();
         let err = gc.read_host_file_byte(id).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
         gc.close_host_file(id);
         let _ = std::fs::remove_file(path);
@@ -769,7 +769,7 @@ mod tests {
         let id = gc.open_host_input_file(&path).unwrap();
         let err = gc.write_host_file_byte(id, 65).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
         gc.close_host_file(id);
         let _ = std::fs::remove_file(path);
@@ -781,7 +781,7 @@ mod tests {
         let path = std::env::temp_dir().join("definitely_does_not_exist_1234.txt");
         let err = gc.open_host_input_file(&path).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/FileNotFoundException")
         );
     }
 
@@ -790,7 +790,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.spawn_host_process(&[], None).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
     }
 
@@ -817,7 +817,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.wait_host_process(999).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
     }
 
@@ -826,7 +826,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.destroy_host_process(999).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
     }
 
@@ -835,7 +835,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.try_host_process_exit_value(999).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
     }
 
@@ -844,7 +844,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.bind_server_socket("invalid_address").unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/net/SocketException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/net/SocketException")
         );
     }
 
@@ -853,7 +853,7 @@ mod tests {
         let mut gc = Heap::new();
         let err = gc.accept_connection(999).unwrap_err();
         assert!(
-            matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+            matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
         );
     }
     use super::*;
@@ -893,7 +893,7 @@ mod tests {
     fn invalid_ref_returns_error() {
         let heap = Heap::new();
         let err = heap.get(999).unwrap_err();
-        assert!(matches!(err, VmError::InvalidRef { address: 999 }));
+        assert!(matches!(err, Error::InvalidRef { address: 999 }));
     }
 
     #[test]
@@ -1789,7 +1789,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             err,
-            duke_runtime::VmError::JavaException { ref class_name }
+            duke_runtime::Error::JavaException { ref class_name }
             if class_name == "java/net/BindException"
         ));
     }
@@ -1809,7 +1809,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             err,
-            duke_runtime::VmError::JavaException { ref class_name }
+            duke_runtime::Error::JavaException { ref class_name }
             if class_name == "java/net/ConnectException"
                 || class_name == "java/net/SocketException"
         ));
@@ -1877,7 +1877,7 @@ mod tests {
         let err = heap.read_host_file_byte(reader_id).unwrap_err();
         assert!(matches!(
             err,
-            duke_runtime::VmError::JavaException { ref class_name }
+            duke_runtime::Error::JavaException { ref class_name }
             if class_name == "java/io/IOException"
         ));
     }

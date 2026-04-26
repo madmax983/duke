@@ -11,7 +11,7 @@
 //! - **Archives:** Reading ZIP/JAR archives for class loading or resource extraction.
 
 use crate::Heap;
-use duke_runtime::{VmError, VmResult};
+use duke_runtime::{Error, Result};
 use std::io::{Read, Write};
 
 #[derive(Debug)]
@@ -77,13 +77,13 @@ impl Heap {
     /// ```
     ///
     /// # Errors
-    /// Returns `VmError::JavaException` if the file does not exist or an IO error occurs.
-    pub fn open_host_input_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
+    /// Returns `Error::JavaException` if the file does not exist or an IO error occurs.
+    pub fn open_host_input_file(&mut self, path: &std::path::Path) -> Result<i32> {
         let file = std::fs::File::open(path).map_err(|err| match err.kind() {
-            std::io::ErrorKind::NotFound => VmError::JavaException {
+            std::io::ErrorKind::NotFound => Error::JavaException {
                 class_name: "java/io/FileNotFoundException".to_string(),
             },
-            _ => VmError::JavaException {
+            _ => Error::JavaException {
                 class_name: "java/io/IOException".to_string(),
             },
         })?;
@@ -96,9 +96,9 @@ impl Heap {
     /// Opens an output file on the host OS.
     ///
     /// # Errors
-    /// Returns `VmError::JavaException` if the file cannot be created.
-    pub fn open_host_output_file(&mut self, path: &std::path::Path) -> VmResult<i32> {
-        let file = std::fs::File::create(path).map_err(|_| VmError::JavaException {
+    /// Returns `Error::JavaException` if the file cannot be created.
+    pub fn open_host_output_file(&mut self, path: &std::path::Path) -> Result<i32> {
+        let file = std::fs::File::create(path).map_err(|_| Error::JavaException {
             class_name: "java/io/IOException".to_string(),
         })?;
         let id = self.next_host_file_id;
@@ -110,10 +110,10 @@ impl Heap {
     /// Reads a single byte from a host file.
     ///
     /// # Errors
-    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
-    pub fn read_host_file_byte(&mut self, id: i32) -> VmResult<i32> {
+    /// Returns `Error::JavaException` if the file handle is invalid or an IO error occurs.
+    pub fn read_host_file_byte(&mut self, id: i32) -> Result<i32> {
         let Some(handle) = self.host_files.get_mut(&id) else {
-            return Err(VmError::JavaException {
+            return Err(Error::JavaException {
                 class_name: "java/io/IOException".to_string(),
             });
         };
@@ -124,7 +124,7 @@ impl Heap {
             HostFileHandle::ProcessStdout(stdout) => stdout,
             HostFileHandle::ProcessStderr(stderr) => stderr,
             _ => {
-                return Err(VmError::JavaException {
+                return Err(Error::JavaException {
                     class_name: "java/io/IOException".into(),
                 });
             }
@@ -133,7 +133,7 @@ impl Heap {
         match reader.read(&mut buf) {
             Ok(0) => Ok(-1),
             Ok(_) => Ok(i32::from(buf[0])),
-            Err(_) => Err(VmError::JavaException {
+            Err(_) => Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             }),
         }
@@ -142,11 +142,11 @@ impl Heap {
     /// Writes a single byte to a host file.
     ///
     /// # Errors
-    /// Returns `VmError::JavaException` if the file handle is invalid or an IO error occurs.
+    /// Returns `Error::JavaException` if the file handle is invalid or an IO error occurs.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> VmResult<()> {
+    pub fn write_host_file_byte(&mut self, id: i32, value: i32) -> Result<()> {
         let Some(handle) = self.host_files.get_mut(&id) else {
-            return Err(VmError::JavaException {
+            return Err(Error::JavaException {
                 class_name: "java/io/IOException".to_string(),
             });
         };
@@ -155,14 +155,14 @@ impl Heap {
             HostFileHandle::SocketWriter(s) => s,
             HostFileHandle::ProcessStdin(stdin) => stdin,
             _ => {
-                return Err(VmError::JavaException {
+                return Err(Error::JavaException {
                     class_name: "java/io/IOException".into(),
                 });
             }
         };
         writer
             .write_all(&[(value & 0xFF) as u8])
-            .map_err(|_| VmError::JavaException {
+            .map_err(|_| Error::JavaException {
                 class_name: "java/io/IOException".into(),
             })
     }
@@ -191,9 +191,9 @@ impl Heap {
         &mut self,
         command: &[String],
         cwd: Option<&std::path::Path>,
-    ) -> VmResult<SpawnedProcessIds> {
+    ) -> Result<SpawnedProcessIds> {
         if command.is_empty() {
-            return Err(VmError::JavaException {
+            return Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         }
@@ -207,21 +207,21 @@ impl Heap {
             builder.current_dir(cwd);
         }
 
-        let mut child = builder.spawn().map_err(|_| VmError::JavaException {
+        let mut child = builder.spawn().map_err(|_| Error::JavaException {
             class_name: "java/io/IOException".into(),
         })?;
         let Some(stdin) = child.stdin.take() else {
-            return Err(VmError::JavaException {
+            return Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         };
         let Some(stdout) = child.stdout.take() else {
-            return Err(VmError::JavaException {
+            return Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         };
         let Some(stderr) = child.stderr.take() else {
-            return Err(VmError::JavaException {
+            return Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         };
@@ -267,10 +267,10 @@ impl Heap {
         status.code().unwrap_or(-1)
     }
 
-    fn process_handle_mut(&mut self, id: i32) -> VmResult<&mut HostProcessHandle> {
+    fn process_handle_mut(&mut self, id: i32) -> Result<&mut HostProcessHandle> {
         match self.host_files.get_mut(&id) {
             Some(HostFileHandle::Process(process)) => Ok(process),
-            _ => Err(VmError::JavaException {
+            _ => Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             }),
         }
@@ -280,12 +280,12 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `IOException` if the process id is invalid or waiting fails.
-    pub fn wait_host_process(&mut self, id: i32) -> VmResult<i32> {
+    pub fn wait_host_process(&mut self, id: i32) -> Result<i32> {
         let process = self.process_handle_mut(id)?;
         if let Some(code) = process.exit_code {
             return Ok(code);
         }
-        let status = process.child.wait().map_err(|_| VmError::JavaException {
+        let status = process.child.wait().map_err(|_| Error::JavaException {
             class_name: "java/io/IOException".into(),
         })?;
         let code = Self::exit_status_code(status);
@@ -297,17 +297,14 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `IOException` if the process id is invalid or querying status fails.
-    pub fn try_host_process_exit_value(&mut self, id: i32) -> VmResult<Option<i32>> {
+    pub fn try_host_process_exit_value(&mut self, id: i32) -> Result<Option<i32>> {
         let process = self.process_handle_mut(id)?;
         if let Some(code) = process.exit_code {
             return Ok(Some(code));
         }
-        let status = process
-            .child
-            .try_wait()
-            .map_err(|_| VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            })?;
+        let status = process.child.try_wait().map_err(|_| Error::JavaException {
+            class_name: "java/io/IOException".into(),
+        })?;
         let Some(status) = status else {
             return Ok(None);
         };
@@ -320,22 +317,18 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `IOException` if the process id is invalid or the kill operation fails.
-    pub fn destroy_host_process(&mut self, id: i32) -> VmResult<()> {
+    pub fn destroy_host_process(&mut self, id: i32) -> Result<()> {
         let process = self.process_handle_mut(id)?;
         if process.exit_code.is_some() {
             return Ok(());
         }
-        if let Some(status) = process
-            .child
-            .try_wait()
-            .map_err(|_| VmError::JavaException {
-                class_name: "java/io/IOException".into(),
-            })?
-        {
+        if let Some(status) = process.child.try_wait().map_err(|_| Error::JavaException {
+            class_name: "java/io/IOException".into(),
+        })? {
             process.exit_code = Some(Self::exit_status_code(status));
             return Ok(());
         }
-        process.child.kill().map_err(|_| VmError::JavaException {
+        process.child.kill().map_err(|_| Error::JavaException {
             class_name: "java/io/IOException".into(),
         })
     }
@@ -362,12 +355,12 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `BindException` if the address is already in use, `SocketException` for other errors.
-    pub fn bind_server_socket(&mut self, addr: &str) -> VmResult<i32> {
+    pub fn bind_server_socket(&mut self, addr: &str) -> Result<i32> {
         let listener = std::net::TcpListener::bind(addr).map_err(|err| match err.kind() {
-            std::io::ErrorKind::AddrInUse => VmError::JavaException {
+            std::io::ErrorKind::AddrInUse => Error::JavaException {
                 class_name: "java/net/BindException".into(),
             },
-            _ => VmError::JavaException {
+            _ => Error::JavaException {
                 class_name: "java/net/SocketException".into(),
             },
         })?;
@@ -387,13 +380,13 @@ impl Heap {
     /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
     /// programs opening billions of handles would alias at `i32::MAX`. This is a
     /// known limitation shared with the file I/O implementation.
-    pub fn accept_connection(&mut self, id: i32) -> VmResult<(i32, i32)> {
+    pub fn accept_connection(&mut self, id: i32) -> Result<(i32, i32)> {
         // Validate that the handle exists and is a TcpListener.
         if !matches!(
             self.host_files.get(&id),
             Some(HostFileHandle::TcpListener(_))
         ) {
-            return Err(VmError::JavaException {
+            return Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             });
         }
@@ -404,10 +397,10 @@ impl Heap {
         let result = listener.accept();
         self.host_files
             .insert(id, HostFileHandle::TcpListener(listener));
-        let (stream, _addr) = result.map_err(|_| VmError::JavaException {
+        let (stream, _addr) = result.map_err(|_| Error::JavaException {
             class_name: "java/io/IOException".into(),
         })?;
-        let writer = stream.try_clone().map_err(|_| VmError::JavaException {
+        let writer = stream.try_clone().map_err(|_| Error::JavaException {
             class_name: "java/io/IOException".into(),
         })?;
         let reader_id = self.next_host_file_id;
@@ -430,16 +423,16 @@ impl Heap {
     /// Note: Handle IDs are allocated with `saturating_add`; extremely long-running
     /// programs opening billions of handles would alias at `i32::MAX`. This is a
     /// known limitation shared with the file I/O implementation.
-    pub fn connect_socket(&mut self, addr: &str) -> VmResult<(i32, i32)> {
+    pub fn connect_socket(&mut self, addr: &str) -> Result<(i32, i32)> {
         let stream = std::net::TcpStream::connect(addr).map_err(|err| match err.kind() {
-            std::io::ErrorKind::ConnectionRefused => VmError::JavaException {
+            std::io::ErrorKind::ConnectionRefused => Error::JavaException {
                 class_name: "java/net/ConnectException".into(),
             },
-            _ => VmError::JavaException {
+            _ => Error::JavaException {
                 class_name: "java/net/SocketException".into(),
             },
         })?;
-        let writer = stream.try_clone().map_err(|_| VmError::JavaException {
+        let writer = stream.try_clone().map_err(|_| Error::JavaException {
             class_name: "java/net/SocketException".into(),
         })?;
         let reader_id = self.next_host_file_id;
@@ -457,15 +450,15 @@ impl Heap {
     ///
     /// # Errors
     /// Returns `IOException` if the id is invalid.
-    pub fn server_socket_local_port(&self, id: i32) -> VmResult<i32> {
+    pub fn server_socket_local_port(&self, id: i32) -> Result<i32> {
         match self.host_files.get(&id) {
             Some(HostFileHandle::TcpListener(l)) => l
                 .local_addr()
                 .map(|addr| i32::from(addr.port()))
-                .map_err(|_| VmError::JavaException {
+                .map_err(|_| Error::JavaException {
                     class_name: "java/io/IOException".into(),
                 }),
-            _ => Err(VmError::JavaException {
+            _ => Err(Error::JavaException {
                 class_name: "java/io/IOException".into(),
             }),
         }
@@ -526,7 +519,7 @@ mod tests {
         let dummy_path = std::env::temp_dir().join("does_not_exist_12345.txt");
         let result = heap.open_host_input_file(&dummy_path);
         assert!(
-            matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/FileNotFoundException")
+            matches!(result, Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/FileNotFoundException")
         );
     }
 
@@ -535,7 +528,7 @@ mod tests {
         let mut heap = Heap::new();
         let result = heap.spawn_host_process(&[], None);
         assert!(
-            matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+            matches!(result, Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/IOException")
         );
     }
 
@@ -544,7 +537,7 @@ mod tests {
         let mut heap = Heap::new();
         let result = heap.spawn_host_process(&["/does/not/exist/executable".to_string()], None);
         assert!(
-            matches!(result, Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+            matches!(result, Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/IOException")
         );
     }
 
@@ -552,10 +545,10 @@ mod tests {
     fn read_write_invalid_host_file_handle() {
         let mut heap = Heap::new();
         assert!(
-            matches!(heap.read_host_file_byte(999), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+            matches!(heap.read_host_file_byte(999), Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/IOException")
         );
         assert!(
-            matches!(heap.write_host_file_byte(999, 10), Err(duke_runtime::VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+            matches!(heap.write_host_file_byte(999, 10), Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/IOException")
         );
     }
 
@@ -601,21 +594,21 @@ mod tests {
     fn should_return_error_when_waiting_invalid_process() {
         let mut gc = Heap::new();
         let err = gc.wait_host_process(999).unwrap_err();
-        assert!(matches!(err, duke_runtime::VmError::JavaException { .. }));
+        assert!(matches!(err, duke_runtime::Error::JavaException { .. }));
     }
 
     #[test]
     fn should_return_error_when_trying_exit_value_invalid_process() {
         let mut gc = Heap::new();
         let err = gc.try_host_process_exit_value(999).unwrap_err();
-        assert!(matches!(err, duke_runtime::VmError::JavaException { .. }));
+        assert!(matches!(err, duke_runtime::Error::JavaException { .. }));
     }
 
     #[test]
     fn should_return_error_when_destroying_invalid_process() {
         let mut gc = Heap::new();
         let err = gc.destroy_host_process(999).unwrap_err();
-        assert!(matches!(err, duke_runtime::VmError::JavaException { .. }));
+        assert!(matches!(err, duke_runtime::Error::JavaException { .. }));
     }
 
     #[test]
@@ -691,7 +684,7 @@ fn spawn_host_process_io_error() {
     // Should trigger an io error and map to IOException
     let result = heap.spawn_host_process(&["/definitely/invalid/command".to_string()], None);
     assert!(
-        matches!(result, Err(VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+        matches!(result, Err(Error::JavaException { class_name }) if class_name == "java/io/IOException")
     );
 }
 
@@ -700,7 +693,7 @@ fn spawn_host_process_handles_invalid_command_as_io_exception() {
     let mut heap = Heap::new();
     let result = heap.spawn_host_process(&["/invalid/nonexistent".to_string()], None);
     assert!(
-        matches!(result, Err(VmError::JavaException { class_name }) if class_name == "java/io/IOException")
+        matches!(result, Err(Error::JavaException { class_name }) if class_name == "java/io/IOException")
     );
 }
 
@@ -713,7 +706,7 @@ fn connect_socket_io_error() {
         .unwrap_err();
     assert!(matches!(
         err,
-        VmError::JavaException { ref class_name }
+        Error::JavaException { ref class_name }
         if class_name == "java/net/SocketException" || class_name == "java/net/ConnectException"
     ));
 }
@@ -727,7 +720,7 @@ fn bind_server_socket_io_error() {
         .unwrap_err();
     assert!(matches!(
         err,
-        VmError::JavaException { ref class_name }
+        Error::JavaException { ref class_name }
         if class_name == "java/net/SocketException" || class_name == "java/net/BindException"
     ));
 }
@@ -739,7 +732,7 @@ fn accept_connection_io_error() {
     let id = heap.open_host_byte_buffer(vec![1, 2, 3]);
     let err = heap.accept_connection(id).unwrap_err();
     assert!(
-        matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
     );
 }
 
@@ -750,7 +743,7 @@ fn server_socket_local_port_io_error() {
     let id = heap.open_host_byte_buffer(vec![1, 2, 3]);
     let err = heap.server_socket_local_port(id).unwrap_err();
     assert!(
-        matches!(err, VmError::JavaException { ref class_name } if class_name == "java/net/SocketException" || class_name == "java/io/IOException")
+        matches!(err, Error::JavaException { ref class_name } if class_name == "java/net/SocketException" || class_name == "java/io/IOException")
     );
 }
 
@@ -764,7 +757,7 @@ fn open_host_output_file_io_error() {
         ))
         .unwrap_err();
     assert!(
-        matches!(err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException")
+        matches!(err, Error::JavaException { ref class_name } if class_name == "java/io/IOException")
     );
 }
 

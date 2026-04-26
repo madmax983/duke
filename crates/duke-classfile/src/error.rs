@@ -1,4 +1,4 @@
-//! `duke-classfile::error` — [`ParseError`] and related types
+//! `duke-classfile::error` — [`Error`] and related types
 //!
 //! Why does parsing a class file fail? Because the Java Virtual Machine is a strict taskmaster.
 //! When reading binary bytes, any malformed magic number, truncated byte stream, or invalid
@@ -126,9 +126,3 @@ pub enum Error {
 
 /// Convenience alias.
 pub type Result<T> = std::result::Result<T, Error>;
-
-/// Specific alias for an [`enum@Error`] resulting from parsing.
-pub type ParseError = Error;
-
-/// Specific alias for a [`Result`] returned from parsing operations.
-pub type ParseResult<T> = Result<T>;

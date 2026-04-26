@@ -3,7 +3,7 @@
 //! This module provides the [`Slot`] enum, which represents a single piece of data
 //! on the operand stack or in a local variable array.
 
-use crate::error::{VmError, VmResult};
+use crate::error::{Error, Result};
 
 /// A single JVM operand stack or local variable slot.
 ///
@@ -46,7 +46,7 @@ impl Slot {
     /// Extract as `i32`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`VmError::TypeMismatch`] if the slot is not `Int`.
+    /// Returns [`Error::TypeMismatch`] if the slot is not `Int`.
     ///
     /// # Examples
     ///
@@ -59,11 +59,11 @@ impl Slot {
     /// let s = Slot::Long(42);
     /// assert!(s.as_int().is_err());
     /// ```
-    pub const fn as_int(&self) -> VmResult<i32> {
+    pub const fn as_int(&self) -> Result<i32> {
         if let Self::Int(v) = self {
             Ok(*v)
         } else {
-            Err(VmError::TypeMismatch {
+            Err(Error::TypeMismatch {
                 expected: "int",
                 got: self.type_name(),
             })
@@ -73,7 +73,7 @@ impl Slot {
     /// Extract as `i64`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`VmError::TypeMismatch`] if the slot is not `Long`.
+    /// Returns [`Error::TypeMismatch`] if the slot is not `Long`.
     ///
     /// # Examples
     ///
@@ -86,11 +86,11 @@ impl Slot {
     /// let s = Slot::Int(42);
     /// assert!(s.as_long().is_err());
     /// ```
-    pub const fn as_long(&self) -> VmResult<i64> {
+    pub const fn as_long(&self) -> Result<i64> {
         if let Self::Long(v) = self {
             Ok(*v)
         } else {
-            Err(VmError::TypeMismatch {
+            Err(Error::TypeMismatch {
                 expected: "long",
                 got: self.type_name(),
             })
@@ -100,7 +100,7 @@ impl Slot {
     /// Extract as `f32`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`VmError::TypeMismatch`] if the slot is not `Float`.
+    /// Returns [`Error::TypeMismatch`] if the slot is not `Float`.
     ///
     /// # Examples
     ///
@@ -113,11 +113,11 @@ impl Slot {
     /// let s = Slot::Int(42);
     /// assert!(s.as_float().is_err());
     /// ```
-    pub const fn as_float(&self) -> VmResult<f32> {
+    pub const fn as_float(&self) -> Result<f32> {
         if let Self::Float(v) = self {
             Ok(*v)
         } else {
-            Err(VmError::TypeMismatch {
+            Err(Error::TypeMismatch {
                 expected: "float",
                 got: self.type_name(),
             })
@@ -127,7 +127,7 @@ impl Slot {
     /// Extract as `f64`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`VmError::TypeMismatch`] if the slot is not `Double`.
+    /// Returns [`Error::TypeMismatch`] if the slot is not `Double`.
     ///
     /// # Examples
     ///
@@ -140,11 +140,11 @@ impl Slot {
     /// let s = Slot::Int(42);
     /// assert!(s.as_double().is_err());
     /// ```
-    pub const fn as_double(&self) -> VmResult<f64> {
+    pub const fn as_double(&self) -> Result<f64> {
         if let Self::Double(v) = self {
             Ok(*v)
         } else {
-            Err(VmError::TypeMismatch {
+            Err(Error::TypeMismatch {
                 expected: "double",
                 got: self.type_name(),
             })
@@ -254,7 +254,7 @@ mod tests {
             } else {
                 assert_eq!(
                     variant.as_int().unwrap_err(),
-                    VmError::TypeMismatch {
+                    Error::TypeMismatch {
                         expected: "int",
                         got: type_name,
                     }
@@ -267,7 +267,7 @@ mod tests {
             } else {
                 assert_eq!(
                     variant.as_long().unwrap_err(),
-                    VmError::TypeMismatch {
+                    Error::TypeMismatch {
                         expected: "long",
                         got: type_name,
                     }
@@ -280,7 +280,7 @@ mod tests {
             } else {
                 assert_eq!(
                     variant.as_float().unwrap_err(),
-                    VmError::TypeMismatch {
+                    Error::TypeMismatch {
                         expected: "float",
                         got: type_name,
                     }
@@ -293,7 +293,7 @@ mod tests {
             } else {
                 assert_eq!(
                     variant.as_double().unwrap_err(),
-                    VmError::TypeMismatch {
+                    Error::TypeMismatch {
                         expected: "double",
                         got: type_name,
                     }
