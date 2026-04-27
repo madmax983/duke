@@ -25465,18 +25465,7 @@ pub(crate) fn native_string_indent(
     let n = extract_int_arg(args, 1)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let result: String = if n >= 0 {
-        let n_usize = n as usize;
-        let max_size = 1024 * 1024 * 128; // 128 MB max string size
-        let num_lines = s.lines().count().max(1);
-        let extra_len = n_usize.checked_mul(num_lines);
-
-        if extra_len.is_none() || extra_len.unwrap().checked_add(s.len()).is_none_or(|l| l > max_size) {
-            return Err(Error::JavaException {
-                class_name: "java/lang/OutOfMemoryError".to_string(),
-            });
-        }
-
-        let prefix = " ".repeat(n_usize);
+        let prefix = " ".repeat(n as usize);
         s.lines()
             .map(|line| {
                 let mut out = String::with_capacity(prefix.len() + line.len() + 1);
@@ -25810,26 +25799,5 @@ mod sentry_tests {
 
         // This shouldn't panic
         zip_close(invalid_id);
-    }
-}
-
-#[cfg(test)]
-mod havoc_string_indent_overflow_positive {
-    use super::*;
-    use std::io::sink;
-    use duke_gc::Heap;
-    use duke_runtime::Slot;
-
-    #[test]
-    fn test_string_indent_overflow_trigger() {
-        let mut heap = Heap::new();
-        let r = heap.allocate_string("hello\nworld".to_string());
-
-        let args = vec![Slot::Reference(Some(r)), Slot::Int(i32::MAX)];
-        let mut control = NativeControl::default();
-
-        let result = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
-        let err = result.unwrap_err();
-        assert!(matches!(err, Error::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
     }
 }

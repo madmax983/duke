@@ -1,0 +1,21 @@
+--- crates/duke-interpreter/src/native.rs
++++ crates/duke-interpreter/src/native.rs
+@@ -25700,6 +25700,18 @@
+         let _ = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
+     }
++
++    #[test]
++    fn test_string_indent_overflow_trigger() {
++        let mut heap = Heap::new();
++        let r = heap.allocate_string("hello\nworld".to_string());
++
++        let args = vec![Slot::Reference(Some(r)), Slot::Int(i32::MAX)];
++        let mut control = NativeControl::default();
++
++        let result = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
++        let err = result.unwrap_err();
++        assert!(matches!(err, Error::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
++    }
+ }
+
+ #[cfg(test)]

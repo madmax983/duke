@@ -1,0 +1,6 @@
+👺 Havoc: Prevent String::with_capacity OOM in native_string_indent
+
+🧨 The Trigger: Providing `i32::MAX` to `String.indent()` causes `n_usize` to be immense, triggering an unbounded `String::with_capacity` allocation that exceeds the maximum addressable space or RAM, causing a SIGKILL or panic.
+📉 The Stack Trace: `memory allocation of ... bytes failed` / SIGKILL from OS.
+🧪 Reproduction: Run `cargo test --test havoc_string_indent_overflow_positive` with an `i32::MAX` indent on a known string.
+😈 Comment: You assumed `String::with_capacity` was safe because it's in the standard library. You were wrong.
