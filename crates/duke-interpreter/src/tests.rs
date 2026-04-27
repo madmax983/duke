@@ -7942,12 +7942,12 @@ fn array_list_sort_duplicates() {
         r
     };
     let r3 = make_int(&mut heap, 3);
-    let r1a = make_int(&mut heap, 1);
-    let r1b = make_int(&mut heap, 1);
+    let r1_first = make_int(&mut heap, 1);
+    let r1_second = make_int(&mut heap, 1);
     let r2 = make_int(&mut heap, 2);
     heap.get_mut(list).unwrap().fields[1] = Slot::Reference(Some(r3));
-    heap.get_mut(list).unwrap().fields[2] = Slot::Reference(Some(r1a));
-    heap.get_mut(list).unwrap().fields[3] = Slot::Reference(Some(r1b));
+    heap.get_mut(list).unwrap().fields[2] = Slot::Reference(Some(r1_first));
+    heap.get_mut(list).unwrap().fields[3] = Slot::Reference(Some(r1_second));
     heap.get_mut(list).unwrap().fields[4] = Slot::Reference(Some(r2));
 
     let loader = duke_loader::DirectoryLoader::new(
@@ -18420,7 +18420,7 @@ fn build_test_boot_archive_jar(
     let mut owned_entries: Vec<(String, Vec<u8>)> = Vec::with_capacity(archive_entries.len() + 1);
     owned_entries.push(("META-INF/MANIFEST.MF".to_string(), manifest.into_bytes()));
     for (entry_name, entry_bytes) in archive_entries {
-        owned_entries.push((entry_name.to_string(), entry_bytes.clone()));
+        owned_entries.push(((*entry_name).to_string(), entry_bytes.clone()));
     }
 
     let entry_refs: Vec<(&str, &[u8])> = owned_entries

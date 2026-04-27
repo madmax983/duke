@@ -2811,7 +2811,11 @@ pub(crate) fn native_stream_for_each(
 }
 
 /// Native: `Stream.collect(Collector)Object` — collects to list (only toList collector supported).
-#[allow(clippy::too_many_lines, clippy::only_used_in_recursion)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::only_used_in_recursion,
+    clippy::cognitive_complexity
+)]
 pub(crate) fn native_stream_collect(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -11425,7 +11429,8 @@ fn format_java_double(v: f64) -> String {
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::cognitive_complexity
 )]
 pub fn execute(
     instructions: &[(usize, Instruction)],
@@ -20881,11 +20886,7 @@ pub(crate) fn native_stream_map_to_double(
         )))));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let elems = stream_elements(heap, stream_ref)?;
     let mut values = Vec::with_capacity(elems.len());
     for elem in elems {
         let result = ops
@@ -20931,11 +20932,7 @@ pub(crate) fn native_double_stream_sum(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let sum: f64 = heap.get(stream_ref)?.fields[1..=size]
+    let sum: f64 = stream_elements(heap, stream_ref)?
         .iter()
         .map(|s| match s {
             Slot::Double(d) => *d,
@@ -20954,20 +20951,29 @@ pub(crate) fn native_double_stream_sum(
 
 // ---- Helper extractors ----
 
-/// Extract long elements from a `duke/util/LongStream`.
-fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
-    let size = match heap.get(ref_).ok().and_then(|o| o.fields.first().copied()) {
-        Some(Slot::Int(n)) => usize::try_from(n).unwrap_or(0),
+/// Extracts stream payload slots from `fields[1..=size]`, safely handling empty streams and
+/// malformed `size` headers.
+fn stream_elements(heap: &duke_gc::Heap, stream_ref: u64) -> Result<Vec<Slot>> {
+    let obj = heap.get(stream_ref)?;
+    let declared_size = match obj.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    heap.get(ref_)
-        .ok()
-        .map(|o| {
-            o.fields[1..=size]
-                .iter()
+    let actual_size = declared_size.min(obj.fields.len().saturating_sub(1));
+    if actual_size == 0 {
+        return Ok(Vec::new());
+    }
+    Ok(obj.fields[1..=actual_size].to_vec())
+}
+
+/// Extract long elements from a `duke/util/LongStream`.
+fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
+    stream_elements(heap, ref_)
+        .map(|elems| {
+            elems.into_iter()
                 .filter_map(|s| {
                     if let Slot::Long(n) = s {
-                        Some(*n)
+                        Some(n)
                     } else {
                         None
                     }
@@ -20979,18 +20985,12 @@ fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
 
 /// Extract double elements from a `duke/util/DoubleStream`.
 fn double_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<f64> {
-    let size = match heap.get(ref_).ok().and_then(|o| o.fields.first().copied()) {
-        Some(Slot::Int(n)) => usize::try_from(n).unwrap_or(0),
-        _ => 0,
-    };
-    heap.get(ref_)
-        .ok()
-        .map(|o| {
-            o.fields[1..=size]
-                .iter()
+    stream_elements(heap, ref_)
+        .map(|elems| {
+            elems.into_iter()
                 .filter_map(|s| {
                     if let Slot::Double(d) = s {
-                        Some(*d)
+                        Some(d)
                     } else {
                         None
                     }
@@ -22300,11 +22300,7 @@ pub(crate) fn native_stream_flat_map_to_double(
             vec![],
         )))));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let elems = stream_elements(heap, stream_ref)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result: Vec<f64> = Vec::new();
     for elem in elems {
@@ -24140,9 +24136,9 @@ fn ymd_to_epoch_days(year: i32, month: u32, day: u32) -> i32 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y.rem_euclid(400); // year of era [0, 399]
-    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1; // [0, 365]
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // day of era [0, 146096]
-    (era * 146_097 + doe - 719_468) as i32
+    let day_of_year = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1; // [0, 365]
+    let day_of_era = yoe * 365 + yoe / 4 - yoe / 100 + day_of_year; // day of era [0, 146096]
+    (era * 146_097 + day_of_era - 719_468) as i32
 }
 
 /// Convert a proleptic Gregorian epoch day to (year, month, day).
@@ -24155,12 +24151,12 @@ fn ymd_to_epoch_days(year: i32, month: u32, day: u32) -> i32 {
 fn epoch_days_to_ymd(epoch_days: i32) -> (i32, u32, u32) {
     let z = epoch_days as i64 + 719_468;
     let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097); // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let day_of_era = z.rem_euclid(146_097); // [0, 146096]
+    let yoe = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146_096) / 365; // [0, 399]
     let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let day_of_year = day_of_era - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * day_of_year + 2) / 153; // [0, 11]
+    let d = day_of_year - (153 * mp + 2) / 5 + 1; // [1, 31]
     let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m as u32, d as u32)
@@ -25479,7 +25475,7 @@ mod havoc_thread_join_itself {
             }));
             if let Err(e) = result {
                 if let Some(s) = e.downcast_ref::<&str>() {
-                    tx_panic.send(s.to_string()).unwrap();
+                    tx_panic.send((*s).to_string()).unwrap();
                 } else if let Some(s) = e.downcast_ref::<String>() {
                     tx_panic.send(s.clone()).unwrap();
                 }
@@ -25612,7 +25608,6 @@ mod havoc_string_repeat_oom {
 #[cfg(test)]
 mod sentry_tests {
     use super::*;
-
 
     #[test]
     fn test_zip_functions_error_cases() {
