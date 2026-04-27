@@ -21,6 +21,8 @@ mod jdwp;
 mod pathfinding;
 mod scan;
 mod search;
+#[cfg(feature = "nova")]
+mod simulate;
 mod uml;
 
 use duke_bytecode::{
@@ -351,6 +353,15 @@ fn main() {
             None
         };
         dump_html(&args[2], output_path);
+        return;
+    }
+
+    // Dispatch `simulate`: simple instruction simulator trace
+    if args.len() >= 4 && args[1] == "simulate" {
+        #[cfg(feature = "nova")]
+        simulate::dump_simulate(&args[2], &args[3]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'simulate' command requires the 'nova' feature flag.");
         return;
     }
 
