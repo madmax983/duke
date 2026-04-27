@@ -4,7 +4,6 @@
 //! the bytecode stream. The variant names match the JVM spec opcode names
 //! (`PascalCase`). Wide-prefixed forms carry a `u16` local index instead of `u8`.
 
-#![allow(missing_docs)]
 
 use duke_classfile::CpIndex;
 
@@ -21,6 +20,7 @@ use duke_classfile::CpIndex;
 /// assert_eq!(ArrayType::from_u8(99), None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum ArrayType {
     Boolean = 4,
     Char = 5,
@@ -34,6 +34,7 @@ pub enum ArrayType {
 
 impl ArrayType {
     #[must_use]
+    #[allow(missing_docs)]
     pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
             4 => Self::Boolean,
@@ -68,6 +69,7 @@ impl ArrayType {
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum Instruction {
     // -----------------------------------------------------------------------
     // Constants

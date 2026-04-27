@@ -3,7 +3,6 @@
 //! Named exactly as in the spec (lowercase). Every defined opcode value is
 //! listed; undefined bytes in the range 0x00–0xFF are absent.
 
-#![allow(missing_docs)]
 
 /// §6.5 nop
 pub const NOP: u8 = 0x00;
