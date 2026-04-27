@@ -16,6 +16,7 @@ mod html;
 #[cfg(feature = "nova")]
 mod html_jar;
 mod jar_analyze;
+mod jdwp;
 #[cfg(feature = "nova")]
 mod pathfinding;
 mod scan;
@@ -72,6 +73,19 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
 }
 
 /// Strip `-jar <path>` or `--jar <path>` from `args` and return the JAR path.
+fn extract_jdwp_flag(args: &mut Vec<String>) -> Option<jdwp::JdwpConfig> {
+    let mut cfg = None;
+    args.retain(|arg| {
+        if let Some(parsed) = jdwp::parse_agentlib_jdwp(arg) {
+            cfg = Some(parsed);
+            false
+        } else {
+            true
+        }
+    });
+    cfg
+}
+
 fn extract_jar_flag(args: &mut Vec<String>) -> Option<String> {
     let mut jar = None;
     let mut remove_next = false;
@@ -222,7 +236,31 @@ fn main() {
     let telemetry = extract_telemetry_flag(&mut args);
     let mermaid_dest = extract_mermaid_heap_flag(&mut args);
     let jdk_home = extract_jdk_flag(&mut args);
+    let jdwp_cfg = extract_jdwp_flag(&mut args);
     let jar_path = extract_jar_flag(&mut args);
+
+    let jdwp_server = jdwp_cfg.and_then(|cfg| {
+        if !cfg.server {
+            eprintln!("duke: warning: only server=y JDWP mode is currently supported");
+            return None;
+        }
+        match jdwp::start(cfg.clone()) {
+            Ok(server) => {
+                eprintln!("duke: JDWP listening on {}", cfg.address);
+                if cfg.suspend {
+                    eprintln!("duke: waiting for JDWP debugger attach (suspend=y)");
+                    server.wait_for_attach();
+                }
+                Some(server)
+            }
+            Err(err) => {
+                eprintln!("duke: warning: failed to start JDWP listener: {err}");
+                None
+            }
+        }
+    });
+
+    let _jdwp_server = jdwp_server;
 
     if jar_path.is_none() && args.len() < 2 {
         eprintln!("Usage: duke <classfile.class>");
