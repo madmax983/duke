@@ -94,7 +94,7 @@ pub enum ElementValue {
     /// Nested annotation element.
     AnnotationValue(Annotation),
     /// Array element containing child element values.
-    ArrayValue(Vec<ElementValue>),
+    ArrayValue(Vec<Self>),
 }
 
 /// Typed attribute payload.
