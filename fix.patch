@@ -1,0 +1,102 @@
+--- crates/duke-bytecode/src/cfg.rs
++++ crates/duke-bytecode/src/cfg.rs
+@@ -48,32 +48,16 @@
+         // Add node
+         let _ = writeln!(cfg, "    node{pc}[\"{pc}: {mnemonic}\"]");
+
+-        // Add edges
+-        if instr.is_return() {
+-            // No fall-through
+-        } else if let Some(offset) = instr.unconditional_jump_target() {
+-            let target = (*pc as isize + offset) as usize;
+-            if instr.is_subroutine_call() {
+-                let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
+-                if i + 1 < instructions.len() {
+-                    let next_pc = instructions[i + 1].0;
+-                    let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
+-                }
+-            } else {
+-                let _ = writeln!(cfg, "    node{pc} --> node{target}");
+-            }
+-        } else if let Some(offset) = instr.conditional_branch_target() {
+-            let target = (*pc as isize + offset) as usize;
+-            let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
+-            if i + 1 < instructions.len() {
+-                let next_pc = instructions[i + 1].0;
+-                let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
+-            }
+-        } else if let Some((default, pairs)) = instr.switch_targets() {
++        let next_pc = if i + 1 < instructions.len() { Some(instructions[i + 1].0) } else { None };
++
++        if instr.is_return() {
++            continue;
++        }
++
++        if let Some((default, pairs)) = instr.switch_targets() {
+             let default_target = (*pc as isize + default as isize) as usize;
+             let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
+             for (match_val, offset) in pairs {
+                 let target = (*pc as isize + offset as isize) as usize;
+                 let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{target}");
+             }
+         } else {
+-            // Everything else falls through
+-            if i + 1 < instructions.len() {
+-                let next_pc = instructions[i + 1].0;
+-                let _ = writeln!(cfg, "    node{pc} --> node{next_pc}");
+-            }
++            let is_cond = instr.conditional_branch_target().is_some() || instr.is_subroutine_call();
++            let targets = instr.control_flow_targets(*pc, next_pc);
++            if is_cond && targets.len() == 2 {
++                let _ = writeln!(cfg, "    node{pc} -->|true| node{}", targets[0]);
++                let _ = writeln!(cfg, "    node{pc} -->|false| node{}", targets[1]);
++            } else {
++                for target in targets {
++                    let _ = writeln!(cfg, "    node{pc} --> node{target}");
++                }
++            }
+         }
+     }
+
+@@ -434,22 +418,20 @@
+         if let Some((last_pc, last_instr)) = block.instructions.last() {
+             let next_block_id = block.end_pc;
+-            if last_instr.is_return() {
+-                // No fall-through, no explicit branches to other blocks
+-            } else if let Some(offset) = last_instr.unconditional_jump_target() {
+-                let target = (*last_pc as isize + offset) as usize;
+-                let _ = writeln!(cfg, "    block{block_id} --> block{target}");
+-            } else if let Some(offset) = last_instr.conditional_branch_target() {
+-                let target = (*last_pc as isize + offset) as usize;
+-                let _ = writeln!(cfg, "    block{block_id} -->|true| block{target}");
+-                let _ = writeln!(cfg, "    block{block_id} -->|false| block{next_block_id}");
+-            } else if let Some((default, pairs)) = last_instr.switch_targets() {
++            let next_pc = if pc_to_block.contains_key(&next_block_id) { Some(next_block_id) } else { None };
++
++            if last_instr.is_return() {
++                continue;
++            }
++
++            if let Some((default, pairs)) = last_instr.switch_targets() {
+                 let target = (*last_pc as isize + default as isize) as usize;
+                 let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                 for (key, offset) in pairs {
+                     let target = (*last_pc as isize + offset as isize) as usize;
+                     let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
+                 }
+             } else {
+-                // Fall-through
+-                if pc_to_block.contains_key(&next_block_id) {
+-                    let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
++                let is_cond = last_instr.conditional_branch_target().is_some() || last_instr.is_subroutine_call();
++                let targets = last_instr.control_flow_targets(*last_pc, next_pc);
++                if is_cond && targets.len() == 2 {
++                    let _ = writeln!(cfg, "    block{block_id} -->|true| block{}", targets[0]);
++                    let _ = writeln!(cfg, "    block{block_id} -->|false| block{}", targets[1]);
++                } else {
++                    for target in targets {
++                        let _ = writeln!(cfg, "    block{block_id} --> block{target}");
++                    }
+                 }
+             }
+         }
