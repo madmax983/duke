@@ -33,7 +33,7 @@ use crate::Instruction;
 /// assert!(cfg.contains("graph TD"));
 /// assert!(cfg.contains("node0[\"0: iconst_0\"]"));
 /// assert!(cfg.contains("node0 --> node1"));
-/// assert!(cfg.contains("node1 --> node6"));
+/// assert!(cfg.contains("node1 -->|true| node6"));
 /// ```
 #[allow(
     clippy::cast_possible_wrap,
@@ -50,13 +50,39 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
         let _ = writeln!(cfg, "    node{pc}[\"{pc}: {mnemonic}\"]");
 
         // Add edges
-        let next_pc = if i + 1 < instructions.len() {
-            Some(instructions[i + 1].0)
+        if instr.is_return() {
+            // No fall-through
+        } else if let Some(offset) = instr.unconditional_jump_target() {
+            let target = (*pc as isize + offset) as usize;
+            if instr.is_subroutine_call() {
+                let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
+                if i + 1 < instructions.len() {
+                    let next_pc = instructions[i + 1].0;
+                    let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
+                }
+            } else {
+                let _ = writeln!(cfg, "    node{pc} --> node{target}");
+            }
+        } else if let Some(offset) = instr.conditional_branch_target() {
+            let target = (*pc as isize + offset) as usize;
+            let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
+            if i + 1 < instructions.len() {
+                let next_pc = instructions[i + 1].0;
+                let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
+            }
+        } else if let Some((default, pairs)) = instr.switch_targets() {
+            let default_target = (*pc as isize + default as isize) as usize;
+            let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
+            for (match_val, offset) in pairs {
+                let target = (*pc as isize + offset as isize) as usize;
+                let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{target}");
+            }
         } else {
-            None
-        };
-        for target in instr.control_flow_targets(*pc, next_pc) {
-            let _ = writeln!(cfg, "    node{pc} --> node{target}");
+            // Everything else falls through
+            if i + 1 < instructions.len() {
+                let next_pc = instructions[i + 1].0;
+                let _ = writeln!(cfg, "    node{pc} --> node{next_pc}");
+            }
         }
     }
 
@@ -90,8 +116,8 @@ mod tests {
         assert!(cfg.contains("node7[\"7: ireturn\"]"));
 
         assert!(cfg.contains("node0 --> node1"));
-        assert!(cfg.contains("node1 --> node6"));
-        assert!(cfg.contains("node1 --> node4"));
+        assert!(cfg.contains("node1 -->|true| node6"));
+        assert!(cfg.contains("node1 -->|false| node4"));
         assert!(cfg.contains("node4 --> node5"));
         assert!(cfg.contains("node6 --> node7"));
     }
@@ -144,11 +170,11 @@ mod tests {
             ];
             let cfg = generate_mermaid_cfg(&instructions);
             assert!(
-                cfg.contains("node0 --> node5"),
+                cfg.contains("node0 -->|true| node5"),
                 "Failed for instruction: {branch_instr:?}",
             );
             assert!(
-                cfg.contains("node0 --> node4"),
+                cfg.contains("node0 -->|false| node4"),
                 "Failed for instruction: {branch_instr:?}",
             );
         }
@@ -171,9 +197,9 @@ mod tests {
             (10, Instruction::Ireturn),
         ];
         let cfg = generate_mermaid_cfg(&instructions);
-        assert!(cfg.contains("node0 --> node10"));
-        assert!(cfg.contains("node0 --> node4"));
-        assert!(cfg.contains("node0 --> node6"));
+        assert!(cfg.contains("node0 -->|default| node10"));
+        assert!(cfg.contains("node0 -->|1| node4"));
+        assert!(cfg.contains("node0 -->|2| node6"));
     }
 
     #[test]
@@ -191,9 +217,9 @@ mod tests {
             (10, Instruction::Ireturn),
         ];
         let cfg = generate_mermaid_cfg(&instructions);
-        assert!(cfg.contains("node0 --> node10"));
-        assert!(cfg.contains("node0 --> node4"));
-        assert!(cfg.contains("node0 --> node6"));
+        assert!(cfg.contains("node0 -->|default| node10"));
+        assert!(cfg.contains("node0 -->|5| node4"));
+        assert!(cfg.contains("node0 -->|10| node6"));
     }
 
     #[test]
@@ -205,8 +231,8 @@ mod tests {
             (6, Instruction::Ret(1)),
         ];
         let cfg = generate_mermaid_cfg(&instructions);
-        assert!(cfg.contains("node0 --> node5"));
-        assert!(cfg.contains("node0 --> node3"));
+        assert!(cfg.contains("node0 -->|true| node5"));
+        assert!(cfg.contains("node0 -->|false| node3"));
     }
 
     #[test]
@@ -217,8 +243,8 @@ mod tests {
             (6, Instruction::RetW(1)),
         ];
         let cfg = generate_mermaid_cfg(&instructions);
-        assert!(cfg.contains("node0 --> node5"));
-        assert!(cfg.contains("node0 --> node5"));
+        assert!(cfg.contains("node0 -->|true| node5"));
+        assert!(cfg.contains("node0 -->|false| node5"));
     }
 }
 
@@ -413,13 +439,27 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         // Edge definition based on the last instruction
         if let Some((last_pc, last_instr)) = block.instructions.last() {
             let next_block_id = block.end_pc;
-            let next_pc = if pc_to_block.contains_key(&next_block_id) {
-                Some(next_block_id)
-            } else {
-                None
-            };
-            for target in last_instr.control_flow_targets(*last_pc, next_pc) {
+            if last_instr.is_return() {
+                // No fall-through, no explicit branches to other blocks
+            } else if let Some(offset) = last_instr.unconditional_jump_target() {
+                let target = (*last_pc as isize + offset) as usize;
                 let _ = writeln!(cfg, "    block{block_id} --> block{target}");
+            } else if let Some(offset) = last_instr.conditional_branch_target() {
+                let target = (*last_pc as isize + offset) as usize;
+                let _ = writeln!(cfg, "    block{block_id} -->|true| block{target}");
+                let _ = writeln!(cfg, "    block{block_id} -->|false| block{next_block_id}");
+            } else if let Some((default, pairs)) = last_instr.switch_targets() {
+                let target = (*last_pc as isize + default as isize) as usize;
+                let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
+                for (key, offset) in pairs {
+                    let target = (*last_pc as isize + offset as isize) as usize;
+                    let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
+                }
+            } else {
+                // Fall-through
+                if pc_to_block.contains_key(&next_block_id) {
+                    let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
+                }
             }
         }
     }
@@ -458,8 +498,8 @@ mod basic_block_cfg_tests {
         assert!(cfg.contains("block6[\"Block 6"));
         assert!(cfg.contains("6: iconst_2"));
 
-        assert!(cfg.contains("block0 --> block6"));
-        assert!(cfg.contains("block0 --> block4"));
+        assert!(cfg.contains("block0 -->|true| block6"));
+        assert!(cfg.contains("block0 -->|false| block4"));
     }
 
     #[test]
@@ -484,9 +524,9 @@ mod basic_block_cfg_tests {
         let blocks = build_basic_blocks(&instructions);
         let cfg = generate_basic_block_cfg(&blocks);
         assert!(cfg.contains("graph TD"));
-        assert!(cfg.contains("block0 --> block10"));
-        assert!(cfg.contains("block0 --> block4"));
-        assert!(cfg.contains("block0 --> block6"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|1| block4"));
+        assert!(cfg.contains("block0 -->|2| block6"));
     }
 
     #[test]
@@ -503,9 +543,9 @@ mod basic_block_cfg_tests {
         let blocks = build_basic_blocks(&instructions);
         let cfg = generate_basic_block_cfg(&blocks);
         assert!(cfg.contains("graph TD"));
-        assert!(cfg.contains("block0 --> block10"));
-        assert!(cfg.contains("block0 --> block4"));
-        assert!(cfg.contains("block0 --> block6"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|-1| block4"));
+        assert!(cfg.contains("block0 -->|0| block6"));
     }
 
     #[test]
@@ -522,9 +562,9 @@ mod basic_block_cfg_tests {
         let blocks = build_basic_blocks(&instructions);
         let cfg = generate_basic_block_cfg(&blocks);
         assert!(cfg.contains("graph TD"));
-        assert!(cfg.contains("block0 --> block10"));
-        assert!(cfg.contains("block0 --> block4"));
-        assert!(cfg.contains("block0 --> block6"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|-1| block4"));
+        assert!(cfg.contains("block0 -->|0| block6"));
     }
 
     #[test]
@@ -539,9 +579,9 @@ mod basic_block_cfg_tests {
         let blocks = build_basic_blocks(&instructions);
         let cfg = generate_basic_block_cfg(&blocks);
         assert!(cfg.contains("graph TD"));
-        assert!(cfg.contains("block0 --> block10"));
-        assert!(cfg.contains("block0 --> block4"));
-        assert!(cfg.contains("block0 --> block6"));
+        assert!(cfg.contains("block0 -->|default| block10"));
+        assert!(cfg.contains("block0 -->|5| block4"));
+        assert!(cfg.contains("block0 -->|10| block6"));
     }
 
     #[test]

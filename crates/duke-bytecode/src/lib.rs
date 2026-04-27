@@ -17,7 +17,7 @@ pub(crate) mod error;
 pub(crate) mod instruction;
 pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
-pub(crate) mod reachability;
+pub mod reachability;
 pub(crate) mod verifier;
 
 #[cfg(feature = "nova")]

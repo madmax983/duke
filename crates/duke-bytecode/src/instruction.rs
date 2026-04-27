@@ -470,54 +470,6 @@ impl Instruction {
     }
 
     /// Returns the target offset for an unconditional jump.
-    /// Returns the control flow targets (successors) of this instruction.
-    ///
-    /// The targets include:
-    /// - For unconditional jumps (goto), the jump target.
-    /// - For conditional branches (ifeq), the branch target and `next_pc` (if provided).
-    /// - For switches (tableswitch/lookupswitch), the default target and all case targets.
-    /// - For returns (ireturn, return), an empty vector.
-    /// - For all other instructions, `next_pc` (if provided).
-    #[must_use]
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap)]
-    pub fn control_flow_targets(&self, current_pc: usize, next_pc: Option<usize>) -> Vec<usize> {
-        if self.is_return() {
-            return Vec::new();
-        }
-
-        if let Some(offset) = self.unconditional_jump_target() {
-            let mut targets = vec![(current_pc as isize + offset) as usize];
-            // JSR/JSR_W are subroutine calls, which also implicitly "return" to the next PC.
-            // For reachability and CFG, the next PC is a valid control flow edge.
-            #[allow(clippy::collapsible_if)]
-            if self.is_subroutine_call() {
-                if let Some(next) = next_pc {
-                    targets.push(next);
-                }
-            }
-            return targets;
-        }
-
-        if let Some(offset) = self.conditional_branch_target() {
-            let mut targets = vec![(current_pc as isize + offset) as usize];
-            if let Some(next) = next_pc {
-                targets.push(next);
-            }
-            return targets;
-        }
-
-        if let Some((default_offset, pairs)) = self.switch_targets() {
-            let mut targets = vec![(current_pc as isize + default_offset as isize) as usize];
-            for (_, offset) in pairs {
-                targets.push((current_pc as isize + offset as isize) as usize);
-            }
-            return targets;
-        }
-
-        next_pc.map_or_else(Vec::new, |next| vec![next])
-    }
-
-    /// Get the unconditional jump target offset, if this instruction is an unconditional jump.
     #[must_use]
     pub const fn unconditional_jump_target(&self) -> Option<isize> {
         match self {
