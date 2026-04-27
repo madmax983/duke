@@ -6910,6 +6910,40 @@ pub(crate) fn native_class_get_fields(
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
+fn allocate_empty_annotation_array(heap: &mut duke_gc::Heap) -> Result<Option<Slot>> {
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/annotation/Annotation;", &[])?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+pub(crate) fn native_class_get_annotations(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    allocate_empty_annotation_array(heap)
+}
+
+pub(crate) fn native_class_get_declared_annotations(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    allocate_empty_annotation_array(heap)
+}
+
+pub(crate) fn native_class_get_annotation(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    let _ = extract_ref_arg(args, 1)?;
+    Ok(Some(Slot::Reference(None)))
+}
+
 pub(crate) fn native_reflect_method_get_name(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -6918,6 +6952,35 @@ pub(crate) fn native_reflect_method_get_name(
 ) -> Result<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_name_slot(heap, method_ref)?))
+}
+
+pub(crate) fn native_reflect_method_get_annotations(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    allocate_empty_annotation_array(heap)
+}
+
+pub(crate) fn native_reflect_method_get_declared_annotations(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    allocate_empty_annotation_array(heap)
+}
+
+pub(crate) fn native_reflect_method_get_annotation(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    let _ = extract_ref_arg(args, 1)?;
+    Ok(Some(Slot::Reference(None)))
 }
 
 pub(crate) fn native_reflect_constructor_get_name(
@@ -7029,6 +7092,35 @@ pub(crate) fn native_reflect_field_get_name(
 ) -> Result<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
     Ok(Some(reflection_member_name_slot(heap, field_ref)?))
+}
+
+pub(crate) fn native_reflect_field_get_annotations(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    allocate_empty_annotation_array(heap)
+}
+
+pub(crate) fn native_reflect_field_get_declared_annotations(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    allocate_empty_annotation_array(heap)
+}
+
+pub(crate) fn native_reflect_field_get_annotation(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    let _ = extract_ref_arg(args, 1)?;
+    Ok(Some(Slot::Reference(None)))
 }
 
 pub(crate) fn native_reflection_member_set_accessible(

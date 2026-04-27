@@ -1164,6 +1164,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()[Ljava/lang/reflect/Constructor;",
         native_class_get_constructors,
     );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getAnnotations",
+        "()[Ljava/lang/annotation/Annotation;",
+        native_class_get_annotations,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getDeclaredAnnotations",
+        "()[Ljava/lang/annotation/Annotation;",
+        native_class_get_declared_annotations,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getAnnotation",
+        "(Ljava/lang/Class;)Ljava/lang/annotation/Annotation;",
+        native_class_get_annotation,
+    );
     registry.natives_mut().register_callback(
         "java/lang/Class",
         "getDeclaredMethod",
@@ -1638,6 +1656,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()[Ljava/lang/Class;",
         native_reflect_executable_get_parameter_types,
     );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "getAnnotations",
+        "()[Ljava/lang/annotation/Annotation;",
+        native_reflect_method_get_annotations,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "getDeclaredAnnotations",
+        "()[Ljava/lang/annotation/Annotation;",
+        native_reflect_method_get_declared_annotations,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "getAnnotation",
+        "(Ljava/lang/Class;)Ljava/lang/annotation/Annotation;",
+        native_reflect_method_get_annotation,
+    );
 
     let reflect_constructor_ctx = ClassContext {
         class_name: "java/lang/reflect/Constructor".to_string(),
@@ -1799,6 +1835,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "setAccessible",
         "(Z)V",
         native_reflection_member_set_accessible,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "getAnnotations",
+        "()[Ljava/lang/annotation/Annotation;",
+        native_reflect_field_get_annotations,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "getDeclaredAnnotations",
+        "()[Ljava/lang/annotation/Annotation;",
+        native_reflect_field_get_declared_annotations,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "getAnnotation",
+        "(Ljava/lang/Class;)Ljava/lang/annotation/Annotation;",
+        native_reflect_field_get_annotation,
     );
 
     let runnable_ctx = ClassContext {
