@@ -17996,6 +17996,139 @@ pub(crate) fn native_random_next_boolean(
     Ok(Some(Slot::Int(v)))
 }
 
+fn byte_array_from_ref(heap: &duke_gc::Heap, array_ref: u64) -> Result<Vec<u8>> {
+    let arr = heap.get(array_ref)?;
+    let mut bytes = Vec::with_capacity(arr.fields.len());
+    for slot in &arr.fields {
+        let Slot::Int(v) = slot else {
+            return Err(Error::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        };
+        bytes.push(v.to_le_bytes()[0]);
+    }
+    Ok(bytes)
+}
+
+fn alloc_byte_array(heap: &mut duke_gc::Heap, bytes: &[u8]) -> u64 {
+    let array_ref = heap.allocate("[B".to_string(), bytes.len());
+    if let Ok(array) = heap.get_mut(array_ref) {
+        for (idx, byte) in bytes.iter().copied().enumerate() {
+            array.fields[idx] = Slot::Int(i32::from(byte));
+        }
+    }
+    array_ref
+}
+
+fn compute_message_digest(algorithm: &str, bytes: &[u8]) -> Result<Vec<u8>> {
+    use sha1::Digest as _;
+    let digest = match algorithm {
+        "SHA-256" => sha2::Sha256::digest(bytes).to_vec(),
+        "SHA-1" => sha1::Sha1::digest(bytes).to_vec(),
+        "MD5" => md5::Md5::digest(bytes).to_vec(),
+        _ => {
+            return Err(Error::JavaException {
+                class_name: "java/security/NoSuchAlgorithmException".to_string(),
+            });
+        }
+    };
+    Ok(digest)
+}
+
+/// Native: `MessageDigest.getInstance(String)MessageDigest` — creates a digest for supported algorithms.
+pub(crate) fn native_message_digest_get_instance(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let algorithm_ref = extract_ref_arg(args, 0)?;
+    let algorithm = heap
+        .get(algorithm_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    // Validate upfront to match expected Java behavior for unknown algorithms.
+    let _ = compute_message_digest(&algorithm, &[])?;
+    let digest_ref = heap.allocate("java/security/MessageDigest".to_string(), 1);
+    heap.get_mut(digest_ref)?.string_value = Some(algorithm);
+    Ok(Some(Slot::Reference(Some(digest_ref))))
+}
+
+/// Native: `MessageDigest.digest([B)[B` — one-shot digest of provided bytes.
+pub(crate) fn native_message_digest_digest_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let digest_ref = extract_ref_arg(args, 0)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let algorithm = heap
+        .get(digest_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let output = compute_message_digest(&algorithm, &input)?;
+    let out_ref = alloc_byte_array(heap, &output);
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `MessageDigest.digest()[B` — digest any buffered bytes (none in this minimal implementation).
+pub(crate) fn native_message_digest_digest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let digest_ref = extract_ref_arg(args, 0)?;
+    let algorithm = heap
+        .get(digest_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let output = compute_message_digest(&algorithm, &[])?;
+    let out_ref = alloc_byte_array(heap, &output);
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `SecureRandom.nextBytes([B)V` — fills target array using host CSPRNG.
+pub(crate) fn native_secure_random_next_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let array_ref = extract_ref_arg(args, 1)?;
+    let mut bytes = vec![0_u8; heap.get(array_ref)?.fields.len()];
+    getrandom::fill(&mut bytes).map_err(|_| Error::JavaException {
+        class_name: "java/lang/InternalError".to_string(),
+    })?;
+    let arr = heap.get_mut(array_ref)?;
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        arr.fields[idx] = Slot::Int(i32::from(byte));
+    }
+    Ok(None)
+}
+
+/// Native: `SecureRandom.generateSeed(I)[B` — returns a fresh random byte array.
+pub(crate) fn native_secure_random_generate_seed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let len = usize::try_from(extract_int_arg(args, 1)?.max(0)).unwrap_or(0);
+    let mut bytes = vec![0_u8; len];
+    getrandom::fill(&mut bytes).map_err(|_| Error::JavaException {
+        class_name: "java/lang/InternalError".to_string(),
+    })?;
+    let out_ref = alloc_byte_array(heap, &bytes);
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
 // ---------------------------------------------------------------------------
 // java.util.regex.Pattern / Matcher
 // Pattern: string_value = regex string.
@@ -25424,13 +25557,13 @@ mod sentry_tests {
         let invalid_id = -999;
 
         let count_err = zip_entry_count(invalid_id).unwrap_err();
-        assert!(matches!(count_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(count_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let info_err = zip_get_entry_info(invalid_id, "test").unwrap_err();
-        assert!(matches!(info_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(info_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let read_err = zip_read_entry(invalid_id, "test").unwrap_err();
-        assert!(matches!(read_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(read_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         // This shouldn't panic
         zip_close(invalid_id);
