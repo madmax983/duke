@@ -2898,6 +2898,7 @@ pub(crate) fn native_stream_for_each(
 
 /// Native: `Stream.collect(Collector)Object` — collects to list (only toList collector supported).
 #[allow(clippy::too_many_lines, clippy::only_used_in_recursion)]
+#[allow(clippy::cognitive_complexity)]
 pub(crate) fn native_stream_collect(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -11491,6 +11492,7 @@ fn format_java_double(v: f64) -> String {
     clippy::cast_precision_loss,
     clippy::too_many_lines
 )]
+#[allow(clippy::cognitive_complexity)]
 pub fn execute(
     instructions: &[(usize, Instruction)],
     cp: &[Option<CpEntry>],
@@ -24028,8 +24030,8 @@ fn ymd_to_epoch_days(year: i32, month: u32, day: u32) -> i32 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y.rem_euclid(400); // year of era [0, 399]
-    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1; // [0, 365]
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // day of era [0, 146096]
+    let day_of_year = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1; // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + day_of_year; // day of era [0, 146096]
     (era * 146_097 + doe - 719_468) as i32
 }
 
@@ -24046,9 +24048,9 @@ fn epoch_days_to_ymd(epoch_days: i32) -> (i32, u32, u32) {
     let doe = z.rem_euclid(146_097); // [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
     let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let day_of_year = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * day_of_year + 2) / 153; // [0, 11]
+    let d = day_of_year - (153 * mp + 2) / 5 + 1; // [1, 31]
     let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m as u32, d as u32)
@@ -25367,7 +25369,7 @@ mod havoc_thread_join_itself {
             }));
             if let Err(e) = result {
                 if let Some(s) = e.downcast_ref::<&str>() {
-                    tx_panic.send(s.to_string()).unwrap();
+                    tx_panic.send((*s).to_string()).unwrap();
                 } else if let Some(s) = e.downcast_ref::<String>() {
                     tx_panic.send(s.clone()).unwrap();
                 }
@@ -25507,13 +25509,13 @@ mod sentry_tests {
         let invalid_id = -999;
 
         let count_err = zip_entry_count(invalid_id).unwrap_err();
-        assert!(matches!(count_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(count_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let info_err = zip_get_entry_info(invalid_id, "test").unwrap_err();
-        assert!(matches!(info_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(info_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let read_err = zip_read_entry(invalid_id, "test").unwrap_err();
-        assert!(matches!(read_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(read_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         // This shouldn't panic
         zip_close(invalid_id);
