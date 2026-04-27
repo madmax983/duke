@@ -1,5 +1,23 @@
 //! Switch-dispatch JVM bytecode interpreter for Duke Phase 4.
 //!
+//! JVM Native method implementations and JNI bridging.
+//!
+//! This module contains implementations for the `native` methods of standard
+//! library classes (e.g., `java/util/zip/ZipFile`, `java/lang/System`) and handles
+//! the boundary transitions between interpreted JVM bytecode and native Rust code.
+//!
+//! When `invoke_virtual` or `invoke_static` encounters a method marked `ACC_NATIVE`,
+//! control flow routes to the handlers registered here rather than decoding bytecode.
+//!
+//! JVM Native method implementations and JNI bridging.
+//!
+//! This module contains implementations for the `native` methods of standard
+//! library classes (e.g., `java/util/zip/ZipFile`, `java/lang/System`) and handles
+//! the boundary transitions between interpreted JVM bytecode and native Rust code.
+//!
+//! When `invoke_virtual` or `invoke_static` encounters a method marked `ACC_NATIVE`,
+//! control flow routes to the handlers registered here rather than decoding bytecode.
+//!
 //! Executes decoded instruction streams for methods containing integer, long,
 //! float, and double arithmetic, control flow, and local variables.  Heap
 //! allocation, field access, and method invocation are not yet implemented.
