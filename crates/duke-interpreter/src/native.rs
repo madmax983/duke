@@ -2897,8 +2897,11 @@ pub(crate) fn native_stream_for_each(
 }
 
 /// Native: `Stream.collect(Collector)Object` — collects to list (only toList collector supported).
-#[allow(clippy::too_many_lines, clippy::only_used_in_recursion)]
-#[allow(clippy::cognitive_complexity)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::only_used_in_recursion,
+    clippy::cognitive_complexity
+)]
 pub(crate) fn native_stream_collect(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -10378,7 +10381,7 @@ pub(crate) fn native_math_floor_div_int(
         return Err(Error::DivisionByZero);
     }
     Ok(Some(Slot::Int(
-        a.div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
+        a.wrapping_div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
     )))
 }
 
@@ -10392,6 +10395,28 @@ pub(crate) fn native_math_round_float(
 ) -> Result<Option<Slot>> {
     let a = extract_float_arg(args, 0)?;
     Ok(Some(Slot::Int(a.round() as i32)))
+}
+
+#[cfg(test)]
+mod havoc_proptest_math {
+    use super::*;
+    use proptest::prelude::*;
+    use std::io::sink;
+
+    proptest! {
+        #[test]
+        fn fuzz_native_math_floor_div_int(a in any::<i32>(), b in any::<i32>()) {
+            let mut heap = duke_gc::Heap::new();
+            let mut control = NativeControl::default();
+            let args = vec![Slot::Int(a), Slot::Int(b)];
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = native_math_floor_div_int(&args, &mut heap, &mut sink(), &mut control);
+            }));
+
+            assert!(result.is_ok(), "Panic on a={a}, b={b}");
+        }
+    }
 }
 
 // ---- System.arraycopy native ----
@@ -11490,7 +11515,8 @@ fn format_java_double(v: f64) -> String {
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::cognitive_complexity
 )]
 #[allow(clippy::cognitive_complexity)]
 pub fn execute(
@@ -14108,6 +14134,46 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
     (fields, static_fields, instance_count)
 }
 
+/// Constructs a `ClassContext` from a parsed `ClassFile`.
+///
+/// The `ClassContext` serves as the runtime representation of a loaded class.
+/// It bridges the raw structure provided by `duke_classfile` and the execution environment
+/// required by the interpreter. It encapsulates resolved metadata (like the class name and superclass),
+/// method representations (including code and handlers), fields (both static and instance), and
+/// bootstrap methods required for dynamic invocation (`invokedynamic`).
+///
+/// # Arguments
+///
+/// * `cf` - A reference to the parsed `duke_classfile::ClassFile`.
+///
+/// # Examples
+///
+/// ```
+/// # use duke_interpreter::build_class_context;
+/// # use duke_classfile::{ClassFile, ClassAccessFlags};
+/// # use duke_classfile::types::{CpIndex, CpEntry};
+/// // A minimal class file representation of `java/lang/Object`.
+/// let cf = ClassFile {
+///     minor_version: 0,
+///     major_version: 52,
+///     constant_pool: vec![
+///         // Index 0 is implicit in Java constant pools, but duke_classfile uses 0-indexed vec
+///         // Let's create a minimal valid pool where index 0 is a Utf8 and index 1 is a Class.
+///         Some(CpEntry::Utf8("java/lang/Object".to_string())),
+///         Some(CpEntry::Class { name_index: CpIndex(0) }),
+///     ],
+///     access_flags: ClassAccessFlags::empty(),
+///     this_class: CpIndex(1), // Points to the Class entry at index 1
+///     super_class: CpIndex(0), // No superclass
+///     interfaces: vec![],
+///     fields: vec![],
+///     methods: vec![],
+///     attributes: vec![],
+/// };
+///
+/// let context = build_class_context(&cf);
+/// assert_eq!(context.class_name, "java/lang/Object"); // Name is correctly resolved
+/// ```
 #[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     use duke_classfile::types::{AttributeData, CpEntry};
@@ -18081,6 +18147,139 @@ pub(crate) fn native_random_next_boolean(
     Ok(Some(Slot::Int(v)))
 }
 
+fn byte_array_from_ref(heap: &duke_gc::Heap, array_ref: u64) -> Result<Vec<u8>> {
+    let arr = heap.get(array_ref)?;
+    let mut bytes = Vec::with_capacity(arr.fields.len());
+    for slot in &arr.fields {
+        let Slot::Int(v) = slot else {
+            return Err(Error::TypeMismatch {
+                expected: "Int",
+                got: "other",
+            });
+        };
+        bytes.push(v.to_le_bytes()[0]);
+    }
+    Ok(bytes)
+}
+
+fn alloc_byte_array(heap: &mut duke_gc::Heap, bytes: &[u8]) -> u64 {
+    let array_ref = heap.allocate("[B".to_string(), bytes.len());
+    if let Ok(array) = heap.get_mut(array_ref) {
+        for (idx, byte) in bytes.iter().copied().enumerate() {
+            array.fields[idx] = Slot::Int(i32::from(byte));
+        }
+    }
+    array_ref
+}
+
+fn compute_message_digest(algorithm: &str, bytes: &[u8]) -> Result<Vec<u8>> {
+    use sha1::Digest as _;
+    let digest = match algorithm {
+        "SHA-256" => sha2::Sha256::digest(bytes).to_vec(),
+        "SHA-1" => sha1::Sha1::digest(bytes).to_vec(),
+        "MD5" => md5::Md5::digest(bytes).to_vec(),
+        _ => {
+            return Err(Error::JavaException {
+                class_name: "java/security/NoSuchAlgorithmException".to_string(),
+            });
+        }
+    };
+    Ok(digest)
+}
+
+/// Native: `MessageDigest.getInstance(String)MessageDigest` — creates a digest for supported algorithms.
+pub(crate) fn native_message_digest_get_instance(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let algorithm_ref = extract_ref_arg(args, 0)?;
+    let algorithm = heap
+        .get(algorithm_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    // Validate upfront to match expected Java behavior for unknown algorithms.
+    let _ = compute_message_digest(&algorithm, &[])?;
+    let digest_ref = heap.allocate("java/security/MessageDigest".to_string(), 1);
+    heap.get_mut(digest_ref)?.string_value = Some(algorithm);
+    Ok(Some(Slot::Reference(Some(digest_ref))))
+}
+
+/// Native: `MessageDigest.digest([B)[B` — one-shot digest of provided bytes.
+pub(crate) fn native_message_digest_digest_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let digest_ref = extract_ref_arg(args, 0)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let algorithm = heap
+        .get(digest_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let output = compute_message_digest(&algorithm, &input)?;
+    let out_ref = alloc_byte_array(heap, &output);
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `MessageDigest.digest()[B` — digest any buffered bytes (none in this minimal implementation).
+pub(crate) fn native_message_digest_digest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let digest_ref = extract_ref_arg(args, 0)?;
+    let algorithm = heap
+        .get(digest_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let output = compute_message_digest(&algorithm, &[])?;
+    let out_ref = alloc_byte_array(heap, &output);
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
+/// Native: `SecureRandom.nextBytes([B)V` — fills target array using host CSPRNG.
+pub(crate) fn native_secure_random_next_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let array_ref = extract_ref_arg(args, 1)?;
+    let mut bytes = vec![0_u8; heap.get(array_ref)?.fields.len()];
+    getrandom::fill(&mut bytes).map_err(|_| Error::JavaException {
+        class_name: "java/lang/InternalError".to_string(),
+    })?;
+    let arr = heap.get_mut(array_ref)?;
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        arr.fields[idx] = Slot::Int(i32::from(byte));
+    }
+    Ok(None)
+}
+
+/// Native: `SecureRandom.generateSeed(I)[B` — returns a fresh random byte array.
+pub(crate) fn native_secure_random_generate_seed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let len = usize::try_from(extract_int_arg(args, 1)?.max(0)).unwrap_or(0);
+    let mut bytes = vec![0_u8; len];
+    getrandom::fill(&mut bytes).map_err(|_| Error::JavaException {
+        class_name: "java/lang/InternalError".to_string(),
+    })?;
+    let out_ref = alloc_byte_array(heap, &bytes);
+    Ok(Some(Slot::Reference(Some(out_ref))))
+}
+
 // ---------------------------------------------------------------------------
 // java.util.regex.Pattern / Matcher
 // Pattern: string_value = regex string.
@@ -20771,11 +20970,7 @@ pub(crate) fn native_stream_map_to_double(
         )))));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let elems = stream_elements(heap, stream_ref)?;
     let mut values = Vec::with_capacity(elems.len());
     for elem in elems {
         let result = ops
@@ -20821,11 +21016,7 @@ pub(crate) fn native_double_stream_sum(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let sum: f64 = heap.get(stream_ref)?.fields[1..=size]
+    let sum: f64 = stream_elements(heap, stream_ref)?
         .iter()
         .map(|s| match s {
             Slot::Double(d) => *d,
@@ -20844,20 +21035,29 @@ pub(crate) fn native_double_stream_sum(
 
 // ---- Helper extractors ----
 
-/// Extract long elements from a `duke/util/LongStream`.
-fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
-    let size = match heap.get(ref_).ok().and_then(|o| o.fields.first().copied()) {
-        Some(Slot::Int(n)) => usize::try_from(n).unwrap_or(0),
+/// Extracts stream payload slots from `fields[1..=size]`, safely handling empty streams and
+/// malformed `size` headers.
+fn stream_elements(heap: &duke_gc::Heap, stream_ref: u64) -> Result<Vec<Slot>> {
+    let obj = heap.get(stream_ref)?;
+    let declared_size = match obj.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    heap.get(ref_)
-        .ok()
-        .map(|o| {
-            o.fields[1..=size]
-                .iter()
+    let actual_size = declared_size.min(obj.fields.len().saturating_sub(1));
+    if actual_size == 0 {
+        return Ok(Vec::new());
+    }
+    Ok(obj.fields[1..=actual_size].to_vec())
+}
+
+/// Extract long elements from a `duke/util/LongStream`.
+fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
+    stream_elements(heap, ref_)
+        .map(|elems| {
+            elems.into_iter()
                 .filter_map(|s| {
                     if let Slot::Long(n) = s {
-                        Some(*n)
+                        Some(n)
                     } else {
                         None
                     }
@@ -20869,18 +21069,12 @@ fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
 
 /// Extract double elements from a `duke/util/DoubleStream`.
 fn double_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<f64> {
-    let size = match heap.get(ref_).ok().and_then(|o| o.fields.first().copied()) {
-        Some(Slot::Int(n)) => usize::try_from(n).unwrap_or(0),
-        _ => 0,
-    };
-    heap.get(ref_)
-        .ok()
-        .map(|o| {
-            o.fields[1..=size]
-                .iter()
+    stream_elements(heap, ref_)
+        .map(|elems| {
+            elems.into_iter()
                 .filter_map(|s| {
                     if let Slot::Double(d) = s {
-                        Some(*d)
+                        Some(d)
                     } else {
                         None
                     }
@@ -22190,11 +22384,7 @@ pub(crate) fn native_stream_flat_map_to_double(
             vec![],
         )))));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let elems = stream_elements(heap, stream_ref)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result: Vec<f64> = Vec::new();
     for elem in elems {
@@ -24045,8 +24235,8 @@ fn ymd_to_epoch_days(year: i32, month: u32, day: u32) -> i32 {
 fn epoch_days_to_ymd(epoch_days: i32) -> (i32, u32, u32) {
     let z = epoch_days as i64 + 719_468;
     let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097); // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let day_of_era = z.rem_euclid(146_097); // [0, 146096]
+    let yoe = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146_096) / 365; // [0, 399]
     let y = yoe + era * 400;
     let day_of_year = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
     let mp = (5 * day_of_year + 2) / 153; // [0, 11]
@@ -25502,7 +25692,6 @@ mod havoc_string_repeat_oom {
 #[cfg(test)]
 mod sentry_tests {
     use super::*;
-
 
     #[test]
     fn test_zip_functions_error_cases() {

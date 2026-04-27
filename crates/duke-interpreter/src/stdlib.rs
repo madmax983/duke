@@ -6841,6 +6841,82 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_random_next_boolean,
     );
 
+    let no_such_algorithm_ctx = ClassContext {
+        class_name: "java/security/NoSuchAlgorithmException".to_string(),
+        super_class: Some("java/lang/Exception".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(no_such_algorithm_ctx);
+
+    let secure_random_ctx = ClassContext {
+        class_name: "java/security/SecureRandom".to_string(),
+        super_class: Some("java/util/Random".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(secure_random_ctx);
+    registry.natives_mut().register(
+        "java/security/SecureRandom",
+        "nextBytes",
+        "([B)V",
+        native_secure_random_next_bytes,
+    );
+    registry.natives_mut().register(
+        "java/security/SecureRandom",
+        "generateSeed",
+        "(I)[B",
+        native_secure_random_generate_seed,
+    );
+
+    let message_digest_ctx = ClassContext {
+        class_name: "java/security/MessageDigest".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "algorithm".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(message_digest_ctx);
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "getInstance",
+        "(Ljava/lang/String;)Ljava/security/MessageDigest;",
+        native_message_digest_get_instance,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "digest",
+        "([B)[B",
+        native_message_digest_digest_bytes,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "digest",
+        "()[B",
+        native_message_digest_digest,
+    );
+
     // java/lang/StringBuffer — mutable string (thread-safe in Java; here aliases StringBuilder)
     // string_value used as the buffer
     let sb_buf_ctx = ClassContext {
