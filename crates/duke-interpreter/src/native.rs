@@ -20686,11 +20686,7 @@ pub(crate) fn native_stream_map_to_double(
         )))));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let elems = stream_elements(heap, stream_ref)?;
     let mut values = Vec::with_capacity(elems.len());
     for elem in elems {
         let result = ops
@@ -20736,11 +20732,7 @@ pub(crate) fn native_double_stream_sum(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let sum: f64 = heap.get(stream_ref)?.fields[1..=size]
+    let sum: f64 = stream_elements(heap, stream_ref)?
         .iter()
         .map(|s| match s {
             Slot::Double(d) => *d,
@@ -20759,20 +20751,29 @@ pub(crate) fn native_double_stream_sum(
 
 // ---- Helper extractors ----
 
-/// Extract long elements from a `duke/util/LongStream`.
-fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
-    let size = match heap.get(ref_).ok().and_then(|o| o.fields.first().copied()) {
-        Some(Slot::Int(n)) => usize::try_from(n).unwrap_or(0),
+/// Extracts stream payload slots from `fields[1..=size]`, safely handling empty streams and
+/// malformed `size` headers.
+fn stream_elements(heap: &duke_gc::Heap, stream_ref: u64) -> Result<Vec<Slot>> {
+    let obj = heap.get(stream_ref)?;
+    let declared_size = match obj.fields.first() {
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    heap.get(ref_)
-        .ok()
-        .map(|o| {
-            o.fields[1..=size]
-                .iter()
+    let actual_size = declared_size.min(obj.fields.len().saturating_sub(1));
+    if actual_size == 0 {
+        return Ok(Vec::new());
+    }
+    Ok(obj.fields[1..=actual_size].to_vec())
+}
+
+/// Extract long elements from a `duke/util/LongStream`.
+fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
+    stream_elements(heap, ref_)
+        .map(|elems| {
+            elems.into_iter()
                 .filter_map(|s| {
                     if let Slot::Long(n) = s {
-                        Some(*n)
+                        Some(n)
                     } else {
                         None
                     }
@@ -20784,18 +20785,12 @@ fn long_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<i64> {
 
 /// Extract double elements from a `duke/util/DoubleStream`.
 fn double_stream_elems(heap: &duke_gc::Heap, ref_: u64) -> Vec<f64> {
-    let size = match heap.get(ref_).ok().and_then(|o| o.fields.first().copied()) {
-        Some(Slot::Int(n)) => usize::try_from(n).unwrap_or(0),
-        _ => 0,
-    };
-    heap.get(ref_)
-        .ok()
-        .map(|o| {
-            o.fields[1..=size]
-                .iter()
+    stream_elements(heap, ref_)
+        .map(|elems| {
+            elems.into_iter()
                 .filter_map(|s| {
                     if let Slot::Double(d) = s {
-                        Some(*d)
+                        Some(d)
                     } else {
                         None
                     }
@@ -22105,11 +22100,7 @@ pub(crate) fn native_stream_flat_map_to_double(
             vec![],
         )))));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let elems = stream_elements(heap, stream_ref)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result: Vec<f64> = Vec::new();
     for elem in elems {
