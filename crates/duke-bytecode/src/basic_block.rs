@@ -64,20 +64,20 @@ pub struct BasicBlock {
 /// assert_eq!(blocks[1].start_pc, 4); // Contains Iconst1, Ireturn
 /// assert_eq!(blocks[2].start_pc, 6); // Contains Iconst2, Ireturn
 /// ```
-#[allow(
-    clippy::cast_possible_wrap,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
-)]
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
 pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlock> {
     if instructions.is_empty() {
         return Vec::new();
     }
 
-    let mut leaders = BTreeSet::new();
+    let leaders = find_leaders(instructions);
+    construct_blocks(instructions, &leaders)
+}
 
-    // Rule 1: The first instruction is always a leader.
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+fn find_leaders(instructions: &[(usize, Instruction)]) -> BTreeSet<usize> {
+    let mut leaders = BTreeSet::new();
     leaders.insert(instructions[0].0);
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
@@ -100,11 +100,16 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
         };
 
         if is_branch_or_return && i + 1 < instructions.len() {
-            // Rule 3: The instruction immediately following a branch/return is a leader.
             leaders.insert(instructions[i + 1].0);
         }
     }
+    leaders
+}
 
+fn construct_blocks(
+    instructions: &[(usize, Instruction)],
+    leaders: &BTreeSet<usize>,
+) -> Vec<BasicBlock> {
     let mut blocks = Vec::with_capacity(leaders.len());
     let mut current_start_pc = instructions[0].0;
     let mut current_start_idx = 0;

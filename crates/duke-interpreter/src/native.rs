@@ -11577,12 +11577,109 @@ fn format_java_double(v: f64) -> String {
 ///
 /// # Examples
 ///
+/// The core bytecode interpretation loop.
+///
+/// **Why it exists:** This is the execution engine of the JVM. It reads decoded instructions,
+/// manipulates the operand stack and local variables, and manages control flow (jumps, branches).
+///
+/// # Arguments
+///
+/// * `instructions` - A slice of `(pc, Instruction)` pairs representing the method's bytecode.
+/// * `cp` - The constant pool for the current class.
+/// * `args` - The initial local variables (arguments to the method).
+/// * `max_stack` - The maximum depth of the operand stack.
+/// * `max_locals` - The size of the local variable array.
+///
+/// # Returns
+///
+/// * `Ok(Some(Slot))` - If the method completes via `ireturn`, `areturn`, etc., yielding a value.
+/// * `Ok(None)` - If the method completes via `return` (void).
+/// * `Err(Error)` - If an exception is thrown or a fatal error occurs.
+///
+/// # Panics
+///
+/// Contains internal `debug_assert!` checks that will panic in debug mode if the JVM
+/// state becomes invalid (e.g., stack underflow).
+///
+/// # Examples
+///
+/// The core bytecode interpretation loop.
+///
+/// **Why it exists:** This is the execution engine of the JVM. It reads decoded instructions,
+/// manipulates the operand stack and local variables, and manages control flow (jumps, branches).
+///
+/// # Arguments
+///
+/// * `instructions` - A slice of `(pc, Instruction)` pairs representing the method's bytecode.
+/// * `cp` - The constant pool for the current class.
+/// * `args` - The initial local variables (arguments to the method).
+/// * `max_stack` - The maximum depth of the operand stack.
+/// * `max_locals` - The size of the local variable array.
+///
+/// # Returns
+///
+/// * `Ok(Some(Slot))` - If the method completes via `ireturn`, `areturn`, etc., yielding a value.
+/// * `Ok(None)` - If the method completes via `return` (void).
+/// * `Err(Error)` - If an exception is thrown or a fatal error occurs.
+///
+/// # Panics
+///
+/// Contains internal `debug_assert!` checks that will panic in debug mode if the JVM
+/// state becomes invalid (e.g., stack underflow).
+///
+/// # Examples
+///
+/// The core bytecode interpretation loop.
+///
+/// **Why it exists:** This is the execution engine of the JVM. It reads decoded instructions,
+/// manipulates the operand stack and local variables, and manages control flow (jumps, branches).
+///
+/// # Arguments
+///
+/// * `instructions` - A slice of `(pc, Instruction)` pairs representing the method's bytecode.
+/// * `cp` - The constant pool for the current class.
+/// * `args` - The initial local variables (arguments to the method).
+/// * `max_stack` - The maximum depth of the operand stack.
+/// * `max_locals` - The size of the local variable array.
+///
+/// # Returns
+///
+/// * `Ok(Some(Slot))` - If the method completes via `ireturn`, `areturn`, etc., yielding a value.
+/// * `Ok(None)` - If the method completes via `return` (void).
+/// * `Err(Error)` - If an exception is thrown or a fatal error occurs.
+///
+/// # Panics
+///
+/// Contains internal `debug_assert!` checks that will panic in debug mode if the JVM
+/// state becomes invalid (e.g., stack underflow).
+///
+/// # Examples
+///
+/// The core bytecode interpretation loop.
+///
+/// **Why it exists:** This is the execution engine of the JVM. It reads decoded instructions,
+/// manipulates the operand stack and local variables, and manages control flow (jumps, branches).
+///
+/// # Arguments
+///
+/// * `instructions` - A slice of `(pc, Instruction)` pairs representing the method's bytecode.
+/// * `cp` - The constant pool for the current class.
+/// * `args` - The initial local variables (arguments to the method).
+/// * `max_stack` - The maximum depth of the operand stack.
+/// * `max_locals` - The size of the local variable array.
+///
+/// # Returns
+///
+/// * `Ok(Some(Slot))` - If the method completes via `ireturn`, `areturn`, etc., yielding a value.
+/// * `Ok(None)` - If the method completes via `return` (void).
+/// * `Err(Error)` - If an exception is thrown or a fatal error occurs.
+///
+/// # Examples
+///
 /// Executes a sequence of instructions (bytecode) independently.
 ///
 /// This is used heavily internally by the `MethodHandle` resolution and native implementation
 /// logic to run standalone bytecodes (e.g., dynamically generated stubs).
-///
-/// # Examples
 ///
 /// ```
 /// use duke_bytecode::Instruction;
@@ -13608,6 +13705,50 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
 /// let res = execute_class(&mut registry, &loader, &mut heap, &mut out, "java/lang/Object", "hashCode", "()I", &[]);
 /// assert!(res.is_err());
 /// ```
+/// Starts execution of a specific Java method within a given class.
+///
+/// **Why it exists:** This function resolves the requested class and method, builds the
+/// initial execution frame, and begins interpreting instructions. It bridges the gap
+/// between the user requesting a class to run and the `execute` loop.
+///
+/// # Arguments
+/// * `registry` - The class registry for resolving types.
+/// * `loader` - The class loader for fetching dependencies.
+/// * `heap` - The garbage collector heap.
+/// * `stdout` - The standard output stream.
+/// * `class_name` - The internal name of the class (e.g., `"java/lang/String"`).
+/// * `method_name` - The name of the method to execute (e.g., `"main"`).
+/// * `descriptor` - The method descriptor (e.g., `"([Ljava/lang/String;)V"`).
+/// * `args` - The arguments to pass to the method.
+///
+/// # Returns
+///
+/// * `Ok(Some(Slot))` - If the method completes and returns a value.
+/// * `Ok(None)` - If the method is `void` and completes.
+/// * `Err(Error)` - If the method throws an unhandled exception or encounters a fatal VM error.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use duke_interpreter::{execute_class, ClassRegistry};
+/// # use duke_loader::DirectoryLoader;
+/// # use duke_gc::Heap;
+/// # let mut registry = ClassRegistry::new();
+/// # let loader = DirectoryLoader::new(".");
+/// # let mut heap = Heap::new();
+/// # let mut stdout = Vec::new();
+/// // Execute `public static void main(String[] args)`
+/// let result = execute_class(
+///     &mut registry,
+///     &loader,
+///     &mut heap,
+///     &mut stdout,
+///     "com/example/App",
+///     "main",
+///     "([Ljava/lang/String;)V",
+///     &[]
+/// );
+/// ```
 #[allow(
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
@@ -13948,13 +14089,42 @@ fn spawn_java_thread(
 ///
 /// Returns `Error` if class resolution, method dispatch, or bytecode
 /// execution fails in any thread.
+/// Starts execution of a specific Java method within a given class.
+///
+/// **Why it exists:** This function resolves the requested class and method, builds the
+/// initial execution frame, and begins interpreting instructions. It bridges the gap
+/// between the user requesting a class to run and the `execute` loop.
+///
+/// # Arguments
+/// * `registry` - The class registry for resolving types.
+/// * `loader` - The class loader for fetching dependencies.
+/// * `heap` - The garbage collector heap.
+/// * `stdout` - The standard output stream.
+/// * `class_name` - The internal name of the class (e.g., `"java/lang/String"`).
+/// * `method_name` - The name of the method to execute (e.g., `"main"`).
+/// * `descriptor` - The method descriptor (e.g., `"([Ljava/lang/String;)V"`).
+/// * `args` - The arguments to pass to the method.
+///
+/// # Returns
+///
+/// * `Ok(Some(Slot))` - If the method completes and returns a value.
+/// * `Ok(None)` - If the method is `void` and completes.
+/// * `Err(Error)` - If the method throws an unhandled exception or encounters a fatal VM error.
+///
+/// Execute a Java entrypoint and keep the VM alive until any spawned worker
+/// threads have either finished or been joined.
+///
+/// # Errors
+///
+/// Returns `Error` if class resolution, method dispatch, or bytecode
+/// execution fails in any thread.
 ///
 /// # Panics
 ///
 /// Panics if a `Mutex` protecting shared VM state is poisoned by a
 /// panicking thread, or if the `Arc` cannot be unwound after all threads
-/// have joined.
-#[allow(clippy::too_many_arguments)]
+/// have joined. Also panics if the completion runtime is unexpectedly released early.
+#[allow(clippy::too_many_arguments, clippy::missing_panics_doc)]
 pub fn execute_class_to_completion<L>(
     registry: &mut ClassRegistry,
     loader: L,
