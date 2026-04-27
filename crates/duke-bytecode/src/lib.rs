@@ -29,9 +29,9 @@ pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
 pub use error::{DecodeError, Error, Result, VerifyError};
 pub use instruction::{ArrayType, Instruction};
-pub use verifier::verify;
 #[cfg(feature = "nova")]
-pub use reachability::{get_successors, find_dead_blocks, find_shortest_path};
+pub use reachability::{find_dead_blocks, find_shortest_path, get_successors};
+pub use verifier::verify;
 
 #[cfg(test)]
 mod tests {
