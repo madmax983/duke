@@ -17910,6 +17910,9 @@ pub(crate) fn native_string_formatted(
 }
 
 /// Native: `String.join(CharSequence, CharSequence[])String` — joins array elements with delimiter.
+///
+/// **⚡ Bolt Optimization:**
+/// Eliminates intermediate `Vec<String>` allocations, `.to_string()` clones, and `.join()` overhead by pushing parts directly into a single string buffer.
 pub(crate) fn native_string_join(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -17922,33 +17925,43 @@ pub(crate) fn native_string_join(
         .string_value
         .clone()
         .unwrap_or_default();
-    // args[1] can be an Object[] array (varargs) or a single Iterable (ArrayList)
-    let parts: Vec<String> = match args.get(1) {
+
+    let mut joined = String::new();
+
+    match args.get(1) {
         Some(Slot::Reference(Some(arr_ref))) => {
             let obj = heap.get(*arr_ref)?;
             if obj.class_name.starts_with('[') {
-                // It's an array — fields are the elements.
-                let len = obj.fields.len();
-                let mut result = Vec::with_capacity(len);
                 let slots: Vec<Slot> = obj.fields.clone();
                 let _ = obj;
-                for slot in slots {
-                    let s = match slot {
-                        Slot::Reference(Some(r)) => heap
-                            .get(r)?
-                            .string_value
-                            .clone()
-                            .unwrap_or_else(|| "null".to_string()),
-                        Slot::Reference(None) => "null".to_string(),
-                        Slot::Int(n) => n.to_string(),
-                        Slot::Long(n) => n.to_string(),
-                        other => format!("{other:?}"),
-                    };
-                    result.push(s);
+                for (i, slot) in slots.into_iter().enumerate() {
+                    if i > 0 {
+                        joined.push_str(&delim);
+                    }
+                    match slot {
+                        Slot::Reference(Some(r)) => {
+                            if let Some(s) = &heap.get(r)?.string_value {
+                                joined.push_str(s);
+                            } else {
+                                joined.push_str("null");
+                            }
+                        }
+                        Slot::Reference(None) => joined.push_str("null"),
+                        Slot::Int(n) => {
+                            use std::fmt::Write;
+                            let _ = write!(&mut joined, "{}", n);
+                        }
+                        Slot::Long(n) => {
+                            use std::fmt::Write;
+                            let _ = write!(&mut joined, "{}", n);
+                        }
+                        other => {
+                            use std::fmt::Write;
+                            let _ = write!(&mut joined, "{other:?}");
+                        }
+                    }
                 }
-                result
             } else {
-                // ArrayList or similar — fields[0]=size, fields[1..]=elements
                 let size_val = match obj.fields.first() {
                     Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
                     _ => 0,
@@ -17956,27 +17969,38 @@ pub(crate) fn native_string_join(
                 let elems: Vec<Slot> =
                     obj.fields[1..=size_val.min(obj.fields.len().saturating_sub(1))].to_vec();
                 let _ = obj;
-                let mut result = Vec::with_capacity(size_val);
-                for slot in elems {
-                    let s = match slot {
-                        Slot::Reference(Some(r)) => heap
-                            .get(r)?
-                            .string_value
-                            .clone()
-                            .unwrap_or_else(|| "null".to_string()),
-                        Slot::Reference(None) => "null".to_string(),
-                        Slot::Int(n) => n.to_string(),
-                        Slot::Long(n) => n.to_string(),
-                        other => format!("{other:?}"),
-                    };
-                    result.push(s);
+                for (i, slot) in elems.into_iter().enumerate() {
+                    if i > 0 {
+                        joined.push_str(&delim);
+                    }
+                    match slot {
+                        Slot::Reference(Some(r)) => {
+                            if let Some(s) = &heap.get(r)?.string_value {
+                                joined.push_str(s);
+                            } else {
+                                joined.push_str("null");
+                            }
+                        }
+                        Slot::Reference(None) => joined.push_str("null"),
+                        Slot::Int(n) => {
+                            use std::fmt::Write;
+                            let _ = write!(&mut joined, "{}", n);
+                        }
+                        Slot::Long(n) => {
+                            use std::fmt::Write;
+                            let _ = write!(&mut joined, "{}", n);
+                        }
+                        other => {
+                            use std::fmt::Write;
+                            let _ = write!(&mut joined, "{other:?}");
+                        }
+                    }
                 }
-                result
             }
         }
-        _ => Vec::new(),
+        _ => {}
     };
-    let joined = parts.join(&delim);
+
     let r = heap.allocate_string(joined);
     Ok(Some(Slot::Reference(Some(r))))
 }
