@@ -1,0 +1,6 @@
+🗺️ Atlas: [Unified CFG Target Extraction]
+
+🕸️ Tangle: The logic for extracting JVM instruction control flow targets (jump targets, branches, switches) was duplicated in a scattered way across `cfg`, `basic_block`, and `reachability`. Any new branch instruction would require shotgun surgery across all three modules to fix missing CFG edges. Additionally, the `reachability` module leaked its internal implementations via a `pub mod` export.
+📐 Blueprint: Unified control-flow target extraction directly into `Instruction::control_flow_targets`, centralizing single source of truth for all JVM branching edges. Converted the leaked `reachability` module to `pub(crate)` and exposed it explicitly through a unified facade export in the root module.
+🧱 Stability: Reduced widespread coupling. Future additions of instruction control-flow patterns only need modification in one method.
+🔬 Verification: Builds successfully, all `cargo clippy --all-targets --all-features -- -D warnings` and `cargo test` pass successfully. Tests were updated to reflect strictly accurate CFG edges.
