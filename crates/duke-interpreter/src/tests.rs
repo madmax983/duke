@@ -1,4 +1,5 @@
 use super::*;
+use sha2::Digest as _;
 
 macro_rules! wrap_simple_native_for_tests {
     ($($name:ident),* $(,)?) => {
@@ -217,6 +218,98 @@ fn class_registry_all_classes_iterates_registered() {
     // registry starts empty; verify iteration works
     let count = reg.all_classes().count();
     assert_eq!(count, 0); // before bootstrap
+}
+
+#[test]
+fn message_digest_sha256_get_instance_and_digest_bytes() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let mut out = Vec::new();
+
+    let algo_ref = heap.allocate_string("SHA-256".to_string());
+    let get_instance = registry
+        .natives()
+        .get(
+            "java/security/MessageDigest",
+            "getInstance",
+            "(Ljava/lang/String;)Ljava/security/MessageDigest;",
+        )
+        .expect("MessageDigest.getInstance native should be registered");
+    let digest_ref = match get_instance(
+        &[Slot::Reference(Some(algo_ref))],
+        &mut heap,
+        &mut out,
+        &mut NativeControl::default(),
+    )
+    .expect("getInstance should succeed")
+    {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("unexpected getInstance return: {other:?}"),
+    };
+
+    let input_ref = heap.allocate("[B".to_string(), 3);
+    heap.get_mut(input_ref).unwrap().fields = vec![Slot::Int(97), Slot::Int(98), Slot::Int(99)];
+    let digest_bytes = registry
+        .natives()
+        .get("java/security/MessageDigest", "digest", "([B)[B")
+        .expect("MessageDigest.digest([B)[B native should be registered");
+    let result_ref = match digest_bytes(
+        &[
+            Slot::Reference(Some(digest_ref)),
+            Slot::Reference(Some(input_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut NativeControl::default(),
+    )
+    .expect("digest should succeed")
+    {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("unexpected digest return: {other:?}"),
+    };
+
+    let result: Vec<u8> = heap
+        .get(result_ref)
+        .unwrap()
+        .fields
+        .iter()
+        .map(|slot| match slot {
+            Slot::Int(v) => v.to_le_bytes()[0],
+            other => panic!("unexpected digest byte slot: {other:?}"),
+        })
+        .collect();
+    let expected = sha2::Sha256::digest(b"abc").to_vec();
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn secure_random_next_bytes_populates_array() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let mut out = Vec::new();
+
+    let secure_random_ref = heap.allocate("java/security/SecureRandom".to_string(), 0);
+    let bytes_ref = heap.allocate("[B".to_string(), 32);
+    let next_bytes = registry
+        .natives()
+        .get("java/security/SecureRandom", "nextBytes", "([B)V")
+        .expect("SecureRandom.nextBytes native should be registered");
+    next_bytes(
+        &[
+            Slot::Reference(Some(secure_random_ref)),
+            Slot::Reference(Some(bytes_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut NativeControl::default(),
+    )
+    .expect("nextBytes should succeed");
+
+    let generated = &heap.get(bytes_ref).unwrap().fields;
+    assert_eq!(generated.len(), 32);
+    assert!(generated.iter().all(|slot| matches!(slot, Slot::Int(_))));
 }
 
 #[test]
