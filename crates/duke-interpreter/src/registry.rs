@@ -220,7 +220,7 @@ pub struct ClassRegistry {
     lambda_counter: u64,
     /// Default code source path used for lightweight ``ProtectionDomain`` emulation.
     default_code_source: Option<String>,
-    /// ZIP/JAR-backed class loaders keyed by their stable archive path.
+    /// Path-backed class loaders (ZIP/JAR or directory) keyed by stable source path.
     archive_loaders: HashMap<String, Arc<dyn ClassLoader + Send + Sync>>,
     /// Best-known code source path for each loaded class.
     class_code_sources: HashMap<String, String>,
@@ -421,12 +421,16 @@ impl ClassRegistry {
         self.class_code_sources.get(class).map(String::as_str)
     }
 
-    fn zip_loader_for_path(&mut self, path: &str) -> Option<Arc<dyn ClassLoader + Send + Sync>> {
+    fn path_loader_for_path(&mut self, path: &str) -> Option<Arc<dyn ClassLoader + Send + Sync>> {
         if let Some(loader) = self.archive_loaders.get(path) {
             return Some(Arc::clone(loader));
         }
-        let loader = duke_loader::ZipLoader::open(Path::new(path)).ok()?;
-        let loader: Arc<dyn ClassLoader + Send + Sync> = Arc::new(loader);
+        let source_path = Path::new(path);
+        let loader: Arc<dyn ClassLoader + Send + Sync> = if source_path.is_dir() {
+            Arc::new(duke_loader::DirectoryLoader::new(source_path))
+        } else {
+            Arc::new(duke_loader::ZipLoader::open(source_path).ok()?)
+        };
         self.archive_loaders
             .insert(path.to_string(), Arc::clone(&loader));
         Some(loader)
@@ -593,7 +597,7 @@ impl ClassRegistry {
         path: &str,
         runtime_loader: Option<u64>,
     ) -> Result<bool> {
-        let Some(loader) = self.zip_loader_for_path(path) else {
+        let Some(loader) = self.path_loader_for_path(path) else {
             return Ok(false);
         };
         self.ensure_loaded_inner(name, loader.as_ref(), Some(path), runtime_loader)

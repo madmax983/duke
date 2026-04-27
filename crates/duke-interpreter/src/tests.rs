@@ -18451,6 +18451,84 @@ fn load_class_via_launched_loader(
     class_ref
 }
 
+fn allocate_url_class_loader_for_path(
+    registry: &mut ClassRegistry,
+    heap: &mut duke_gc::Heap,
+    path: &std::path::Path,
+) -> u64 {
+    let url_class_path_ctx = ClassContext {
+        class_name: "jdk/internal/loader/URLClassPath".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "path".to_string(),
+            descriptor: "Ljava/util/ArrayList;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    let url_loader_ctx = ClassContext {
+        class_name: "java/net/URLClassLoader".to_string(),
+        super_class: Some("java/lang/ClassLoader".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "ucp".to_string(),
+            descriptor: "Ljdk/internal/loader/URLClassPath;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    if !registry.contains("jdk/internal/loader/URLClassPath") {
+        registry.register(url_class_path_ctx);
+    }
+    if !registry.contains("java/net/URLClassLoader") {
+        registry.register(url_loader_ctx);
+    }
+
+    let path_list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(
+        &[Slot::Reference(Some(path_list_ref))],
+        heap,
+        &mut Vec::new(),
+        &mut NativeControl::default(),
+    )
+    .expect("ArrayList init for URLClassLoader.path");
+    let spec_ref = heap.allocate_string(path_to_file_url(path));
+    let url_ref = heap.allocate("java/net/URL".to_string(), 1);
+    heap.get_mut(url_ref).expect("url object").fields[0] = Slot::Reference(Some(spec_ref));
+    native_arraylist_add(
+        &[
+            Slot::Reference(Some(path_list_ref)),
+            Slot::Reference(Some(url_ref)),
+        ],
+        heap,
+        &mut Vec::new(),
+        &mut NativeControl::default(),
+    )
+    .expect("ArrayList add URL");
+
+    let ucp_ref = heap.allocate("jdk/internal/loader/URLClassPath".to_string(), 1);
+    heap.get_mut(ucp_ref).expect("ucp object").fields[0] = Slot::Reference(Some(path_list_ref));
+
+    let loader_ref = heap.allocate(
+        "java/net/URLClassLoader".to_string(),
+        total_instance_field_count(registry, "java/net/URLClassLoader"),
+    );
+    init_object_fields(registry, heap, loader_ref, "java/net/URLClassLoader");
+    heap.get_mut(loader_ref).expect("loader object").fields[0] = Slot::Reference(Some(ucp_ref));
+    loader_ref
+}
+
 fn load_duplicate_hello_world_classes() -> (
     duke_loader::ZipLoader,
     ClassRegistry,
@@ -18645,6 +18723,48 @@ fn execute_class_loaded_from_jar() {
     );
     let output = String::from_utf8(out).unwrap();
     assert!(output.contains("Hello, World!"), "output was: {output}");
+}
+
+#[test]
+fn class_for_name_uses_url_class_loader_file_urls() {
+    let boot_loader =
+        duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+            .expect("open spring-boot-loader jar");
+    let jar_path = fixtures_dir()
+        .join("hello.jar")
+        .canonicalize()
+        .expect("canonical hello.jar");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader_ref = allocate_url_class_loader_for_path(&mut registry, &mut heap, &jar_path);
+
+    let binary_name_ref = heap.allocate_string("HelloWorld".to_string());
+    let mut ops = InterpreterCallbackOps {
+        registry: &mut registry,
+        loader: &boot_loader,
+    };
+    let class_slot = native_class_for_name_with_loader(
+        &[
+            Slot::Reference(Some(binary_name_ref)),
+            Slot::Int(0),
+            Slot::Reference(Some(loader_ref)),
+        ],
+        &mut heap,
+        &mut Vec::new(),
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .expect("Class.forName should succeed")
+    .expect("Class.forName should return class");
+    let Slot::Reference(Some(class_ref)) = class_slot else {
+        panic!("expected Class reference");
+    };
+    let class_key = class_key_from_ref(&heap, class_ref).expect("class key from mirror");
+    assert!(
+        class_key.starts_with("HelloWorld\0loader:"),
+        "expected URLClassLoader class key, got {class_key:?}"
+    );
 }
 
 #[test]
