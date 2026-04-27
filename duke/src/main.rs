@@ -76,12 +76,10 @@ fn extract_jdk_flag(args: &mut Vec<String>) -> Option<String> {
 fn extract_jdwp_flag(args: &mut Vec<String>) -> Option<jdwp::JdwpConfig> {
     let mut cfg = None;
     args.retain(|arg| {
-        if let Some(parsed) = jdwp::parse_agentlib_jdwp(arg) {
+        jdwp::parse_agentlib_jdwp(arg).is_none_or(|parsed| {
             cfg = Some(parsed);
             false
-        } else {
-            true
-        }
+        })
     });
     cfg
 }
@@ -244,7 +242,7 @@ fn main() {
             eprintln!("duke: warning: only server=y JDWP mode is currently supported");
             return None;
         }
-        match jdwp::start(cfg.clone()) {
+        match jdwp::start(&cfg) {
             Ok(server) => {
                 eprintln!("duke: JDWP listening on {}", cfg.address);
                 if cfg.suspend {

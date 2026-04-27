@@ -65,12 +65,13 @@ impl JdwpServer {
     }
 }
 
-pub fn start(config: JdwpConfig) -> std::io::Result<JdwpServer> {
+pub fn start(config: &JdwpConfig) -> std::io::Result<JdwpServer> {
     let listener = TcpListener::bind(&config.address)?;
     let (attached_tx, attached_rx) = mpsc::channel();
+    let cfg = config.clone();
     std::thread::spawn(move || {
         let next_request_id = Arc::new(AtomicI32::new(1));
-        let vm_suspended = Arc::new(AtomicBool::new(config.suspend));
+        let vm_suspended = Arc::new(AtomicBool::new(cfg.suspend));
 
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else {
@@ -151,7 +152,7 @@ fn dispatch_command(
             vm_suspended.store(false, Ordering::SeqCst);
             (ERR_NONE, vec![], false)
         }
-        (1, 12) | (1, 17) => (ERR_NONE, vec![0; 32], false),
+        (1, 12 | 17) => (ERR_NONE, vec![0; 32], false),
         (1, 13) => (ERR_NONE, class_paths(), false),
         (1, 6) => (ERR_NONE, vec![], true),
 
@@ -182,7 +183,7 @@ fn dispatch_command(
         // StackFrame.GetValues
         (16, 1) => {
             let slots = payload
-                .get(16..20)
+                .get(8..12)
                 .map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
             let mut out = Vec::new();
             out.extend_from_slice(&slots.to_be_bytes());
@@ -204,7 +205,7 @@ fn dispatch_command(
 }
 
 fn send_reply(stream: &mut TcpStream, id: i32, err: u16, data: &[u8]) -> std::io::Result<()> {
-    let len = 11 + data.len() as u32;
+    let len = 11_u32 + to_u32_len(data.len());
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(&id.to_be_bytes())?;
     stream.write_all(&[REPLY_FLAG])?;
@@ -220,7 +221,7 @@ fn send_vm_start_event(stream: &mut TcpStream, suspended: bool) -> std::io::Resu
     data.extend_from_slice(&1_i32.to_be_bytes());
     data.extend_from_slice(&1_i64.to_be_bytes());
 
-    let len = 11 + data.len() as u32;
+    let len = 11_u32 + to_u32_len(data.len());
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(&1_i32.to_be_bytes())?;
     stream.write_all(&[0])?;
@@ -286,8 +287,12 @@ fn one_frame() -> Vec<u8> {
     out
 }
 
+fn to_u32_len(len: usize) -> u32 {
+    u32::try_from(len).unwrap_or(u32::MAX)
+}
+
 fn write_string(out: &mut Vec<u8>, value: &str) {
-    out.extend_from_slice(&(value.len() as u32).to_be_bytes());
+    out.extend_from_slice(&to_u32_len(value.len()).to_be_bytes());
     out.extend_from_slice(value.as_bytes());
 }
 
