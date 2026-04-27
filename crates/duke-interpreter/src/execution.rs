@@ -63,7 +63,6 @@ use crate::*;
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
-#[allow(clippy::cognitive_complexity)]
 pub fn run_execution(
     state: &mut ExecutionState,
     registry: &mut ClassRegistry,
