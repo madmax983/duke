@@ -327,6 +327,92 @@ fn launched_class_loader_archive_path(
     boot_archive_path_from_ref(registry, heap, archive_ref)
 }
 
+fn class_extends(registry: &ClassRegistry, class_name: &str, expected_super: &str) -> bool {
+    let mut current = Some(class_name.to_string());
+    while let Some(name) = current {
+        if name == expected_super {
+            return true;
+        }
+        current = registry.get(&name).ok().and_then(|ctx| ctx.super_class.clone());
+    }
+    false
+}
+
+fn arraylist_reference_elements(heap: &duke_gc::Heap, list_ref: u64) -> Result<Vec<u64>> {
+    let list_obj = heap.get(list_ref)?;
+    let size = match list_obj.fields.first().copied() {
+        Some(Slot::Int(value)) if value > 0 => usize::try_from(value).unwrap_or(0),
+        _ => 0,
+    };
+    let mut refs = Vec::with_capacity(size);
+    for slot in list_obj.fields.iter().skip(1).take(size) {
+        if let Slot::Reference(Some(reference)) = slot {
+            refs.push(*reference);
+        }
+    }
+    Ok(refs)
+}
+
+fn class_path_from_url_spec(spec: &str) -> Option<String> {
+    if let Some(jar_spec) = spec.strip_prefix("jar:")
+        && let Some(file_url) = jar_spec.split("!/").next()
+    {
+        return file_url_to_path(file_url)
+            .ok()
+            .map(|path| path.to_string_lossy().to_string());
+    }
+    if spec.starts_with("file://") {
+        return file_url_to_path(spec)
+            .ok()
+            .map(|path| path.to_string_lossy().to_string());
+    }
+    None
+}
+
+fn url_class_loader_paths(
+    registry: &ClassRegistry,
+    heap: &duke_gc::Heap,
+    loader_ref: u64,
+) -> Result<Vec<String>> {
+    let loader_class = heap.get(loader_ref)?.class_name.clone();
+    if !class_extends(registry, &loader_class, "java/net/URLClassLoader") {
+        return Ok(Vec::new());
+    }
+    let Ok(ucp_slot) = field_slot_idx(registry, &loader_class, "ucp") else {
+        return Ok(Vec::new());
+    };
+    let Some(ucp_ref) = archive_ref_from_slot(heap, loader_ref, ucp_slot)? else {
+        return Ok(Vec::new());
+    };
+    let ucp_class = heap.get(ucp_ref)?.class_name.clone();
+    let Ok(path_slot) = field_slot_idx(registry, &ucp_class, "path") else {
+        return Ok(Vec::new());
+    };
+    let Some(path_list_ref) = archive_ref_from_slot(heap, ucp_ref, path_slot)? else {
+        return Ok(Vec::new());
+    };
+    let mut paths = Vec::new();
+    for url_ref in arraylist_reference_elements(heap, path_list_ref)? {
+        if let Ok(spec) = string_backed_object_value(heap, url_ref)
+            && let Some(path) = class_path_from_url_spec(&spec)
+        {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
+}
+
+fn runtime_loader_paths(
+    registry: &ClassRegistry,
+    heap: &duke_gc::Heap,
+    loader_ref: u64,
+) -> Result<Vec<String>> {
+    if let Some(path) = launched_class_loader_archive_path(registry, heap, loader_ref)? {
+        return Ok(vec![path]);
+    }
+    url_class_loader_paths(registry, heap, loader_ref)
+}
+
 fn archive_ref_from_slot(
     heap: &duke_gc::Heap,
     obj_ref: u64,
@@ -13034,16 +13120,14 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         loader_ref: u64,
         class: &str,
     ) -> Result<()> {
-        if let Some(path) = launched_class_loader_archive_path(self.registry, heap, loader_ref)? {
+        let paths = runtime_loader_paths(self.registry, heap, loader_ref)?;
+        for path in paths {
             if self
                 .registry
                 .ensure_loaded_with_provenance(class, &path, Some(loader_ref))?
             {
                 return Ok(());
             }
-            return Err(Error::ClassNotFound {
-                name: class.to_string(),
-            });
         }
         self.ensure_loaded(class)
     }
@@ -13131,12 +13215,11 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         loader_ref: u64,
         class: &str,
     ) -> Result<String> {
-        if let Some(path) = launched_class_loader_archive_path(self.registry, heap, loader_ref)? {
-            return Ok(self.registry.class_key_from_provenance(
-                class,
-                Some(&path),
-                Some(loader_ref),
-            ));
+        let paths = runtime_loader_paths(self.registry, heap, loader_ref)?;
+        if let Some(path) = paths.first() {
+            return Ok(self
+                .registry
+                .class_key_from_provenance(class, Some(path), Some(loader_ref)));
         }
         self.class_key_for_loaded_class(class)
     }
@@ -24229,8 +24312,8 @@ fn ymd_to_epoch_days(year: i32, month: u32, day: u32) -> i32 {
     let era = y.div_euclid(400);
     let yoe = y.rem_euclid(400); // year of era [0, 399]
     let day_of_year = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1; // [0, 365]
-    let day_of_era = yoe * 365 + yoe / 4 - yoe / 100 + day_of_year; // day of era [0, 146096]
-    (era * 146_097 + day_of_era - 719_468) as i32
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + day_of_year; // day of era [0, 146096]
+    (era * 146_097 + doe - 719_468) as i32
 }
 
 /// Convert a proleptic Gregorian epoch day to (year, month, day).
