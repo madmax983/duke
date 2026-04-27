@@ -122,6 +122,13 @@ pub enum Error {
         /// Actual number of bytes available.
         got: usize,
     },
+
+    /// An annotation element-value tag was unknown.
+    #[error("invalid annotation element-value tag {tag:#04X}")]
+    InvalidAnnotationElementValueTag {
+        /// Raw tag byte.
+        tag: u8,
+    },
 }
 
 /// Convenience alias.

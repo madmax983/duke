@@ -3,8 +3,8 @@
 use crate::{
     access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags},
     attributes::{
-        AttributeData, AttributeInfo, BootstrapMethodEntry, CodeAttribute, ExceptionTableEntry,
-        LineNumberEntry, LocalVariableEntry,
+        Annotation, AttributeData, AttributeInfo, BootstrapMethodEntry, CodeAttribute,
+        ElementValue, ElementValuePair, ExceptionTableEntry, LineNumberEntry, LocalVariableEntry,
     },
     class::{ClassFile, FieldInfo, MethodInfo},
     constant_pool::{CpEntry, CpIndex},
@@ -430,6 +430,9 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
             exception_index_table: decode_exceptions(&mut c)?,
         },
         "BootstrapMethods" => AttributeData::BootstrapMethods(decode_bootstrap_methods(&mut c)?),
+        "RuntimeVisibleAnnotations" => {
+            AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c)?)
+        }
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
@@ -495,6 +498,55 @@ fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> Result<Vec<BootstrapMethodEnt
         });
     }
     Ok(entries)
+}
+
+fn decode_runtime_visible_annotations(c: &mut Cursor<'_>) -> Result<Vec<Annotation>> {
+    let num_annotations = c.read_u16()? as usize;
+    let mut annotations = Vec::with_capacity(num_annotations.min(c.remaining() / 4));
+    for _ in 0..num_annotations {
+        annotations.push(decode_annotation(c)?);
+    }
+    Ok(annotations)
+}
+
+fn decode_annotation(c: &mut Cursor<'_>) -> Result<Annotation> {
+    let type_index = c.read_cp_index()?;
+    let num_pairs = c.read_u16()? as usize;
+    let mut element_value_pairs = Vec::with_capacity(num_pairs.min(c.remaining() / 3));
+    for _ in 0..num_pairs {
+        element_value_pairs.push(ElementValuePair {
+            element_name_index: c.read_cp_index()?,
+            value: decode_element_value(c)?,
+        });
+    }
+    Ok(Annotation {
+        type_index,
+        element_value_pairs,
+    })
+}
+
+fn decode_element_value(c: &mut Cursor<'_>) -> Result<ElementValue> {
+    let tag = c.read_u8()?;
+    match tag {
+        b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b's' => {
+            Ok(ElementValue::ConstValueIndex(c.read_cp_index()?))
+        }
+        b'e' => Ok(ElementValue::EnumConstValue {
+            type_name_index: c.read_cp_index()?,
+            const_name_index: c.read_cp_index()?,
+        }),
+        b'c' => Ok(ElementValue::ClassInfoIndex(c.read_cp_index()?)),
+        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(c)?)),
+        b'[' => {
+            let num_values = c.read_u16()? as usize;
+            let mut values = Vec::with_capacity(num_values.min(c.remaining() / 3));
+            for _ in 0..num_values {
+                values.push(decode_element_value(c)?);
+            }
+            Ok(ElementValue::ArrayValue(values))
+        }
+        _ => Err(Error::InvalidAnnotationElementValueTag { tag }),
+    }
 }
 
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
@@ -611,5 +663,30 @@ mod tests {
         assert_eq!(cursor.remaining(), 3);
         cursor.read_u8().unwrap();
         assert_eq!(cursor.remaining(), 2);
+    }
+
+    #[test]
+    fn should_decode_runtime_visible_annotations_with_nested_values() {
+        let raw = [
+            0x00, 0x01, // num_annotations
+            0x00, 0x02, // annotation.type_index
+            0x00, 0x03, // num_element_value_pairs
+            0x00, 0x04, // pair #1 name index
+            b's', 0x00, 0x05, // const string value index
+            0x00, 0x06, // pair #2 name index
+            b'@', 0x00, 0x07, 0x00, 0x00, // nested annotation with no pairs
+            0x00, 0x08, // pair #3 name index
+            b'[', 0x00, 0x02, // array[2]
+            b'c', 0x00, 0x09, // class literal
+            b'e', 0x00, 0x0A, 0x00, 0x0B, // enum const
+        ];
+
+        let decoded = decode_known_attribute("RuntimeVisibleAnnotations", &raw).unwrap();
+        let AttributeData::RuntimeVisibleAnnotations(annotations) = decoded else {
+            panic!("expected RuntimeVisibleAnnotations");
+        };
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].type_index, CpIndex(2));
+        assert_eq!(annotations[0].element_value_pairs.len(), 3);
     }
 }

@@ -59,6 +59,44 @@ pub struct BootstrapMethodEntry {
     pub arguments: Vec<CpIndex>,
 }
 
+/// One parsed runtime annotation instance (§4.7.16.1).
+#[derive(Debug, Clone)]
+pub struct Annotation {
+    /// Type descriptor of the annotation (`type_index` in the class file).
+    pub type_index: CpIndex,
+    /// Named element value pairs declared on the annotation usage.
+    pub element_value_pairs: Vec<ElementValuePair>,
+}
+
+/// One `name=value` pair in an annotation usage (§4.7.16.1).
+#[derive(Debug, Clone)]
+pub struct ElementValuePair {
+    /// Constant pool index of the element (method) name in the annotation interface.
+    pub element_name_index: CpIndex,
+    /// Encoded value payload.
+    pub value: ElementValue,
+}
+
+/// Encoded annotation element value (§4.7.16.1).
+#[derive(Debug, Clone)]
+pub enum ElementValue {
+    /// Primitive/String constant pool reference.
+    ConstValueIndex(CpIndex),
+    /// Enum element value.
+    EnumConstValue {
+        /// Descriptor of enum type.
+        type_name_index: CpIndex,
+        /// Enum constant simple name.
+        const_name_index: CpIndex,
+    },
+    /// Class literal element (`Class<?>`).
+    ClassInfoIndex(CpIndex),
+    /// Nested annotation element.
+    AnnotationValue(Annotation),
+    /// Array element containing child element values.
+    ArrayValue(Vec<Self>),
+}
+
 /// Typed attribute payload.
 #[derive(Debug, Clone)]
 pub enum AttributeData {
@@ -85,6 +123,8 @@ pub enum AttributeData {
     },
     /// `BootstrapMethods` attribute (§4.7.23) — required for invokedynamic.
     BootstrapMethods(Vec<BootstrapMethodEntry>),
+    /// `RuntimeVisibleAnnotations` (§4.7.16).
+    RuntimeVisibleAnnotations(Vec<Annotation>),
     /// Any attribute we don't parse in detail yet.
     Raw(Vec<u8>),
 }
