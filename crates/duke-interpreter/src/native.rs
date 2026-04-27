@@ -10291,7 +10291,7 @@ pub(crate) fn native_math_floor_div_int(
         return Err(Error::DivisionByZero);
     }
     Ok(Some(Slot::Int(
-        a.div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
+        a.wrapping_div_euclid(b) - i32::from(a.wrapping_rem(b) != 0 && (a < 0) != (b < 0)),
     )))
 }
 
@@ -10305,6 +10305,28 @@ pub(crate) fn native_math_round_float(
 ) -> Result<Option<Slot>> {
     let a = extract_float_arg(args, 0)?;
     Ok(Some(Slot::Int(a.round() as i32)))
+}
+
+#[cfg(test)]
+mod havoc_proptest_math {
+    use super::*;
+    use proptest::prelude::*;
+    use std::io::sink;
+
+    proptest! {
+        #[test]
+        fn fuzz_native_math_floor_div_int(a in any::<i32>(), b in any::<i32>()) {
+            let mut heap = duke_gc::Heap::new();
+            let mut control = NativeControl::default();
+            let args = vec![Slot::Int(a), Slot::Int(b)];
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = native_math_floor_div_int(&args, &mut heap, &mut sink(), &mut control);
+            }));
+
+            assert!(result.is_ok(), "Panic on a={a}, b={b}");
+        }
+    }
 }
 
 // ---- System.arraycopy native ----
@@ -25424,13 +25446,13 @@ mod sentry_tests {
         let invalid_id = -999;
 
         let count_err = zip_entry_count(invalid_id).unwrap_err();
-        assert!(matches!(count_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(count_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let info_err = zip_get_entry_info(invalid_id, "test").unwrap_err();
-        assert!(matches!(info_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(info_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         let read_err = zip_read_entry(invalid_id, "test").unwrap_err();
-        assert!(matches!(read_err, VmError::JavaException { ref class_name } if class_name == "java/io/IOException"));
+        assert!(matches!(read_err, Error::JavaException { ref class_name } if class_name == "java/io/IOException"));
 
         // This shouldn't panic
         zip_close(invalid_id);
