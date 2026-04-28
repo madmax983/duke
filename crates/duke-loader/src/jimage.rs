@@ -910,3 +910,62 @@ mod proptests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests_oob {
+    use super::*;
+
+    #[test]
+    fn havoc_jimage_reader_read_resource_overflow() {
+        let mut reader = JImageReader {
+            data: vec![0u8; 104],
+            resource_count: 0,
+            data_offset: 0,
+            index: std::collections::HashMap::new(),
+        };
+
+        let resource = ResourceInfo {
+            offset: u64::MAX,
+            compressed: 10,
+            uncompressed: 10,
+        };
+        reader.index.insert("test".to_string(), resource);
+
+        let res = reader.read_resource("test");
+        assert!(res.is_err());
+        if let Err(Error::JImageFormat { msg }) = res {
+            assert!(
+                msg.contains("offset overflow") || msg.contains("data out of bounds"),
+                "{}",
+                msg
+            );
+        } else {
+            panic!("Expected JImageFormat error");
+        }
+    }
+
+    #[test]
+    fn havoc_jimage_reader_read_resource_out_of_bounds() {
+        let mut reader = JImageReader {
+            data: vec![0u8; 104],
+            resource_count: 0,
+            data_offset: 0,
+            index: std::collections::HashMap::new(),
+        };
+
+        let resource = ResourceInfo {
+            offset: 100,
+            compressed: 10,
+            uncompressed: 10,
+        };
+        reader.index.insert("test".to_string(), resource);
+
+        let res = reader.read_resource("test");
+        assert!(res.is_err());
+        if let Err(Error::JImageFormat { msg }) = res {
+            assert!(msg.contains("data out of bounds"), "{}", msg);
+        } else {
+            panic!("Expected JImageFormat error");
+        }
+    }
+}

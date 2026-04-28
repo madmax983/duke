@@ -1,6 +1,6 @@
-👺 Havoc: Prevent String::with_capacity OOM in native_string_indent
+🛡️ Sentry: [test coverage improvement]
 
-🧨 The Trigger: Providing `i32::MAX` to `String.indent()` causes `n_usize` to be immense, triggering an unbounded `String::with_capacity` allocation that exceeds the maximum addressable space or RAM, causing a SIGKILL or panic.
-📉 The Stack Trace: `memory allocation of ... bytes failed` / SIGKILL from OS.
-🧪 Reproduction: Run `cargo test --test havoc_string_indent_overflow_positive` with an `i32::MAX` indent on a known string.
-😈 Comment: You assumed `String::with_capacity` was safe because it's in the standard library. You were wrong.
+🎯 Target: `duke_loader::JImageReader` and `duke_interpreter::SharedOutput`.
+💣 Risk: Metadata offset overflows causing out-of-bounds panics when parsing corrupted `.jimage` archives, and untested thread-safe buffer sharing via `SharedOutput` locking.
+🧪 Strategy: Added table-driven synthetic tests allocating explicit invalid/overflow boundaries for `JImageReader`, verifying the system returns `Error::JImageFormat` gracefully instead of panicking. Similarly, added a thread-safe round-trip evaluation testing `Mutex` lock extraction.
+🔬 Verification: Run `cargo test -p duke-loader` and `cargo test -p duke-interpreter`.
