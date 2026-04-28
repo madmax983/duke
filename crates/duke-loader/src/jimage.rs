@@ -344,6 +344,58 @@ fn parse_header(data: &[u8]) -> Result<(u32, u32, u32, u32)> {
 /// from the header to preallocate the `HashMap`. The JDK `lib/modules` file
 /// typically contains tens of thousands of resources. Preallocating the index
 /// prevents numerous intermediate allocations and rehashing passes during startup.
+
+#[derive(Default)]
+struct LocationAttrs {
+    module: u64,
+    parent: u64,
+    base: u64,
+    extension: u64,
+    offset: u64,
+    compressed: u64,
+    uncompressed: u64,
+}
+
+fn parse_location_attributes(
+    data: &[u8],
+    mut pos: usize,
+    locs_end: usize,
+) -> (LocationAttrs, usize) {
+    let mut attrs = LocationAttrs::default();
+    loop {
+        if pos >= locs_end {
+            break;
+        }
+        let hdr = data[pos];
+        pos += 1;
+
+        let kind = hdr >> 3;
+        let len = usize::from((hdr & 7) + 1);
+
+        if kind == ATTR_END {
+            break;
+        }
+        if pos + len > data.len() {
+            break;
+        }
+
+        let val = read_be_u64(&data[pos..pos + len]);
+        pos += len;
+
+        match kind {
+            ATTR_MODULE => attrs.module = val,
+            ATTR_PARENT => attrs.parent = val,
+            ATTR_BASE => attrs.base = val,
+            ATTR_EXTENSION => attrs.extension = val,
+            ATTR_OFFSET => attrs.offset = val,
+            ATTR_COMPRESSED => attrs.compressed = val,
+            ATTR_UNCOMPRESSED => attrs.uncompressed = val,
+            _ => {} // future attribute kinds — skip
+        }
+    }
+    (attrs, pos)
+}
+
 fn build_index(
     data: &[u8],
     locs_offset: usize,
@@ -362,56 +414,18 @@ fn build_index(
 
     let mut path_buf = String::with_capacity(128);
     while pos < locs_end {
-        // Decode all attributes for this location entry
-        let mut module: u64 = 0;
-        let mut parent: u64 = 0;
-        let mut base: u64 = 0;
-        let mut extension: u64 = 0;
-        let mut offset: u64 = 0;
-        let mut compressed: u64 = 0;
-        let mut uncompressed: u64 = 0;
-
-        loop {
-            if pos >= locs_end {
-                break;
-            }
-            let hdr = data[pos];
-            pos += 1;
-
-            let kind = hdr >> 3;
-            let len = usize::from((hdr & 7) + 1);
-
-            if kind == ATTR_END {
-                break;
-            }
-            if pos + len > data.len() {
-                break;
-            }
-
-            let val = read_be_u64(&data[pos..pos + len]);
-            pos += len;
-
-            match kind {
-                ATTR_MODULE => module = val,
-                ATTR_PARENT => parent = val,
-                ATTR_BASE => base = val,
-                ATTR_EXTENSION => extension = val,
-                ATTR_OFFSET => offset = val,
-                ATTR_COMPRESSED => compressed = val,
-                ATTR_UNCOMPRESSED => uncompressed = val,
-                _ => {} // future attribute kinds — skip
-            }
-        }
+        let (attrs, new_pos) = parse_location_attributes(data, pos, locs_end);
+        pos = new_pos;
 
         // Skip empty/padding entries (no base name or no data)
-        if base == 0 || uncompressed == 0 {
+        if attrs.base == 0 || attrs.uncompressed == 0 {
             continue;
         }
 
-        let mod_str = read_str(data, str_offset, module);
-        let par_str = read_str(data, str_offset, parent);
-        let base_str = read_str(data, str_offset, base);
-        let ext_str = read_str(data, str_offset, extension);
+        let mod_str = read_str(data, str_offset, attrs.module);
+        let par_str = read_str(data, str_offset, attrs.parent);
+        let base_str = read_str(data, str_offset, attrs.base);
+        let ext_str = read_str(data, str_offset, attrs.extension);
 
         path_buf.clear();
         build_jimage_path(&mut path_buf, mod_str, par_str, base_str, ext_str);
@@ -419,9 +433,9 @@ fn build_index(
             index.insert(
                 path_buf.clone(),
                 ResourceInfo {
-                    offset,
-                    compressed,
-                    uncompressed,
+                    offset: attrs.offset,
+                    compressed: attrs.compressed,
+                    uncompressed: attrs.uncompressed,
                 },
             );
         }

@@ -481,6 +481,30 @@ fn parse_eocd_and_central_directory(
 }
 
 /// Parse central directory entries into a `HashMap`.
+struct CdHeader {
+    compression_method: u16,
+    crc32: u32,
+    compressed_size: u64,
+    uncompressed_size: u64,
+    filename_len: usize,
+    extra_len: usize,
+    comment_len: usize,
+    local_header_offset: u64,
+}
+
+fn parse_cd_header(data: &[u8], pos: usize) -> CdHeader {
+    CdHeader {
+        compression_method: read_u16_le(data, pos + 10),
+        crc32: read_u32_le(data, pos + 16),
+        compressed_size: u64::from(read_u32_le(data, pos + 20)),
+        uncompressed_size: u64::from(read_u32_le(data, pos + 24)),
+        filename_len: usize::from(read_u16_le(data, pos + 28)),
+        extra_len: usize::from(read_u16_le(data, pos + 30)),
+        comment_len: usize::from(read_u16_le(data, pos + 32)),
+        local_header_offset: u64::from(read_u32_le(data, pos + 42)),
+    }
+}
+
 fn parse_central_directory(
     data: &[u8],
     cd_offset: usize,
@@ -508,18 +532,11 @@ fn parse_central_directory(
             });
         }
 
-        let compression_method = read_u16_le(data, pos + 10);
-        let crc32 = read_u32_le(data, pos + 16);
-        let compressed_size = u64::from(read_u32_le(data, pos + 20));
-        let uncompressed_size = u64::from(read_u32_le(data, pos + 24));
-        let filename_len = usize::from(read_u16_le(data, pos + 28));
-        let extra_len = usize::from(read_u16_le(data, pos + 30));
-        let comment_len = usize::from(read_u16_le(data, pos + 32));
-        let local_header_offset = u64::from(read_u32_le(data, pos + 42));
+        let hdr = parse_cd_header(data, pos);
 
         let name_start = pos + 46;
         if name_start
-            .checked_add(filename_len)
+            .checked_add(hdr.filename_len)
             .is_none_or(|end| end > cd_end)
         {
             return Err(Error::ZipFormat {
@@ -528,24 +545,24 @@ fn parse_central_directory(
         }
 
         let name =
-            String::from_utf8_lossy(&data[name_start..name_start + filename_len]).into_owned();
+            String::from_utf8_lossy(&data[name_start..name_start + hdr.filename_len]).into_owned();
 
         index.insert(
             name.clone(),
             ZipEntryInfo {
                 name,
-                compression_method,
-                crc32,
-                compressed_size,
-                uncompressed_size,
-                local_header_offset,
+                compression_method: hdr.compression_method,
+                crc32: hdr.crc32,
+                compressed_size: hdr.compressed_size,
+                uncompressed_size: hdr.uncompressed_size,
+                local_header_offset: hdr.local_header_offset,
             },
         );
 
         pos = name_start
-            .checked_add(filename_len)
-            .and_then(|v| v.checked_add(extra_len))
-            .and_then(|v| v.checked_add(comment_len))
+            .checked_add(hdr.filename_len)
+            .and_then(|v| v.checked_add(hdr.extra_len))
+            .and_then(|v| v.checked_add(hdr.comment_len))
             .ok_or_else(|| Error::ZipFormat {
                 msg: "central directory entry length overflow".to_string(),
             })?;
