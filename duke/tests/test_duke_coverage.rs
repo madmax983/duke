@@ -28,17 +28,10 @@ fn test_run_jar_coverage() {
     p.push("../spring-boot-loader-3.5.12.jar");
 
     let output = Command::new("cargo")
-        .args([
-            "run",
-            "--bin",
-            "duke",
-            "--",
-            "-jar",
-            p.to_str().unwrap(),
-            "some_arg",
-        ])
+        .args(["run", "--bin", "duke", "--", "-jar", p.to_str().unwrap(), "some_arg"])
         .output()
         .expect("failed to execute process");
 
+    // Don't wait for spring boot jar to finish if it times out
     let _ = output.status;
 }
