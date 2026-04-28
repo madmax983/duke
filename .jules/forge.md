@@ -49,3 +49,11 @@
 **Extract Struct Building Functions**
 **Learning:** `build_class_context` was over 200 lines long, performing all the sequential parsing to populate a large `ClassContext` struct.
 **Action:** Extract large sequential parsing chunks (e.g. mapping over methods and fields) into small helper functions returning the parsed components (`build_method_entries`, `build_field_entries`).
+
+**Extract Binary Parsing Headers**
+**Learning:** `crates/duke-loader/src/zip.rs` had a `parse_central_directory` function which was very long due to manual reading and variable binding for each field in a ZIP central directory header. This "God Function" approach mixed control-flow iteration with low-level offset-based parsing, increasing cognitive overhead.
+**Action:** Extract the inline field extraction logic into a small `CdHeader` struct and a dedicated parsing function `parse_cd_header` to reduce nesting, decouple parsing from collection logic, and flatten the outer loop structure.
+
+**Extract Nested Attribute Loops**
+**Learning:** `build_index` in `crates/duke-loader/src/jimage.rs` contained an inline, unbounded `loop` performing offset-based decoding of arbitrary-length location attributes, burying the actual map construction logic.
+**Action:** Extract deeply nested binary decoding loops into independent typed structures (like `LocationAttrs`) and helper functions (e.g., `parse_location_attributes`). This eliminates the "Pyramid of Doom" and restores clear separation of concerns between binary chunk decoding and hash map construction.
