@@ -113,6 +113,38 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_maps() {
+        let empty_map = HashMap::<i32, &'static str>::new();
+        let w = MapWrapper { map: empty_map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+
+        let empty_site3 = Site3Wrapper {
+            map: HashMap::new(),
+        };
+        let json_site3 = serde_json::to_string(&empty_site3).unwrap();
+        assert_eq!(json_site3, r#"{"map":{}}"#);
+
+        let empty_site2 = Site2Wrapper {
+            map: HashMap::new(),
+        };
+        let json_site2 = serde_json::to_string(&empty_site2).unwrap();
+        assert_eq!(json_site2, r#"{"map":{}}"#);
+
+        let empty_pair = PairWrapper {
+            map: HashMap::new(),
+        };
+        let json_pair = serde_json::to_string(&empty_pair).unwrap();
+        assert_eq!(json_pair, r#"{"map":{}}"#);
+
+        let empty_set = SetWrapper {
+            set: HashSet::new(),
+        };
+        let json_set = serde_json::to_string(&empty_set).unwrap();
+        assert_eq!(json_set, r#"{"set":[]}"#);
+    }
+
+    #[test]
     fn test_site3() {
         let mut map = HashMap::new();
         map.insert(
