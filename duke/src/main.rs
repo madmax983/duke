@@ -16,6 +16,8 @@ mod html;
 #[cfg(feature = "nova")]
 mod html_jar;
 mod jar_analyze;
+#[cfg(feature = "nova")]
+mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
 mod pathfinding;
@@ -292,6 +294,8 @@ fn main() {
         eprintln!("       duke dead-code <classfile.class>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-dead-code <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-search <file.jar> <query>");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
@@ -314,6 +318,24 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-dead-code'");
+            std::process::exit(1);
+        }
+    }
+
+    // Dispatch `jar-search`
+    if args.len() > 1 && args[1] == "jar-search" {
+        if args.len() < 4 {
+            eprintln!("Usage: duke jar-search <file.jar> <query>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            jar_search::dump_jar_search(&args[2], &args[3]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'jar-search'");
             std::process::exit(1);
         }
     }
