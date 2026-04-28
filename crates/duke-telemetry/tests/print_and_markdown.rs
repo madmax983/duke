@@ -1,3 +1,13 @@
+//! Telemetry store testing module
+//!
+//! This module verifies the string formatting logic of the telemetry subsystem.
+//! It ensures that when execution metadata is exported (either to standard output
+//! or as a Markdown report), the structural integrity of the output is maintained.
+//!
+//! These integration tests act as safeguards against unintended regressions in the
+//! telemetry reporting interface, confirming that top-level headers (like
+//! `Bytecode Cost (Top 10)`) are accurately rendered for developers to analyze.
+
 use duke_telemetry::TelemetryStore;
 
 #[test]
