@@ -4,7 +4,6 @@
 //! of the `new` instruction, to trace the origin of high allocation rates back to the source code.
 
 #[cfg(feature = "telemetry")]
-use crate::helpers::ser_helpers;
 use std::collections::HashMap;
 
 // -- object_lineage --------------------------------------------------------------
@@ -55,7 +54,7 @@ pub struct AllocationSite {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct ObjectLineageStore {
     /// Mapping from (`allocating_class`, `allocating_method`, pc) to allocation statistics.
-    #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
+    #[cfg_attr(feature = "telemetry", serde(serialize_with = "crate::helpers::site3"))]
     pub sites: HashMap<(String, String, usize), AllocationSite>,
 }
 

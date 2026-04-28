@@ -14279,7 +14279,7 @@ struct CallFrame {
 fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
     use duke_classfile::MethodAccessFlags;
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     cf
         .methods
@@ -14382,7 +14382,7 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
 
 fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<Slot>, usize) {
     use duke_classfile::FieldAccessFlags;
-    use duke_classfile::types::CpEntry;
+    use duke_classfile::CpEntry;
 
     let mut fields = Vec::with_capacity(cf.fields.len());
     let mut static_fields = Vec::new();
@@ -14431,7 +14431,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 /// # use duke_interpreter::build_class_context;
 /// # use duke_classfile::{ClassFile, ClassAccessFlags};
-/// # use duke_classfile::types::{CpIndex, CpEntry};
+/// # use duke_classfile::{CpIndex, CpEntry};
 /// // A minimal class file representation of `java/lang/Object`.
 /// let cf = ClassFile {
 ///     minor_version: 0,
@@ -14456,7 +14456,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 #[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     // Resolve this_class -> class name string.
     let class_name = {

@@ -4,7 +4,6 @@
 //! keeping a running total of how many times a particular execution site or opcode was visited.
 
 #[cfg(feature = "telemetry")]
-use crate::helpers::ser_helpers;
 use std::collections::HashMap;
 
 /// Accumulates frequency and duration for bytecode execution.
@@ -57,7 +56,7 @@ pub struct BytecodeCostStore {
     /// Count/time per opcode name (e.g. "invokestatic", "iadd").
     pub by_opcode: HashMap<&'static str, OpcodeStat>,
     /// Count/time per bytecode site: (`class_name`, `method_name`, pc).
-    #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::site3"))]
+    #[cfg_attr(feature = "telemetry", serde(serialize_with = "crate::helpers::site3"))]
     pub by_site: HashMap<(String, String, usize), OpcodeStat>,
 }
 

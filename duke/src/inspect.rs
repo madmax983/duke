@@ -53,7 +53,7 @@ pub fn inspect_jar(path: &str) {
                             .get(method.name_index.0 as usize)
                             .and_then(|e| e.as_ref())
                             .and_then(|e| {
-                                if let duke_classfile::types::CpEntry::Utf8(s) = e {
+                                if let duke_classfile::CpEntry::Utf8(s) = e {
                                     Some(s)
                                 } else {
                                     None

@@ -3,7 +3,6 @@
 //! This module groups native method execution statistics by their defining class and method names.
 
 #[cfg(feature = "telemetry")]
-use crate::helpers::ser_helpers;
 use std::collections::HashMap;
 
 // -- native_boundary -------------------------------------------------------------
@@ -56,7 +55,10 @@ pub struct NativeStat {
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
 pub struct NativeBoundaryStore {
     /// Mapping from (`class_name`, `method_name`) to execution statistics.
-    #[cfg_attr(feature = "telemetry", serde(serialize_with = "ser_helpers::pair_str"))]
+    #[cfg_attr(
+        feature = "telemetry",
+        serde(serialize_with = "crate::helpers::pair_str")
+    )]
     pub by_method: HashMap<(String, String), NativeStat>,
 }
 

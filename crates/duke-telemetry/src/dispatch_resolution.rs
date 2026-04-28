@@ -4,7 +4,6 @@
 //! to help identify opportunities for inline caching or other optimizations.
 
 #[cfg(feature = "telemetry")]
-use crate::helpers::ser_helpers;
 use std::collections::{HashMap, HashSet};
 
 // -- dispatch_resolution ---------------------------------------------------------
@@ -32,7 +31,7 @@ pub struct DispatchStat {
     /// Distinct runtime receiver classes seen at this call site.
     #[cfg_attr(
         feature = "telemetry",
-        serde(serialize_with = "ser_helpers::sorted_set")
+        serde(serialize_with = "crate::helpers::sorted_set")
     )]
     pub unique_targets: HashSet<String>,
     /// How many calls required a superclass hierarchy walk to find the method.
@@ -63,7 +62,7 @@ pub struct DispatchResolutionStore {
     /// Mapping from (`caller_class`, `cp_idx`) to dispatch statistics.
     #[cfg_attr(
         feature = "telemetry",
-        serde(serialize_with = "ser_helpers::site2_u16")
+        serde(serialize_with = "crate::helpers::site2_u16")
     )]
     pub by_site: HashMap<(String, u16), DispatchStat>,
 }

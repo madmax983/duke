@@ -12,7 +12,7 @@
 use std::io::Write;
 
 use duke_bytecode::Instruction;
-use duke_classfile::types::CpEntry;
+use duke_classfile::CpEntry;
 use duke_loader::ClassLoader;
 use duke_runtime::{Error, Frame, Result, Slot};
 
@@ -2500,7 +2500,7 @@ pub fn run_execution(
                         .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
                     let (_kind, class, _name, _desc) =
                         resolve_method_handle(&ctx.constant_pool, bsm_entry.method_ref.0 as usize)?;
-                    let args: Vec<duke_classfile::types::CpIndex> = bsm_entry.arguments.clone();
+                    let args: Vec<duke_classfile::CpIndex> = bsm_entry.arguments.clone();
                     (class, args)
                 };
 

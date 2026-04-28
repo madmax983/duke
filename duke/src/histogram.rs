@@ -1,5 +1,5 @@
 use duke_bytecode::decode;
-use duke_classfile::{parse, types::AttributeData};
+use duke_classfile::{AttributeData, parse};
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::HashMap;
 use std::path::Path;

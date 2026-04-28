@@ -4,7 +4,7 @@
 //! such as parsed methods, field layouts, and exception handler tables.
 
 use duke_bytecode::Instruction;
-use duke_classfile::types::CpEntry;
+use duke_classfile::CpEntry;
 use duke_runtime::Slot;
 
 /// A decoded method ready for execution.
@@ -102,7 +102,7 @@ pub struct FieldEntry {
 
 /// A resolved exception table entry for handler dispatch.
 ///
-/// Built from `duke_classfile::types::ExceptionTableEntry` with `catch_type`
+/// Built from `duke_classfile::ExceptionTableEntry` with `catch_type`
 /// resolved from a CP index to a class name string. It acts as a safety net,
 /// defining the exact boundaries where a `try` block is active.
 ///
@@ -187,7 +187,7 @@ pub struct ClassContext {
     /// of new heap objects when a `new` instruction is encountered.
     pub instance_field_count: usize,
     /// `BootstrapMethods` entries from the class attribute (needed for invokedynamic).
-    pub bootstrap_methods: Vec<duke_classfile::types::BootstrapMethodEntry>,
+    pub bootstrap_methods: Vec<duke_classfile::BootstrapMethodEntry>,
     /// How this class was loaded — `Synthetic` for `bootstrap_stdlib()` stubs,
     /// `Classfile` for real `.class` files parsed from JImage/directory/JAR.
     pub load_source: ClassLoadSource,
