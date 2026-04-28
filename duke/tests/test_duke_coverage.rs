@@ -25,13 +25,20 @@ fn test_run_main_coverage() {
 #[test]
 fn test_run_jar_coverage() {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("../spring-boot-loader-3.5.12.jar");
+    p.push("../tests/fixtures/hello.jar");
 
     let output = Command::new("cargo")
-        .args(["run", "--bin", "duke", "--", "-jar", p.to_str().unwrap(), "some_arg"])
+        .args(["run", "--bin", "duke", "--", "-jar", p.to_str().unwrap()])
         .output()
         .expect("failed to execute process");
 
-    // Don't wait for spring boot jar to finish if it times out
-    let _ = output.status;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        println!("stdout: {stdout}");
+        println!("stderr: {stderr}");
+    }
+
+    assert!(output.status.success());
+    assert!(stdout.contains("Hello, World!"));
 }
