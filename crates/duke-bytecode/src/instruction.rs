@@ -531,6 +531,46 @@ impl Instruction {
         )
     }
 
+    /// Returns all possible control flow targets (next PC values) from this instruction,
+    /// including fall-through if applicable.
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::collapsible_if,
+        clippy::collapsible_else_if,
+        clippy::needless_else
+    )]
+    #[must_use]
+    pub fn control_flow_targets(&self, current_pc: usize, next_pc: Option<usize>) -> Vec<usize> {
+        let mut targets = Vec::new();
+        if self.is_return() {
+            return targets;
+        }
+        if let Some(offset) = self.unconditional_jump_target() {
+            targets.push((current_pc as isize + offset) as usize);
+            if self.is_subroutine_call() {
+                if let Some(next) = next_pc {
+                    targets.push(next);
+                }
+            }
+        } else if let Some(offset) = self.conditional_branch_target() {
+            targets.push((current_pc as isize + offset) as usize);
+            if let Some(next) = next_pc {
+                targets.push(next);
+            }
+        } else if let Some((default, pairs)) = self.switch_targets() {
+            targets.push((current_pc as isize + default as isize) as usize);
+            for (_, offset) in pairs {
+                targets.push((current_pc as isize + offset as isize) as usize);
+            }
+        } else {
+            if let Some(next) = next_pc {
+                targets.push(next);
+            }
+        }
+        targets
+    }
+
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
     #[allow(clippy::too_many_lines)]
