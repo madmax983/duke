@@ -375,17 +375,14 @@ mod tests_extra {
     use super::*;
 
     #[test]
-    fn test_shared_output() -> Result<(), String> {
+    fn test_shared_output() -> Result<(), std::sync::PoisonError<std::sync::MutexGuard<'static, Vec<u8>>>> {
         let out1 = SharedOutput::new();
         let buf = out1.buffer();
-        {
-            let mut locked_buf = buf.lock().map_err(|_| "PoisonError")?;
-            locked_buf.push(42);
-        }
+        buf.lock()?.push(42);
 
         let out2 = SharedOutput::from_buffer(buf);
         let buf2 = out2.buffer();
-        assert_eq!(buf2.lock().map_err(|_| "PoisonError")?[0], 42);
+        assert_eq!(buf2.lock()?[0], 42);
         Ok(())
     }
 }
