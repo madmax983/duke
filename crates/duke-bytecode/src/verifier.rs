@@ -868,91 +868,100 @@ mod tests {
     }
 
     #[test]
-    fn should_return_error_when_local_index_is_out_of_bounds() {
-        let instr = Instruction::Iload(5);
-        let result = check_locals(&instr, 0, 4);
-        assert!(matches!(
-            result,
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 5,
-                max_locals: 4
-            }))
-        ));
+    fn should_return_error_for_all_local_access_out_of_bounds() {
+        let max_locals = 4;
+        let oob_index = 5;
 
-        let instr = Instruction::Dload(5);
-        let result = check_locals(&instr, 0, 4);
-        assert!(matches!(
-            result,
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 5,
-                max_locals: 4
-            }))
-        ));
+        // Exhaustive list of instructions that take an index
+        let oob_instructions = vec![
+            Instruction::Iload(oob_index),
+            Instruction::Lload(oob_index),
+            Instruction::Fload(oob_index),
+            Instruction::Dload(oob_index),
+            Instruction::Aload(oob_index),
+            Instruction::Istore(oob_index),
+            Instruction::Lstore(oob_index),
+            Instruction::Fstore(oob_index),
+            Instruction::Dstore(oob_index),
+            Instruction::Astore(oob_index),
+            Instruction::Ret(oob_index),
+            Instruction::Iinc {
+                index: oob_index,
+                value: 1,
+            },
+            Instruction::IloadW(u16::from(oob_index)),
+            Instruction::LloadW(u16::from(oob_index)),
+            Instruction::FloadW(u16::from(oob_index)),
+            Instruction::DloadW(u16::from(oob_index)),
+            Instruction::AloadW(u16::from(oob_index)),
+            Instruction::IstoreW(u16::from(oob_index)),
+            Instruction::LstoreW(u16::from(oob_index)),
+            Instruction::FstoreW(u16::from(oob_index)),
+            Instruction::DstoreW(u16::from(oob_index)),
+            Instruction::AstoreW(u16::from(oob_index)),
+            Instruction::RetW(u16::from(oob_index)),
+            Instruction::IincW {
+                index: u16::from(oob_index),
+                value: 1,
+            },
+        ];
 
-        let instr = Instruction::IincW { index: 5, value: 1 };
-        let result = check_locals(&instr, 0, 4);
-        assert!(matches!(
-            result,
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 5,
-                max_locals: 4
-            }))
-        ));
+        for instr in oob_instructions {
+            let result = check_locals(&instr, 0, max_locals);
+            assert!(
+                matches!(
+                    result,
+                    Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                        pc: 0,
+                        index: 5,
+                        max_locals: 4
+                    }))
+                ),
+                "Instruction {instr:?} failed to return LocalOutOfBounds error",
 
-        let instr = Instruction::Dload(5);
-        let result = check_locals(&instr, 0, 4);
-        assert!(matches!(
-            result,
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 5,
-                max_locals: 4
-            }))
-        ));
+            );
+        }
 
-        let instr = Instruction::DloadW(5);
-        let result = check_locals(&instr, 0, 4);
-        assert!(matches!(
-            result,
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 5,
-                max_locals: 4
-            }))
-        ));
+        // Exhaustive list of short form instructions that implicitly access locals
+        // Max locals = 2, so accessing 2 or 3 is out of bounds
+        let max_locals_short = 2;
+        let oob_short_instructions = vec![
+            (Instruction::Iload2, 2),
+            (Instruction::Iload3, 3),
+            (Instruction::Lload2, 2),
+            (Instruction::Lload3, 3),
+            (Instruction::Fload2, 2),
+            (Instruction::Fload3, 3),
+            (Instruction::Dload2, 2),
+            (Instruction::Dload3, 3),
+            (Instruction::Aload2, 2),
+            (Instruction::Aload3, 3),
+            (Instruction::Istore2, 2),
+            (Instruction::Istore3, 3),
+            (Instruction::Lstore2, 2),
+            (Instruction::Lstore3, 3),
+            (Instruction::Fstore2, 2),
+            (Instruction::Fstore3, 3),
+            (Instruction::Dstore2, 2),
+            (Instruction::Dstore3, 3),
+            (Instruction::Astore2, 2),
+            (Instruction::Astore3, 3),
+        ];
 
-        let instr = Instruction::IincW { index: 5, value: 1 };
-        let result = check_locals(&instr, 0, 4);
-        assert!(matches!(
-            result,
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 5,
-                max_locals: 4
-            }))
-        ));
-    }
+        for (instr, expected_index) in oob_short_instructions {
+            let result = check_locals(&instr, 0, max_locals_short);
+            assert!(
+                matches!(
+                    result,
+                    Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
+                        pc: 0,
+                        index: idx,
+                        max_locals: 2
+                    })) if idx == expected_index
+                ),
+                "Instruction {instr:?} failed to return LocalOutOfBounds error",
 
-    #[test]
-    fn test_verifier_short_form_loads_oob() {
-        assert!(matches!(
-            check_locals(&Instruction::Iload0, 0, 0),
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 0,
-                max_locals: 0
-            }))
-        ));
-        assert!(matches!(
-            check_locals(&Instruction::Dload0, 0, 0),
-            Err(crate::Error::Verify(VerifyError::LocalOutOfBounds {
-                pc: 0,
-                index: 0,
-                max_locals: 0
-            }))
-        ));
+            );
+        }
     }
 }
