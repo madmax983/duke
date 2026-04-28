@@ -8,7 +8,6 @@
 //! telemetry reporting interface, confirming that top-level headers (like
 //! `Bytecode Cost (Top 10)`) are accurately rendered for developers to analyze.
 
-
 use duke_telemetry::TelemetryStore;
 
 #[test]
