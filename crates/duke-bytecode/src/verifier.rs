@@ -918,7 +918,6 @@ mod tests {
                     }))
                 ),
                 "Instruction {instr:?} failed to return LocalOutOfBounds error",
-
             );
         }
 
@@ -960,7 +959,6 @@ mod tests {
                     })) if idx == expected_index
                 ),
                 "Instruction {instr:?} failed to return LocalOutOfBounds error",
-
             );
         }
     }
