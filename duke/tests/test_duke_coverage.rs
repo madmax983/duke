@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 
 #[test]
 fn test_run_main_coverage() {
@@ -28,7 +28,15 @@ fn test_run_jar_coverage() {
     p.push("../spring-boot-loader-3.5.12.jar");
 
     let output = Command::new("cargo")
-        .args(["run", "--bin", "duke", "--", "-jar", p.to_str().unwrap()])
+        .args([
+            "run",
+            "--bin",
+            "duke",
+            "--",
+            "-jar",
+            p.to_str().unwrap(),
+            "some_arg",
+        ])
         .output()
         .expect("failed to execute process");
 
