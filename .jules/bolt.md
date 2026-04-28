@@ -13,3 +13,7 @@
 **Zero-cost abstractions around `Vec::clone()`**
 **Learning:** `heap.get(this_ref)?.fields.clone()` is a heavy operation for HashMaps/HashSets/Localdatetimes operations since we only read from the vector without taking ownership. But you must be careful because passing `&heap.get(this_ref)?.fields` holds a reference to `heap`, and later calling `heap.get_mut` will fail with "cannot borrow `*heap` as mutable because it is also borrowed as immutable".
 **Action:** Instead of `fields.clone()`, get the properties out of the reference (`fields[i + 1]`) and use those to perform the operation, or use `find_..._entry_index` to just get the index, then drop the immutable borrow, and then perform `heap.get_mut` if necessary.
+
+**Instruction control_flow_targets allocation trap**
+**Learning:** Returning `Vec::with_capacity(2)` instead of `Vec::new()` for CFG targets forces allocations for early returns (0 targets), regressing performance. For typical 1-2 target cases, `Vec::new().push()` and `Vec::with_capacity(2).push()` perform the same initial allocation.
+**Action:** Do not use `Vec::with_capacity` if there is a hot early return path that pushes 0 elements, as `Vec::new()` does not allocate until the first push.
