@@ -2945,7 +2945,18 @@ pub(crate) fn native_stream_collect(
 
         // ⚡ Bolt: Eliminate intermediate Vec<String> allocation, format! macro overhead,
         // and .join() by appending directly to a single String buffer.
-        let mut joined = String::with_capacity(prefix.len() + suffix.len() + elems.len() * (10 + delim.len()));
+        // Havoc: prevent OOM from capacity overflow
+        let extra = elems.len().saturating_mul(10usize.saturating_add(delim.len()));
+        let cap = prefix.len().checked_add(suffix.len()).and_then(|x| x.checked_add(extra));
+        let max_size = 1024 * 1024 * 128; // 128 MB max string size
+
+        if cap.is_none_or(|c| c > max_size) {
+            return Err(Error::JavaException {
+                class_name: "java/lang/OutOfMemoryError".to_string(),
+            });
+        }
+
+        let mut joined = String::with_capacity(cap.unwrap());
         joined.push_str(&prefix);
         let mut first = true;
         for s in &elems {
@@ -9598,6 +9609,10 @@ pub(crate) fn native_string_concat(
 /// Formats a single boxed slot value using the given format specifier.
 /// Apply width/alignment/flags to an already-formatted value string.
 fn apply_format_width(s: String, width: usize, left_align: bool, zero_pad: bool) -> String {
+    // Havoc: bounds check width to prevent OOM
+    let max_width = 1024 * 1024 * 128; // 128 MB
+    let width = width.min(max_width);
+
     if s.len() >= width {
         return s;
     }
@@ -9784,6 +9799,10 @@ fn format_arg(
 
 /// Format a float in Java-style scientific notation `1.234568e+05`.
 fn format_scientific(v: f64, prec: usize, upper: bool) -> String {
+    // Havoc: bounds check prec to prevent OOM
+    let max_prec = 1024 * 1024 * 128; // 128 MB
+    let prec = prec.min(max_prec);
+
     if v == 0.0 {
         let zeros = "0".repeat(prec);
         let e = if upper { 'E' } else { 'e' };
