@@ -316,6 +316,54 @@ fn secure_random_next_bytes_populates_array() {
 }
 
 #[test]
+fn crypto_spec_sha256_digest_runs_through_java_get_instance() {
+    assert_eq!(
+        run_bootstrap_int("CryptoSpecTest.class", "testSha256Digest", "()I"),
+        1
+    );
+}
+
+#[test]
+fn crypto_spec_md5_lookup_is_case_insensitive() {
+    assert_eq!(
+        run_bootstrap_int(
+            "CryptoSpecTest.class",
+            "testMd5DigestCaseInsensitiveLookup",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn crypto_spec_update_then_digest_buffers_bytes() {
+    assert_eq!(
+        run_bootstrap_int("CryptoSpecTest.class", "testUpdateThenDigest", "()I"),
+        1
+    );
+}
+
+#[test]
+fn crypto_spec_secure_random_instantiates_and_generates_bytes() {
+    assert_eq!(
+        run_bootstrap_int(
+            "CryptoSpecTest.class",
+            "testSecureRandomInstantiation",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn crypto_spec_provider_registration_is_visible_to_standard_apis() {
+    assert_eq!(
+        run_bootstrap_int("CryptoSpecTest.class", "testProviderRegistration", "()I"),
+        1
+    );
+}
+
+#[test]
 fn native_registry_register_callback_can_be_looked_up() {
     #[allow(clippy::unnecessary_wraps)]
     fn dummy_cb(
