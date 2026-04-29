@@ -119,6 +119,30 @@ mod tests {
     }
 
     #[test]
+    fn test_keyed_map_error() {
+        #[allow(dead_code)]
+        struct FailSer(i32);
+        impl Serialize for FailSer {
+            fn serialize<S: serde::Serializer>(&self, _ser: S) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("forced error"))
+            }
+        }
+
+        struct Wrapper(HashMap<i32, FailSer>);
+        impl Serialize for Wrapper {
+            fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+                super::ser_helpers::keyed_map(&self.0, ser, |k| format!("key_{k}"))
+            }
+        }
+
+        let mut bad_map = HashMap::new();
+        bad_map.insert(3, FailSer(1));
+
+        let bad_w = Wrapper(bad_map);
+        assert!(serde_json::to_string(&bad_w).is_err());
+    }
+
+    #[test]
     fn test_empty_maps() {
         let empty_map = HashMap::<i32, &'static str>::new();
         let w = MapWrapper { map: empty_map };
