@@ -57,3 +57,6 @@
 **Extract Nested Attribute Loops**
 **Learning:** `build_index` in `crates/duke-loader/src/jimage.rs` contained an inline, unbounded `loop` performing offset-based decoding of arbitrary-length location attributes, burying the actual map construction logic.
 **Action:** Extract deeply nested binary decoding loops into independent typed structures (like `LocationAttrs`) and helper functions (e.g., `parse_location_attributes`). This eliminates the "Pyramid of Doom" and restores clear separation of concerns between binary chunk decoding and hash map construction.
+**Extract Control Flow Graph Edges**
+**Learning:** `generate_mermaid_cfg`, `generate_basic_block_cfg`, and `cyclomatic_complexity` in `crates/duke-bytecode/src/cfg.rs` shared complex, duplicated matching logic to determine the control flow edges of instructions (using `is_return()`, `unconditional_jump_target()`, `conditional_branch_target()`, `switch_targets()`).
+**Action:** Created `Instruction::control_flow_edges` to centralize this logic, returning a generic list of `(target_pc, Option<label>)` tuples. This massively simplified all three functions by replacing their redundant if-else chains with a simple loop over the extracted edges.
