@@ -1346,6 +1346,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry.register(url_ctx);
     registry.natives_mut().register(
         "java/net/URL",
+        "<init>",
+        "(Ljava/lang/String;)V",
+        native_url_init,
+    );
+    registry.natives_mut().register(
+        "java/net/URL",
+        "toString",
+        "()Ljava/lang/String;",
+        native_url_to_string,
+    );
+    registry.natives_mut().register(
+        "java/net/URL",
         "toURI",
         "()Ljava/net/URI;",
         native_url_to_uri,
@@ -1355,6 +1367,60 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "setURLStreamHandlerFactory",
         "(Ljava/net/URLStreamHandlerFactory;)V",
         native_url_set_url_stream_handler_factory,
+    );
+
+    let url_class_path_ctx = ClassContext {
+        class_name: "jdk/internal/loader/URLClassPath".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "path".to_string(),
+            descriptor: "Ljava/util/ArrayList;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(url_class_path_ctx);
+
+    let url_class_loader_ctx = ClassContext {
+        class_name: "java/net/URLClassLoader".to_string(),
+        super_class: Some("java/lang/ClassLoader".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "ucp".to_string(),
+            descriptor: "Ljdk/internal/loader/URLClassPath;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(url_class_loader_ctx);
+    registry.natives_mut().register(
+        "java/net/URLClassLoader",
+        "<init>",
+        "([Ljava/net/URL;)V",
+        native_url_class_loader_init,
+    );
+    registry.natives_mut().register(
+        "java/net/URLClassLoader",
+        "<init>",
+        "([Ljava/net/URL;Ljava/lang/ClassLoader;)V",
+        native_url_class_loader_init,
+    );
+    registry.natives_mut().register_callback(
+        "java/net/URLClassLoader",
+        "loadClass",
+        "(Ljava/lang/String;)Ljava/lang/Class;",
+        native_url_class_loader_load_class,
     );
 
     let uri_ctx = ClassContext {

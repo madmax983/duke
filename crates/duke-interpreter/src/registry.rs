@@ -815,6 +815,14 @@ pub trait CallbackOps {
     /// Returns an error if the class cannot be loaded or linked.
     fn ensure_loaded(&mut self, class: &str) -> Result<()>;
 
+    /// Load a class through the parent/default loader without resolving child-loader identities.
+    ///
+    /// # Errors
+    /// Returns an error if parent class lookup fails unexpectedly.
+    fn ensure_parent_loaded(&mut self, _class: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+
     /// Read reflection metadata for a loaded or loadable class.
     ///
     /// # Errors
