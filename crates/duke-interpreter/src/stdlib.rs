@@ -6975,6 +6975,126 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(no_such_algorithm_ctx);
 
+    let no_such_provider_ctx = ClassContext {
+        class_name: "java/security/NoSuchProviderException".to_string(),
+        super_class: Some("java/lang/Exception".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(no_such_provider_ctx);
+
+    let security_ctx = ClassContext {
+        class_name: "java/security/Security".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(security_ctx);
+    registry.natives_mut().register(
+        "java/security/Security",
+        "getProvider",
+        "(Ljava/lang/String;)Ljava/security/Provider;",
+        native_security_get_provider,
+    );
+    registry.natives_mut().register(
+        "java/security/Security",
+        "getProviders",
+        "()[Ljava/security/Provider;",
+        native_security_get_providers,
+    );
+    registry.natives_mut().register(
+        "java/security/Security",
+        "getAlgorithms",
+        "(Ljava/lang/String;)Ljava/util/Set;",
+        native_security_get_algorithms,
+    );
+
+    let provider_ctx = ClassContext {
+        class_name: "java/security/Provider".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(provider_ctx);
+    registry.natives_mut().register(
+        "java/security/Provider",
+        "getName",
+        "()Ljava/lang/String;",
+        native_provider_get_name,
+    );
+    registry.natives_mut().register(
+        "java/security/Provider",
+        "getService",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/security/Provider$Service;",
+        native_provider_get_service,
+    );
+
+    let provider_service_ctx = ClassContext {
+        class_name: "java/security/Provider$Service".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "provider".to_string(),
+                descriptor: "Ljava/security/Provider;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "type".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "algorithm".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(provider_service_ctx);
+    registry.natives_mut().register(
+        "java/security/Provider$Service",
+        "getAlgorithm",
+        "()Ljava/lang/String;",
+        native_provider_service_get_algorithm,
+    );
+    registry.natives_mut().register(
+        "java/security/Provider$Service",
+        "getType",
+        "()Ljava/lang/String;",
+        native_provider_service_get_type,
+    );
+    registry.natives_mut().register(
+        "java/security/Provider$Service",
+        "getProvider",
+        "()Ljava/security/Provider;",
+        native_provider_service_get_provider,
+    );
+
     let secure_random_ctx = ClassContext {
         class_name: "java/security/SecureRandom".to_string(),
         super_class: Some("java/util/Random".to_string()),
@@ -7006,13 +7126,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "algorithm".to_string(),
-            descriptor: "Ljava/lang/String;".to_string(),
-            is_static: false,
-        }],
+        fields: vec![
+            FieldEntry {
+                name: "algorithm".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "buffer".to_string(),
+                descriptor: "[B".to_string(),
+                is_static: false,
+            },
+        ],
         static_fields: Vec::new(),
-        instance_field_count: 1,
+        instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -7023,6 +7150,48 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getInstance",
         "(Ljava/lang/String;)Ljava/security/MessageDigest;",
         native_message_digest_get_instance,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "getInstance",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/security/MessageDigest;",
+        native_message_digest_get_instance_provider_name,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "getInstance",
+        "(Ljava/lang/String;Ljava/security/Provider;)Ljava/security/MessageDigest;",
+        native_message_digest_get_instance_provider,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "getAlgorithm",
+        "()Ljava/lang/String;",
+        native_message_digest_get_algorithm,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "getProvider",
+        "()Ljava/security/Provider;",
+        native_message_digest_get_provider,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "update",
+        "(B)V",
+        native_message_digest_update_byte,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "update",
+        "([B)V",
+        native_message_digest_update_bytes,
+    );
+    registry.natives_mut().register(
+        "java/security/MessageDigest",
+        "update",
+        "([BII)V",
+        native_message_digest_update_bytes_range,
     );
     registry.natives_mut().register(
         "java/security/MessageDigest",

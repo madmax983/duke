@@ -823,9 +823,16 @@ mod tests {
     #[test]
     fn should_cache_process_exit_code() {
         let mut gc = Heap::new();
-        let process = gc
-            .spawn_host_process(&["echo".to_string(), "hello".to_string()], None)
-            .unwrap();
+        let command = if cfg!(windows) {
+            vec![
+                "cmd".to_string(),
+                "/C".to_string(),
+                "echo hello".to_string(),
+            ]
+        } else {
+            vec!["echo".to_string(), "hello".to_string()]
+        };
+        let process = gc.spawn_host_process(&command, None).unwrap();
         let code = gc.wait_host_process(process.process_id).unwrap();
         assert_eq!(code, 0);
         // Should use cache
