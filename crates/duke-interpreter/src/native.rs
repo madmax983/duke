@@ -7011,38 +7011,269 @@ pub(crate) fn native_class_get_fields(
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
-fn allocate_empty_annotation_array(heap: &mut duke_gc::Heap) -> Result<Option<Slot>> {
-    let array_ref = allocate_reference_array(heap, "[Ljava/lang/annotation/Annotation;", &[])?;
+const ANNOTATION_PROXY_PREFIX: &str = "duke/annotation/AnnotationProxy:";
+
+pub(crate) fn annotation_proxy_type(class_name: &str) -> Option<&str> {
+    class_name.strip_prefix(ANNOTATION_PROXY_PREFIX)
+}
+
+fn find_annotation<'a>(
+    annotations: &'a [ReflectedAnnotation],
+    requested_type: &str,
+) -> Option<&'a ReflectedAnnotation> {
+    let requested_type = class_internal_name_from_key(requested_type);
+    annotations
+        .iter()
+        .find(|annotation| annotation.type_name == requested_type)
+}
+
+fn annotation_element_values(
+    annotation: &ReflectedAnnotation,
+    ops: &mut dyn CallbackOps,
+) -> Result<Vec<(String, String, ReflectedAnnotationValue)>> {
+    let annotation_info = ops.inspect_class(&annotation.type_name)?;
+    let mut values = Vec::new();
+    for method in annotation_info
+        .methods
+        .into_iter()
+        .filter(|method| method.descriptor.starts_with("()"))
+    {
+        let explicit = annotation
+            .elements
+            .iter()
+            .find(|element| element.name == method.name)
+            .map(|element| element.value.clone());
+        let Some(value) = explicit.or_else(|| method.annotation_default.clone()) else {
+            continue;
+        };
+        values.push((
+            method.name,
+            method_return_descriptor(&method.descriptor).to_string(),
+            value,
+        ));
+    }
+    Ok(values)
+}
+
+fn array_element_descriptor(array_descriptor: &str) -> &str {
+    array_descriptor.strip_prefix('[').unwrap_or("Ljava/lang/Object;")
+}
+
+fn materialize_annotation_const(
+    heap: &mut duke_gc::Heap,
+    descriptor: &str,
+    value: &ReflectedAnnotationConst,
+) -> Slot {
+    match value {
+        ReflectedAnnotationConst::String(value) => {
+            Slot::Reference(Some(heap.allocate_string(value.clone())))
+        }
+        ReflectedAnnotationConst::Long(value) => Slot::Long(*value),
+        ReflectedAnnotationConst::Float(value) => Slot::Float(*value),
+        ReflectedAnnotationConst::Double(value) => Slot::Double(*value),
+        ReflectedAnnotationConst::Boolean(value) => Slot::Int(i32::from(*value)),
+        ReflectedAnnotationConst::Byte(value)
+        | ReflectedAnnotationConst::Char(value)
+        | ReflectedAnnotationConst::Int(value)
+        | ReflectedAnnotationConst::Short(value) => {
+            if descriptor == "Z" {
+                Slot::Int(i32::from(*value != 0))
+            } else {
+                Slot::Int(*value)
+            }
+        }
+    }
+}
+
+fn materialize_annotation_value(
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    descriptor: &str,
+    value: &ReflectedAnnotationValue,
+) -> Result<Slot> {
+    match value {
+        ReflectedAnnotationValue::Const(value) => {
+            Ok(materialize_annotation_const(heap, descriptor, value))
+        }
+        ReflectedAnnotationValue::Class(class_key) => {
+            let class_ref = allocate_class_object(heap, class_key)?;
+            Ok(Slot::Reference(Some(class_ref)))
+        }
+        ReflectedAnnotationValue::Enum {
+            type_name,
+            const_name,
+        } => {
+            ops.ensure_class_initialized(heap, output, type_name)?;
+            ops.read_static_field(type_name, const_name)
+        }
+        ReflectedAnnotationValue::Annotation(annotation) => {
+            let annotation_ref = allocate_annotation_proxy(heap, output, ops, annotation)?;
+            Ok(Slot::Reference(Some(annotation_ref)))
+        }
+        ReflectedAnnotationValue::Array(values) => {
+            let element_descriptor = array_element_descriptor(descriptor);
+            let slots = values
+                .iter()
+                .map(|value| {
+                    materialize_annotation_value(heap, output, ops, element_descriptor, value)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let array_ref = allocate_reference_array_from_slots(heap, descriptor, &slots)?;
+            Ok(Slot::Reference(Some(array_ref)))
+        }
+    }
+}
+
+fn allocate_annotation_proxy(
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    annotation: &ReflectedAnnotation,
+) -> Result<u64> {
+    let element_values = annotation_element_values(annotation, ops)?;
+    let type_ref = allocate_class_object(heap, &annotation.type_name)?;
+    let mut fields = Vec::with_capacity(1 + element_values.len() * 3);
+    fields.push(Slot::Reference(Some(type_ref)));
+    for (name, descriptor, value) in element_values {
+        let name_ref = heap.allocate_string(name);
+        let descriptor_ref = heap.allocate_string(descriptor.clone());
+        let value_slot = materialize_annotation_value(heap, output, ops, &descriptor, &value)?;
+        fields.push(Slot::Reference(Some(name_ref)));
+        fields.push(Slot::Reference(Some(descriptor_ref)));
+        fields.push(value_slot);
+    }
+
+    let proxy_ref = heap.allocate(
+        format!("{ANNOTATION_PROXY_PREFIX}{}", annotation.type_name),
+        fields.len(),
+    );
+    let proxy = heap.get_mut(proxy_ref)?;
+    proxy.string_value = Some(annotation.type_name.clone());
+    proxy.fields = fields;
+    Ok(proxy_ref)
+}
+
+fn allocate_annotation_array(
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    annotations: &[ReflectedAnnotation],
+) -> Result<Option<Slot>> {
+    let annotation_refs = annotations
+        .iter()
+        .map(|annotation| allocate_annotation_proxy(heap, output, ops, annotation))
+        .collect::<Result<Vec<_>>>()?;
+    let array_ref =
+        allocate_reference_array(heap, "[Ljava/lang/annotation/Annotation;", &annotation_refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
-pub(crate) fn native_class_get_annotations(
-    _args: &[Slot],
-    heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+pub(crate) fn annotation_proxy_element_slot(
+    heap: &duke_gc::Heap,
+    proxy_ref: u64,
+    method_name: &str,
+    descriptor: &str,
 ) -> Result<Option<Slot>> {
-    allocate_empty_annotation_array(heap)
+    let proxy = heap.get(proxy_ref)?;
+    if annotation_proxy_type(&proxy.class_name).is_none() {
+        return Ok(None);
+    }
+    if method_name == "annotationType" && descriptor == "()Ljava/lang/Class;" {
+        return Ok(proxy.fields.first().copied());
+    }
+    for chunk in proxy.fields[1..].chunks(3) {
+        let [Slot::Reference(Some(name_ref)), Slot::Reference(Some(desc_ref)), value] = chunk
+        else {
+            continue;
+        };
+        if string_value_from_ref(heap, *name_ref)? == method_name
+            && string_value_from_ref(heap, *desc_ref)? == method_return_descriptor(descriptor)
+        {
+            return Ok(Some(*value));
+        }
+    }
+    Ok(None)
+}
+
+fn annotations_for_reflected_method(
+    heap: &duke_gc::Heap,
+    method_ref: u64,
+    ops: &mut dyn CallbackOps,
+) -> Result<Vec<ReflectedAnnotation>> {
+    let method = reflected_method_handle(heap, method_ref)?;
+    Ok(ops
+        .inspect_class(&method.declaring_class_key)?
+        .methods
+        .into_iter()
+        .find(|candidate| {
+            let name_matches = candidate.name == method.method_name;
+            let descriptor_matches = candidate.descriptor == method.descriptor;
+            name_matches && descriptor_matches
+        })
+        .map_or_else(Vec::new, |method| method.annotations))
+}
+
+fn annotations_for_reflected_field(
+    heap: &duke_gc::Heap,
+    field_ref: u64,
+    ops: &mut dyn CallbackOps,
+) -> Result<Vec<ReflectedAnnotation>> {
+    let field = reflected_field_handle(heap, field_ref)?;
+    Ok(ops
+        .inspect_class(&field.declaring_class_key)?
+        .fields
+        .into_iter()
+        .find(|candidate| {
+            let name_matches = candidate.name == field.field_name;
+            let descriptor_matches = candidate.descriptor == field.descriptor;
+            name_matches && descriptor_matches
+        })
+        .map_or_else(Vec::new, |field| field.annotations))
+}
+
+pub(crate) fn native_class_get_annotations(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let annotations = ops.inspect_class(&class_key)?.annotations;
+    allocate_annotation_array(heap, out, ops, &annotations)
 }
 
 pub(crate) fn native_class_get_declared_annotations(
-    _args: &[Slot],
+    args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    allocate_empty_annotation_array(heap)
+    native_class_get_annotations(args, heap, out, control, ops)
 }
 
 pub(crate) fn native_class_get_annotation(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let _ = extract_ref_arg(args, 0)?;
-    let _ = extract_ref_arg(args, 1)?;
-    Ok(Some(Slot::Reference(None)))
+    let class_ref = extract_ref_arg(args, 0)?;
+    let annotation_type_ref = extract_ref_arg(args, 1)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    match find_annotation(&reflected.annotations, &requested_type) {
+        Some(annotation) => {
+            let annotation_ref = allocate_annotation_proxy(heap, out, ops, annotation)?;
+            Ok(Some(Slot::Reference(Some(annotation_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
 }
 
 pub(crate) fn native_reflect_method_get_name(
@@ -7056,32 +7287,45 @@ pub(crate) fn native_reflect_method_get_name(
 }
 
 pub(crate) fn native_reflect_method_get_annotations(
-    _args: &[Slot],
+    args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    allocate_empty_annotation_array(heap)
+    let method_ref = extract_ref_arg(args, 0)?;
+    let annotations = annotations_for_reflected_method(heap, method_ref, ops)?;
+    allocate_annotation_array(heap, out, ops, &annotations)
 }
 
 pub(crate) fn native_reflect_method_get_declared_annotations(
-    _args: &[Slot],
+    args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    allocate_empty_annotation_array(heap)
+    native_reflect_method_get_annotations(args, heap, out, control, ops)
 }
 
 pub(crate) fn native_reflect_method_get_annotation(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let _ = extract_ref_arg(args, 0)?;
-    let _ = extract_ref_arg(args, 1)?;
-    Ok(Some(Slot::Reference(None)))
+    let method_ref = extract_ref_arg(args, 0)?;
+    let annotation_type_ref = extract_ref_arg(args, 1)?;
+    let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
+    let annotations = annotations_for_reflected_method(heap, method_ref, ops)?;
+    match find_annotation(&annotations, &requested_type) {
+        Some(annotation) => {
+            let annotation_ref = allocate_annotation_proxy(heap, out, ops, annotation)?;
+            Ok(Some(Slot::Reference(Some(annotation_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
 }
 
 pub(crate) fn native_reflect_constructor_get_name(
@@ -7196,32 +7440,45 @@ pub(crate) fn native_reflect_field_get_name(
 }
 
 pub(crate) fn native_reflect_field_get_annotations(
-    _args: &[Slot],
+    args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    allocate_empty_annotation_array(heap)
+    let field_ref = extract_ref_arg(args, 0)?;
+    let annotations = annotations_for_reflected_field(heap, field_ref, ops)?;
+    allocate_annotation_array(heap, out, ops, &annotations)
 }
 
 pub(crate) fn native_reflect_field_get_declared_annotations(
-    _args: &[Slot],
+    args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    allocate_empty_annotation_array(heap)
+    native_reflect_field_get_annotations(args, heap, out, control, ops)
 }
 
 pub(crate) fn native_reflect_field_get_annotation(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let _ = extract_ref_arg(args, 0)?;
-    let _ = extract_ref_arg(args, 1)?;
-    Ok(Some(Slot::Reference(None)))
+    let field_ref = extract_ref_arg(args, 0)?;
+    let annotation_type_ref = extract_ref_arg(args, 1)?;
+    let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
+    let annotations = annotations_for_reflected_field(heap, field_ref, ops)?;
+    match find_annotation(&annotations, &requested_type) {
+        Some(annotation) => {
+            let annotation_ref = allocate_annotation_proxy(heap, out, ops, annotation)?;
+            Ok(Some(Slot::Reference(Some(annotation_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
 }
 
 pub(crate) fn native_reflection_member_set_accessible(
@@ -14562,6 +14819,129 @@ fn cp_utf8_string(cp: &[Option<CpEntry>], cp_idx: usize) -> Result<String> {
     }
 }
 
+fn annotation_descriptor_to_internal_name(descriptor: &str) -> String {
+    descriptor
+        .strip_prefix('L')
+        .and_then(|s| s.strip_suffix(';'))
+        .unwrap_or(descriptor)
+        .to_string()
+}
+
+fn class_literal_descriptor_to_key(descriptor: &str) -> String {
+    if descriptor.starts_with('L') && descriptor.ends_with(';') {
+        annotation_descriptor_to_internal_name(descriptor)
+    } else {
+        descriptor.to_string()
+    }
+}
+
+fn cp_annotation_const(
+    cp: &[Option<CpEntry>],
+    cp_idx: usize,
+) -> Option<ReflectedAnnotationConst> {
+    match cp.get(cp_idx).and_then(|e| e.as_ref())? {
+        CpEntry::Integer(value) => Some(ReflectedAnnotationConst::Int(*value)),
+        CpEntry::Long(value) => Some(ReflectedAnnotationConst::Long(*value)),
+        CpEntry::Float(value) => Some(ReflectedAnnotationConst::Float(*value)),
+        CpEntry::Double(value) => Some(ReflectedAnnotationConst::Double(*value)),
+        CpEntry::Utf8(value) => Some(ReflectedAnnotationConst::String(value.clone())),
+        _ => None,
+    }
+}
+
+fn resolve_annotation_value(
+    cp: &[Option<CpEntry>],
+    value: &duke_classfile::types::ElementValue,
+) -> Option<ReflectedAnnotationValue> {
+    use duke_classfile::types::ElementValue;
+    match value {
+        ElementValue::ConstValueIndex(index) => cp_annotation_const(cp, index.0 as usize)
+            .map(ReflectedAnnotationValue::Const),
+        ElementValue::EnumConstValue {
+            type_name_index,
+            const_name_index,
+        } => {
+            let type_descriptor = cp_utf8_string(cp, type_name_index.0 as usize).ok()?;
+            let const_name = cp_utf8_string(cp, const_name_index.0 as usize).ok()?;
+            Some(ReflectedAnnotationValue::Enum {
+                type_name: annotation_descriptor_to_internal_name(&type_descriptor),
+                const_name,
+            })
+        }
+        ElementValue::ClassInfoIndex(index) => {
+            let descriptor = cp_utf8_string(cp, index.0 as usize).ok()?;
+            Some(ReflectedAnnotationValue::Class(
+                class_literal_descriptor_to_key(&descriptor),
+            ))
+        }
+        ElementValue::AnnotationValue(annotation) => resolve_annotation(cp, annotation)
+            .map(Box::new)
+            .map(ReflectedAnnotationValue::Annotation),
+        ElementValue::ArrayValue(values) => values
+            .iter()
+            .map(|value| resolve_annotation_value(cp, value))
+            .collect::<Option<Vec<_>>>()
+            .map(ReflectedAnnotationValue::Array),
+    }
+}
+
+fn resolve_annotation(
+    cp: &[Option<CpEntry>],
+    annotation: &duke_classfile::types::Annotation,
+) -> Option<ReflectedAnnotation> {
+    let descriptor = cp_utf8_string(cp, annotation.type_index.0 as usize).ok()?;
+    let elements = annotation
+        .element_value_pairs
+        .iter()
+        .map(|pair| {
+            Some(ReflectedAnnotationElement {
+                name: cp_utf8_string(cp, pair.element_name_index.0 as usize).ok()?,
+                value: resolve_annotation_value(cp, &pair.value)?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(ReflectedAnnotation {
+        type_name: annotation_descriptor_to_internal_name(&descriptor),
+        elements,
+    })
+}
+
+fn runtime_visible_annotations_from_attrs(
+    cp: &[Option<CpEntry>],
+    attrs: &[duke_classfile::types::AttributeInfo],
+) -> Vec<ReflectedAnnotation> {
+    attrs
+        .iter()
+        .find_map(|attr| {
+            if let duke_classfile::types::AttributeData::RuntimeVisibleAnnotations(annotations) =
+                &attr.data
+            {
+                Some(
+                    annotations
+                        .iter()
+                        .filter_map(|annotation| resolve_annotation(cp, annotation))
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn annotation_default_from_attrs(
+    cp: &[Option<CpEntry>],
+    attrs: &[duke_classfile::types::AttributeInfo],
+) -> Option<ReflectedAnnotationValue> {
+    attrs.iter().find_map(|attr| {
+        if let duke_classfile::types::AttributeData::AnnotationDefault(value) = &attr.data {
+            resolve_annotation_value(cp, value)
+        } else {
+            None
+        }
+    })
+}
+
 fn reflected_class_info_from_loader(
     loader: &dyn ClassLoader,
     internal_name: &str,
@@ -14586,6 +14966,14 @@ fn reflected_class_info_from_loader(
                 descriptor,
                 is_public: method.access_flags.contains(MethodAccessFlags::PUBLIC),
                 is_static: method.access_flags.contains(MethodAccessFlags::STATIC),
+                annotations: runtime_visible_annotations_from_attrs(
+                    &class_file.constant_pool,
+                    &method.attributes,
+                ),
+                annotation_default: annotation_default_from_attrs(
+                    &class_file.constant_pool,
+                    &method.attributes,
+                ),
             })
         })
         .collect();
@@ -14603,6 +14991,10 @@ fn reflected_class_info_from_loader(
                 descriptor,
                 is_public: field.access_flags.contains(FieldAccessFlags::PUBLIC),
                 is_static: field.access_flags.contains(FieldAccessFlags::STATIC),
+                annotations: runtime_visible_annotations_from_attrs(
+                    &class_file.constant_pool,
+                    &field.attributes,
+                ),
             })
         })
         .collect();
@@ -14623,6 +15015,10 @@ fn reflected_class_info_from_loader(
         interfaces,
         methods,
         fields,
+        annotations: runtime_visible_annotations_from_attrs(
+            &class_file.constant_pool,
+            &class_file.attributes,
+        ),
     })
 }
 
@@ -14672,6 +15068,8 @@ fn inspect_reflected_class(
                     descriptor: method.descriptor.clone(),
                     is_public: method.is_public,
                     is_static: method.is_static,
+                    annotations: Vec::new(),
+                    annotation_default: None,
                 })
                 .collect();
             let fields = ctx
@@ -14682,6 +15080,7 @@ fn inspect_reflected_class(
                     descriptor: field.descriptor.clone(),
                     is_public: true,
                     is_static: field.is_static,
+                    annotations: Vec::new(),
                 })
                 .collect();
             return Ok(ReflectedClassInfo {
@@ -14691,6 +15090,7 @@ fn inspect_reflected_class(
                 interfaces: ctx.interfaces.clone(),
                 methods,
                 fields,
+                annotations: Vec::new(),
             });
         }
         Err(Error::ClassNotFound { .. }) => {}
@@ -14716,6 +15116,8 @@ fn inspect_reflected_class(
             descriptor: method.descriptor.clone(),
             is_public: method.is_public,
             is_static: method.is_static,
+            annotations: Vec::new(),
+            annotation_default: None,
         })
         .collect();
     let fields = ctx
@@ -14726,6 +15128,7 @@ fn inspect_reflected_class(
             descriptor: field.descriptor.clone(),
             is_public: true,
             is_static: field.is_static,
+            annotations: Vec::new(),
         })
         .collect();
 
@@ -14736,6 +15139,7 @@ fn inspect_reflected_class(
         interfaces: ctx.interfaces.clone(),
         methods,
         fields,
+        annotations: Vec::new(),
     })
 }
 
@@ -14753,6 +15157,9 @@ fn class_internal_name_from_key(class_key: &str) -> &str {
 }
 
 fn allocate_class_object(heap: &mut duke_gc::Heap, class_key: &str) -> Result<u64> {
+    if let Some(class_ref) = heap.find_string_backed_object("java/lang/Class", class_key) {
+        return Ok(class_ref);
+    }
     let class_ref = heap.allocate("java/lang/Class".to_string(), 0);
     heap.get_mut(class_ref)?.string_value = Some(class_key.to_string());
     Ok(class_ref)
@@ -15532,6 +15939,12 @@ fn is_assignable_from(
     to: &str,
     target_source_class: Option<&str>,
 ) -> bool {
+    if let Some(annotation_type) = annotation_proxy_type(from) {
+        let target = class_internal_name_from_key(to);
+        return matches!(target, "java/lang/Object" | "java/lang/annotation/Annotation")
+            || target == annotation_type;
+    }
+
     let from_key = if registry.contains(from) {
         from.to_string()
     } else {

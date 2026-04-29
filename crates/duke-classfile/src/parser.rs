@@ -433,6 +433,7 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
         "RuntimeVisibleAnnotations" => {
             AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c)?)
         }
+        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
@@ -688,5 +689,20 @@ mod tests {
         assert_eq!(annotations.len(), 1);
         assert_eq!(annotations[0].type_index, CpIndex(2));
         assert_eq!(annotations[0].element_value_pairs.len(), 3);
+    }
+
+    #[test]
+    fn should_decode_annotation_default_value() {
+        let raw = [
+            b'[', 0x00, 0x02, // array[2]
+            b'I', 0x00, 0x01, // int const
+            b's', 0x00, 0x02, // string const
+        ];
+
+        let decoded = decode_known_attribute("AnnotationDefault", &raw).unwrap();
+        let AttributeData::AnnotationDefault(ElementValue::ArrayValue(values)) = decoded else {
+            panic!("expected AnnotationDefault array value");
+        };
+        assert_eq!(values.len(), 2);
     }
 }

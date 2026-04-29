@@ -246,6 +246,32 @@ impl Heap {
         idx
     }
 
+    /// Finds a live object by runtime class and string payload.
+    ///
+    /// This is intentionally narrow: the interpreter uses it to canonicalize
+    /// VM metadata objects such as `java/lang/Class`, which are represented as
+    /// string-backed heap objects.
+    #[must_use]
+    pub fn find_string_backed_object(&self, class_name: &str, value: &str) -> Option<u64> {
+        for (idx, slot) in self.young.iter().enumerate() {
+            let Some(obj) = slot else {
+                continue;
+            };
+            if obj.class_name == class_name && obj.string_value.as_deref() == Some(value) {
+                return Some(idx as u64);
+            }
+        }
+        for (idx, slot) in self.old.iter().enumerate() {
+            let Some(obj) = slot else {
+                continue;
+            };
+            if obj.class_name == class_name && obj.string_value.as_deref() == Some(value) {
+                return Some(idx as u64 | OLD_BIT);
+            }
+        }
+        None
+    }
+
     /// Clones an existing object in the heap. Returns the reference of the new object.
     ///
     /// # Errors
@@ -1448,6 +1474,27 @@ mod tests {
         assert_eq!(
             heap.get(r1).unwrap().string_value,
             Some("world".to_string())
+        );
+    }
+
+    #[test]
+    fn find_string_backed_object_matches_class_and_payload() {
+        let mut heap = Heap::new();
+        let class_ref = heap.allocate("java/lang/Class".to_string(), 0);
+        heap.get_mut(class_ref).unwrap().string_value = Some("java/lang/String".to_string());
+        let other_ref = heap.allocate_string("java/lang/String".to_string());
+
+        assert_eq!(
+            heap.find_string_backed_object("java/lang/Class", "java/lang/String"),
+            Some(class_ref)
+        );
+        assert_eq!(
+            heap.find_string_backed_object("java/lang/String", "java/lang/String"),
+            Some(other_ref)
+        );
+        assert_eq!(
+            heap.find_string_backed_object("java/lang/Class", "java/lang/Object"),
+            None
         );
     }
 

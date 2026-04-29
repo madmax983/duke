@@ -97,6 +97,7 @@ impl CallbackOps for NoopCallbackOps {
             interfaces: Vec::new(),
             methods: Vec::new(),
             fields: Vec::new(),
+            annotations: Vec::new(),
         })
     }
 }
@@ -130,6 +131,7 @@ impl CallbackOps for FixedCodeSourceOps {
             interfaces: Vec::new(),
             methods: Vec::new(),
             fields: Vec::new(),
+            annotations: Vec::new(),
         })
     }
 
@@ -173,6 +175,7 @@ fn native_hashset_init_from_collection_copies_to_array_elements() {
                 interfaces: Vec::new(),
                 methods: Vec::new(),
                 fields: Vec::new(),
+                annotations: Vec::new(),
             })
         }
     }
@@ -17917,6 +17920,38 @@ fn reflection_static_field_set_writes_back() {
     );
 }
 
+#[test]
+fn annotation_class_get_annotation_returns_configured_and_default_values() {
+    assert_eq!(
+        run_bootstrap_int(
+            "AnnotationTest.class",
+            "classAnnotationConfiguredAndDefaults",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn annotation_method_and_field_get_annotation_return_values() {
+    assert_eq!(
+        run_bootstrap_int("AnnotationTest.class", "methodAndFieldAnnotations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn annotation_get_annotations_array_contains_runtime_annotation() {
+    assert_eq!(
+        run_bootstrap_int(
+            "AnnotationTest.class",
+            "annotationsArrayIncludesRuntimeAnnotation",
+            "()I"
+        ),
+        1
+    );
+}
+
 // ---- Phase 32: Process management fixture coverage ----
 
 fn repo_root_dir() -> std::path::PathBuf {
@@ -20097,15 +20132,20 @@ fn native_class_get_declared_method_matches_parameter_class_array() {
                         descriptor: "([Ljava/lang/String;)V".to_string(),
                         is_public: true,
                         is_static: true,
+                        annotations: Vec::new(),
+                        annotation_default: None,
                     },
                     ReflectedMethodInfo {
                         name: "main".to_string(),
                         descriptor: "()V".to_string(),
                         is_public: true,
                         is_static: true,
+                        annotations: Vec::new(),
+                        annotation_default: None,
                     },
                 ],
                 fields: Vec::new(),
+                annotations: Vec::new(),
             })
         }
     }

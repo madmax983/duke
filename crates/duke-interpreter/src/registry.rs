@@ -131,9 +131,11 @@ impl NativeControl {
 ///     descriptor: "()Ljava/lang/String;".to_string(),
 ///     is_public: true,
 ///     is_static: false,
+///     annotations: vec![],
+///     annotation_default: None,
 /// };
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReflectedMethodInfo {
     /// The exact string name of the method (e.g. `"toString"`).
     pub name: String,
@@ -143,6 +145,10 @@ pub struct ReflectedMethodInfo {
     pub is_public: bool,
     /// True if the method has the `ACC_STATIC` modifier.
     pub is_static: bool,
+    /// Runtime-visible annotations declared directly on the method.
+    pub annotations: Vec<ReflectedAnnotation>,
+    /// Default element value when this method is an annotation element.
+    pub annotation_default: Option<ReflectedAnnotationValue>,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
@@ -160,9 +166,10 @@ pub struct ReflectedMethodInfo {
 ///     descriptor: "I".to_string(),
 ///     is_public: false,
 ///     is_static: true,
+///     annotations: vec![],
 /// };
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReflectedFieldInfo {
     /// The exact string name of the field.
     pub name: String,
@@ -172,6 +179,58 @@ pub struct ReflectedFieldInfo {
     pub is_public: bool,
     /// True if the field has the `ACC_STATIC` modifier.
     pub is_static: bool,
+    /// Runtime-visible annotations declared directly on the field.
+    pub annotations: Vec<ReflectedAnnotation>,
+}
+
+/// Runtime-visible annotation metadata with constant-pool indices resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReflectedAnnotation {
+    /// Annotation interface internal name, e.g. `com/example/Route`.
+    pub type_name: String,
+    /// Explicitly configured element values on this annotation usage.
+    pub elements: Vec<ReflectedAnnotationElement>,
+}
+
+/// One named annotation element value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReflectedAnnotationElement {
+    /// Element method name.
+    pub name: String,
+    /// Parsed element value.
+    pub value: ReflectedAnnotationValue,
+}
+
+/// Parsed annotation element value ready for runtime materialization.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReflectedAnnotationValue {
+    /// Primitive or `String` constant.
+    Const(ReflectedAnnotationConst),
+    /// Enum constant, stored as enum type internal name and constant name.
+    Enum {
+        type_name: String,
+        const_name: String,
+    },
+    /// Class literal internal name or primitive descriptor.
+    Class(String),
+    /// Nested annotation.
+    Annotation(Box<ReflectedAnnotation>),
+    /// Array of annotation values.
+    Array(Vec<Self>),
+}
+
+/// Primitive and `String` annotation constants.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReflectedAnnotationConst {
+    Byte(i32),
+    Char(i32),
+    Double(f64),
+    Float(f32),
+    Int(i32),
+    Long(i64),
+    Short(i32),
+    Boolean(bool),
+    String(String),
 }
 
 /// Reflection metadata for one class discovered from the loader or registry.
@@ -191,9 +250,10 @@ pub struct ReflectedFieldInfo {
 ///     interfaces: vec!["java/io/Serializable".to_string()],
 ///     methods: vec![],
 ///     fields: vec![],
+///     annotations: vec![],
 /// };
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReflectedClassInfo {
     /// The raw JVM internal name (e.g. `"java/lang/Object"`).
     pub internal_name: String,
@@ -207,6 +267,8 @@ pub struct ReflectedClassInfo {
     pub methods: Vec<ReflectedMethodInfo>,
     /// All fields explicitly declared by this class (excluding inherited).
     pub fields: Vec<ReflectedFieldInfo>,
+    /// Runtime-visible annotations declared directly on the class.
+    pub annotations: Vec<ReflectedAnnotation>,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
