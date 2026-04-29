@@ -363,6 +363,27 @@ pub enum Instruction {
 }
 
 /// An iterator over the match values and offsets of a switch statement.
+///
+/// This unifies the `tableswitch` and `lookupswitch` instructions into a common iteration pattern.
+/// The JVM executes a switch by evaluating a key and jumping to the corresponding offset.
+/// If no key matches, execution jumps to the `default` offset.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::Instruction;
+///
+/// let switch = Instruction::Lookupswitch {
+///     default: 10,
+///     pairs: vec![(5, 42), (7, 50)],
+/// };
+///
+/// let (default_target, mut targets) = switch.switch_targets().unwrap();
+/// assert_eq!(default_target, 10);
+/// assert_eq!(targets.next(), Some((5, 42)));
+/// assert_eq!(targets.next(), Some((7, 50)));
+/// assert_eq!(targets.next(), None);
+/// ```
 pub enum SwitchTargets<'a> {
     /// Iterator for `tableswitch` instruction.
     Tableswitch {
