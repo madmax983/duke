@@ -498,6 +498,26 @@ impl ClassRegistry {
         Some(loader)
     }
 
+    pub(crate) fn service_configuration_files_for_paths(
+        &mut self,
+        paths: &[String],
+        service_binary_name: &str,
+    ) -> Result<Vec<Vec<u8>>> {
+        let mut files = Vec::new();
+        for path in paths {
+            let Some(loader) = self.path_loader_for_path(path) else {
+                continue;
+            };
+            let mut path_files = loader
+                .service_configuration_files(service_binary_name)
+                .map_err(|_| Error::JavaException {
+                    class_name: "java/util/ServiceConfigurationError".to_string(),
+                })?;
+            files.append(&mut path_files);
+        }
+        Ok(files)
+    }
+
     /// Access the native method registry.
     ///
     /// # Examples
@@ -925,6 +945,19 @@ pub trait CallbackOps {
     /// Returns an error if runtime loader provenance lookup fails.
     fn runtime_loader_for_class(&mut self, _class: &str) -> Result<Option<u64>> {
         Ok(None)
+    }
+
+    /// Return all service-provider configuration files visible to a runtime loader.
+    ///
+    /// # Errors
+    /// Returns an error if resource enumeration fails.
+    fn service_configuration_files(
+        &mut self,
+        _heap: &duke_gc::Heap,
+        _loader_ref: Option<u64>,
+        _service_binary_name: &str,
+    ) -> Result<Vec<Vec<u8>>> {
+        Ok(Vec::new())
     }
 
     /// Return the deterministic class identity key for `class` in the current runtime.

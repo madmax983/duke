@@ -12115,7 +12115,7 @@ pub fn execute(
     let mut idx: usize = 0;
     // Local heap for array objects allocated during single-method execution.
     let mut local_heap: Vec<(String, Vec<Slot>, Option<String>)> = Vec::new();
-    let mut string_intern: HashMap<usize, u64> = HashMap::new();
+    let mut string_intern: HashMap<(u8, String), u64> = HashMap::new();
 
     loop {
         let Some((pc, instr)) = instructions.get(idx) else {
@@ -12166,16 +12166,21 @@ pub fn execute(
                     cp.get(cp_idx).and_then(|e| e.as_ref())
                 {
                     let si = string_index.0 as usize;
-                    let r = if let Some(&cached) = string_intern.get(&cp_idx) {
+                    let s = match cp.get(si).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(Error::InvalidCpIndex { index: si }),
+                    };
+                    let intern_key = (0, s);
+                    let r = if let Some(&cached) = string_intern.get(&intern_key) {
                         cached
                     } else {
-                        let s = match cp.get(si).and_then(|e| e.as_ref()) {
-                            Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(Error::InvalidCpIndex { index: si }),
-                        };
                         let r = local_heap.len() as u64;
-                        local_heap.push(("java/lang/String".to_string(), Vec::new(), Some(s)));
-                        string_intern.insert(cp_idx, r);
+                        local_heap.push((
+                            "java/lang/String".to_string(),
+                            Vec::new(),
+                            Some(intern_key.1.clone()),
+                        ));
+                        string_intern.insert(intern_key, r);
                         r
                     };
                     frame.push(Slot::Reference(Some(r)))?;
@@ -12189,16 +12194,21 @@ pub fn execute(
                     cp.get(idx_val).and_then(|e| e.as_ref())
                 {
                     let si = string_index.0 as usize;
-                    let r = if let Some(&cached) = string_intern.get(&idx_val) {
+                    let s = match cp.get(si).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::Utf8(s)) => s.clone(),
+                        _ => return Err(Error::InvalidCpIndex { index: si }),
+                    };
+                    let intern_key = (0, s);
+                    let r = if let Some(&cached) = string_intern.get(&intern_key) {
                         cached
                     } else {
-                        let s = match cp.get(si).and_then(|e| e.as_ref()) {
-                            Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(Error::InvalidCpIndex { index: si }),
-                        };
                         let r = local_heap.len() as u64;
-                        local_heap.push(("java/lang/String".to_string(), Vec::new(), Some(s)));
-                        string_intern.insert(idx_val, r);
+                        local_heap.push((
+                            "java/lang/String".to_string(),
+                            Vec::new(),
+                            Some(intern_key.1.clone()),
+                        ));
+                        string_intern.insert(intern_key, r);
                         r
                     };
                     frame.push(Slot::Reference(Some(r)))?;
@@ -13423,7 +13433,7 @@ struct ExecutionState {
     /// Key: (`caller_class`, `cp_idx`, `receiver_runtime_class`) → pre-resolved method data.
     vtable_cache: HashMap<String, HashMap<u16, HashMap<String, CachedDispatch>>>,
     idx: usize,
-    string_intern: HashMap<usize, u64>,
+    string_intern: HashMap<(u8, String), u64>,
     #[cfg(feature = "telemetry")]
     current_method: String,
 }
@@ -13701,6 +13711,25 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
 
     fn runtime_loader_for_class(&mut self, class: &str) -> Result<Option<u64>> {
         Ok(self.registry.runtime_loader_for_class(class))
+    }
+
+    fn service_configuration_files(
+        &mut self,
+        heap: &duke_gc::Heap,
+        loader_ref: Option<u64>,
+        service_binary_name: &str,
+    ) -> Result<Vec<Vec<u8>>> {
+        if let Some(loader_ref) = loader_ref {
+            let paths = runtime_loader_paths(self.registry, heap, loader_ref)?;
+            return self
+                .registry
+                .service_configuration_files_for_paths(&paths, service_binary_name);
+        }
+        self.loader
+            .service_configuration_files(service_binary_name)
+            .map_err(|_| Error::JavaException {
+                class_name: "java/util/ServiceConfigurationError".to_string(),
+            })
     }
 
     fn class_key_for_loaded_class(&mut self, class: &str) -> Result<String> {
@@ -16763,7 +16792,39 @@ fn materialize_java_exception_object(
         total_instance_field_count(registry, class_name),
     );
     init_object_fields(registry, heap, exc_ref, class_name);
+    if let Some(message) = pop_pending_java_exception_message(class_name) {
+        heap.get_mut(exc_ref)?.string_value = Some(message);
+    }
     Ok(exc_ref)
+}
+
+type PendingExceptionMessages = std::sync::Mutex<HashMap<String, VecDeque<String>>>;
+
+fn pending_java_exception_messages() -> &'static PendingExceptionMessages {
+    static MESSAGES: OnceLock<PendingExceptionMessages> = OnceLock::new();
+    MESSAGES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn push_pending_java_exception_message(class_name: &str, message: String) {
+    let mut messages = pending_java_exception_messages()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    messages
+        .entry(class_name.to_string())
+        .or_default()
+        .push_back(message);
+}
+
+fn pop_pending_java_exception_message(class_name: &str) -> Option<String> {
+    let mut messages = pending_java_exception_messages()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let queue = messages.get_mut(class_name)?;
+    let message = queue.pop_front();
+    if queue.is_empty() {
+        messages.remove(class_name);
+    }
+    message
 }
 
 fn allocate_reflection_instance(
@@ -17709,6 +17770,362 @@ pub(crate) fn native_collections_sort(
         vec![Slot::Reference(Some(list_ref)), Slot::Reference(None)],
     )?;
     Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// ServiceLoader natives
+// ---------------------------------------------------------------------------
+
+const SERVICE_LOADER_SERVICE_CLASS_FIELD: usize = 0;
+const SERVICE_LOADER_LOADER_FIELD: usize = 1;
+const SERVICE_LOADER_COUNT_FIELD: usize = 2;
+const SERVICE_LOADER_PROVIDERS_START: usize = 3;
+
+const SERVICE_ITER_SERVICE_CLASS_FIELD: usize = 0;
+const SERVICE_ITER_LOADER_FIELD: usize = 1;
+const SERVICE_ITER_INDEX_FIELD: usize = 2;
+const SERVICE_ITER_COUNT_FIELD: usize = 3;
+const SERVICE_ITER_PROVIDERS_START: usize = 4;
+
+fn parse_service_provider_names(files: Vec<Vec<u8>>) -> Result<Vec<String>> {
+    let mut names = Vec::new();
+    for bytes in files {
+        let text = String::from_utf8(bytes).map_err(|_| Error::JavaException {
+            class_name: "java/util/ServiceConfigurationError".to_string(),
+        })?;
+        for line in text.lines() {
+            let live = line
+                .split_once('#')
+                .map_or(line, |(before, _)| before)
+                .trim();
+            if !live.is_empty() {
+                names.push(live.to_string());
+            }
+        }
+    }
+    Ok(names)
+}
+
+fn service_loader_cause_type(err: &Error) -> &'static str {
+    match err {
+        Error::ClassNotFound { .. } => "java.lang.ClassNotFoundException",
+        Error::JavaException { class_name } => match class_name.as_str() {
+            "java/lang/ClassNotFoundException" => "java.lang.ClassNotFoundException",
+            "java/lang/IllegalAccessException" => "java.lang.IllegalAccessException",
+            "java/lang/InstantiationException" => "java.lang.InstantiationException",
+            "java/lang/NoSuchMethodException" => "java.lang.NoSuchMethodException",
+            _ => "java.lang.RuntimeException",
+        },
+        Error::InstantiationError { .. } => "java.lang.InstantiationException",
+        Error::NullPointerException => "java.lang.NullPointerException",
+        _ => "duke_runtime.Error",
+    }
+}
+
+fn service_configuration_error(provider_name: &str, cause_type: &str) -> Error {
+    push_pending_java_exception_message(
+        "java/util/ServiceConfigurationError",
+        format!("{provider_name}: provider construction failed due to {cause_type}"),
+    );
+    Error::JavaException {
+        class_name: "java/util/ServiceConfigurationError".to_string(),
+    }
+}
+
+fn allocate_service_loader(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+    loader_arg_index: Option<usize>,
+) -> Result<Option<Slot>> {
+    let service_class_ref = extract_ref_arg(args, 0)?;
+    let service_internal_name = class_internal_name_from_ref(heap, service_class_ref)?;
+    let service_binary_name = internal_name_to_binary_name(&service_internal_name);
+    let loader_slot = loader_arg_index
+        .and_then(|idx| args.get(idx).copied())
+        .unwrap_or(Slot::Reference(None));
+    let Slot::Reference(loader_ref) = loader_slot else {
+        return Err(Error::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        });
+    };
+    let files = ops.service_configuration_files(heap, loader_ref, &service_binary_name)?;
+    let provider_names = parse_service_provider_names(files)?;
+    let loader_ref = heap.allocate(
+        "java/util/ServiceLoader".to_string(),
+        SERVICE_LOADER_PROVIDERS_START + provider_names.len(),
+    );
+    {
+        let service_loader = heap.get_mut(loader_ref)?;
+        service_loader.fields[SERVICE_LOADER_SERVICE_CLASS_FIELD] =
+            Slot::Reference(Some(service_class_ref));
+        service_loader.fields[SERVICE_LOADER_LOADER_FIELD] = loader_slot;
+        service_loader.fields[SERVICE_LOADER_COUNT_FIELD] =
+            Slot::Int(i32::try_from(provider_names.len()).unwrap_or(i32::MAX));
+    }
+    for (idx, provider_name) in provider_names.into_iter().enumerate() {
+        let name_ref = heap.allocate_string(provider_name);
+        heap.write_field(
+            loader_ref,
+            SERVICE_LOADER_PROVIDERS_START + idx,
+            Slot::Reference(Some(name_ref)),
+        )?;
+    }
+    Ok(Some(Slot::Reference(Some(loader_ref))))
+}
+
+pub(crate) fn native_service_loader_load(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    allocate_service_loader(args, heap, ops, None)
+}
+
+pub(crate) fn native_service_loader_load_with_loader(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    allocate_service_loader(args, heap, ops, Some(1))
+}
+
+pub(crate) fn native_service_loader_iterator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (service_class_slot, loader_slot, provider_slots) = {
+        let service_loader = heap.get(this_ref)?;
+        let count = match service_loader.fields.get(SERVICE_LOADER_COUNT_FIELD) {
+            Some(Slot::Int(value)) if *value > 0 => usize::try_from(*value).unwrap_or(0),
+            _ => 0,
+        };
+        let service_class_slot = service_loader.fields[SERVICE_LOADER_SERVICE_CLASS_FIELD];
+        let loader_slot = service_loader.fields[SERVICE_LOADER_LOADER_FIELD];
+        let provider_slots: Vec<Slot> = service_loader
+            .fields
+            .iter()
+            .skip(SERVICE_LOADER_PROVIDERS_START)
+            .take(count)
+            .copied()
+            .collect();
+        (service_class_slot, loader_slot, provider_slots)
+    };
+
+    let iter_ref = heap.allocate(
+        "duke/util/ServiceLoaderIterator".to_string(),
+        SERVICE_ITER_PROVIDERS_START + provider_slots.len(),
+    );
+    {
+        let iter = heap.get_mut(iter_ref)?;
+        iter.fields[SERVICE_ITER_SERVICE_CLASS_FIELD] = service_class_slot;
+        iter.fields[SERVICE_ITER_LOADER_FIELD] = loader_slot;
+        iter.fields[SERVICE_ITER_INDEX_FIELD] = Slot::Int(0);
+        iter.fields[SERVICE_ITER_COUNT_FIELD] =
+            Slot::Int(i32::try_from(provider_slots.len()).unwrap_or(i32::MAX));
+    }
+    for (idx, slot) in provider_slots.into_iter().enumerate() {
+        heap.write_field(iter_ref, SERVICE_ITER_PROVIDERS_START + idx, slot)?;
+    }
+    Ok(Some(Slot::Reference(Some(iter_ref))))
+}
+
+fn service_iterator_index_and_count(heap: &duke_gc::Heap, iter_ref: u64) -> Result<(usize, usize)> {
+    let iter = heap.get(iter_ref)?;
+    let index = match iter.fields.get(SERVICE_ITER_INDEX_FIELD) {
+        Some(Slot::Int(value)) if *value > 0 => usize::try_from(*value).unwrap_or(0),
+        _ => 0,
+    };
+    let count = match iter.fields.get(SERVICE_ITER_COUNT_FIELD) {
+        Some(Slot::Int(value)) if *value > 0 => usize::try_from(*value).unwrap_or(0),
+        _ => 0,
+    };
+    Ok((index, count))
+}
+
+pub(crate) fn native_service_loader_iter_init(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(None)
+}
+
+pub(crate) fn native_service_loader_iter_has_next(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let iter_ref = extract_ref_arg(args, 0)?;
+    let (index, count) = service_iterator_index_and_count(heap, iter_ref)?;
+    Ok(Some(Slot::Int(i32::from(index < count))))
+}
+
+fn instantiate_service_provider(
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    iter_ref: u64,
+) -> Result<u64> {
+    let (index, count) = service_iterator_index_and_count(heap, iter_ref)?;
+    if index >= count {
+        return Err(Error::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+
+    let (loader_ref, provider_name_ref) = {
+        let iter = heap.get(iter_ref)?;
+        let loader_ref = match iter.fields.get(SERVICE_ITER_LOADER_FIELD) {
+            Some(Slot::Reference(reference)) => *reference,
+            _ => {
+                return Err(Error::TypeMismatch {
+                    expected: "Reference",
+                    got: "other",
+                });
+            }
+        };
+        let provider_name_ref = match iter.fields.get(SERVICE_ITER_PROVIDERS_START + index) {
+            Some(Slot::Reference(Some(reference))) => *reference,
+            _ => return Err(Error::NullPointerException),
+        };
+        (loader_ref, provider_name_ref)
+    };
+    let provider_binary_name = string_value_from_ref(heap, provider_name_ref)?;
+    let provider_internal_name = binary_name_to_internal_name(&provider_binary_name);
+    heap.get_mut(iter_ref)?.fields[SERVICE_ITER_INDEX_FIELD] =
+        Slot::Int(i32::try_from(index + 1).unwrap_or(i32::MAX));
+
+    let load_result = if let Some(loader_ref) = loader_ref {
+        ops.ensure_loaded_with_runtime_loader(heap, loader_ref, &provider_internal_name)
+    } else {
+        ops.ensure_loaded(&provider_internal_name)
+    };
+    if let Err(err) = load_result {
+        return Err(service_configuration_error(
+            &provider_binary_name,
+            service_loader_cause_type(&err),
+        ));
+    }
+    let class_key = if let Some(loader_ref) = loader_ref {
+        match ops.class_key_for_runtime_loader(heap, loader_ref, &provider_internal_name) {
+            Ok(class_key) => class_key,
+            Err(err) => {
+                return Err(service_configuration_error(
+                    &provider_binary_name,
+                    service_loader_cause_type(&err),
+                ));
+            }
+        }
+    } else {
+        match ops.class_key_for_loaded_class(&provider_internal_name) {
+            Ok(class_key) => class_key,
+            Err(err) => {
+                return Err(service_configuration_error(
+                    &provider_binary_name,
+                    service_loader_cause_type(&err),
+                ));
+            }
+        }
+    };
+
+    let reflected = match ops.inspect_class(&class_key) {
+        Ok(reflected) => reflected,
+        Err(err) => {
+            return Err(service_configuration_error(
+                &provider_binary_name,
+                service_loader_cause_type(&err),
+            ));
+        }
+    };
+    let has_public_no_arg_ctor = reflected.methods.iter().any(|method| {
+        method.name == "<init>" && method.descriptor == "()V" && method.is_public
+    });
+    if !has_public_no_arg_ctor {
+        return Err(service_configuration_error(
+            &provider_binary_name,
+            "java.lang.NoSuchMethodException",
+        ));
+    }
+
+    let instance_ref = match ops.allocate_instance(heap, output, &class_key) {
+        Ok(instance_ref) => instance_ref,
+        Err(err) => {
+            return Err(service_configuration_error(
+                &provider_binary_name,
+                service_loader_cause_type(&err),
+            ));
+        }
+    };
+    match ops.invoke(
+        heap,
+        output,
+        &class_key,
+        "<init>",
+        "()V",
+        vec![Slot::Reference(Some(instance_ref))],
+    ) {
+        Ok(_) => Ok(instance_ref),
+        Err(err) => Err(service_configuration_error(
+            &provider_binary_name,
+            service_loader_cause_type(&err),
+        )),
+    }
+}
+
+pub(crate) fn native_service_loader_iter_next(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let iter_ref = extract_ref_arg(args, 0)?;
+    let provider_ref = instantiate_service_provider(heap, output, ops, iter_ref)?;
+    Ok(Some(Slot::Reference(Some(provider_ref))))
+}
+
+pub(crate) fn native_service_loader_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let Some(Slot::Reference(Some(iter_ref))) =
+        native_service_loader_iterator(args, heap, output, control)?
+    else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let mut providers = Vec::new();
+    loop {
+        let (index, count) = service_iterator_index_and_count(heap, iter_ref)?;
+        if index >= count {
+            break;
+        }
+        let provider_ref = instantiate_service_provider(heap, output, ops, iter_ref)?;
+        providers.push(provider_ref);
+    }
+
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref)?.fields[0] = Slot::Int(i32::try_from(providers.len()).unwrap_or(0));
+    for provider_ref in providers {
+        heap.get_mut(stream_ref)?
+            .fields
+            .push(Slot::Reference(Some(provider_ref)));
+    }
+    Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
 // ---------------------------------------------------------------------------

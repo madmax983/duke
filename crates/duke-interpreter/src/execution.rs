@@ -677,11 +677,12 @@ pub fn run_execution(
                     }
                 };
                 if let Some(s) = string_info {
-                    let r = if let Some(&cached) = string_intern.get(&cp_idx) {
+                    let intern_key = (0, s);
+                    let r = if let Some(&cached) = string_intern.get(&intern_key) {
                         cached
                     } else {
-                        let r = heap.allocate_string(s);
-                        string_intern.insert(cp_idx, r);
+                        let r = heap.allocate_string(intern_key.1.clone());
+                        string_intern.insert(intern_key, r);
                         r
                     };
                     frame.push(Slot::Reference(Some(r)))?;
@@ -705,12 +706,11 @@ pub fn run_execution(
                         }
                     };
                     if let Some(class_name) = class_info {
-                        // Intern class literals using offset key to avoid collision with String interning
-                        let intern_key = cp_idx + 100_000;
+                        let intern_key = (1, class_name);
                         let r = if let Some(&cached) = string_intern.get(&intern_key) {
                             cached
                         } else {
-                            let r = allocate_class_object(heap, &class_name)?;
+                            let r = allocate_class_object(heap, &intern_key.1)?;
                             string_intern.insert(intern_key, r);
                             r
                         };
@@ -739,11 +739,12 @@ pub fn run_execution(
                     }
                 };
                 if let Some(s) = string_info {
-                    let r = if let Some(&cached) = string_intern.get(&idx_val) {
+                    let intern_key = (0, s);
+                    let r = if let Some(&cached) = string_intern.get(&intern_key) {
                         cached
                     } else {
-                        let r = heap.allocate_string(s);
-                        string_intern.insert(idx_val, r);
+                        let r = heap.allocate_string(intern_key.1.clone());
+                        string_intern.insert(intern_key, r);
                         r
                     };
                     frame.push(Slot::Reference(Some(r)))?;
@@ -767,12 +768,11 @@ pub fn run_execution(
                         }
                     };
                     if let Some(class_name) = class_info {
-                        // Intern class literals using offset key to avoid collision with String interning
-                        let intern_key = idx_val + 100_000;
+                        let intern_key = (1, class_name);
                         let r = if let Some(&cached) = string_intern.get(&intern_key) {
                             cached
                         } else {
-                            let r = allocate_class_object(heap, &class_name)?;
+                            let r = allocate_class_object(heap, &intern_key.1)?;
                             string_intern.insert(intern_key, r);
                             r
                         };

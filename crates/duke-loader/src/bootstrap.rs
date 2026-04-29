@@ -29,6 +29,20 @@ impl ClassLoader for ClasspathEntry {
             Self::Zip(z) => z.find_class(name),
         }
     }
+
+    fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        match self {
+            Self::Directory(d) => d.find_resource(name),
+            Self::Zip(z) => z.find_resource(name),
+        }
+    }
+
+    fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        match self {
+            Self::Directory(d) => d.find_resources(name),
+            Self::Zip(z) => z.find_resources(name),
+        }
+    }
 }
 
 /// Bootstrap class loader.
@@ -111,6 +125,26 @@ impl ClassLoader for BootstrapLoader {
         Err(Error::NotFound {
             name: name.to_string(),
         })
+    }
+
+    fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        for entry in &self.classpath {
+            match entry.find_resource(name) {
+                Err(Error::NotFound { .. }) => {}
+                result => return result,
+            }
+        }
+        Err(Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        let mut resources = Vec::new();
+        for entry in &self.classpath {
+            resources.extend(entry.find_resources(name)?);
+        }
+        Ok(resources)
     }
 }
 
@@ -254,5 +288,34 @@ mod tests {
         assert!(matches!(err, Error::NotFound { .. }));
 
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn test_bootstrap_loader_find_resources_preserves_classpath_order() {
+        let base = std::env::temp_dir().join("duke_test_service_order");
+        let first = base.join("first");
+        let second = base.join("second");
+        let first_services = first.join("META-INF").join("services");
+        let second_services = second.join("META-INF").join("services");
+        if base.exists() {
+            fs::remove_dir_all(&base).unwrap();
+        }
+        fs::create_dir_all(&first_services).unwrap();
+        fs::create_dir_all(&second_services).unwrap();
+        fs::write(first_services.join("com.example.Plugin"), b"first\n").unwrap();
+        fs::write(second_services.join("com.example.Plugin"), b"second\n").unwrap();
+
+        let loader = BootstrapLoader::new_for_test(vec![
+            classpath_entry_for(&first).unwrap(),
+            classpath_entry_for(&second).unwrap(),
+        ]);
+        let resources = loader
+            .service_configuration_files("com.example.Plugin")
+            .expect("service resources should read");
+
+        drop(loader);
+        fs::remove_dir_all(&base).unwrap();
+
+        assert_eq!(resources, vec![b"first\n".to_vec(), b"second\n".to_vec()]);
     }
 }
