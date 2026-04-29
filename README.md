@@ -12,7 +12,7 @@ Duke is structured as a Cargo Workspace containing several specialized crates. T
 
 * **`duke-bytecode`**: Acts on the raw `Code` attributes extracted by `duke-classfile`. It decodes the raw byte streams into typed `Instruction` enums. It also provides structural bytecode verification (ensuring stack depths and local variable boundaries) and utilities for generating Control Flow Graphs (CFGs).
 
-* **`duke-loader`**: Handles loading Java classes and resources from various sources. It supports reading from the filesystem (`DirectoryLoader`), from `MANIFEST.MF` JAR files and ZIP archives (`ZipLoader`), and from the modern Java 9+ `jimage` format (`JImageReader`).
+* **`duke-loader`**: Handles loading Java classes and resources from various sources. It supports reading from the filesystem (`DirectoryLoader`), from `MANIFEST.MF` JAR files and ZIP archives (`ZipLoader`), and from the modern Java 9+ `jimage` format (`JImageReader`), all orchestrated by the `BootstrapLoader`.
 
 * **`duke-runtime`**: Provides the foundational building blocks for executing Java methods. It defines the `Frame` (which holds the operand stack and local variables) and the `Slot` (the core unit of data holding integers, floats, or object references).
 

@@ -9,3 +9,7 @@
 ## 2024-05-19 - [Missing Telemetry Test Docs]
 **Confusion:** The integration test file for telemetry print formatting triggered missing documentation warnings, which are explicitly mandated by strict linting rules.
 **Clarification:** Added module-level `//!` documentation to the `print_and_markdown.rs` integration test, explaining its purpose in verifying report text output structure.
+
+## 2024-05-20 - [SwitchTargets Documentation]
+**Confusion:** The `SwitchTargets` iterator for `tableswitch` and `lookupswitch` was completely undocumented, making it difficult to understand how switch targets are resolved at runtime.
+**Clarification:** Added module-level documentation and an executable doctest explaining how `SwitchTargets` unifies the two switch mechanisms and provides a clean iterator over match values and offsets.
