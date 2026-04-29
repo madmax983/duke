@@ -1,0 +1,37 @@
+cat << 'PATCH' > crates/duke-interpreter/src/native.rs.patch
+--- crates/duke-interpreter/src/native.rs
++++ crates/duke-interpreter/src/native.rs
+@@ -18165,19 +18165,24 @@
+         }
+         _ => Vec::new(),
+     };
+
+     // 👺 Havoc: Check for OOM!
+-    let mut total_len = parts.len().saturating_sub(1).saturating_mul(delim.len());
++    let mut total_len = parts.len().saturating_sub(1).checked_mul(delim.len()).unwrap_or(usize::MAX);
+     for part in &parts {
+-        total_len = total_len.saturating_add(part.len());
++        total_len = total_len.checked_add(part.len()).unwrap_or(usize::MAX);
+     }
+     let max_size = 1024 * 1024 * 128; // 128 MB limit
+     if total_len > max_size {
+         return Err(duke_runtime::Error::JavaException {
+             class_name: "java/lang/OutOfMemoryError".to_string(),
+         });
+     }
+
+     let mut joined = String::with_capacity(total_len);
+-    joined.push_str(&parts.join(&delim));
+-
++    if let Some((first, rest)) = parts.split_first() {
++        joined.push_str(first);
++        for part in rest {
++            joined.push_str(&delim);
++            joined.push_str(part);
++        }
++    }
++
+     let r = heap.allocate_string(joined);
+     Ok(Some(Slot::Reference(Some(r))))
+ }
+PATCH
