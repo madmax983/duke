@@ -3,9 +3,12 @@
 pub mod ser_helpers {
     use std::collections::HashMap;
 
-    use serde::Serialize;
+    use serde::{Serialize, ser::SerializeMap};
 
     /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.
+    ///
+    /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
+    /// collection, avoiding heap allocations and hashing overhead during telemetry generation.
     pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
     where
         K: Eq + std::hash::Hash,
@@ -13,8 +16,11 @@ pub mod ser_helpers {
         S: serde::Serializer,
         F: Fn(&K) -> String,
     {
-        let string_map: HashMap<String, &V> = map.iter().map(|(k, v)| (key_fn(k), v)).collect();
-        string_map.serialize(ser)
+        let mut map_ser = ser.serialize_map(Some(map.len()))?;
+        for (k, v) in map {
+            map_ser.serialize_entry(&key_fn(k), v)?;
+        }
+        map_ser.end()
     }
 
     /// `HashMap<(class, method, pc), V>` → `"class::method@pc"`.
