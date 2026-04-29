@@ -13,3 +13,7 @@
 **Zero-cost abstractions around `Vec::clone()`**
 **Learning:** `heap.get(this_ref)?.fields.clone()` is a heavy operation for HashMaps/HashSets/Localdatetimes operations since we only read from the vector without taking ownership. But you must be careful because passing `&heap.get(this_ref)?.fields` holds a reference to `heap`, and later calling `heap.get_mut` will fail with "cannot borrow `*heap` as mutable because it is also borrowed as immutable".
 **Action:** Instead of `fields.clone()`, get the properties out of the reference (`fields[i + 1]`) and use those to perform the operation, or use `find_..._entry_index` to just get the index, then drop the immutable borrow, and then perform `heap.get_mut` if necessary.
+
+**[SerializeMap for custom map serialization]**
+**Learning:** Using `serde::ser::SerializeMap` directly removes the need for collecting intermediate HashMaps when writing a custom map serialization logic.
+**Action:** Always prefer iterating directly and using `ser.serialize_map` to prevent unnecessary allocations.
