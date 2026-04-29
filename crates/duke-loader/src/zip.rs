@@ -1292,7 +1292,7 @@ mod proptests {
 
             let reader = ZipReader {
                 data,
-                index: HashMap::new(),
+                index: HashMap::with_capacity(0),
             };
 
             let _ = reader.read_entry_info(&info);

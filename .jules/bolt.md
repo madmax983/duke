@@ -17,3 +17,7 @@
 **[SerializeMap for custom map serialization]**
 **Learning:** Using `serde::ser::SerializeMap` directly removes the need for collecting intermediate HashMaps when writing a custom map serialization logic.
 **Action:** Always prefer iterating directly and using `ser.serialize_map` to prevent unnecessary allocations.
+
+**Pre-allocate HashMap with `HashMap::with_capacity` when size is known**
+**Learning:** `HashMap::new()` requires constant reallocation when inserting elements, which is extremely expensive, especially in critical paths like parsing large class files or JAR headers where the size is easily knowable beforehand.
+**Action:** Always prefer `HashMap::with_capacity` instead of `HashMap::new` when the capacity of the map is known up front to eliminate unnecessary intermediate memory allocations and resizing.
