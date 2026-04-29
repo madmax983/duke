@@ -6092,6 +6092,44 @@ pub(crate) fn native_code_source_get_location(
     }
 }
 
+pub(crate) fn native_url_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let spec_slot = extract_slot_arg(args, 1);
+    match spec_slot {
+        Slot::Reference(Some(_)) => {
+            heap.get_mut(this_ref)?.fields[0] = spec_slot;
+            Ok(None)
+        }
+        Slot::Reference(None) => Err(Error::NullPointerException),
+        _ => Err(Error::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
+pub(crate) fn native_url_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first().copied() {
+        Some(slot @ Slot::Reference(Some(_))) => Ok(Some(slot)),
+        Some(Slot::Reference(None)) => Err(Error::NullPointerException),
+        _ => Err(Error::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
 pub(crate) fn native_url_to_uri(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -6102,6 +6140,82 @@ pub(crate) fn native_url_to_uri(
     let spec = string_backed_object_value(heap, this_ref)?;
     let uri_ref = allocate_string_backed_object(heap, "java/net/URI", spec)?;
     Ok(Some(Slot::Reference(Some(uri_ref))))
+}
+
+pub(crate) fn native_url_class_loader_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let urls_ref = extract_ref_arg(args, 1)?;
+    let url_slots = heap.get(urls_ref)?.fields.clone();
+
+    let path_list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(
+        &[Slot::Reference(Some(path_list_ref))],
+        heap,
+        out,
+        control,
+    )?;
+    for url_slot in url_slots {
+        match url_slot {
+            Slot::Reference(Some(entry_ref)) => {
+                native_arraylist_add(
+                    &[
+                        Slot::Reference(Some(path_list_ref)),
+                        Slot::Reference(Some(entry_ref)),
+                    ],
+                    heap,
+                    out,
+                    control,
+                )?;
+            }
+            Slot::Reference(None) => return Err(Error::NullPointerException),
+            _ => {
+                return Err(Error::TypeMismatch {
+                    expected: "Reference",
+                    got: "other",
+                });
+            }
+        }
+    }
+
+    let ucp_ref = heap.allocate("jdk/internal/loader/URLClassPath".to_string(), 1);
+    heap.get_mut(ucp_ref)?.fields[0] = Slot::Reference(Some(path_list_ref));
+    heap.get_mut(this_ref)?.fields[0] = Slot::Reference(Some(ucp_ref));
+    Ok(None)
+}
+
+pub(crate) fn native_url_class_loader_load_class(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let binary_name = string_value_from_ref(heap, name_ref)?;
+    let internal_name = binary_name_to_internal_name(&binary_name);
+
+    if let Some(class_key) = ops.ensure_parent_loaded(&internal_name)? {
+        let class_ref = allocate_class_object(heap, &class_key)?;
+        return Ok(Some(Slot::Reference(Some(class_ref))));
+    }
+
+    match ops.ensure_loaded_with_runtime_loader(heap, this_ref, &internal_name) {
+        Ok(()) => {
+            let class_key = ops.class_key_for_runtime_loader(heap, this_ref, &internal_name)?;
+            let class_ref = allocate_class_object(heap, &class_key)?;
+            Ok(Some(Slot::Reference(Some(class_ref))))
+        }
+        Err(Error::ClassNotFound { .. }) => Err(Error::JavaException {
+            class_name: "java/lang/ClassNotFoundException".to_string(),
+        }),
+        Err(err) => Err(err),
+    }
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -13463,6 +13577,17 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
             Err(Error::ClassNotFound {
                 name: class.to_string(),
             })
+        }
+    }
+
+    fn ensure_parent_loaded(&mut self, class: &str) -> Result<Option<String>> {
+        if self.registry.contains(class) {
+            return Ok(Some(class.to_string()));
+        }
+        if self.registry.ensure_loaded(class, self.loader)? && self.registry.contains(class) {
+            Ok(Some(class.to_string()))
+        } else {
+            Ok(None)
         }
     }
 

@@ -18657,6 +18657,112 @@ fn allocate_url_class_loader_for_path(
     loader_ref
 }
 
+fn allocate_url_from_spec(
+    registry: &mut ClassRegistry,
+    heap: &mut duke_gc::Heap,
+    spec: String,
+) -> u64 {
+    let url_ref = heap.allocate(
+        "java/net/URL".to_string(),
+        total_instance_field_count(registry, "java/net/URL"),
+    );
+    init_object_fields(registry, heap, url_ref, "java/net/URL");
+    let spec_ref = heap.allocate_string(spec);
+    let init =
+        match registry
+            .natives_mut()
+            .get_kind("java/net/URL", "<init>", "(Ljava/lang/String;)V")
+        {
+            Some(HandlerKind::Simple(handler)) => handler,
+            other => panic!("expected URL(String) native constructor, got {other:?}"),
+        };
+    init(
+        &[
+            Slot::Reference(Some(url_ref)),
+            Slot::Reference(Some(spec_ref)),
+        ],
+        heap,
+        &mut Vec::new(),
+        &mut NativeControl::default(),
+    )
+    .expect("URL(String) should succeed");
+    url_ref
+}
+
+fn allocate_url_array(heap: &mut duke_gc::Heap, urls: &[u64]) -> u64 {
+    let array_ref = heap.allocate("[Ljava/net/URL;".to_string(), urls.len());
+    heap.get_mut(array_ref).expect("URL[] object").fields = urls
+        .iter()
+        .copied()
+        .map(|url_ref| Slot::Reference(Some(url_ref)))
+        .collect();
+    array_ref
+}
+
+fn allocate_constructed_url_class_loader(
+    registry: &mut ClassRegistry,
+    heap: &mut duke_gc::Heap,
+    urls_ref: u64,
+) -> u64 {
+    let loader_ref = heap.allocate(
+        "java/net/URLClassLoader".to_string(),
+        total_instance_field_count(registry, "java/net/URLClassLoader"),
+    );
+    init_object_fields(registry, heap, loader_ref, "java/net/URLClassLoader");
+    let init = match registry.natives_mut().get_kind(
+        "java/net/URLClassLoader",
+        "<init>",
+        "([Ljava/net/URL;)V",
+    ) {
+        Some(HandlerKind::Simple(handler)) => handler,
+        other => panic!("expected URLClassLoader(URL[]) native constructor, got {other:?}"),
+    };
+    init(
+        &[
+            Slot::Reference(Some(loader_ref)),
+            Slot::Reference(Some(urls_ref)),
+        ],
+        heap,
+        &mut Vec::new(),
+        &mut NativeControl::default(),
+    )
+    .expect("URLClassLoader(URL[]) should succeed");
+    loader_ref
+}
+
+fn load_class_via_url_class_loader(
+    boot_loader: &duke_loader::ZipLoader,
+    registry: &mut ClassRegistry,
+    heap: &mut duke_gc::Heap,
+    loader_ref: u64,
+    binary_name: &str,
+) -> Result<Option<Slot>> {
+    let name_ref = heap.allocate_string(binary_name.to_string());
+    match registry.natives_mut().get_kind(
+        "java/net/URLClassLoader",
+        "loadClass",
+        "(Ljava/lang/String;)Ljava/lang/Class;",
+    ) {
+        Some(HandlerKind::Callback(handler)) => {
+            let mut ops = InterpreterCallbackOps {
+                registry,
+                loader: boot_loader,
+            };
+            handler(
+                &[
+                    Slot::Reference(Some(loader_ref)),
+                    Slot::Reference(Some(name_ref)),
+                ],
+                heap,
+                &mut Vec::new(),
+                &mut NativeControl::default(),
+                &mut ops,
+            )
+        }
+        other => panic!("expected URLClassLoader.loadClass(String) callback, got {other:?}"),
+    }
+}
+
 fn load_duplicate_hello_world_classes() -> (
     duke_loader::ZipLoader,
     ClassRegistry,
@@ -18892,6 +18998,165 @@ fn class_for_name_uses_url_class_loader_file_urls() {
     assert!(
         class_key.starts_with("HelloWorld\0loader:"),
         "expected URLClassLoader class key, got {class_key:?}"
+    );
+}
+
+#[test]
+fn url_class_loader_load_class_reads_from_directory_url() {
+    let boot_loader =
+        duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+            .expect("open spring-boot-loader jar");
+    let classes_dir = fixtures_dir().canonicalize().expect("canonical fixtures");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    let classpath_url =
+        allocate_url_from_spec(&mut registry, &mut heap, path_to_file_url(&classes_dir));
+    let url_array_ref = allocate_url_array(&mut heap, &[classpath_url]);
+    let loader_ref = allocate_constructed_url_class_loader(&mut registry, &mut heap, url_array_ref);
+
+    let class_slot = load_class_via_url_class_loader(
+        &boot_loader,
+        &mut registry,
+        &mut heap,
+        loader_ref,
+        "HelloWorld",
+    )
+    .expect("loadClass should succeed")
+    .expect("loadClass should return a Class");
+    let Slot::Reference(Some(class_ref)) = class_slot else {
+        panic!("expected Class reference");
+    };
+    let class_key = class_key_from_ref(&heap, class_ref).expect("class key from mirror");
+    assert!(
+        class_key.starts_with("HelloWorld\0loader:"),
+        "expected directory URLClassLoader class key, got {class_key:?}"
+    );
+}
+
+#[test]
+fn url_class_loader_load_class_reads_from_jar_url() {
+    let boot_loader =
+        duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+            .expect("open spring-boot-loader jar");
+    let jar_path = fixtures_dir()
+        .join("hello.jar")
+        .canonicalize()
+        .expect("canonical hello.jar");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    let classpath_url =
+        allocate_url_from_spec(&mut registry, &mut heap, path_to_file_url(&jar_path));
+    let url_array_ref = allocate_url_array(&mut heap, &[classpath_url]);
+    let loader_ref = allocate_constructed_url_class_loader(&mut registry, &mut heap, url_array_ref);
+
+    let class_slot = load_class_via_url_class_loader(
+        &boot_loader,
+        &mut registry,
+        &mut heap,
+        loader_ref,
+        "HelloWorld",
+    )
+    .expect("loadClass should succeed")
+    .expect("loadClass should return a Class");
+    let Slot::Reference(Some(class_ref)) = class_slot else {
+        panic!("expected Class reference");
+    };
+    let class_key = class_key_from_ref(&heap, class_ref).expect("class key from mirror");
+    assert!(
+        class_key.starts_with("HelloWorld\0loader:"),
+        "expected jar URLClassLoader class key, got {class_key:?}"
+    );
+}
+
+#[test]
+fn url_class_loader_instances_isolate_same_binary_name() {
+    let boot_loader =
+        duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+            .expect("open spring-boot-loader jar");
+    let jar_path = fixtures_dir()
+        .join("hello.jar")
+        .canonicalize()
+        .expect("canonical hello.jar");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let first_url = allocate_url_from_spec(&mut registry, &mut heap, path_to_file_url(&jar_path));
+    let second_url = allocate_url_from_spec(&mut registry, &mut heap, path_to_file_url(&jar_path));
+    let first_urls = allocate_url_array(&mut heap, &[first_url]);
+    let second_urls = allocate_url_array(&mut heap, &[second_url]);
+    let first_loader = allocate_constructed_url_class_loader(&mut registry, &mut heap, first_urls);
+    let second_loader =
+        allocate_constructed_url_class_loader(&mut registry, &mut heap, second_urls);
+
+    let first_slot = load_class_via_url_class_loader(
+        &boot_loader,
+        &mut registry,
+        &mut heap,
+        first_loader,
+        "HelloWorld",
+    )
+    .expect("first loadClass should succeed")
+    .expect("first loadClass should return a Class");
+    let second_slot = load_class_via_url_class_loader(
+        &boot_loader,
+        &mut registry,
+        &mut heap,
+        second_loader,
+        "HelloWorld",
+    )
+    .expect("second loadClass should succeed")
+    .expect("second loadClass should return a Class");
+    let Slot::Reference(Some(first_class_ref)) = first_slot else {
+        panic!("expected first Class reference");
+    };
+    let Slot::Reference(Some(second_class_ref)) = second_slot else {
+        panic!("expected second Class reference");
+    };
+    let first_key = class_key_from_ref(&heap, first_class_ref).expect("first class key");
+    let second_key = class_key_from_ref(&heap, second_class_ref).expect("second class key");
+
+    assert_ne!(first_key, second_key);
+    assert!(first_key.ends_with(&format!("loader:{first_loader}")));
+    assert!(second_key.ends_with(&format!("loader:{second_loader}")));
+}
+
+#[test]
+fn url_class_loader_load_class_missing_throws_class_not_found() {
+    let boot_loader =
+        duke_loader::ZipLoader::open(&repo_root().join("spring-boot-loader-3.5.12.jar"))
+            .expect("open spring-boot-loader jar");
+    let jar_path = fixtures_dir()
+        .join("hello.jar")
+        .canonicalize()
+        .expect("canonical hello.jar");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    let classpath_url =
+        allocate_url_from_spec(&mut registry, &mut heap, path_to_file_url(&jar_path));
+    let url_array_ref = allocate_url_array(&mut heap, &[classpath_url]);
+    let loader_ref = allocate_constructed_url_class_loader(&mut registry, &mut heap, url_array_ref);
+
+    let result = load_class_via_url_class_loader(
+        &boot_loader,
+        &mut registry,
+        &mut heap,
+        loader_ref,
+        "com.example.DoesNotExist",
+    );
+
+    assert!(
+        matches!(
+            result,
+            Err(Error::JavaException { ref class_name })
+                if class_name == "java/lang/ClassNotFoundException"
+        ),
+        "missing class should throw ClassNotFoundException, got {result:?}"
     );
 }
 
