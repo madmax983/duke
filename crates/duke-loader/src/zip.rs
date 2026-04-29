@@ -378,6 +378,50 @@ impl ClassLoader for ZipLoader {
             name: name.to_string(),
         })
     }
+
+    fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        match self.reader.read_entry(name) {
+            Err(Error::NotFound { .. }) => {}
+            result => return result,
+        }
+
+        let boot_inf_name = format!("BOOT-INF/classes/{name}");
+        match self.reader.read_entry(&boot_inf_name) {
+            Err(Error::NotFound { .. }) => {}
+            result => return result,
+        }
+
+        for nested_lib in &self.nested_libs {
+            match nested_lib.find_resource(name) {
+                Err(Error::NotFound { .. }) => {}
+                result => return result,
+            }
+        }
+        Err(Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        let mut resources = Vec::new();
+        match self.reader.read_entry(name) {
+            Ok(bytes) => resources.push(bytes),
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        let boot_inf_name = format!("BOOT-INF/classes/{name}");
+        match self.reader.read_entry(&boot_inf_name) {
+            Ok(bytes) => resources.push(bytes),
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        for nested_lib in &self.nested_libs {
+            resources.extend(nested_lib.find_resources(name)?);
+        }
+        Ok(resources)
+    }
 }
 
 fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> Result<Vec<ZipLoader>> {
@@ -1155,7 +1199,7 @@ mod tests {
         let mut nested_jar = build_stored_zip("Bad.class", b"data");
         nested_jar[0] ^= 0xFF; // Corrupt local header signature
         let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
-        let tmp = std::env::temp_dir().join("duke_test_zip_nested_err.jar");
+        let tmp = std::env::temp_dir().join("duke_test_zip_nested_err_legacy.jar");
         std::fs::write(&tmp, &outer_zip).unwrap();
 
         let loader = ZipLoader::open(&tmp).expect("should open outer zip");

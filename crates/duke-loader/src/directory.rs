@@ -1,4 +1,4 @@
-//! `duke-loader::directory` — Loads classes from standard directories (e.g. `tests/fixtures`).
+//! `duke-loader::directory` - Loads classes and resources from directories.
 
 use std::path::{Path, PathBuf};
 
@@ -46,16 +46,9 @@ impl DirectoryLoader {
             root: root.as_ref().to_path_buf(),
         }
     }
-}
 
-impl ClassLoader for DirectoryLoader {
-    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
-        let mut path = self.root.clone();
-        // name is "java/lang/Object" — split on '/' to build OS path + ".class"
-
-        // Prevent Windows absolute paths and directory traversal
+    fn resolve_child_path(&self, name: &str) -> Result<PathBuf> {
         if name.contains("..")
-            || name.contains('.')
             || name.starts_with('/')
             || name.starts_with('\\')
             || name.contains(':')
@@ -65,16 +58,36 @@ impl ClassLoader for DirectoryLoader {
             });
         }
 
+        let mut path = self.root.clone();
         for component in name.split(['/', '\\']) {
-            if component.is_empty() {
+            if component.is_empty() || component == "." || component == ".." {
                 return Err(Error::NotFound {
                     name: name.to_string(),
                 });
             }
             path.push(component);
         }
+        Ok(path)
+    }
+}
+
+impl ClassLoader for DirectoryLoader {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+        if name.contains('.') {
+            return Err(Error::NotFound {
+                name: name.to_string(),
+            });
+        }
+        let mut path = self.resolve_child_path(name)?;
         path.set_extension("class");
 
+        std::fs::read(&path).map_err(|_| Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        let path = self.resolve_child_path(name)?;
         std::fs::read(&path).map_err(|_| Error::NotFound {
             name: name.to_string(),
         })
@@ -95,14 +108,11 @@ mod tests {
 
         let loader = DirectoryLoader::new(&root);
 
-        // Exploit: try to read outside root.
         let result = loader.find_class("../secret");
 
         std::fs::remove_file(&secret_file).unwrap();
         std::fs::remove_dir_all(&root).unwrap();
 
-        // If it successfully reads "SENSITIVE_DATA", we have a vulnerability.
-        // Red Phase: Ensure that it returns an error instead!
         assert!(
             matches!(result, Err(Error::NotFound { .. })),
             "Vulnerability triggered! Got {result:?}"
@@ -124,5 +134,29 @@ mod tests {
         let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
         let err = loader.find_class("java//lang/Object").unwrap_err();
         assert!(matches!(err, Error::NotFound { .. }));
+    }
+
+    #[test]
+    fn directory_loader_reads_service_configuration_resource() {
+        let root = std::env::temp_dir().join("duke_loader_service_resource");
+        let services = root.join("META-INF").join("services");
+        std::fs::create_dir_all(&services).unwrap();
+        std::fs::write(services.join("com.example.Plugin"), "com.example.Impl\n").unwrap();
+
+        let loader = DirectoryLoader::new(&root);
+        let entries = loader
+            .service_configuration_files("com.example.Plugin")
+            .expect("read service file");
+
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(entries, vec![b"com.example.Impl\n".to_vec()]);
+    }
+
+    #[test]
+    fn directory_loader_rejects_resource_traversal() {
+        let loader = DirectoryLoader::new(std::env::temp_dir());
+        let result = loader.find_resource("../META-INF/services/evil");
+        assert!(matches!(result, Err(Error::NotFound { .. })));
     }
 }

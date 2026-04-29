@@ -2343,6 +2343,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/VirtualMachineError",
         ),
         ("java/lang/AssertionError", "java/lang/Error"),
+        ("java/util/ServiceConfigurationError", "java/lang/Error"),
     ] {
         let ctx = ClassContext {
             class_name: name.to_string(),
@@ -2366,6 +2367,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "(Ljava/lang/String;)V",
             native_throwable_init_string,
         );
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+            native_throwable_init_string_cause,
+        );
     }
 
     // java/lang/AutoCloseable — marker interface for try-with-resources.
@@ -2385,6 +2392,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(autocloseable_ctx);
+
+    // java/sql/Driver - marker interface for ServiceLoader-based JDBC smoke tests.
+    let sql_driver_ctx = ClassContext {
+        class_name: "java/sql/Driver".to_string(),
+        super_class: None,
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(sql_driver_ctx);
 
     // java/lang/Enum — abstract superclass for all enums.
     // Fields: name (String) at index 0, ordinal (int) at index 1.
@@ -3743,6 +3765,113 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "toArray",
         "([Ljava/lang/Object;)[Ljava/lang/Object;",
         native_collection_to_array_with_seed_array,
+    );
+
+    let service_loader_ctx = ClassContext {
+        class_name: "java/util/ServiceLoader".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "service".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "loader".to_string(),
+                descriptor: "Ljava/lang/ClassLoader;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "providerCount".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: vec!["java/lang/Iterable".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(service_loader_ctx);
+    registry.natives_mut().register_callback(
+        "java/util/ServiceLoader",
+        "load",
+        "(Ljava/lang/Class;)Ljava/util/ServiceLoader;",
+        native_service_loader_load,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/ServiceLoader",
+        "load",
+        "(Ljava/lang/Class;Ljava/lang/ClassLoader;)Ljava/util/ServiceLoader;",
+        native_service_loader_load_with_loader,
+    );
+    registry.natives_mut().register(
+        "java/util/ServiceLoader",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_service_loader_iterator,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/ServiceLoader",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_service_loader_stream,
+    );
+
+    let service_iter_ctx = ClassContext {
+        class_name: "duke/util/ServiceLoaderIterator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "service".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "loader".to_string(),
+                descriptor: "Ljava/lang/ClassLoader;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "index".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "providerCount".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: vec!["java/util/Iterator".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(service_iter_ctx);
+    registry.natives_mut().register(
+        "duke/util/ServiceLoaderIterator",
+        "<init>",
+        "()V",
+        native_service_loader_iter_init,
+    );
+    registry.natives_mut().register(
+        "duke/util/ServiceLoaderIterator",
+        "hasNext",
+        "()Z",
+        native_service_loader_iter_has_next,
+    );
+    registry.natives_mut().register_callback(
+        "duke/util/ServiceLoaderIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        native_service_loader_iter_next,
     );
 
     // java/util/ArrayList — dynamic list backed by growable fields

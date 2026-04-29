@@ -114,6 +114,14 @@ impl ClassLoader for CliLoader {
     fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         self.0.find_class(name)
     }
+
+    fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        self.0.find_resource(name)
+    }
+
+    fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        self.0.find_resources(name)
+    }
 }
 
 fn make_loader(jdk_home: Option<&str>, classpath: &[std::path::PathBuf]) -> CliLoader {
@@ -180,6 +188,26 @@ impl ClassLoader for ChainLoader {
         Err(duke_loader::Error::NotFound {
             name: name.to_string(),
         })
+    }
+
+    fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        for entry in &self.0 {
+            match entry.find_resource(name) {
+                Err(duke_loader::Error::NotFound { .. }) => {}
+                result => return result,
+            }
+        }
+        Err(duke_loader::Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        let mut resources = Vec::new();
+        for entry in &self.0 {
+            resources.extend(entry.find_resources(name)?);
+        }
+        Ok(resources)
     }
 }
 

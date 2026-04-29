@@ -34,6 +34,57 @@ pub trait ClassLoader {
     /// Returns [`Error::NotFound`] if the class cannot be found, or
     /// another [`Error`] variant on I/O or format errors.
     fn find_class(&self, name: &str) -> Result<Vec<u8>>;
+
+    /// Load a non-class resource by its classpath-relative name.
+    ///
+    /// Resource names use `/` separators and must not start with `/`; for
+    /// example, `META-INF/services/java.sql.Driver`. Implementations search
+    /// the same backing entry as class loading, but without appending
+    /// `.class`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`] if the resource is not present, or another
+    /// [`Error`] when the backing archive or filesystem entry cannot be read.
+    fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        Err(Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    /// Return every matching resource in deterministic classpath order.
+    ///
+    /// Classpath scanners such as `java.util.ServiceLoader` need all
+    /// `META-INF/services/<binary-name>` files, not just the first hit. Simple
+    /// loaders return zero or one entry; aggregate loaders concatenate child
+    /// results in their search order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a matching resource exists but cannot be read.
+    fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        match self.find_resource(name) {
+            Ok(bytes) => Ok(vec![bytes]),
+            Err(Error::NotFound { .. }) => Ok(Vec::new()),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Return service-provider configuration files for `service_binary_name`.
+    ///
+    /// This is the public primitive embedders can reuse for SPI-style
+    /// discovery. It reads all resources named
+    /// `META-INF/services/<service_binary_name>` across the loader in
+    /// deterministic classpath order, preserving each file's bytes and leaving
+    /// UTF-8/comment parsing to the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a matching service file cannot be read.
+    fn service_configuration_files(&self, service_binary_name: &str) -> Result<Vec<Vec<u8>>> {
+        let path = format!("META-INF/services/{service_binary_name}");
+        self.find_resources(&path)
+    }
 }
 
 #[cfg(test)]

@@ -5301,6 +5301,36 @@ fn run_bootstrap_with_output(
     Ok((result, lines))
 }
 
+fn run_service_loader_jar_int(jar_name: &str, class_name: &str, method_name: &str) -> i32 {
+    let jar_path = fixture(jar_name);
+    let loader = duke_loader::ZipLoader::open(&jar_path).expect("open service loader fixture jar");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    assert!(
+        registry
+            .ensure_loaded(class_name, &loader)
+            .expect("load service loader fixture class"),
+        "fixture class {class_name} should be present in {jar_name}"
+    );
+    let mut out: Vec<u8> = Vec::new();
+    let result = execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut out,
+        class_name,
+        method_name,
+        "()I",
+        &[],
+    )
+    .expect("service loader fixture should execute");
+    match result {
+        Some(Slot::Int(value)) => value,
+        other => panic!("expected int result, got {other:?}"),
+    }
+}
+
 struct TempCleanup(std::path::PathBuf);
 
 impl Drop for TempCleanup {
@@ -5322,6 +5352,132 @@ fn make_temp_root(prefix: &str) -> (std::path::PathBuf, TempCleanup) {
     std::fs::create_dir_all(&root).expect("create temp root");
     let cleanup = TempCleanup(root.clone());
     (root, cleanup)
+}
+
+#[test]
+fn service_loader_basic_fixture_discovers_providers_in_order() {
+    assert_eq!(
+        run_service_loader_jar_int(
+            "service-loader-basic.jar",
+            "ServiceLoaderBasicTest",
+            "providersInDeclarationOrder",
+        ),
+        1
+    );
+}
+
+#[test]
+fn service_loader_comments_fixture_ignores_comments_and_blanks() {
+    assert_eq!(
+        run_service_loader_jar_int(
+            "service-loader-comments.jar",
+            "ServiceLoaderCommentsTest",
+            "ignoresCommentsAndBlankLines",
+        ),
+        1
+    );
+}
+
+#[test]
+fn service_loader_malformed_fixture_throws_configuration_error_and_continues() {
+    assert_eq!(
+        run_service_loader_jar_int(
+            "service-loader-malformed.jar",
+            "ServiceLoaderMalformedTest",
+            "missingProviderThrowsButIteratorContinues",
+        ),
+        1
+    );
+}
+
+#[test]
+fn service_loader_jdbc_smoke_fixture_instantiates_driver() {
+    assert_eq!(
+        run_service_loader_jar_int(
+            "service-loader-jdbc-smoke.jar",
+            "ServiceLoaderJdbcSmokeTest",
+            "miniDriverLoadsAndResponds",
+        ),
+        1
+    );
+}
+
+#[test]
+fn service_loader_load_with_url_class_loader_reads_service_resources() {
+    let jar_path = fixture("service-loader-basic.jar")
+        .canonicalize()
+        .expect("canonical service loader jar");
+    let loader = duke_loader::ZipLoader::open(&jar_path).expect("open service loader fixture jar");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let url_loader_ref = allocate_url_class_loader_for_path(&mut registry, &mut heap, &jar_path);
+    let service_class_ref = load_class_via_url_class_loader(
+        &loader,
+        &mut registry,
+        &mut heap,
+        url_loader_ref,
+        "com.example.Greeter",
+    )
+    .expect("URLClassLoader.loadClass should succeed")
+    .expect("loadClass should return a Class");
+
+    let service_loader_slot = {
+        let mut ops = InterpreterCallbackOps {
+            registry: &mut registry,
+            loader: &loader,
+        };
+        native_service_loader_load_with_loader(
+            &[service_class_ref, Slot::Reference(Some(url_loader_ref))],
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+            &mut ops,
+        )
+        .expect("ServiceLoader.load(Class, ClassLoader) should succeed")
+        .expect("ServiceLoader.load should return an instance")
+    };
+    let Slot::Reference(Some(service_loader_ref)) = service_loader_slot else {
+        panic!("expected ServiceLoader reference");
+    };
+    let iterator_slot = native_service_loader_iterator(
+        &[Slot::Reference(Some(service_loader_ref))],
+        &mut heap,
+        &mut Vec::new(),
+        &mut NativeControl::default(),
+    )
+    .expect("ServiceLoader.iterator should succeed")
+    .expect("iterator should return a reference");
+    let Slot::Reference(Some(iterator_ref)) = iterator_slot else {
+        panic!("expected iterator reference");
+    };
+    let first_provider_slot = {
+        let mut ops = InterpreterCallbackOps {
+            registry: &mut registry,
+            loader: &loader,
+        };
+        native_service_loader_iter_next(
+            &[Slot::Reference(Some(iterator_ref))],
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+            &mut ops,
+        )
+        .expect("iterator.next should instantiate first provider")
+        .expect("iterator.next should return a provider")
+    };
+    let Slot::Reference(Some(provider_ref)) = first_provider_slot else {
+        panic!("expected provider reference");
+    };
+    let provider_class = heap
+        .get(provider_ref)
+        .expect("provider object")
+        .class_name
+        .clone();
+    assert!(
+        provider_class.starts_with("com/example/Hello\0loader:"),
+        "expected provider from explicit URLClassLoader, got {provider_class:?}"
+    );
 }
 
 #[cfg(feature = "telemetry")]
