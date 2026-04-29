@@ -9816,13 +9816,20 @@ pub(crate) fn native_string_format(
         _ => 0,
     };
 
-    let mut result = String::new();
+    let max_size = 1024 * 1024 * 128; // 128 MB max string size
+    if fmt.len() > max_size {
+        return Err(Error::JavaException { class_name: "java/lang/OutOfMemoryError".to_string() });
+    }
+    let mut result = String::with_capacity(fmt.len());
     let mut arg_idx = 0usize;
     let mut chars = fmt.chars().peekable();
 
     while let Some(ch) = chars.next() {
         if ch != '%' {
             result.push(ch);
+            if result.len() > max_size {
+                return Err(Error::JavaException { class_name: "java/lang/OutOfMemoryError".to_string() });
+            }
             continue;
         }
 
@@ -9889,6 +9896,9 @@ pub(crate) fn native_string_format(
                 arg_idx += 1;
                 let formatted = format_arg(spec, &flags, width, precision, &slot, heap)?;
                 result.push_str(&formatted);
+                if result.len() > max_size {
+                    return Err(Error::JavaException { class_name: "java/lang/OutOfMemoryError".to_string() });
+                }
             }
             _ => {
                 result.push('%');
@@ -26001,5 +26011,33 @@ mod havoc_string_indent_overflow_positive {
         let result = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
         let err = result.unwrap_err();
         assert!(matches!(err, Error::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
+    }
+}
+
+#[cfg(test)]
+mod havoc_string_format_oom {
+    use super::*;
+    use std::io::sink;
+    use duke_runtime::Slot;
+
+    #[test]
+    fn test_string_format_oom_trigger() {
+        let mut heap = duke_gc::Heap::new();
+        let fmt = heap.allocate_string("%s".repeat(1024 * 1024));
+        let arr = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
+        let big_str = heap.allocate_string("b".repeat(1024));
+        let mut elems = vec![];
+        for _ in 0..(1024 * 512) { elems.push(Slot::Reference(Some(big_str))); }
+        heap.get_mut(arr).unwrap().fields = elems;
+
+        let args = vec![
+            Slot::Reference(Some(fmt)),
+            Slot::Reference(Some(arr)),
+        ];
+
+        let mut control = NativeControl::default();
+        let result = native_string_format(&args, &mut heap, &mut sink(), &mut control);
+        // It should err OutOfMemoryError instead of allocating massive string.
+        assert!(result.is_err());
     }
 }
