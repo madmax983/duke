@@ -18167,11 +18167,9 @@ pub(crate) fn native_string_join(
     };
 
     // 👺 Havoc: Check for OOM!
-    #[allow(clippy::manual_saturating_arithmetic)]
-    let mut total_len = parts.len().saturating_sub(1).checked_mul(delim.len()).unwrap_or(usize::MAX);
+    let mut total_len = parts.len().saturating_sub(1).saturating_mul(delim.len());
     for part in &parts {
-        #[allow(clippy::manual_saturating_arithmetic)]
-        { total_len = total_len.checked_add(part.len()).unwrap_or(usize::MAX); }
+        total_len = total_len.saturating_add(part.len());
     }
     let max_size = 1024 * 1024 * 128; // 128 MB limit
     if total_len > max_size {
