@@ -17,6 +17,8 @@ mod html;
 mod html_jar;
 mod jar_analyze;
 #[cfg(feature = "nova")]
+mod jar_bbcfg;
+#[cfg(feature = "nova")]
 mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
@@ -272,6 +274,8 @@ fn main() {
         #[cfg(feature = "nova")]
         eprintln!("       duke html-jar <file.jar> <output_dir>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke bbcfg-jar <file.jar> <output_dir>");
+        #[cfg(feature = "nova")]
         eprintln!("       duke cycle-detect <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
         eprintln!("       duke load <ClassName>");
@@ -361,6 +365,15 @@ fn main() {
     // Dispatch `html`: output HTML report for class.
 
     #[cfg(feature = "nova")]
+    #[cfg(feature = "nova")]
+    if args.len() >= 4 && args[1] == "bbcfg-jar" {
+        if let Err(e) = jar_bbcfg::export_jar_bbcfg(&args[2], &args[3]) {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+        return;
+    }
+
     if args.len() >= 4 && args[1] == "html-jar" {
         if let Err(e) = html_jar::generate_jar_html_site(&args[2], &args[3]) {
             eprintln!("{e}");
