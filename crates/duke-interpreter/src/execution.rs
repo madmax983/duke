@@ -710,8 +710,7 @@ pub fn run_execution(
                         let r = if let Some(&cached) = string_intern.get(&intern_key) {
                             cached
                         } else {
-                            let r = heap.allocate("java/lang/Class".to_string(), 0);
-                            heap.get_mut(r)?.string_value = Some(class_name);
+                            let r = allocate_class_object(heap, &class_name)?;
                             string_intern.insert(intern_key, r);
                             r
                         };
@@ -773,8 +772,7 @@ pub fn run_execution(
                         let r = if let Some(&cached) = string_intern.get(&intern_key) {
                             cached
                         } else {
-                            let r = heap.allocate("java/lang/Class".to_string(), 0);
-                            heap.get_mut(r)?.string_value = Some(class_name);
+                            let r = allocate_class_object(heap, &class_name)?;
                             string_intern.insert(intern_key, r);
                             r
                         };
@@ -1542,6 +1540,33 @@ pub fn run_execution(
                     } else {
                         None
                     };
+                if matches!(instr, Instruction::Invokevirtual(_))
+                    && let Some(runtime_class) = virtual_start.as_ref()
+                    && annotation_proxy_type(runtime_class).is_some()
+                {
+                    let arg_count = parse_arg_count(&callee_desc);
+                    let stack_len = frame.stack_len();
+                    let this_pos = stack_len - arg_count - 1;
+                    let Slot::Reference(Some(receiver_ref)) = frame.peek_at(this_pos)? else {
+                        return Err(Error::NullPointerException);
+                    };
+                    if let Some(result) = annotation_proxy_element_slot(
+                        heap,
+                        receiver_ref,
+                        &callee_name,
+                        &callee_desc,
+                    )? {
+                        for _ in 0..arg_count {
+                            frame.pop()?;
+                        }
+                        frame.pop()?;
+                        if method_return_descriptor(&callee_desc) != "V" {
+                            frame.push(result)?;
+                        }
+                        *idx += 1;
+                        continue;
+                    }
+                }
                 // vtable fast path for invokevirtual — check PIC after receiver type is known.
                 if matches!(instr, Instruction::Invokevirtual(_))
                     && let Some(ref runtime_class) = virtual_start
@@ -2678,6 +2703,30 @@ pub fn run_execution(
                     None
                 }
                 .unwrap_or_else(|| callee_class.clone());
+
+                if annotation_proxy_type(&actual_class).is_some() {
+                    let stack_len = frame.stack_len();
+                    let this_pos = stack_len - arg_count - 1;
+                    let Slot::Reference(Some(receiver_ref)) = frame.peek_at(this_pos)? else {
+                        return Err(Error::NullPointerException);
+                    };
+                    if let Some(result) = annotation_proxy_element_slot(
+                        heap,
+                        receiver_ref,
+                        &callee_name,
+                        &callee_desc,
+                    )? {
+                        for _ in 0..arg_count {
+                            frame.pop()?;
+                        }
+                        frame.pop()?;
+                        if method_return_descriptor(&callee_desc) != "V" {
+                            frame.push(result)?;
+                        }
+                        *idx += 1;
+                        continue;
+                    }
+                }
 
                 // Try to find the method on the actual class (walking hierarchy).
                 let resolved = match resolve_method_in_hierarchy_lookup(

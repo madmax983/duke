@@ -125,6 +125,8 @@ pub enum AttributeData {
     BootstrapMethods(Vec<BootstrapMethodEntry>),
     /// `RuntimeVisibleAnnotations` (§4.7.16).
     RuntimeVisibleAnnotations(Vec<Annotation>),
+    /// `AnnotationDefault` (§4.7.22) default value for an annotation element.
+    AnnotationDefault(ElementValue),
     /// Any attribute we don't parse in detail yet.
     Raw(Vec<u8>),
 }
