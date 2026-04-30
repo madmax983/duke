@@ -364,6 +364,11 @@ fn crypto_spec_provider_registration_is_visible_to_standard_apis() {
 }
 
 #[test]
+fn base64_fixture_runs() {
+    assert_eq!(run_bootstrap_int("Base64Test.class", "runAll", "()I"), 1);
+}
+
+#[test]
 fn native_registry_register_callback_can_be_looked_up() {
     #[allow(clippy::unnecessary_wraps)]
     fn dummy_cb(

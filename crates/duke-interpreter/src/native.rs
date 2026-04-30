@@ -20667,6 +20667,321 @@ fn alloc_byte_array(heap: &mut duke_gc::Heap, bytes: &[u8]) -> u64 {
     array_ref
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Base64Variant {
+    Standard,
+    Mime,
+    Url,
+}
+
+impl Base64Variant {
+    const fn field_value(self) -> i32 {
+        match self {
+            Self::Standard => 0,
+            Self::Mime => 1,
+            Self::Url => 2,
+        }
+    }
+
+    const fn from_field(value: i32) -> Option<Self> {
+        match value {
+            0 => Some(Self::Standard),
+            1 => Some(Self::Mime),
+            2 => Some(Self::Url),
+            _ => None,
+        }
+    }
+
+    const fn alphabet(self) -> &'static [u8; 64] {
+        match self {
+            Self::Standard | Self::Mime => {
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            }
+            Self::Url => b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        }
+    }
+}
+
+fn invalid_base64_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    }
+}
+
+fn allocate_base64_coder(
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+    variant: Base64Variant,
+) -> Result<u64> {
+    let coder_ref = heap.allocate(class_name.to_string(), 1);
+    heap.get_mut(coder_ref)?.fields[0] = Slot::Int(variant.field_value());
+    Ok(coder_ref)
+}
+
+fn base64_variant_arg(args: &[Slot], heap: &duke_gc::Heap) -> Result<Base64Variant> {
+    let coder_ref = extract_ref_arg(args, 0)?;
+    let Some(Slot::Int(value)) = heap.get(coder_ref)?.fields.first() else {
+        return Err(Error::TypeMismatch {
+            expected: "Base64 variant",
+            got: "other",
+        });
+    };
+    Base64Variant::from_field(*value).ok_or_else(invalid_base64_error)
+}
+
+fn encode_base64(input: &[u8], variant: Base64Variant) -> String {
+    let alphabet = variant.alphabet();
+    let mut out = Vec::with_capacity(input.len().div_ceil(3) * 4);
+    let mut line_len = 0_usize;
+
+    for chunk in input.chunks(3) {
+        let first = u32::from(chunk[0]);
+        let second = chunk.get(1).copied().map_or(0, u32::from);
+        let third = chunk.get(2).copied().map_or(0, u32::from);
+        let triple = (first << 16) | (second << 8) | third;
+        let encoded = [
+            alphabet[((triple >> 18) & 0x3f) as usize],
+            alphabet[((triple >> 12) & 0x3f) as usize],
+            if chunk.len() > 1 {
+                alphabet[((triple >> 6) & 0x3f) as usize]
+            } else {
+                b'='
+            },
+            if chunk.len() > 2 {
+                alphabet[(triple & 0x3f) as usize]
+            } else {
+                b'='
+            },
+        ];
+
+        for byte in encoded {
+            if variant == Base64Variant::Mime && line_len == 76 {
+                out.extend_from_slice(b"\r\n");
+                line_len = 0;
+            }
+            out.push(byte);
+            line_len += 1;
+        }
+    }
+
+    out.into_iter().map(char::from).collect()
+}
+
+fn base64_decode_value(byte: u8, variant: Base64Variant) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' if variant != Base64Variant::Url => Some(62),
+        b'/' if variant != Base64Variant::Url => Some(63),
+        b'-' if variant == Base64Variant::Url => Some(62),
+        b'_' if variant == Base64Variant::Url => Some(63),
+        _ => None,
+    }
+}
+
+fn filtered_base64_input(input: &[u8], variant: Base64Variant) -> Vec<u8> {
+    input
+        .iter()
+        .copied()
+        .filter(|byte| {
+            variant != Base64Variant::Mime || !matches!(byte, b'\r' | b'\n' | b' ' | b'\t')
+        })
+        .collect()
+}
+
+fn require_base64_value(byte: u8, variant: Base64Variant) -> Result<u8> {
+    base64_decode_value(byte, variant).ok_or_else(invalid_base64_error)
+}
+
+fn push_base64_triplet(out: &mut Vec<u8>, values: [u8; 4]) {
+    out.push((values[0] << 2) | (values[1] >> 4));
+    out.push(((values[1] & 0x0f) << 4) | (values[2] >> 2));
+    out.push(((values[2] & 0x03) << 6) | values[3]);
+}
+
+fn decode_base64(input: &[u8], variant: Base64Variant) -> Result<Vec<u8>> {
+    let bytes = filtered_base64_input(input, variant);
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut first_padding = None;
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        if byte == b'=' {
+            first_padding.get_or_insert(idx);
+        } else if first_padding.is_some() || base64_decode_value(byte, variant).is_none() {
+            return Err(invalid_base64_error());
+        }
+    }
+
+    let data_len = first_padding.unwrap_or(bytes.len());
+    if let Some(first_padding_idx) = first_padding {
+        let pad_count = bytes.len() - first_padding_idx;
+        let data_remainder = data_len % 4;
+        if pad_count > 2
+            || !bytes.len().is_multiple_of(4)
+            || (pad_count == 1 && data_remainder != 3)
+            || (pad_count == 2 && data_remainder != 2)
+        {
+            return Err(invalid_base64_error());
+        }
+    } else if data_len % 4 == 1 {
+        return Err(invalid_base64_error());
+    }
+
+    let mut out = Vec::with_capacity((data_len / 4) * 3 + 2);
+    let mut idx = 0;
+    while idx + 4 <= data_len {
+        let values = [
+            require_base64_value(bytes[idx], variant)?,
+            require_base64_value(bytes[idx + 1], variant)?,
+            require_base64_value(bytes[idx + 2], variant)?,
+            require_base64_value(bytes[idx + 3], variant)?,
+        ];
+        push_base64_triplet(&mut out, values);
+        idx += 4;
+    }
+
+    match data_len - idx {
+        0 => {}
+        2 => {
+            let first = require_base64_value(bytes[idx], variant)?;
+            let second = require_base64_value(bytes[idx + 1], variant)?;
+            out.push((first << 2) | (second >> 4));
+        }
+        3 => {
+            let first = require_base64_value(bytes[idx], variant)?;
+            let second = require_base64_value(bytes[idx + 1], variant)?;
+            let third = require_base64_value(bytes[idx + 2], variant)?;
+            out.push((first << 2) | (second >> 4));
+            out.push(((second & 0x0f) << 4) | (third >> 2));
+        }
+        _ => return Err(invalid_base64_error()),
+    }
+
+    Ok(out)
+}
+
+pub(crate) fn native_base64_get_encoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let encoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Encoder", Base64Variant::Standard)?;
+    Ok(Some(Slot::Reference(Some(encoder_ref))))
+}
+
+pub(crate) fn native_base64_get_mime_encoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let encoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Encoder", Base64Variant::Mime)?;
+    Ok(Some(Slot::Reference(Some(encoder_ref))))
+}
+
+pub(crate) fn native_base64_get_url_encoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let encoder_ref = allocate_base64_coder(heap, "java/util/Base64$Encoder", Base64Variant::Url)?;
+    Ok(Some(Slot::Reference(Some(encoder_ref))))
+}
+
+pub(crate) fn native_base64_get_decoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let decoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Decoder", Base64Variant::Standard)?;
+    Ok(Some(Slot::Reference(Some(decoder_ref))))
+}
+
+pub(crate) fn native_base64_get_mime_decoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let decoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Decoder", Base64Variant::Mime)?;
+    Ok(Some(Slot::Reference(Some(decoder_ref))))
+}
+
+pub(crate) fn native_base64_get_url_decoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let decoder_ref = allocate_base64_coder(heap, "java/util/Base64$Decoder", Base64Variant::Url)?;
+    Ok(Some(Slot::Reference(Some(decoder_ref))))
+}
+
+pub(crate) fn native_base64_encoder_encode_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let string_ref = heap.allocate_string(encode_base64(&input, variant));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_base64_encoder_encode(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let encoded = encode_base64(&input, variant);
+    let array_ref = alloc_byte_array(heap, &encoded.into_bytes());
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+pub(crate) fn native_base64_decoder_decode_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = string_value_from_ref(heap, input_ref)?;
+    let decoded = decode_base64(input.as_bytes(), variant)?;
+    let array_ref = alloc_byte_array(heap, &decoded);
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+pub(crate) fn native_base64_decoder_decode_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let decoded = decode_base64(&input, variant)?;
+    let array_ref = alloc_byte_array(heap, &decoded);
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
 const DUKE_SECURITY_PROVIDER: &str = "DUKE";
 const MESSAGE_DIGEST_SERVICE_TYPE: &str = "MessageDigest";
 const MESSAGE_DIGEST_ALGORITHMS: [&str; 3] = ["SHA-256", "SHA-1", "MD5"];
