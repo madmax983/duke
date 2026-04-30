@@ -87,7 +87,9 @@ impl<'a> Cursor<'a> {
 
     fn read_u16(&mut self) -> Result<u16> {
         if self.pos + 2 > self.data.len() {
-            return Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: self.data.len() }));
+            return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
+                pc: self.pos,
+            }));
         }
         let bytes = [self.data[self.pos], self.data[self.pos + 1]];
         self.pos += 2;
@@ -100,7 +102,9 @@ impl<'a> Cursor<'a> {
 
     fn read_u32(&mut self) -> Result<u32> {
         if self.pos + 4 > self.data.len() {
-            return Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: self.data.len() }));
+            return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
+                pc: self.pos,
+            }));
         }
         let bytes = [
             self.data[self.pos],
@@ -524,7 +528,7 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 2 })
+            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 1 })
         ));
     }
 
