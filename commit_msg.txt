@@ -1,6 +1,0 @@
-🛡️ Sentry: [test coverage improvement]
-
-🎯 Target: `duke_loader::JImageReader` and `duke_interpreter::SharedOutput`.
-💣 Risk: Metadata offset overflows causing out-of-bounds panics when parsing corrupted `.jimage` archives, and untested thread-safe buffer sharing via `SharedOutput` locking.
-🧪 Strategy: Added table-driven synthetic tests allocating explicit invalid/overflow boundaries for `JImageReader`, verifying the system returns `Error::JImageFormat` gracefully instead of panicking. Similarly, added a thread-safe round-trip evaluation testing `Mutex` lock extraction.
-🔬 Verification: Run `cargo test -p duke-loader` and `cargo test -p duke-interpreter`.

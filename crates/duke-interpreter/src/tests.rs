@@ -5403,6 +5403,62 @@ fn service_loader_jdbc_smoke_fixture_instantiates_driver() {
 }
 
 #[test]
+fn atomic_integer_basic_fixture_exercises_core_surface() {
+    assert_eq!(
+        run_bootstrap_int("AtomicIntegerBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_long_basic_fixture_preserves_wide_payloads() {
+    assert_eq!(
+        run_bootstrap_int("AtomicLongBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_reference_basic_fixture_uses_identity_cas() {
+    assert_eq!(
+        run_bootstrap_int("AtomicReferenceBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_boolean_basic_fixture_exercises_core_surface() {
+    assert_eq!(
+        run_bootstrap_int("AtomicBooleanBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_contended_fixture_is_linearizable_under_threading_runtime() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AtomicContendedTest.class",
+            "twoThreadsIncrementFiftyTrials",
+            "()I",
+        ),
+        2000
+    );
+}
+
+#[test]
+fn atomic_service_loader_interop_fixture_allows_atomic_clinit() {
+    assert_eq!(
+        run_service_loader_jar_int(
+            "service-loader-atomic.jar",
+            "AtomicServiceLoaderInteropTest",
+            "providerClinitUsesAtomicLong",
+        ),
+        1
+    );
+}
+
+#[test]
 fn service_loader_load_with_url_class_loader_reads_service_resources() {
     let jar_path = fixture("service-loader-basic.jar")
         .canonicalize()

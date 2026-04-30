@@ -13,3 +13,7 @@
 ## 2024-05-20 - [SwitchTargets Documentation]
 **Confusion:** The `SwitchTargets` iterator for `tableswitch` and `lookupswitch` was completely undocumented, making it difficult to understand how switch targets are resolved at runtime.
 **Clarification:** Added module-level documentation and an executable doctest explaining how `SwitchTargets` unifies the two switch mechanisms and provides a clean iterator over match values and offsets.
+
+## 2024-05-21 - [ReflectedAnnotationConst Documentation]
+**Confusion:** The `ReflectedAnnotationConst` enum lacked documentation for its variants and was missing module-level examples, leading to `missing_docs` clippy warnings and making it hard to understand how raw JVM annotation values map to Rust.
+**Clarification:** Added complete documentation for each enum variant, explaining their JVM equivalents, and included an executable doctest demonstrating basic usage.

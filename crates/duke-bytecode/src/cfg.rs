@@ -50,38 +50,12 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
         let _ = writeln!(cfg, "    node{pc}[\"{pc}: {mnemonic}\"]");
 
         // Add edges
-        if instr.is_return() {
-            // No fall-through
-        } else if let Some(offset) = instr.unconditional_jump_target() {
-            let target = (*pc as isize + offset) as usize;
-            if instr.is_subroutine_call() {
-                let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
-                if i + 1 < instructions.len() {
-                    let next_pc = instructions[i + 1].0;
-                    let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
-                }
+        let next_pc = instructions.get(i + 1).map(|(p, _)| *p);
+        for (target, label) in instr.control_flow_edges(*pc, next_pc) {
+            if let Some(label) = label {
+                let _ = writeln!(cfg, "    node{pc} -->|{label}| node{target}");
             } else {
                 let _ = writeln!(cfg, "    node{pc} --> node{target}");
-            }
-        } else if let Some(offset) = instr.conditional_branch_target() {
-            let target = (*pc as isize + offset) as usize;
-            let _ = writeln!(cfg, "    node{pc} -->|true| node{target}");
-            if i + 1 < instructions.len() {
-                let next_pc = instructions[i + 1].0;
-                let _ = writeln!(cfg, "    node{pc} -->|false| node{next_pc}");
-            }
-        } else if let Some((default, pairs)) = instr.switch_targets() {
-            let default_target = (*pc as isize + default as isize) as usize;
-            let _ = writeln!(cfg, "    node{pc} -->|default| node{default_target}");
-            for (match_val, offset) in pairs {
-                let target = (*pc as isize + offset as isize) as usize;
-                let _ = writeln!(cfg, "    node{pc} -->|{match_val}| node{target}");
-            }
-        } else {
-            // Everything else falls through
-            if i + 1 < instructions.len() {
-                let next_pc = instructions[i + 1].0;
-                let _ = writeln!(cfg, "    node{pc} --> node{next_pc}");
             }
         }
     }
@@ -283,8 +257,6 @@ pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
         if instr.is_conditional_branch() || instr.is_subroutine_call() {
             complexity += 1;
         } else if let Some((_, pairs)) = instr.switch_targets() {
-            // Number of possible paths = pairs.len() + 1 (for default).
-            // Subtract 1 because we start at 1 complexity inherently.
             complexity += pairs.len();
         }
     }
@@ -439,26 +411,16 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         // Edge definition based on the last instruction
         if let Some((last_pc, last_instr)) = block.instructions.last() {
             let next_block_id = block.end_pc;
-            if last_instr.is_return() {
-                // No fall-through, no explicit branches to other blocks
-            } else if let Some(offset) = last_instr.unconditional_jump_target() {
-                let target = (*last_pc as isize + offset) as usize;
-                let _ = writeln!(cfg, "    block{block_id} --> block{target}");
-            } else if let Some(offset) = last_instr.conditional_branch_target() {
-                let target = (*last_pc as isize + offset) as usize;
-                let _ = writeln!(cfg, "    block{block_id} -->|true| block{target}");
-                let _ = writeln!(cfg, "    block{block_id} -->|false| block{next_block_id}");
-            } else if let Some((default, pairs)) = last_instr.switch_targets() {
-                let target = (*last_pc as isize + default as isize) as usize;
-                let _ = writeln!(cfg, "    block{block_id} -->|default| block{target}");
-                for (key, offset) in pairs {
-                    let target = (*last_pc as isize + offset as isize) as usize;
-                    let _ = writeln!(cfg, "    block{block_id} -->|{key}| block{target}");
-                }
+            let next_pc = if pc_to_block.contains_key(&next_block_id) {
+                Some(next_block_id)
             } else {
-                // Fall-through
-                if pc_to_block.contains_key(&next_block_id) {
-                    let _ = writeln!(cfg, "    block{block_id} --> block{next_block_id}");
+                None
+            };
+            for (target, label) in last_instr.control_flow_edges(*last_pc, next_pc) {
+                if let Some(label) = label {
+                    let _ = writeln!(cfg, "    block{block_id} -->|{label}| block{target}");
+                } else {
+                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
                 }
             }
         }
