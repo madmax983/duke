@@ -30,7 +30,7 @@ pub use decoder::decode;
 pub use error::{DecodeError, Error, Result, VerifyError};
 pub use instruction::{ArrayType, Instruction};
 #[cfg(feature = "nova")]
-pub use reachability::{find_dead_blocks, find_shortest_path};
+pub use reachability::{find_dead_blocks, find_shortest_path, get_successors};
 pub use verifier::verify;
 
 #[cfg(test)]

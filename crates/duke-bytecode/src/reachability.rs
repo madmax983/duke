@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// # #[cfg(feature = "nova")] {
 /// use duke_bytecode::Instruction;
 /// use duke_bytecode::{BasicBlock, build_basic_blocks};
-/// use duke_bytecode::reachability::get_successors;
+/// use duke_bytecode::get_successors;
 ///
 /// // An unconditional jump to PC 6
 /// let instructions = vec![(0, Instruction::Goto(6)), (3, Instruction::Ireturn), (6, Instruction::Ireturn)];
@@ -76,7 +76,7 @@ pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
 /// # #[cfg(feature = "nova")] {
 /// use duke_bytecode::Instruction;
 /// use duke_bytecode::build_basic_blocks;
-/// use duke_bytecode::reachability::find_dead_blocks;
+/// use duke_bytecode::find_dead_blocks;
 ///
 /// let instructions = vec![
 ///     (0, Instruction::Goto(6)),
@@ -150,7 +150,7 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
 /// # #[cfg(feature = "nova")] {
 /// use duke_bytecode::Instruction;
 /// use duke_bytecode::build_basic_blocks;
-/// use duke_bytecode::reachability::find_shortest_path;
+/// use duke_bytecode::find_shortest_path;
 ///
 /// let instructions = vec![
 ///     (0, Instruction::Ifeq(8)), // branch to 8

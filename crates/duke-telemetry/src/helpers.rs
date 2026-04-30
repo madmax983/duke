@@ -1,6 +1,6 @@
 //! Serde serialization helpers for telemetry data structures.
 #[cfg(feature = "telemetry")]
-pub(crate) mod ser_helpers {
+pub mod ser_helpers {
     use std::collections::HashMap;
 
     use serde::{Serialize, ser::SerializeMap};
