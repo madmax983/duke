@@ -9254,6 +9254,100 @@ fn file_io_write_after_close_raises_io_exception() {
     );
 }
 
+// ---- Issue 649: java.util.Properties ----
+
+#[test]
+fn properties_loads_sample_file_with_escapes_and_continuations() {
+    let sample_path = fixture("sample.properties");
+
+    let result = run_bootstrap_with_string_args(
+        "PropertiesBasicTest.class",
+        "loadSample",
+        "(Ljava/lang/String;)I",
+        &[sample_path.to_string_lossy().into_owned()],
+    );
+
+    assert_eq!(result.unwrap(), Some(Slot::Int(0)));
+}
+
+#[test]
+fn properties_get_property_overloads_handle_defaults() {
+    assert_eq!(
+        run_bootstrap_int("PropertiesBasicTest.class", "getPropertyDefaults", "()I"),
+        0
+    );
+}
+
+#[test]
+fn properties_chained_defaults_are_consulted_after_local_map() {
+    assert_eq!(
+        run_bootstrap_int("PropertiesBasicTest.class", "chainedDefaults", "()I"),
+        0
+    );
+}
+
+#[test]
+fn properties_set_property_returns_prior_value() {
+    assert_eq!(
+        run_bootstrap_int(
+            "PropertiesBasicTest.class",
+            "setPropertyReturnsPriorValue",
+            "()I"
+        ),
+        0
+    );
+}
+
+#[test]
+fn properties_store_round_trips_loaded_map() {
+    let (root, _cleanup) = make_temp_root("duke-properties-store");
+    let output_path = root.join("roundtrip.properties");
+
+    let result = run_bootstrap_with_string_args(
+        "PropertiesBasicTest.class",
+        "storeRoundTrip",
+        "(Ljava/lang/String;)I",
+        &[output_path.to_string_lossy().into_owned()],
+    );
+
+    assert_eq!(result.unwrap(), Some(Slot::Int(0)));
+}
+
+#[test]
+fn properties_store_escapes_special_keys_and_values() {
+    let (root, _cleanup) = make_temp_root("duke-properties-escaped-store");
+    let output_path = root.join("escaped.properties");
+
+    let result = run_bootstrap_with_string_args(
+        "PropertiesBasicTest.class",
+        "storeEscapedRoundTrip",
+        "(Ljava/lang/String;)I",
+        &[output_path.to_string_lossy().into_owned()],
+    );
+
+    assert_eq!(result.unwrap(), Some(Slot::Int(0)));
+}
+
+#[test]
+fn properties_property_name_views_include_defaults() {
+    assert_eq!(
+        run_bootstrap_int(
+            "PropertiesBasicTest.class",
+            "propertyNamesIncludeDefaults",
+            "()I"
+        ),
+        0
+    );
+}
+
+#[test]
+fn properties_local_views_and_mutation_ignore_defaults() {
+    assert_eq!(
+        run_bootstrap_int("PropertiesBasicTest.class", "localViewsAndMutation", "()I"),
+        0
+    );
+}
+
 // ---- Phase 28: Threading ----
 
 #[test]

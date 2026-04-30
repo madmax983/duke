@@ -5503,6 +5503,224 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_hashmap_for_each,
     );
 
+    // java/util/Hashtable — minimal synchronized-map ancestor for Properties.
+    // Duke is single-threaded, so this deliberately reuses the HashMap layout and natives.
+    let hashtable_ctx = ClassContext {
+        class_name: "java/util/Hashtable".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Map".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(hashtable_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_hashmap_init as NativeHandler),
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_put as NativeHandler,
+        ),
+        (
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_get as NativeHandler,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_hashmap_contains_key as NativeHandler,
+        ),
+        ("size", "()I", native_hashmap_size as NativeHandler),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_remove as NativeHandler,
+        ),
+        ("isEmpty", "()Z", native_hashmap_is_empty as NativeHandler),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_hashmap_key_set as NativeHandler,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_hashmap_values as NativeHandler,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_hashmap_entry_set as NativeHandler,
+        ),
+        ("clear", "()V", native_hashmap_clear as NativeHandler),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/Hashtable", method, descriptor, handler);
+    }
+
+    // java/util/Properties — String-keyed map with optional defaults chain.
+    // Layout: fields[0] inherited Hashtable size, fields[1] defaults, fields[2..] key/value pairs.
+    let properties_ctx = ClassContext {
+        class_name: "java/util/Properties".to_string(),
+        super_class: Some("java/util/Hashtable".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "defaults".to_string(),
+            descriptor: "Ljava/util/Properties;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Map".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(properties_ctx);
+    let properties_enum_ctx = ClassContext {
+        class_name: "duke/util/PropertiesEnumeration".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "index".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "count".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Enumeration".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(properties_enum_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_properties_init as NativeHandler),
+        (
+            "<init>",
+            "(Ljava/util/Properties;)V",
+            native_properties_init_defaults as NativeHandler,
+        ),
+        (
+            "setProperty",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
+            native_properties_set_property as NativeHandler,
+        ),
+        (
+            "getProperty",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            native_properties_get_property as NativeHandler,
+        ),
+        (
+            "getProperty",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            native_properties_get_property_default as NativeHandler,
+        ),
+        (
+            "load",
+            "(Ljava/io/InputStream;)V",
+            native_properties_load as NativeHandler,
+        ),
+        (
+            "store",
+            "(Ljava/io/OutputStream;Ljava/lang/String;)V",
+            native_properties_store as NativeHandler,
+        ),
+        (
+            "propertyNames",
+            "()Ljava/util/Enumeration;",
+            native_properties_property_names as NativeHandler,
+        ),
+        (
+            "stringPropertyNames",
+            "()Ljava/util/Set;",
+            native_properties_string_property_names as NativeHandler,
+        ),
+        ("size", "()I", native_properties_size as NativeHandler),
+        (
+            "isEmpty",
+            "()Z",
+            native_properties_is_empty as NativeHandler,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_properties_contains_key as NativeHandler,
+        ),
+        ("clear", "()V", native_properties_clear as NativeHandler),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_properties_remove as NativeHandler,
+        ),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_properties_key_set as NativeHandler,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_properties_values as NativeHandler,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_properties_entry_set as NativeHandler,
+        ),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_properties_to_string as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/Properties", method, descriptor, handler);
+    }
+    for (method, descriptor, handler) in [
+        (
+            "hasMoreElements",
+            "()Z",
+            native_properties_enum_has_more_elements as NativeHandler,
+        ),
+        (
+            "nextElement",
+            "()Ljava/lang/Object;",
+            native_properties_enum_next_element as NativeHandler,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "duke/util/PropertiesEnumeration",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
     // java/util/LinkedList — doubly-ended list/deque backed by ArrayList field layout
     // fields[0] = Int(size), fields[1..] = elements (head-to-tail order)
     // NOTE: super_class is Object (not ArrayList) so instance_field_count is not summed twice.
