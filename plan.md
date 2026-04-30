@@ -1,12 +1,8 @@
-1.  *Update test suite in `crates/duke-interpreter/src/native.rs`*
-    - Extend the `crates/duke-interpreter/src/native.rs` test suite by appending an explicit `native_helper_tests` module.
-    - Test edge cases like un-wrapping correct structures and checking against `Err(Error::NullPointerException)` or `Err(Error::TypeMismatch)`.
-    - Also update `crates/duke-bytecode/src/decoder.rs` to include tests on `Cursor::new` ensuring read behaviors cover bounds error conditions.
-    - (Already done in trace).
-2.  *Run checks.*
-    - Ensure tests pass with `cargo test --all-targets --all-features`.
-    - (Already done in trace).
-3.  *Complete pre-commit steps*
-    - Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
-4.  *Submit the change*
-    - Commit with standard persona attributes. Title "🛡️ Sentry: [test coverage improvement]" and formatted description.
+1. **Target**: Fuzz tests triggered a panic inside `write_field` in `duke-gc/src/lib.rs` (due to out-of-bounds indexing of `fields[field_idx] = value`).
+2. **Additional Issues**:
+   - `heap.young.get_mut(usize::try_from(r).unwrap())` can panic in `get_mut` and `get` if `r` does not fit in `usize`.
+3. **Fix Strategy**:
+   - Add a `VmError` variant with a custom message since `Error::VmError(String)` already exists. Or better, `Error::InvalidRef` already exists!
+   - In `duke-runtime/src/error.rs`, add a new error variant `FieldOutOfBounds` that takes `index` and `length` to properly surface field indexing errors instead of panicking.
+   - For `write_field`: Replace `obj.fields[field_idx] = value;` with safe indexing and return the new `FieldOutOfBounds` error.
+   - Update `get` and `get_mut` to use `.unwrap_or(usize::MAX)` to prevent panics during conversion from `u64` to `usize`, and correctly return `Error::InvalidRef`.

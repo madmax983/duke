@@ -1,6 +1,6 @@
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
-use duke_bytecode::{build_basic_blocks, decode, reachability::find_shortest_path};
+use duke_bytecode::{build_basic_blocks, decode, find_shortest_path};
 #[cfg(feature = "nova")]
 use duke_classfile::{
     parse,

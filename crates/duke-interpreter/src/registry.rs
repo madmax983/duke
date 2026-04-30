@@ -208,7 +208,9 @@ pub enum ReflectedAnnotationValue {
     Const(ReflectedAnnotationConst),
     /// Enum constant, stored as enum type internal name and constant name.
     Enum {
+        /// The internal name of the enum type (e.g., `java/lang/annotation/RetentionPolicy`).
         type_name: String,
+        /// The exact string name of the enum constant (e.g., `RUNTIME`).
         const_name: String,
     },
     /// Class literal internal name or primitive descriptor.
@@ -220,16 +222,39 @@ pub enum ReflectedAnnotationValue {
 }
 
 /// Primitive and `String` annotation constants.
+///
+/// This enum represents all possible primitive and `String` constant values
+/// that can be embedded directly within a Java annotation element. They are
+/// mapped from the raw classfile constant pool into these owned Rust types
+/// for easy runtime reflection access.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_interpreter::ReflectedAnnotationConst;
+///
+/// let byte_val = ReflectedAnnotationConst::Byte(42);
+/// let str_val = ReflectedAnnotationConst::String("Test".to_string());
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReflectedAnnotationConst {
+    /// A `byte` constant, internally promoted to `i32` following JVM conventions.
     Byte(i32),
+    /// A `char` constant, internally promoted to `i32` representing the UTF-16 code point.
     Char(i32),
+    /// A 64-bit IEEE 754 floating-point `double` constant.
     Double(f64),
+    /// A 32-bit IEEE 754 floating-point `float` constant.
     Float(f32),
+    /// A 32-bit signed `int` constant.
     Int(i32),
+    /// A 64-bit signed `long` constant.
     Long(i64),
+    /// A `short` constant, internally promoted to `i32` following JVM conventions.
     Short(i32),
+    /// A `boolean` constant, parsed from the integer `1` (true) or `0` (false) in the classfile.
     Boolean(bool),
+    /// A resolved `java.lang.String` constant value.
     String(String),
 }
 

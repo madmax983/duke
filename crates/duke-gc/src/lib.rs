@@ -14,6 +14,8 @@
 //! need to know which gen an object lives in.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use duke_runtime::{Error, Result, Slot};
 
@@ -29,6 +31,96 @@ const DEFAULT_YOUNG_CAPACITY: usize = 512;
 
 /// Default number of minor-GC survivals before an object is promoted to old gen.
 const DEFAULT_PROMOTION_AGE: u8 = 4;
+
+/// Host-side payload backing synthetic `java.util.concurrent.atomic` objects.
+#[derive(Debug)]
+pub enum AtomicPayload {
+    /// Backing cell for `AtomicInteger`.
+    Int(Arc<AtomicI32>),
+    /// Backing cell for `AtomicLong`.
+    Long(Arc<AtomicI64>),
+    /// Backing cell for `AtomicBoolean`.
+    Bool(Arc<AtomicBool>),
+    /// Backing cell for `AtomicReference`.
+    Reference(Arc<Mutex<Slot>>),
+}
+
+impl Clone for AtomicPayload {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Int(cell) => Self::Int(Arc::new(AtomicI32::new(cell.load(Ordering::SeqCst)))),
+            Self::Long(cell) => Self::Long(Arc::new(AtomicI64::new(cell.load(Ordering::SeqCst)))),
+            Self::Bool(cell) => Self::Bool(Arc::new(AtomicBool::new(cell.load(Ordering::SeqCst)))),
+            Self::Reference(cell) => {
+                let slot = *cell
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                Self::Reference(Arc::new(Mutex::new(slot)))
+            }
+        }
+    }
+}
+
+impl AtomicPayload {
+    /// Create an `AtomicInteger` payload.
+    #[must_use]
+    pub fn int(value: i32) -> Self {
+        Self::Int(Arc::new(AtomicI32::new(value)))
+    }
+
+    /// Create an `AtomicLong` payload.
+    #[must_use]
+    pub fn long(value: i64) -> Self {
+        Self::Long(Arc::new(AtomicI64::new(value)))
+    }
+
+    /// Create an `AtomicBoolean` payload.
+    #[must_use]
+    pub fn bool(value: bool) -> Self {
+        Self::Bool(Arc::new(AtomicBool::new(value)))
+    }
+
+    /// Create an `AtomicReference` payload.
+    #[must_use]
+    pub fn reference(value: Slot) -> Self {
+        Self::Reference(Arc::new(Mutex::new(value)))
+    }
+
+    fn reference_slot(&self) -> Option<Slot> {
+        match self {
+            Self::Reference(cell) => Some(
+                *cell
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            ),
+            Self::Int(_) | Self::Long(_) | Self::Bool(_) => None,
+        }
+    }
+
+    fn young_reference_child(&self) -> Option<usize> {
+        self.reference_slot()
+            .and_then(|slot| slot.as_reference())
+            .filter(|r| r & OLD_BIT == 0)
+            .and_then(|r| usize::try_from(r).ok())
+    }
+
+    fn old_reference_child(&self) -> Option<u64> {
+        self.reference_slot()
+            .and_then(|slot| slot.as_reference())
+            .filter(|r| r & OLD_BIT != 0)
+    }
+
+    fn patch_forwarded_reference(&self, forward_map: &HashMap<u64, u64>) -> bool {
+        let Self::Reference(cell) = self else {
+            return false;
+        };
+        let mut slot = cell
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        patch_forwarded_slot(&mut slot, forward_map);
+        slot.as_reference().is_some_and(|r| r & OLD_BIT == 0)
+    }
+}
 
 /// A single heap-allocated Java object.
 ///
@@ -54,6 +146,8 @@ pub struct HeapObject {
     pub fields: Vec<Slot>,
     /// String content for `java/lang/String` objects. `None` for non-string objects.
     pub string_value: Option<String>,
+    /// Optional host-side atomic backing cell for synthetic atomic objects.
+    pub atomic_payload: Option<AtomicPayload>,
     /// Mark bit for old-gen mark-sweep GC. `false` until marked reachable.
     // INVARIANT: Heap::mark_old() traces only `fields` for child references.
     // Any new Vec<Slot> member added to HeapObject MUST also be covered in mark_old().
@@ -186,6 +280,7 @@ impl Heap {
             class_name,
             fields,
             string_value,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -281,11 +376,13 @@ impl Heap {
         let class_name = src.class_name.clone();
         let fields = src.fields.clone();
         let string_value = src.string_value.clone();
+        let atomic_payload = src.atomic_payload.clone();
 
         let new_ref = self.allocate(class_name, 0);
         let dest = self.get_mut(new_ref)?;
         dest.fields = fields;
         dest.string_value = string_value;
+        dest.atomic_payload = atomic_payload;
         Ok(new_ref)
     }
 
@@ -326,12 +423,18 @@ impl Heap {
     pub fn get(&self, r: u64) -> Result<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
+            if idx >= self.old.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.old
                 .get(idx)
                 .and_then(|s| s.as_ref())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            if idx >= self.young.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -361,12 +464,18 @@ impl Heap {
     pub fn get_mut(&mut self, r: u64) -> Result<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
+            if idx >= self.old.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.old
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            if idx >= self.young.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -447,6 +556,13 @@ impl Heap {
 
     // ── Write barrier ────────────────────────────────────────────────────────
 
+    /// Records a reference write into non-field object storage, such as an atomic reference payload.
+    pub fn remember_reference_write(&mut self, obj_ref: u64, value: Slot) {
+        if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
+            self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
+        }
+    }
+
     /// Store `value` into field `field_idx` of the object at `obj_ref`.
     ///
     /// If the target object is in old gen and `value` is a young-gen reference,
@@ -467,11 +583,19 @@ impl Heap {
     /// heap.write_field(obj_ref, 0, Slot::Int(42)).unwrap();
     /// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
     /// ```
+    #[allow(clippy::missing_panics_doc)]
     pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> Result<()> {
+        let obj = self.get(obj_ref)?;
+        if field_idx >= obj.fields.len() {
+            return Err(Error::FieldOutOfBounds {
+                index: field_idx,
+                length: obj.fields.len(),
+            });
+        }
         if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
             self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
         }
-        self.get_mut(obj_ref)?.fields[field_idx] = value;
+        self.get_mut(obj_ref).unwrap().fields[field_idx] = value;
         Ok(())
     }
 
@@ -514,6 +638,13 @@ impl Heap {
                         .filter(|r| r & OLD_BIT == 0)
                         .map(|r| usize::try_from(r).unwrap()),
                 );
+                if let Some(child) = obj
+                    .atomic_payload
+                    .as_ref()
+                    .and_then(AtomicPayload::young_reference_child)
+                {
+                    worklist.push(child);
+                }
             }
         }
 
@@ -541,6 +672,13 @@ impl Heap {
                     .filter(|r| r & OLD_BIT == 0)
                     .map(|r| usize::try_from(r).unwrap()),
             );
+            if let Some(child) = copy
+                .atomic_payload
+                .as_ref()
+                .and_then(AtomicPayload::young_reference_child)
+            {
+                worklist.push(child);
+            }
 
             let new_ref = if copy.age >= self.promotion_age {
                 self.promote_to_old(copy)
@@ -556,6 +694,7 @@ impl Heap {
                 class_name: String::new(),
                 fields: vec![],
                 string_value: None,
+                atomic_payload: None,
                 marked: false,
                 age: 0,
                 forward: Some(new_ref),
@@ -570,6 +709,9 @@ impl Heap {
         let to_space = &mut self.to_space;
         for obj in to_space.iter_mut().flatten() {
             patch_forwarded_fields(&mut obj.fields, forward_map);
+            if let Some(payload) = &obj.atomic_payload {
+                payload.patch_forwarded_reference(forward_map);
+            }
         }
 
         // Patch all old-gen objects and rebuild the remembered set so existing
@@ -580,7 +722,12 @@ impl Heap {
             let Some(obj) = obj.as_mut() else {
                 continue;
             };
-            if patch_forwarded_fields(&mut obj.fields, forward_map) {
+            let fields_have_young = patch_forwarded_fields(&mut obj.fields, forward_map);
+            let atomic_has_young = obj
+                .atomic_payload
+                .as_ref()
+                .is_some_and(|payload| payload.patch_forwarded_reference(forward_map));
+            if fields_have_young || atomic_has_young {
                 rebuilt_remembered_set.insert(old_idx);
             }
         }
@@ -669,6 +816,13 @@ impl Heap {
                 .filter(|c| c & OLD_BIT != 0)
                 .collect();
             worklist.extend(children);
+            if let Some(child) = obj
+                .atomic_payload
+                .as_ref()
+                .and_then(AtomicPayload::old_reference_child)
+            {
+                worklist.push(child);
+            }
         }
     }
 
@@ -1044,6 +1198,7 @@ mod tests {
             class_name: "OldObj".to_string(),
             fields: vec![Slot::Int(0)],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1130,6 +1285,7 @@ mod tests {
             class_name: "A".to_string(),
             fields: vec![Slot::Int(0)],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1138,6 +1294,7 @@ mod tests {
             class_name: "B".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1271,6 +1428,7 @@ mod tests {
             class_name: "Old".to_string(),
             fields: vec![Slot::Int(0)], // will be overwritten below
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1337,6 +1495,7 @@ mod tests {
             class_name: "OldObj".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1353,6 +1512,7 @@ mod tests {
             class_name: "Keep".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1361,6 +1521,7 @@ mod tests {
             class_name: "Drop".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1387,6 +1548,7 @@ mod tests {
             class_name: "C".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1395,6 +1557,7 @@ mod tests {
             class_name: "B".to_string(),
             fields: vec![Slot::Reference(Some(OLD_BIT))],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1403,6 +1566,7 @@ mod tests {
             class_name: "A".to_string(),
             fields: vec![Slot::Reference(Some(1u64 | OLD_BIT))],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1421,6 +1585,7 @@ mod tests {
             class_name: "Keep".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1429,6 +1594,7 @@ mod tests {
             class_name: "Drop".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1735,6 +1901,7 @@ mod tests {
             class_name: "ShouldDie".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1743,6 +1910,7 @@ mod tests {
             class_name: "ShouldLive".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1775,6 +1943,7 @@ mod tests {
             class_name: "ShouldDie".to_string(),
             fields: vec![],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,
@@ -1787,6 +1956,7 @@ mod tests {
             class_name: "Parent".to_string(),
             fields: vec![Slot::Reference(Some(young_r))],
             string_value: None,
+            atomic_payload: None,
             marked: false,
             age: 0,
             forward: None,

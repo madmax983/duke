@@ -593,6 +593,59 @@ impl Instruction {
         targets
     }
 
+    /// Returns a list of target PCs and their optional edge labels (e.g., `"true"`, `"false"`, `"default"`)
+    /// for control flow graph generation.
+    #[must_use]
+    #[allow(
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::collapsible_if,
+        clippy::collapsible_else_if
+    )]
+    pub fn control_flow_edges(
+        &self,
+        current_pc: usize,
+        next_pc: Option<usize>,
+    ) -> Vec<(usize, Option<String>)> {
+        let mut edges = Vec::new();
+        if self.is_return() {
+            return edges;
+        }
+        if let Some(offset) = self.unconditional_jump_target() {
+            edges.push(((current_pc as isize + offset) as usize, None));
+            if self.is_subroutine_call() {
+                if let Some(next) = next_pc {
+                    edges.push((next, Some("false".to_string())));
+                    edges[0].1 = Some("true".to_string());
+                }
+            }
+        } else if let Some(offset) = self.conditional_branch_target() {
+            edges.push((
+                (current_pc as isize + offset) as usize,
+                Some("true".to_string()),
+            ));
+            if let Some(next) = next_pc {
+                edges.push((next, Some("false".to_string())));
+            }
+        } else if let Some((default, pairs)) = self.switch_targets() {
+            edges.push((
+                (current_pc as isize + default as isize) as usize,
+                Some("default".to_string()),
+            ));
+            for (val, offset) in pairs {
+                edges.push((
+                    (current_pc as isize + offset as isize) as usize,
+                    Some(val.to_string()),
+                ));
+            }
+        } else {
+            if let Some(next) = next_pc {
+                edges.push((next, None));
+            }
+        }
+        edges
+    }
+
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
     #[allow(clippy::too_many_lines)]

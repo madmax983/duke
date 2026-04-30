@@ -28,5 +28,17 @@ mod tests {
             let _ = frame.pop_int();
             let _ = frame.pop_ref();
         }
+
+        #[test]
+        fn does_not_crash_frame_push_overflow(
+            max_stack in 1usize..10,
+            max_locals in 1usize..10,
+        ) {
+            let mut frame = Frame::new(max_stack, max_locals, vec![]).unwrap();
+            for _ in 0..20 {
+                let _ = frame.push(Slot::Int(1));
+            }
+        }
+
     }
 }
