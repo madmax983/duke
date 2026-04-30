@@ -317,6 +317,588 @@ fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> Result<String
         .ok_or(Error::NullPointerException)
 }
 
+const REPLACEMENT_CHAR: char = '\u{fffd}';
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StandardCharset {
+    Utf8,
+    Utf16,
+    Utf16Be,
+    Utf16Le,
+    UsAscii,
+    Iso88591,
+}
+
+impl StandardCharset {
+    const fn canonical_name(self) -> &'static str {
+        match self {
+            Self::Utf8 => "UTF-8",
+            Self::Utf16 => "UTF-16",
+            Self::Utf16Be => "UTF-16BE",
+            Self::Utf16Le => "UTF-16LE",
+            Self::UsAscii => "US-ASCII",
+            Self::Iso88591 => "ISO-8859-1",
+        }
+    }
+
+    fn from_canonical(name: &str) -> Option<Self> {
+        match name {
+            "UTF-8" => Some(Self::Utf8),
+            "UTF-16" => Some(Self::Utf16),
+            "UTF-16BE" => Some(Self::Utf16Be),
+            "UTF-16LE" => Some(Self::Utf16Le),
+            "US-ASCII" => Some(Self::UsAscii),
+            "ISO-8859-1" => Some(Self::Iso88591),
+            _ => None,
+        }
+    }
+}
+
+const fn charset_for_name(name: &str) -> Option<StandardCharset> {
+    if name.eq_ignore_ascii_case("UTF-8")
+        || name.eq_ignore_ascii_case("UTF8")
+        || name.eq_ignore_ascii_case("utf8")
+    {
+        return Some(StandardCharset::Utf8);
+    }
+    if name.eq_ignore_ascii_case("UTF-16") || name.eq_ignore_ascii_case("UTF16") {
+        return Some(StandardCharset::Utf16);
+    }
+    if name.eq_ignore_ascii_case("UTF-16BE") || name.eq_ignore_ascii_case("UTF16BE") {
+        return Some(StandardCharset::Utf16Be);
+    }
+    if name.eq_ignore_ascii_case("UTF-16LE") || name.eq_ignore_ascii_case("UTF16LE") {
+        return Some(StandardCharset::Utf16Le);
+    }
+    if name.eq_ignore_ascii_case("US-ASCII")
+        || name.eq_ignore_ascii_case("ASCII")
+        || name.eq_ignore_ascii_case("US_ASCII")
+    {
+        return Some(StandardCharset::UsAscii);
+    }
+    if name.eq_ignore_ascii_case("ISO-8859-1")
+        || name.eq_ignore_ascii_case("ISO8859-1")
+        || name.eq_ignore_ascii_case("ISO8859_1")
+        || name.eq_ignore_ascii_case("latin1")
+    {
+        return Some(StandardCharset::Iso88591);
+    }
+    None
+}
+
+pub(crate) fn allocate_standard_charset(heap: &mut duke_gc::Heap, canonical_name: &str) -> u64 {
+    if let Some(existing) = heap.find_string_backed_object("java/nio/charset/Charset", canonical_name)
+    {
+        return existing;
+    }
+    let charset_ref = heap.allocate("java/nio/charset/Charset".to_string(), 0);
+    if let Ok(obj) = heap.get_mut(charset_ref) {
+        obj.string_value = Some(canonical_name.to_string());
+    }
+    charset_ref
+}
+
+fn charset_ref(heap: &mut duke_gc::Heap, charset: StandardCharset) -> u64 {
+    allocate_standard_charset(heap, charset.canonical_name())
+}
+
+fn unsupported_charset_error(name: &str) -> Error {
+    push_pending_java_exception_message(
+        "java/nio/charset/UnsupportedCharsetException",
+        name.to_string(),
+    );
+    Error::JavaException {
+        class_name: "java/nio/charset/UnsupportedCharsetException".to_string(),
+    }
+}
+
+fn unsupported_encoding_error(name: &str) -> Error {
+    push_pending_java_exception_message("java/io/UnsupportedEncodingException", name.to_string());
+    Error::JavaException {
+        class_name: "java/io/UnsupportedEncodingException".to_string(),
+    }
+}
+
+fn charset_from_name_ref(
+    heap: &duke_gc::Heap,
+    string_ref: u64,
+    error_for_unknown: fn(&str) -> Error,
+) -> Result<StandardCharset> {
+    let name = string_value_from_ref(heap, string_ref)?;
+    charset_for_name(&name).ok_or_else(|| error_for_unknown(&name))
+}
+
+fn charset_from_arg(
+    args: &[Slot],
+    idx: usize,
+    heap: &duke_gc::Heap,
+) -> Result<StandardCharset> {
+    let charset_ref = extract_ref_arg(args, idx)?;
+    let obj = heap.get(charset_ref)?;
+    if obj.class_name != "java/nio/charset/Charset" {
+        return Err(Error::ClassCastException {
+            from: obj.class_name.clone(),
+            to: "java/nio/charset/Charset".to_string(),
+        });
+    }
+    let name = obj.string_value.as_deref().ok_or(Error::TypeMismatch {
+        expected: "Charset.string_value",
+        got: "None",
+    })?;
+    StandardCharset::from_canonical(name).ok_or_else(|| unsupported_charset_error(name))
+}
+
+fn java_string_hash(value: &str) -> i32 {
+    let mut hash = 0_i32;
+    for ch in value.chars() {
+        hash = hash.wrapping_mul(31).wrapping_add(ch as i32);
+    }
+    hash
+}
+
+fn java_byte_slot(byte: u8) -> Slot {
+    Slot::Int(i32::from(i8::from_ne_bytes([byte])))
+}
+
+const fn byte_from_slot(slot: Slot) -> Result<u8> {
+    match slot {
+        Slot::Int(value) => Ok(value.to_be_bytes()[3]),
+        _ => Err(Error::TypeMismatch {
+            expected: "byte",
+            got: "other",
+        }),
+    }
+}
+
+fn allocate_byte_array(heap: &mut duke_gc::Heap, bytes: &[u8]) -> Result<u64> {
+    let array_ref = heap.allocate("[B".to_string(), bytes.len());
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        heap.write_field(array_ref, idx, java_byte_slot(byte))?;
+    }
+    Ok(array_ref)
+}
+
+fn index_out_of_bounds_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+    }
+}
+
+fn byte_array_window(
+    heap: &duke_gc::Heap,
+    array_ref: u64,
+    offset: i32,
+    length: i32,
+) -> Result<Vec<u8>> {
+    if offset < 0 || length < 0 {
+        return Err(index_out_of_bounds_error());
+    }
+    let start = usize::try_from(offset).map_err(|_| index_out_of_bounds_error())?;
+    let count = usize::try_from(length).map_err(|_| index_out_of_bounds_error())?;
+    let end = start
+        .checked_add(count)
+        .ok_or_else(index_out_of_bounds_error)?;
+    let fields = &heap.get(array_ref)?.fields;
+    if end > fields.len() {
+        return Err(index_out_of_bounds_error());
+    }
+    fields[start..end]
+        .iter()
+        .copied()
+        .map(byte_from_slot)
+        .collect()
+}
+
+fn full_byte_array(heap: &duke_gc::Heap, array_ref: u64) -> Result<Vec<u8>> {
+    let length = i32::try_from(heap.get(array_ref)?.fields.len())
+        .map_err(|_| index_out_of_bounds_error())?;
+    byte_array_window(heap, array_ref, 0, length)
+}
+
+fn encode_string_with_charset(value: &str, charset: StandardCharset) -> Vec<u8> {
+    match charset {
+        StandardCharset::Utf8 => value.as_bytes().to_vec(),
+        StandardCharset::UsAscii => value
+            .chars()
+            .map(|ch| {
+                if ch <= '\u{7f}' {
+                    ch as u8
+                } else {
+                    b'?'
+                }
+            })
+            .collect(),
+        StandardCharset::Iso88591 => value
+            .chars()
+            .map(|ch| {
+                if u32::from(ch) <= 0xff {
+                    ch as u8
+                } else {
+                    b'?'
+                }
+            })
+            .collect(),
+        StandardCharset::Utf16 => {
+            let mut bytes = Vec::with_capacity(2 + value.len().saturating_mul(2));
+            bytes.extend_from_slice(&[0xfe, 0xff]);
+            for unit in value.encode_utf16() {
+                bytes.extend_from_slice(&unit.to_be_bytes());
+            }
+            bytes
+        }
+        StandardCharset::Utf16Be => {
+            let mut bytes = Vec::with_capacity(value.len().saturating_mul(2));
+            for unit in value.encode_utf16() {
+                bytes.extend_from_slice(&unit.to_be_bytes());
+            }
+            bytes
+        }
+        StandardCharset::Utf16Le => {
+            let mut bytes = Vec::with_capacity(value.len().saturating_mul(2));
+            for unit in value.encode_utf16() {
+                bytes.extend_from_slice(&unit.to_le_bytes());
+            }
+            bytes
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Utf16Endian {
+    Big,
+    Little,
+}
+
+fn decode_utf16_units(units: Vec<u16>, has_trailing_byte: bool) -> String {
+    let mut decoded: String = char::decode_utf16(units)
+        .map(|item| item.unwrap_or(REPLACEMENT_CHAR))
+        .collect();
+    if has_trailing_byte {
+        decoded.push(REPLACEMENT_CHAR);
+    }
+    decoded
+}
+
+fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
+    let mut chunks = bytes.chunks_exact(2);
+    let mut units = Vec::with_capacity(bytes.len() / 2);
+    for chunk in &mut chunks {
+        let pair = [chunk[0], chunk[1]];
+        let unit = match endian {
+            Utf16Endian::Big => u16::from_be_bytes(pair),
+            Utf16Endian::Little => u16::from_le_bytes(pair),
+        };
+        units.push(unit);
+    }
+    decode_utf16_units(units, !chunks.remainder().is_empty())
+}
+
+fn decode_string_with_charset(bytes: &[u8], charset: StandardCharset) -> String {
+    match charset {
+        StandardCharset::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
+        StandardCharset::UsAscii => bytes
+            .iter()
+            .map(|byte| {
+                if *byte <= 0x7f {
+                    char::from(*byte)
+                } else {
+                    REPLACEMENT_CHAR
+                }
+            })
+            .collect(),
+        StandardCharset::Iso88591 => bytes.iter().map(|byte| char::from(*byte)).collect(),
+        StandardCharset::Utf16 => match (
+            bytes.strip_prefix(&[0xfe, 0xff]),
+            bytes.strip_prefix(&[0xff, 0xfe]),
+        ) {
+            (Some(rest), _) => decode_utf16_bytes(rest, Utf16Endian::Big),
+            (None, Some(rest)) => decode_utf16_bytes(rest, Utf16Endian::Little),
+            (None, None) => decode_utf16_bytes(bytes, Utf16Endian::Big),
+        },
+        StandardCharset::Utf16Be => decode_utf16_bytes(bytes, Utf16Endian::Big),
+        StandardCharset::Utf16Le => decode_utf16_bytes(bytes, Utf16Endian::Little),
+    }
+}
+
+fn string_bytes_for_arg(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    charset: StandardCharset,
+) -> Result<Vec<u8>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .unwrap_or_default();
+    Ok(encode_string_with_charset(value, charset))
+}
+
+fn init_string_from_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    bytes: &[u8],
+    charset: StandardCharset,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let decoded = decode_string_with_charset(bytes, charset);
+    heap.get_mut(this_ref)?.string_value = Some(decoded);
+    Ok(None)
+}
+
+pub(crate) fn native_charset_for_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 0)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_charset_error)?;
+    Ok(Some(Slot::Reference(Some(charset_ref(heap, charset)))))
+}
+
+/// `Charset.defaultCharset()` returns UTF-8.
+///
+/// Duke intentionally mirrors JDK 18+ / JEP 400's deterministic UTF-8 default
+/// instead of inheriting a host-process locale.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_charset_default_charset(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(Some(charset_ref(
+        heap,
+        StandardCharset::Utf8,
+    )))))
+}
+
+pub(crate) fn native_charset_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let charset = charset_from_arg(args, 0, heap)?;
+    let name_ref = heap.allocate_string(charset.canonical_name().to_string());
+    Ok(Some(Slot::Reference(Some(name_ref))))
+}
+
+pub(crate) fn native_charset_is_registered(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _charset = charset_from_arg(args, 0, heap)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+pub(crate) fn native_charset_equals(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_charset = charset_from_arg(args, 0, heap)?;
+    let Ok(other_ref) = extract_ref_arg(args, 1) else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let other_obj = heap.get(other_ref)?;
+    if other_obj.class_name != "java/nio/charset/Charset" {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let equal = other_obj
+        .string_value
+        .as_deref()
+        .is_some_and(|name| name == this_charset.canonical_name());
+    Ok(Some(Slot::Int(i32::from(equal))))
+}
+
+pub(crate) fn native_charset_hash_code(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let charset = charset_from_arg(args, 0, heap)?;
+    Ok(Some(Slot::Int(java_string_hash(charset.canonical_name()))))
+}
+
+pub(crate) fn native_string_get_bytes_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes = string_bytes_for_arg(args, heap, StandardCharset::Utf8)?;
+    Ok(Some(Slot::Reference(Some(allocate_byte_array(
+        heap, &bytes,
+    )?))))
+}
+
+pub(crate) fn native_string_get_bytes_named(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 1)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_encoding_error)?;
+    let bytes = string_bytes_for_arg(args, heap, charset)?;
+    Ok(Some(Slot::Reference(Some(allocate_byte_array(
+        heap, &bytes,
+    )?))))
+}
+
+pub(crate) fn native_string_get_bytes_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let charset = charset_from_arg(args, 1, heap)?;
+    let bytes = string_bytes_for_arg(args, heap, charset)?;
+    Ok(Some(Slot::Reference(Some(allocate_byte_array(
+        heap, &bytes,
+    )?))))
+}
+
+pub(crate) fn native_string_init_bytes_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    init_string_from_bytes(args, heap, &bytes, StandardCharset::Utf8)
+}
+
+pub(crate) fn native_string_init_bytes_default_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let length = extract_int_arg(args, 3)?;
+    let bytes = byte_array_window(heap, bytes_ref, offset, length)?;
+    init_string_from_bytes(args, heap, &bytes, StandardCharset::Utf8)
+}
+
+pub(crate) fn native_string_init_bytes_named(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let name_ref = extract_ref_arg(args, 2)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_encoding_error)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+pub(crate) fn native_string_init_bytes_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let charset = charset_from_arg(args, 2, heap)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+pub(crate) fn native_string_init_bytes_range_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let length = extract_int_arg(args, 3)?;
+    let charset = charset_from_arg(args, 4, heap)?;
+    let bytes = byte_array_window(heap, bytes_ref, offset, length)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+pub(crate) fn native_string_init_bytes_range_named(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let length = extract_int_arg(args, 3)?;
+    let name_ref = extract_ref_arg(args, 4)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_encoding_error)?;
+    let bytes = byte_array_window(heap, bytes_ref, offset, length)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+#[cfg(test)]
+mod charset_codec_tests {
+    use super::*;
+
+    #[test]
+    fn charset_aliases_map_to_canonical_variants() {
+        assert_eq!(charset_for_name("utf8"), Some(StandardCharset::Utf8));
+        assert_eq!(charset_for_name("latin1"), Some(StandardCharset::Iso88591));
+        assert_eq!(charset_for_name("ASCII"), Some(StandardCharset::UsAscii));
+        assert_eq!(charset_for_name("not-a-charset"), None);
+    }
+
+    #[test]
+    fn utf8_decode_replaces_malformed_sequence() {
+        assert_eq!(
+            decode_string_with_charset(&[0xc3, 0x28], StandardCharset::Utf8),
+            "\u{fffd}("
+        );
+    }
+
+    #[test]
+    fn utf16_encodes_bom_and_decodes_surrogate_pair() {
+        let value = decode_string_with_charset(
+            &[0xf0, 0x9f, 0x98, 0x80, b' ', b'e', b'm', b'o', b'j', b'i'],
+            StandardCharset::Utf8,
+        );
+        let bytes = encode_string_with_charset(&value, StandardCharset::Utf16);
+        assert_eq!(&bytes[0..2], &[0xfe, 0xff]);
+        assert_eq!(decode_string_with_charset(&bytes, StandardCharset::Utf16), value);
+    }
+
+    #[test]
+    fn ascii_and_latin1_encode_unmappable_as_question_mark() {
+        assert_eq!(
+            encode_string_with_charset("\u{20ac}", StandardCharset::UsAscii),
+            vec![b'?']
+        );
+        assert_eq!(
+            encode_string_with_charset("\u{20ac}", StandardCharset::Iso88591),
+            vec![b'?']
+        );
+    }
+
+    #[test]
+    fn standard_charset_allocation_is_canonical_per_heap() {
+        let mut heap = duke_gc::Heap::new();
+        let first = allocate_standard_charset(&mut heap, "UTF-8");
+        let second = allocate_standard_charset(&mut heap, "UTF-8");
+        assert_eq!(first, second);
+        assert_eq!(
+            heap.get(first).expect("charset object").string_value.as_deref(),
+            Some("UTF-8")
+        );
+    }
+}
+
 fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> Result<std::path::PathBuf> {
     let path_ref = match heap.get(file_ref)?.fields.first() {
         Some(Slot::Reference(Some(r))) => *r,

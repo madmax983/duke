@@ -5331,6 +5331,222 @@ fn run_service_loader_jar_int(jar_name: &str, class_name: &str, method_name: &st
     }
 }
 
+macro_rules! charset_fixture_int_test {
+    ($test_name:ident, $class_file:literal, $method_name:literal, $expected:expr) => {
+        #[test]
+        fn $test_name() {
+            assert_eq!(
+                run_bootstrap_int_completion($class_file, $method_name, "()I"),
+                $expected
+            );
+        }
+    };
+}
+
+charset_fixture_int_test!(
+    charset_for_name_utf8_name,
+    "CharsetForNameTest.class",
+    "utf8Name",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_utf16_name,
+    "CharsetForNameTest.class",
+    "utf16Name",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_utf16be_name,
+    "CharsetForNameTest.class",
+    "utf16beName",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_utf16le_name,
+    "CharsetForNameTest.class",
+    "utf16leName",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_ascii_name,
+    "CharsetForNameTest.class",
+    "asciiName",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_latin1_name,
+    "CharsetForNameTest.class",
+    "latin1Name",
+    1
+);
+charset_fixture_int_test!(
+    charset_aliases_resolve_to_canonical_instances,
+    "CharsetForNameTest.class",
+    "aliasesResolveToCanonicalInstances",
+    1
+);
+charset_fixture_int_test!(
+    charset_default_charset_is_utf8,
+    "CharsetForNameTest.class",
+    "defaultCharsetIsUtf8",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_unknown_throws_unsupported_charset,
+    "CharsetForNameTest.class",
+    "unsupportedCharsetThrows",
+    1
+);
+charset_fixture_int_test!(
+    standard_charsets_use_canonical_cache,
+    "CharsetForNameTest.class",
+    "standardCharsetsUseCanonicalCache",
+    1
+);
+charset_fixture_int_test!(
+    charset_display_name_and_to_string_match_name,
+    "CharsetForNameTest.class",
+    "displayNameAndToStringMatchName",
+    1
+);
+charset_fixture_int_test!(
+    charset_equals_hash_code_and_registered,
+    "CharsetForNameTest.class",
+    "equalsHashCodeAndRegistered",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf8_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf8Matrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf16_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf16Matrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf16be_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf16beMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf16le_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf16leMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_latin1_in_range,
+    "StringBytesRoundTripTest.class",
+    "latin1InRangeMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_ascii_in_range,
+    "StringBytesRoundTripTest.class",
+    "asciiInRangeMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_lossy_charsets_use_question_mark,
+    "StringBytesRoundTripTest.class",
+    "lossyCharsetsUseQuestionMark",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_known_encoded_lengths,
+    "StringBytesRoundTripTest.class",
+    "knownEncodedLengths",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_default_offset_window,
+    "StringBytesRoundTripTest.class",
+    "defaultOffsetWindow",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_direct_charset_offset_window,
+    "StringBytesRoundTripTest.class",
+    "directCharsetOffsetWindow",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_get_bytes_utf8,
+    "StringBytesNamedCharsetTest.class",
+    "getBytesUtf8ByName",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_new_string_iso,
+    "StringBytesNamedCharsetTest.class",
+    "newStringIsoByName",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_default_bytes_use_utf8,
+    "StringBytesNamedCharsetTest.class",
+    "defaultBytesUseUtf8",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_offset_window,
+    "StringBytesNamedCharsetTest.class",
+    "namedOffsetWindow",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_get_bytes_unknown_throws_unsupported_encoding,
+    "StringBytesNamedCharsetTest.class",
+    "getBytesUnknownThrowsUnsupportedEncoding",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_constructor_unknown_throws_unsupported_encoding,
+    "StringBytesNamedCharsetTest.class",
+    "constructorUnknownThrowsUnsupportedEncoding",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_aliases_work,
+    "StringBytesNamedCharsetTest.class",
+    "aliasesWorkForNamedStringOverloads",
+    1
+);
+charset_fixture_int_test!(
+    charset_malformed_input_replaces_invalid_utf8,
+    "CharsetMalformedInputTest.class",
+    "invalidUtf8ReplacesMalformedBytes",
+    1
+);
+charset_fixture_int_test!(
+    charset_clinit_interop_header_length,
+    "CharsetClinitInteropTest.class",
+    "headerLength",
+    11
+);
+charset_fixture_int_test!(
+    charset_clinit_interop_protocol_name,
+    "CharsetClinitInteropTest.class",
+    "protocolName",
+    1
+);
+
+#[test]
+fn charset_clinit_interop_main_prints_static_values() {
+    let (_, lines) = run_bootstrap_with_output(
+        "CharsetClinitInteropTest.class",
+        "main",
+        "([Ljava/lang/String;)V",
+    )
+    .expect("clinit interop main should execute");
+    assert_eq!(lines, vec!["11".to_string(), "UTF-8".to_string()]);
+}
+
 struct TempCleanup(std::path::PathBuf);
 
 impl Drop for TempCleanup {
