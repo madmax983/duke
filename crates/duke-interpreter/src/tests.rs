@@ -369,6 +369,49 @@ fn base64_fixture_runs() {
 }
 
 #[test]
+fn jul_logger_basic_outputs_info_warning_and_drops_fine() {
+    let (result, lines) =
+        run_bootstrap_with_output("JulLoggerBasicTest.class", "run", "()I").unwrap();
+    assert_eq!(result, Some(Slot::Int(1)));
+    let output = lines.join("\n");
+    assert!(output.contains("INFO:"));
+    assert!(output.contains("WARNING:"));
+    assert!(!output.contains("dropped"));
+}
+
+#[test]
+fn jul_logger_get_logger_interns_by_name() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulLoggerInterningTest.class", "sameNameIdentity", "()I"),
+        1
+    );
+}
+
+#[test]
+fn jul_level_statics_and_parse_are_canonical() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulLevelStaticsTest.class", "staticsAndParse", "()I"),
+        1
+    );
+}
+
+#[test]
+fn jul_log_record_stores_core_fields() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulLogRecordTest.class", "recordBasics", "()I"),
+        1
+    );
+}
+
+#[test]
+fn jul_clinit_survives_logger_atomic_and_pattern_fields() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulClinitSurvivalTest.class", "clinitSurvives", "()I"),
+        1
+    );
+}
+
+#[test]
 fn native_registry_register_callback_can_be_looked_up() {
     #[allow(clippy::unnecessary_wraps)]
     fn dummy_cb(

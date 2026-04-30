@@ -39,6 +39,631 @@ fn empty_synthetic_context(name: &str, super_class: &str) -> ClassContext {
     }
 }
 
+fn synthetic_field(name: &str, descriptor: &str, is_static: bool) -> FieldEntry {
+    FieldEntry {
+        name: name.to_string(),
+        descriptor: descriptor.to_string(),
+        is_static,
+    }
+}
+
+fn jul_allocate_level(heap: &mut duke_gc::Heap, name: &str, value: i32) -> Slot {
+    let level_ref = heap.allocate("java/util/logging/Level".to_string(), 1);
+    if let Ok(level) = heap.get_mut(level_ref) {
+        level.fields[0] = Slot::Int(value);
+        level.string_value = Some(name.to_string());
+    }
+    Slot::Reference(Some(level_ref))
+}
+
+fn jul_allocate_simple_formatter(heap: &mut duke_gc::Heap) -> Slot {
+    Slot::Reference(Some(
+        heap.allocate("java/util/logging/SimpleFormatter".to_string(), 0),
+    ))
+}
+
+fn jul_allocate_console_handler(heap: &mut duke_gc::Heap, level_slot: Slot) -> Slot {
+    let handler_ref = heap.allocate("java/util/logging/ConsoleHandler".to_string(), 2);
+    let formatter = jul_allocate_simple_formatter(heap);
+    if let Ok(handler) = heap.get_mut(handler_ref) {
+        handler.fields[0] = level_slot;
+        handler.fields[1] = formatter;
+    }
+    Slot::Reference(Some(handler_ref))
+}
+
+fn jul_allocate_logger(
+    heap: &mut duke_gc::Heap,
+    name: Option<&str>,
+    level_slot: Slot,
+    use_parent_handlers: bool,
+    parent_slot: Slot,
+    handlers: &[Slot],
+) -> Slot {
+    const LOGGER_HANDLERS_START: usize = 5;
+
+    let logger_ref = heap.allocate(
+        "java/util/logging/Logger".to_string(),
+        LOGGER_HANDLERS_START + handlers.len(),
+    );
+    let name_slot = name.map_or(Slot::Reference(None), |logger_name| {
+        Slot::Reference(Some(heap.allocate_string(logger_name.to_string())))
+    });
+    if let Ok(logger) = heap.get_mut(logger_ref) {
+        logger.fields[0] = name_slot;
+        logger.fields[1] = level_slot;
+        logger.fields[2] = Slot::Int(i32::from(use_parent_handlers));
+        logger.fields[3] = parent_slot;
+        logger.fields[4] = Slot::Int(i32::try_from(handlers.len()).unwrap_or(i32::MAX));
+        for (idx, handler) in handlers.iter().copied().enumerate() {
+            logger.fields[LOGGER_HANDLERS_START + idx] = handler;
+        }
+    }
+    Slot::Reference(Some(logger_ref))
+}
+
+fn jul_bootstrap_insert_logger(
+    heap: &mut duke_gc::Heap,
+    manager_ref: u64,
+    name: &str,
+    logger_slot: Slot,
+) {
+    let name_slot = Slot::Reference(Some(heap.allocate_string(name.to_string())));
+    if let Ok(manager) = heap.get_mut(manager_ref) {
+        let next_count = match manager.fields.get(1) {
+            Some(Slot::Int(count)) => count.saturating_add(1),
+            _ => 1,
+        };
+        manager.fields[1] = Slot::Int(next_count);
+        manager.fields.push(name_slot);
+        manager.fields.push(logger_slot);
+    }
+}
+
+/// Registers Duke's deliberately small `java.util.logging` surface.
+///
+/// `SimpleFormatter` intentionally diverges from the JDK's two-line default:
+/// the native formatter emits one line, `<level>: <message>`, so class
+/// initialization logging goes somewhere visible without pulling in the full
+/// JUL configuration stack.
+#[allow(clippy::too_many_lines)]
+fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    let level_specs = [
+        ("SEVERE", 1000),
+        ("WARNING", 900),
+        ("INFO", 800),
+        ("CONFIG", 700),
+        ("FINE", 500),
+        ("FINER", 400),
+        ("FINEST", 300),
+        ("ALL", i32::MIN),
+        ("OFF", i32::MAX),
+    ];
+    let mut level_fields: Vec<FieldEntry> = level_specs
+        .iter()
+        .map(|(name, _)| synthetic_field(name, "Ljava/util/logging/Level;", true))
+        .collect();
+    level_fields.push(synthetic_field("value", "I", false));
+    let level_static_fields: Vec<Slot> = level_specs
+        .iter()
+        .map(|(name, value)| jul_allocate_level(heap, name, *value))
+        .collect();
+    let info_level = level_static_fields[2];
+    let all_level = level_static_fields[7];
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/Level".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: level_fields,
+        static_fields: level_static_fields,
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/Logger".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("name", "Ljava/lang/String;", false),
+            synthetic_field("level", "Ljava/util/logging/Level;", false),
+            synthetic_field("useParentHandlers", "Z", false),
+            synthetic_field("parent", "Ljava/util/logging/Logger;", false),
+            synthetic_field("handlerCount", "I", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/Handler".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("level", "Ljava/util/logging/Level;", false),
+            synthetic_field("formatter", "Ljava/util/logging/Formatter;", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+    registry.register(empty_synthetic_context(
+        "java/util/logging/StreamHandler",
+        "java/util/logging/Handler",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/logging/ConsoleHandler",
+        "java/util/logging/StreamHandler",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/logging/Formatter",
+        "java/lang/Object",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/logging/SimpleFormatter",
+        "java/util/logging/Formatter",
+    ));
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/LogRecord".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("level", "Ljava/util/logging/Level;", false),
+            synthetic_field("message", "Ljava/lang/String;", false),
+            synthetic_field("loggerName", "Ljava/lang/String;", false),
+            synthetic_field("thrown", "Ljava/lang/Throwable;", false),
+            synthetic_field("millis", "J", false),
+            synthetic_field("parameters", "[Ljava/lang/Object;", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 6,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(empty_synthetic_context(
+        "java/util/Enumeration",
+        "java/lang/Object",
+    ));
+    registry.register(ClassContext {
+        class_name: "duke/util/JulLoggerNameEnumeration".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("index", "I", false),
+            synthetic_field("count", "I", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Enumeration".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    let root_handler = jul_allocate_console_handler(heap, all_level);
+    let root_logger = jul_allocate_logger(
+        heap,
+        Some(""),
+        info_level,
+        false,
+        Slot::Reference(None),
+        &[root_handler],
+    );
+    let global_logger = jul_allocate_logger(
+        heap,
+        Some("global"),
+        Slot::Reference(None),
+        true,
+        root_logger,
+        &[],
+    );
+
+    let manager_ref = heap.allocate("java/util/logging/LogManager".to_string(), 2);
+    if let Ok(manager) = heap.get_mut(manager_ref) {
+        manager.string_value = Some("singleton".to_string());
+        manager.fields[0] = root_logger;
+        manager.fields[1] = Slot::Int(0);
+    }
+    jul_bootstrap_insert_logger(heap, manager_ref, "", root_logger);
+    jul_bootstrap_insert_logger(heap, manager_ref, "global", global_logger);
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/LogManager".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("INSTANCE", "Ljava/util/logging/LogManager;", true),
+            synthetic_field("rootLogger", "Ljava/util/logging/Logger;", false),
+            synthetic_field("loggerCount", "I", false),
+        ],
+        static_fields: vec![Slot::Reference(Some(manager_ref))],
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.natives_mut().register(
+        "java/util/logging/Level",
+        "intValue",
+        "()I",
+        native_jul_level_int_value,
+    );
+    for method in ["getName", "toString"] {
+        registry.natives_mut().register(
+            "java/util/logging/Level",
+            method,
+            "()Ljava/lang/String;",
+            native_jul_level_get_name,
+        );
+    }
+    registry.natives_mut().register(
+        "java/util/logging/Level",
+        "parse",
+        "(Ljava/lang/String;)Ljava/util/logging/Level;",
+        native_jul_level_parse,
+    );
+
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getLogger",
+        "(Ljava/lang/String;)Ljava/util/logging/Logger;",
+        native_jul_logger_get_logger,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getLogger",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/util/logging/Logger;",
+        native_jul_logger_get_logger_with_bundle,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getGlobal",
+        "()Ljava/util/logging/Logger;",
+        native_jul_logger_get_global,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getAnonymousLogger",
+        "()Ljava/util/logging/Logger;",
+        native_jul_logger_get_anonymous_logger,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getName",
+        "()Ljava/lang/String;",
+        native_jul_logger_get_name,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getLevel",
+        "()Ljava/util/logging/Level;",
+        native_jul_logger_get_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "setLevel",
+        "(Ljava/util/logging/Level;)V",
+        native_jul_logger_set_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "isLoggable",
+        "(Ljava/util/logging/Level;)Z",
+        native_jul_logger_is_loggable,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;)V",
+        native_jul_logger_log,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/Object;)V",
+        native_jul_logger_log_object,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;[Ljava/lang/Object;)V",
+        native_jul_logger_log_object_array,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_jul_logger_log_throwable,
+    );
+    for (method, handler) in [
+        ("severe", native_jul_logger_severe as NativeHandler),
+        ("warning", native_jul_logger_warning),
+        ("info", native_jul_logger_info),
+        ("config", native_jul_logger_config),
+        ("fine", native_jul_logger_fine),
+        ("finer", native_jul_logger_finer),
+        ("finest", native_jul_logger_finest),
+    ] {
+        registry.natives_mut().register(
+            "java/util/logging/Logger",
+            method,
+            "(Ljava/lang/String;)V",
+            handler,
+        );
+    }
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "entering",
+        "(Ljava/lang/String;Ljava/lang/String;)V",
+        native_jul_logger_entering,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "exiting",
+        "(Ljava/lang/String;Ljava/lang/String;)V",
+        native_jul_logger_exiting,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "throwing",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_jul_logger_throwing,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "addHandler",
+        "(Ljava/util/logging/Handler;)V",
+        native_jul_logger_add_handler,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "removeHandler",
+        "(Ljava/util/logging/Handler;)V",
+        native_jul_logger_remove_handler,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getHandlers",
+        "()[Ljava/util/logging/Handler;",
+        native_jul_logger_get_handlers,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "setUseParentHandlers",
+        "(Z)V",
+        native_jul_logger_set_use_parent_handlers,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getUseParentHandlers",
+        "()Z",
+        native_jul_logger_get_use_parent_handlers,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getParent",
+        "()Ljava/util/logging/Logger;",
+        native_jul_logger_get_parent,
+    );
+
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "getLogManager",
+        "()Ljava/util/logging/LogManager;",
+        native_jul_log_manager_get_log_manager,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "getLogger",
+        "(Ljava/lang/String;)Ljava/util/logging/Logger;",
+        native_jul_log_manager_get_logger,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "getLoggerNames",
+        "()Ljava/util/Enumeration;",
+        native_jul_log_manager_get_logger_names,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "readConfiguration",
+        "()V",
+        native_jul_noop_void,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/logging/LogManager",
+        "readConfiguration",
+        "(Ljava/io/InputStream;)V",
+        native_jul_log_manager_read_configuration_stream,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "reset",
+        "()V",
+        native_jul_noop_void,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "addLogger",
+        "(Ljava/util/logging/Logger;)Z",
+        native_jul_log_manager_add_logger,
+    );
+
+    for class_name in [
+        "java/util/logging/Handler",
+        "java/util/logging/StreamHandler",
+        "java/util/logging/ConsoleHandler",
+    ] {
+        registry.natives_mut().register(
+            class_name,
+            "<init>",
+            "()V",
+            if class_name == "java/util/logging/ConsoleHandler" {
+                native_jul_console_handler_init
+            } else {
+                native_jul_handler_init
+            },
+        );
+        registry.natives_mut().register(
+            class_name,
+            "publish",
+            "(Ljava/util/logging/LogRecord;)V",
+            if class_name == "java/util/logging/ConsoleHandler" {
+                native_jul_console_handler_publish
+            } else {
+                native_jul_handler_publish
+            },
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "flush", "()V", native_jul_noop_void);
+        registry
+            .natives_mut()
+            .register(class_name, "close", "()V", native_jul_noop_void);
+        registry.natives_mut().register(
+            class_name,
+            "setLevel",
+            "(Ljava/util/logging/Level;)V",
+            native_jul_handler_set_level,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "getLevel",
+            "()Ljava/util/logging/Level;",
+            native_jul_handler_get_level,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "setFormatter",
+            "(Ljava/util/logging/Formatter;)V",
+            native_jul_handler_set_formatter,
+        );
+    }
+
+    for class_name in [
+        "java/util/logging/Formatter",
+        "java/util/logging/SimpleFormatter",
+    ] {
+        registry
+            .natives_mut()
+            .register(class_name, "<init>", "()V", native_jul_noop_void);
+        registry.natives_mut().register(
+            class_name,
+            "format",
+            "(Ljava/util/logging/LogRecord;)Ljava/lang/String;",
+            native_jul_simple_formatter_format,
+        );
+    }
+
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "<init>",
+        "(Ljava/util/logging/Level;Ljava/lang/String;)V",
+        native_jul_log_record_init,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getLevel",
+        "()Ljava/util/logging/Level;",
+        native_jul_log_record_get_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setLevel",
+        "(Ljava/util/logging/Level;)V",
+        native_jul_log_record_set_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getMessage",
+        "()Ljava/lang/String;",
+        native_jul_log_record_get_message,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setMessage",
+        "(Ljava/lang/String;)V",
+        native_jul_log_record_set_message,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getLoggerName",
+        "()Ljava/lang/String;",
+        native_jul_log_record_get_logger_name,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setLoggerName",
+        "(Ljava/lang/String;)V",
+        native_jul_log_record_set_logger_name,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getThrown",
+        "()Ljava/lang/Throwable;",
+        native_jul_log_record_get_thrown,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setThrown",
+        "(Ljava/lang/Throwable;)V",
+        native_jul_log_record_set_thrown,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getMillis",
+        "()J",
+        native_jul_log_record_get_millis,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getParameters",
+        "()[Ljava/lang/Object;",
+        native_jul_log_record_get_parameters,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setParameters",
+        "([Ljava/lang/Object;)V",
+        native_jul_log_record_set_parameters,
+    );
+
+    for class_name in [
+        "java/util/Enumeration",
+        "duke/util/JulLoggerNameEnumeration",
+    ] {
+        registry.natives_mut().register(
+            class_name,
+            "hasMoreElements",
+            "()Z",
+            native_jul_logger_names_has_more_elements,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "nextElement",
+            "()Ljava/lang/Object;",
+            native_jul_logger_names_next_element,
+        );
+    }
+}
+
 fn register_charset_classes(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     let charset_ctx = empty_synthetic_context("java/nio/charset/Charset", "java/lang/Object");
     registry.register(charset_ctx);
@@ -1757,6 +2382,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     register_base64_stdlib(registry);
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
+    register_jul_stdlib(registry, heap);
 
     // java/lang/Class — lightweight stub for class literals
     let class_ctx = ClassContext {
