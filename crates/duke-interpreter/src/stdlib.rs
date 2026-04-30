@@ -5,6 +5,250 @@ use crate::registry::ClassRegistry;
 use crate::*;
 use duke_runtime::Slot;
 
+fn atomic_context(name: &str, super_class: &str, value_descriptor: &str) -> ClassContext {
+    ClassContext {
+        class_name: name.to_string(),
+        super_class: Some(super_class.to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: value_descriptor.to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    }
+}
+
+/// Registers synthetic `java.util.concurrent.atomic` classes.
+///
+/// `AtomicReference.compareAndSet` is deliberately identity-based: it compares
+/// `Slot::Reference` addresses, not `Object.equals`, matching `HotSpot`'s object
+/// CAS behavior.
+#[allow(clippy::too_many_lines)]
+fn register_atomic_stdlib(registry: &mut ClassRegistry) {
+    let number_ctx = ClassContext {
+        class_name: "java/lang/Number".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(number_ctx);
+
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicInteger",
+        "java/lang/Number",
+        "I",
+    ));
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicLong",
+        "java/lang/Number",
+        "J",
+    ));
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicReference",
+        "java/lang/Object",
+        "Ljava/lang/Object;",
+    ));
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicBoolean",
+        "java/lang/Object",
+        "Z",
+    ));
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_atomic_integer_init as NativeHandler),
+        ("<init>", "(I)V", native_atomic_integer_init_value),
+        ("get", "()I", native_atomic_integer_get),
+        ("set", "(I)V", native_atomic_integer_set),
+        ("lazySet", "(I)V", native_atomic_integer_set),
+        ("getAndSet", "(I)I", native_atomic_integer_get_and_set),
+        (
+            "compareAndSet",
+            "(II)Z",
+            native_atomic_integer_compare_and_set,
+        ),
+        (
+            "weakCompareAndSet",
+            "(II)Z",
+            native_atomic_integer_compare_and_set,
+        ),
+        (
+            "getAndIncrement",
+            "()I",
+            native_atomic_integer_get_and_increment,
+        ),
+        (
+            "getAndDecrement",
+            "()I",
+            native_atomic_integer_get_and_decrement,
+        ),
+        ("getAndAdd", "(I)I", native_atomic_integer_get_and_add),
+        (
+            "incrementAndGet",
+            "()I",
+            native_atomic_integer_increment_and_get,
+        ),
+        (
+            "decrementAndGet",
+            "()I",
+            native_atomic_integer_decrement_and_get,
+        ),
+        ("addAndGet", "(I)I", native_atomic_integer_add_and_get),
+        ("intValue", "()I", native_atomic_integer_get),
+        ("longValue", "()J", native_atomic_integer_long_value),
+        ("floatValue", "()F", native_atomic_integer_float_value),
+        ("doubleValue", "()D", native_atomic_integer_double_value),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_integer_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicInteger",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_atomic_long_init as NativeHandler),
+        ("<init>", "(J)V", native_atomic_long_init_value),
+        ("get", "()J", native_atomic_long_get),
+        ("set", "(J)V", native_atomic_long_set),
+        ("lazySet", "(J)V", native_atomic_long_set),
+        ("getAndSet", "(J)J", native_atomic_long_get_and_set),
+        ("compareAndSet", "(JJ)Z", native_atomic_long_compare_and_set),
+        (
+            "weakCompareAndSet",
+            "(JJ)Z",
+            native_atomic_long_compare_and_set,
+        ),
+        (
+            "getAndIncrement",
+            "()J",
+            native_atomic_long_get_and_increment,
+        ),
+        (
+            "getAndDecrement",
+            "()J",
+            native_atomic_long_get_and_decrement,
+        ),
+        ("getAndAdd", "(J)J", native_atomic_long_get_and_add),
+        (
+            "incrementAndGet",
+            "()J",
+            native_atomic_long_increment_and_get,
+        ),
+        (
+            "decrementAndGet",
+            "()J",
+            native_atomic_long_decrement_and_get,
+        ),
+        ("addAndGet", "(J)J", native_atomic_long_add_and_get),
+        ("intValue", "()I", native_atomic_long_int_value),
+        ("longValue", "()J", native_atomic_long_get),
+        ("floatValue", "()F", native_atomic_long_float_value),
+        ("doubleValue", "()D", native_atomic_long_double_value),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_long_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicLong",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "()V",
+            native_atomic_reference_init as NativeHandler,
+        ),
+        (
+            "<init>",
+            "(Ljava/lang/Object;)V",
+            native_atomic_reference_init_value,
+        ),
+        ("get", "()Ljava/lang/Object;", native_atomic_reference_get),
+        ("set", "(Ljava/lang/Object;)V", native_atomic_reference_set),
+        (
+            "lazySet",
+            "(Ljava/lang/Object;)V",
+            native_atomic_reference_set,
+        ),
+        (
+            "getAndSet",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_atomic_reference_get_and_set,
+        ),
+        (
+            "compareAndSet",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_atomic_reference_compare_and_set,
+        ),
+        (
+            "weakCompareAndSet",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_atomic_reference_compare_and_set,
+        ),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_reference_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicReference",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_atomic_boolean_init as NativeHandler),
+        ("<init>", "(Z)V", native_atomic_boolean_init_value),
+        ("get", "()Z", native_atomic_boolean_get),
+        ("set", "(Z)V", native_atomic_boolean_set),
+        (
+            "compareAndSet",
+            "(ZZ)Z",
+            native_atomic_boolean_compare_and_set,
+        ),
+        ("getAndSet", "(Z)Z", native_atomic_boolean_get_and_set),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_boolean_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicBoolean",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 /// Bootstraps the minimal JDK standard library classes needed for native method support.
 ///
@@ -1083,6 +1327,8 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/Class;",
         native_object_get_class,
     );
+
+    register_atomic_stdlib(registry);
 
     // java/lang/Class — lightweight stub for class literals
     let class_ctx = ClassContext {

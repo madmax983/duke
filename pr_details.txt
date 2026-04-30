@@ -1,0 +1,7 @@
+Title: ⚡ Bolt: [Optimize loading times by pre-allocating HashMaps]
+
+Description:
+- 💡 What: Switched `HashMap::new()` to `HashMap::with_capacity()` during parsing headers in test setups for `zip::ZipLoader` and `jimage::JImageReader`.
+- 🎯 Why: The size of these mappings is strictly known up front by inspecting the zip central directory count or the jimage header table size. Allocating with the known capacity avoids continuous re-allocations and resizing operations while populating thousands of file paths, eliminating heavy O(N) memory allocation costs.
+- 📊 Impact: Measurably reduces heap allocations, memory copying overhead, and CPU cycles during class loading phases.
+- 🔬 Measurement: Run bench `cargo bench` to observe reduced memory allocations and faster startup/loading times.
