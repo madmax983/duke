@@ -57,3 +57,11 @@
 **Extract Nested Attribute Loops**
 **Learning:** `build_index` in `crates/duke-loader/src/jimage.rs` contained an inline, unbounded `loop` performing offset-based decoding of arbitrary-length location attributes, burying the actual map construction logic.
 **Action:** Extract deeply nested binary decoding loops into independent typed structures (like `LocationAttrs`) and helper functions (e.g., `parse_location_attributes`). This eliminates the "Pyramid of Doom" and restores clear separation of concerns between binary chunk decoding and hash map construction.
+
+**Extract Control Flow Dispatch**
+**Learning:** Functions like `generate_mermaid_cfg`, `generate_basic_block_cfg`, `cyclomatic_complexity`, and `get_successors` all contained duplicated logic for manually matching against branch targets, unconditional jumps, returns, and switches. This caused widespread code duplication and complexity.
+**Action:** Consolidate control flow logic into a single central method like `Instruction::control_flow_targets`, and update all calling sites to use this method to dramatically flatten code blocks and remove duplicate match logic.
+
+**Flatten Decoder Cursor**
+**Learning:** The `Cursor::read_*` methods in `decoder.rs` used chained sequential `read_u8()` calls inside standard library helper macros. This created unnecessary nesting and multiple bound checks.
+**Action:** Replaced chained `read_u8()` calls with slice-based bound checks `self.pos + n > self.data.len()` to improve clarity and reduce sequential call overhead.
