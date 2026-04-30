@@ -86,9 +86,14 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u16(&mut self) -> Result<u16> {
-        let b0 = self.read_u8()?;
-        let b1 = self.read_u8()?;
-        Ok(u16::from_be_bytes([b0, b1]))
+        if self.pos + 2 > self.data.len() {
+            return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
+                pc: self.pos,
+            }));
+        }
+        let bytes = [self.data[self.pos], self.data[self.pos + 1]];
+        self.pos += 2;
+        Ok(u16::from_be_bytes(bytes))
     }
 
     fn read_i16(&mut self) -> Result<i16> {
@@ -96,11 +101,19 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u32(&mut self) -> Result<u32> {
-        let b0 = self.read_u8()?;
-        let b1 = self.read_u8()?;
-        let b2 = self.read_u8()?;
-        let b3 = self.read_u8()?;
-        Ok(u32::from_be_bytes([b0, b1, b2, b3]))
+        if self.pos + 4 > self.data.len() {
+            return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
+                pc: self.pos,
+            }));
+        }
+        let bytes = [
+            self.data[self.pos],
+            self.data[self.pos + 1],
+            self.data[self.pos + 2],
+            self.data[self.pos + 3],
+        ];
+        self.pos += 4;
+        Ok(u32::from_be_bytes(bytes))
     }
 
     fn read_i32(&mut self) -> Result<i32> {
@@ -515,7 +528,7 @@ mod tests {
         let err = decode(&code).unwrap_err();
         assert!(matches!(
             err,
-            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 2 })
+            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 1 })
         ));
     }
 
