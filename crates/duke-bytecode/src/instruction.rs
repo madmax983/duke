@@ -19,21 +19,28 @@ use duke_classfile::CpIndex;
 /// assert_eq!(ArrayType::from_u8(99), None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(missing_docs)]
 pub enum ArrayType {
+    /// Boolean array
     Boolean = 4,
+    /// Char array
     Char = 5,
+    /// Float array
     Float = 6,
+    /// Double array
     Double = 7,
+    /// Byte array
     Byte = 8,
+    /// Short array
     Short = 9,
+    /// Int array
     Int = 10,
+    /// Long array
     Long = 11,
 }
 
 impl ArrayType {
+    /// Returns the array type from a raw byte value.
     #[must_use]
-    #[allow(missing_docs)]
     pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
             4 => Self::Boolean,
@@ -66,6 +73,19 @@ impl ArrayType {
 /// if let Instruction::Iload(index) = load {
 ///     assert_eq!(index, 5);
 /// }
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::Instruction;
+/// use duke_classfile::CpIndex;
+///
+/// let i_load = Instruction::Iload(4);
+/// assert_eq!(i_load.mnemonic(), "iload");
+///
+/// let get_field = Instruction::Getfield(CpIndex(42));
+/// assert_eq!(get_field.mnemonic(), "getfield");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(missing_docs)]

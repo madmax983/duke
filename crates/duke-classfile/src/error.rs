@@ -1,4 +1,4 @@
-//! `duke-classfile::error` — [`Error`] and related types
+//! `duke-classfile::error` — [`enum@Error`] and related types
 //!
 //! Why does parsing a class file fail? Because the Java Virtual Machine is a strict taskmaster.
 //! When reading binary bytes, any malformed magic number, truncated byte stream, or invalid
