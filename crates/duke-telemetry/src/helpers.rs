@@ -9,6 +9,10 @@ pub mod ser_helpers {
     ///
     /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
     /// collection, avoiding heap allocations and hashing overhead during telemetry generation.
+    /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.
+    ///
+    /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
+    /// collection, avoiding heap allocations and hashing overhead during telemetry generation.
     pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
     where
         K: Eq + std::hash::Hash,
@@ -24,6 +28,7 @@ pub mod ser_helpers {
     }
 
     /// `HashMap<(class, method, pc), V>` → `"class::method@pc"`.
+    /// `HashMap<(class, method, pc), V>` → `"class::method@pc"`.
     pub fn site3<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String, usize), V>,
         ser: S,
@@ -31,6 +36,7 @@ pub mod ser_helpers {
         keyed_map(map, ser, |(c, m, pc)| format!("{c}::{m}@{pc}"))
     }
 
+    /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
     /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
     pub fn site2_u16<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, u16), V>,
@@ -40,6 +46,7 @@ pub mod ser_helpers {
     }
 
     /// `HashMap<(class, method), V>` → `"class::method"`.
+    /// `HashMap<(class, method), V>` → `"class::method"`.
     pub fn pair_str<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String), V>,
         ser: S,
@@ -47,6 +54,7 @@ pub mod ser_helpers {
         keyed_map(map, ser, |(c, m)| format!("{c}::{m}"))
     }
 
+    /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
     /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
     pub fn sorted_set<S: serde::Serializer>(
         set: &std::collections::HashSet<String>,

@@ -19,21 +19,28 @@ use duke_classfile::CpIndex;
 /// assert_eq!(ArrayType::from_u8(99), None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(missing_docs)]
 pub enum ArrayType {
+    /// Boolean array (`T_BOOLEAN` = 4)
     Boolean = 4,
+    /// Char array (`T_CHAR` = 5)
     Char = 5,
+    /// Float array (`T_FLOAT` = 6)
     Float = 6,
+    /// Double array (`T_DOUBLE` = 7)
     Double = 7,
+    /// Byte array (`T_BYTE` = 8)
     Byte = 8,
+    /// Short array (`T_SHORT` = 9)
     Short = 9,
+    /// Int array (`T_INT` = 10)
     Int = 10,
+    /// Long array (`T_LONG` = 11)
     Long = 11,
 }
 
 impl ArrayType {
+    /// Converts a raw JVM array type code into an `ArrayType`.
     #[must_use]
-    #[allow(missing_docs)]
     pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
             4 => Self::Boolean,

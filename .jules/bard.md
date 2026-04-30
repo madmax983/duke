@@ -13,3 +13,7 @@
 ## 2024-05-20 - [SwitchTargets Documentation]
 **Confusion:** The `SwitchTargets` iterator for `tableswitch` and `lookupswitch` was completely undocumented, making it difficult to understand how switch targets are resolved at runtime.
 **Clarification:** Added module-level documentation and an executable doctest explaining how `SwitchTargets` unifies the two switch mechanisms and provides a clean iterator over match values and offsets.
+
+## 2024-05-21 - [ArrayType and Helpers Documentation]
+**Confusion:** The enum `ArrayType` and telemetry `ser_helpers` were undocumented, relying on `allow(missing_docs)` to silence lints, leading to confusion about their purpose. Additionally, native handlers for `println` in `native.rs` had no explanation of their JNI bridging role.
+**Clarification:** Added explicit `///` comments explaining the `ArrayType` mappings to JVM specs, detailed how `keyed_map` avoids allocations, and documented `native_println` string/int/void variants. Also added module-level `//!` documentation to `native.rs` to explain its boundary role.

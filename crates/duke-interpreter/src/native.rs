@@ -189,6 +189,15 @@ macro_rules! extract_print_arg {
     };
 }
 
+/// Native handler for `System.out.println(String)`.
+///
+/// Prints the given string to the output stream.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Called internally when `System.out.println("Hello")` is executed.
+/// ```
 pub(crate) fn native_println_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -214,6 +223,15 @@ pub(crate) fn native_println_string(
     Ok(None)
 }
 
+/// Native handler for `System.out.println(int)`.
+///
+/// Prints the integer to the output stream.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Called internally when `System.out.println(42)` is executed.
+/// ```
 pub(crate) fn native_println_int(
     args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -226,6 +244,15 @@ pub(crate) fn native_println_int(
 }
 
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+/// Native handler for `System.out.println()`.
+///
+/// Prints a newline to the output stream.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Called internally when `System.out.println()` is executed.
+/// ```
 pub(crate) fn native_println_void(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,

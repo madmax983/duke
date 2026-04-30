@@ -1,37 +1,18 @@
-cat << 'PATCH' > crates/duke-interpreter/src/native.rs.patch
+#!/bin/bash
+cat << 'INNER_EOF' > /tmp/native_patch
 --- crates/duke-interpreter/src/native.rs
 +++ crates/duke-interpreter/src/native.rs
-@@ -18165,19 +18165,24 @@
-         }
-         _ => Vec::new(),
-     };
+@@ -1,3 +1,11 @@
++//! JVM Native method implementations and JNI bridging.
++//!
++//! This module contains implementations for the `native` methods of standard
++//! library classes (e.g., `java/util/zip/ZipFile`, `java/lang/System`) and handles
++//! the boundary transitions between interpreted JVM bytecode and native Rust code.
++//!
++//! When `invoke_virtual` or `invoke_static` encounters a method marked `ACC_NATIVE`,
++//! control flow routes to the handlers registered here rather than decoding bytecode.
 
-     // 👺 Havoc: Check for OOM!
--    let mut total_len = parts.len().saturating_sub(1).saturating_mul(delim.len());
-+    let mut total_len = parts.len().saturating_sub(1).checked_mul(delim.len()).unwrap_or(usize::MAX);
-     for part in &parts {
--        total_len = total_len.saturating_add(part.len());
-+        total_len = total_len.checked_add(part.len()).unwrap_or(usize::MAX);
-     }
-     let max_size = 1024 * 1024 * 128; // 128 MB limit
-     if total_len > max_size {
-         return Err(duke_runtime::Error::JavaException {
-             class_name: "java/lang/OutOfMemoryError".to_string(),
-         });
-     }
-
-     let mut joined = String::with_capacity(total_len);
--    joined.push_str(&parts.join(&delim));
--
-+    if let Some((first, rest)) = parts.split_first() {
-+        joined.push_str(first);
-+        for part in rest {
-+            joined.push_str(&delim);
-+            joined.push_str(part);
-+        }
-+    }
-+
-     let r = heap.allocate_string(joined);
-     Ok(Some(Slot::Reference(Some(r))))
- }
-PATCH
+ use std::sync::{RwLock, OnceLock};
+ use std::sync::atomic::{AtomicI32, Ordering};
+INNER_EOF
+patch crates/duke-interpreter/src/native.rs /tmp/native_patch

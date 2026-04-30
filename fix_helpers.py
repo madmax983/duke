@@ -1,72 +1,33 @@
+import re
+
 with open("crates/duke-telemetry/src/helpers.rs", "r") as f:
-    helpers = f.read()
+    content = f.read()
 
-test_code = """
+replacements = [
+    (
+        "    pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>",
+        "    /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.\n    ///\n    /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`\n    /// collection, avoiding heap allocations and hashing overhead during telemetry generation.\n    pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>"
+    ),
+    (
+        "    pub fn site3<V: Serialize, S: serde::Serializer>(",
+        "    /// `HashMap<(class, method, pc), V>` → `\"class::method@pc\"`.\n    pub fn site3<V: Serialize, S: serde::Serializer>("
+    ),
+    (
+        "    pub fn site2_u16<V: Serialize, S: serde::Serializer>(",
+        "    /// `HashMap<(class, cp_idx), V>` → `\"class@cp\"`.\n    pub fn site2_u16<V: Serialize, S: serde::Serializer>("
+    ),
+    (
+        "    pub fn pair_str<V: Serialize, S: serde::Serializer>(",
+        "    /// `HashMap<(class, method), V>` → `\"class::method\"`.\n    pub fn pair_str<V: Serialize, S: serde::Serializer>("
+    ),
+    (
+        "    pub fn sorted_set<S: serde::Serializer>(",
+        "    /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.\n    pub fn sorted_set<S: serde::Serializer>("
+    )
+]
 
-    #[test]
-    fn test_keyed_map() {
-        let mut map = HashMap::new();
-        map.insert(1, "one");
+for old, new in replacements:
+    content = content.replace(old, new)
 
-        let mut string_map = HashMap::new();
-        string_map.insert("1".to_string(), &"one");
-
-        // This is indirectly tested by the other functions
-        let _ = map;
-        let _ = string_map;
-    }
-
-    #[test]
-    fn test_site3() {
-        let mut map = HashMap::new();
-        map.insert(
-            ("java/lang/String".to_string(), "intern".to_string(), 42),
-            Dummy { val: 1 },
-        );
-
-        let w = Site3Wrapper { map };
-        let json = serde_json::to_string(&w).unwrap();
-        assert_eq!(json, r#"{"map":{"java/lang/String::intern@42":{"val":1}}}"#);
-    }
-
-    #[test]
-    fn test_site2_u16() {
-        let mut map = HashMap::new();
-        map.insert(("java/lang/String".to_string(), 42), Dummy { val: 1 });
-
-        let w = Site2Wrapper { map };
-        let json = serde_json::to_string(&w).unwrap();
-        assert_eq!(json, r#"{"map":{"java/lang/String@42":{"val":1}}}"#);
-    }
-
-    #[test]
-    fn test_pair_str() {
-        let mut map = HashMap::new();
-        map.insert(
-            ("java/lang/String".to_string(), "intern".to_string()),
-            Dummy { val: 1 },
-        );
-
-        let w = PairWrapper { map };
-        let json = serde_json::to_string(&w).unwrap();
-        assert_eq!(json, r#"{"map":{"java/lang/String::intern":{"val":1}}}"#);
-    }
-
-    #[test]
-    fn test_sorted_set() {
-        let mut set = HashSet::new();
-        set.insert("b".to_string());
-        set.insert("a".to_string());
-        set.insert("c".to_string());
-
-        let w = SetWrapper { set };
-        let json = serde_json::to_string(&w).unwrap();
-        assert_eq!(json, r#"{"set":["a","b","c"]}"#);
-    }
-"""
-
-if "test_keyed_map" not in helpers:
-    parts = helpers.rsplit("}", 1)
-    helpers = parts[0] + test_code + "\n}\n"
-    with open("crates/duke-telemetry/src/helpers.rs", "w") as f:
-        f.write(helpers)
+with open("crates/duke-telemetry/src/helpers.rs", "w") as f:
+    f.write(content)

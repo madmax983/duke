@@ -1,63 +1,16 @@
-with open("crates/duke-telemetry/src/lib.rs", "r") as f:
-    lib = f.read()
+import re
 
-test_code = """
+files = [
+    ("crates/duke-bytecode/src/lib.rs", "duke-bytecode", "JVM bytecode definitions, decoder, and structural verifier."),
+    ("crates/duke-runtime/src/lib.rs", "duke-runtime", "Execution state primitives for the Duke JVM."),
+]
 
-    #[test]
-    #[cfg(feature = "telemetry")]
-    fn test_print_report_io_error() {
-        struct FailingWriter;
-        impl std::io::Write for FailingWriter {
-            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::other("disk full"))
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
+for filepath, crate_name, description in files:
+    with open(filepath, "r") as f:
+        content = f.read()
 
-        let mut store = TelemetryStore::default();
-        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        store.object_lineage.record("java/lang/String", "Foo", 10, "bar");
-        store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
-        store.exception_flow.record_throw("java/lang/Exception", "Foo", "bar", 10);
-        store.dispatch_resolution.record("Foo", 42, "java/lang/String", true);
-        store.native_boundary.record_call("java/lang/String", "intern", 100, true);
-
-        let mut w = FailingWriter;
-        let res = store.print_report(&mut w);
-        assert!(res.is_err());
-    }
-"""
-
-lib = lib.replace("""
-
-    struct FailingWriter;
-    impl std::io::Write for FailingWriter {
-        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            Err(std::io::Error::other("disk full"))
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "telemetry")]
-    fn test_print_report_io_error() {
-        let mut store = TelemetryStore::default();
-        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        store.object_lineage.record("java/lang/String", "Foo", 10, "bar");
-        store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
-        store.exception_flow.record_throw("java/lang/Exception", "Foo", "bar", 10);
-        store.dispatch_resolution.record("Foo", 42, "java/lang/String", true);
-        store.native_boundary.record_call("java/lang/String", "intern", 100, true);
-
-        let mut w = FailingWriter;
-        let res = store.print_report(&mut w);
-        assert!(res.is_err());
-    }
-""", test_code)
-
-with open("crates/duke-telemetry/src/lib.rs", "w") as f:
-    f.write(lib)
+    # If it already has //! docs, we might not need to add it, but I checked duke-bytecode/src/lib.rs and it already has them.
+    # Oh wait, `find crates/ -type f -name "*.rs" | grep -v "test" | grep -v "fuzz" | xargs grep -L "^/// "`
+    # matched these files because they contain ONLY `//!` and no `///` item-level docs!
+    # And there are no items in `lib.rs` files that require `///` except the re-exports or module declarations if they are pub.
+    # Actually, re-exports usually don't trigger `missing_docs` if the underlying item is documented.
