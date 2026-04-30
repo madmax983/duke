@@ -21,6 +21,8 @@ mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
 mod pathfinding;
+#[cfg(feature = "nova")]
+mod purity;
 mod scan;
 mod search;
 #[cfg(feature = "nova")]
@@ -302,6 +304,8 @@ fn main() {
         #[cfg(feature = "nova")]
         eprintln!("       duke cycle-detect <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke purity <classfile.class>");
         eprintln!("       duke load <ClassName>");
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke bbcfg <classfile.class> <method>");
@@ -475,6 +479,15 @@ fn main() {
     }
     if args.len() >= 3 && args[1] == "analyze" {
         dump_analyze(&args[2]);
+        return;
+    }
+
+    // Dispatch `purity`: analyze methods for side-effects
+    if args.len() >= 3 && args[1] == "purity" {
+        #[cfg(feature = "nova")]
+        purity::dump_purity_analysis(&args[2]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'purity' command requires the 'nova' feature flag.");
         return;
     }
 
