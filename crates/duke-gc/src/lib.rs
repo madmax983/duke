@@ -32,7 +32,7 @@ const DEFAULT_YOUNG_CAPACITY: usize = 512;
 /// Default number of minor-GC survivals before an object is promoted to old gen.
 const DEFAULT_PROMOTION_AGE: u8 = 4;
 
-/// Host-side payload backing synthetic `java.util.concurrent.atomic` objects.
+/// Host-side payload backing synthetic `java.util.concurrent` objects.
 #[derive(Debug)]
 pub enum AtomicPayload {
     /// Backing cell for `AtomicInteger`.
@@ -43,6 +43,8 @@ pub enum AtomicPayload {
     Bool(Arc<AtomicBool>),
     /// Backing cell for `AtomicReference`.
     Reference(Arc<Mutex<Slot>>),
+    /// Coarse monitor for synthetic `ConcurrentHashMap` instances.
+    ConcurrentMapLock(Arc<Mutex<()>>),
 }
 
 impl Clone for AtomicPayload {
@@ -57,6 +59,7 @@ impl Clone for AtomicPayload {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 Self::Reference(Arc::new(Mutex::new(slot)))
             }
+            Self::ConcurrentMapLock(lock) => Self::ConcurrentMapLock(Arc::clone(lock)),
         }
     }
 }
@@ -86,6 +89,12 @@ impl AtomicPayload {
         Self::Reference(Arc::new(Mutex::new(value)))
     }
 
+    /// Create a coarse lock payload for `ConcurrentHashMap`.
+    #[must_use]
+    pub fn concurrent_map_lock() -> Self {
+        Self::ConcurrentMapLock(Arc::new(Mutex::new(())))
+    }
+
     fn reference_slot(&self) -> Option<Slot> {
         match self {
             Self::Reference(cell) => Some(
@@ -93,7 +102,7 @@ impl AtomicPayload {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner),
             ),
-            Self::Int(_) | Self::Long(_) | Self::Bool(_) => None,
+            Self::Int(_) | Self::Long(_) | Self::Bool(_) | Self::ConcurrentMapLock(_) => None,
         }
     }
 

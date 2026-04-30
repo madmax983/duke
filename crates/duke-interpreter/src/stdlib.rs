@@ -249,6 +249,189 @@ fn register_atomic_stdlib(registry: &mut ClassRegistry) {
     }
 }
 
+/// Registers the synthetic `java.util.concurrent.ConcurrentHashMap` surface.
+///
+/// Duke stores entries in the same flat field layout used by synthetic
+/// `HashMap`: `fields[0]` is the size, followed by interleaved key/value
+/// slots. Each instance also receives a coarse host-side mutex in its heap
+/// payload. That is intentionally simpler than `HotSpot`'s striped bins, but it
+/// gives linearizable Duke-visible mutations because the threading runtime
+/// already runs bytecode and callbacks under the shared VM heap lock.
+///
+/// The `keySet`, `values`, and `entrySet` methods return snapshot copies,
+/// matching Duke's synthetic `HashMap` views rather than `HotSpot`'s live views.
+#[allow(clippy::too_many_lines)]
+fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
+    let concurrent_map_ctx = ClassContext {
+        class_name: "java/util/concurrent/ConcurrentMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/Map".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(concurrent_map_ctx);
+
+    let concurrent_hashmap_ctx = ClassContext {
+        class_name: "java/util/concurrent/ConcurrentHashMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/concurrent/ConcurrentMap".to_string(),
+            "java/util/Map".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(concurrent_hashmap_ctx);
+
+    for desc in ["()V", "(I)V", "(IF)V", "(IFI)V"] {
+        registry.natives_mut().register(
+            "java/util/concurrent/ConcurrentHashMap",
+            "<init>",
+            desc,
+            native_concurrent_hashmap_init,
+        );
+    }
+    registry.natives_mut().register(
+        "java/util/concurrent/ConcurrentHashMap",
+        "<init>",
+        "(Ljava/util/Map;)V",
+        native_concurrent_hashmap_init_map,
+    );
+
+    for (method, descriptor, handler) in [
+        (
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_get as NativeHandler,
+        ),
+        (
+            "getOrDefault",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_get_or_default,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_contains_key,
+        ),
+        (
+            "containsValue",
+            "(Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_contains_value,
+        ),
+        ("size", "()I", native_concurrent_hashmap_size),
+        ("isEmpty", "()Z", native_concurrent_hashmap_is_empty),
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_put,
+        ),
+        (
+            "putIfAbsent",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_put_if_absent,
+        ),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_remove,
+        ),
+        (
+            "remove",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_remove_key_value,
+        ),
+        (
+            "replace",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_replace,
+        ),
+        (
+            "replace",
+            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_replace_key_value,
+        ),
+        ("clear", "()V", native_concurrent_hashmap_clear),
+        (
+            "putAll",
+            "(Ljava/util/Map;)V",
+            native_concurrent_hashmap_put_all,
+        ),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_concurrent_hashmap_key_set,
+        ),
+        (
+            "keySet",
+            "()Ljava/util/concurrent/ConcurrentHashMap$KeySetView;",
+            native_concurrent_hashmap_key_set,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_concurrent_hashmap_values,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_concurrent_hashmap_entry_set,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/ConcurrentHashMap",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "computeIfAbsent",
+        "(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;",
+        native_concurrent_hashmap_compute_if_absent,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_concurrent_hashmap_compute_if_present,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "compute",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_concurrent_hashmap_compute,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "merge",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_concurrent_hashmap_merge,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_concurrent_hashmap_for_each,
+    );
+}
+
 #[allow(clippy::too_many_lines)]
 /// Bootstraps the minimal JDK standard library classes needed for native method support.
 ///
@@ -1329,6 +1512,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     register_atomic_stdlib(registry);
+    register_concurrent_hashmap_stdlib(registry);
 
     // java/lang/Class — lightweight stub for class literals
     let class_ctx = ClassContext {
