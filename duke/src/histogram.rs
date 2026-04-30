@@ -26,13 +26,12 @@ pub fn dump_histogram(jar_path: &str) {
     let mut total_instructions = 0;
 
     let reader = loader.reader();
-    let class_entries: Vec<String> = reader
-        .entry_names()
-        .filter(|name| name.ends_with(".class"))
-        .map(std::string::ToString::to_string)
-        .collect();
 
-    for entry_name in class_entries {
+    for entry_name in reader.entry_names() {
+        #[allow(clippy::case_sensitive_file_extension_comparisons)]
+        if !entry_name.ends_with(".class") {
+            continue;
+        }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
         if let Ok(bytes) = loader.find_class(class_name_internal) {
             if let Ok(cf) = parse(&bytes) {
