@@ -17,3 +17,7 @@
 **[SerializeMap for custom map serialization]**
 **Learning:** Using `serde::ser::SerializeMap` directly removes the need for collecting intermediate HashMaps when writing a custom map serialization logic.
 **Action:** Always prefer iterating directly and using `ser.serialize_map` to prevent unnecessary allocations.
+
+**Zip Entry Iteration Without Intermediate Vectors**
+**Learning:** `reader.entry_names().collect::<Vec<String>>()` unnecessarily creates a heap allocation for all string elements and the backing vector, which is very expensive when processing large JAR/ZIP files, especially when you are only iterating over them.
+**Action:** When processing `ZipReader` entry names, iterate directly on the `reader.entry_names()` iterator using a `for` loop to prevent unnecessary allocations, ensuring zero-cost abstraction. If `clippy` triggers `case_sensitive_file_extension_comparisons`, use `#[allow(clippy::case_sensitive_file_extension_comparisons)]` inside the `for` loop instead of mapping and collecting.
