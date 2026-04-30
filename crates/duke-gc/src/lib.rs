@@ -423,12 +423,18 @@ impl Heap {
     pub fn get(&self, r: u64) -> Result<&HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
+            if idx >= self.old.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.old
                 .get(idx)
                 .and_then(|s| s.as_ref())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            if idx >= self.young.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.young
                 .get(idx)
                 .and_then(|s| s.as_ref())
@@ -458,12 +464,18 @@ impl Heap {
     pub fn get_mut(&mut self, r: u64) -> Result<&mut HeapObject> {
         if r & OLD_BIT != 0 {
             let idx = (r & !OLD_BIT) as usize;
+            if idx >= self.old.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.old
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap();
+            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            if idx >= self.young.len() {
+                return Err(Error::InvalidRef { address: r });
+            }
             self.young
                 .get_mut(idx)
                 .and_then(|s| s.as_mut())
@@ -571,9 +583,19 @@ impl Heap {
     /// heap.write_field(obj_ref, 0, Slot::Int(42)).unwrap();
     /// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
     /// ```
+    #[allow(clippy::missing_panics_doc)]
     pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> Result<()> {
-        self.remember_reference_write(obj_ref, value);
-        self.get_mut(obj_ref)?.fields[field_idx] = value;
+        let obj = self.get(obj_ref)?;
+        if field_idx >= obj.fields.len() {
+            return Err(Error::FieldOutOfBounds {
+                index: field_idx,
+                length: obj.fields.len(),
+            });
+        }
+        if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
+            self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
+        }
+        self.get_mut(obj_ref).unwrap().fields[field_idx] = value;
         Ok(())
     }
 

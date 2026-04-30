@@ -103,6 +103,15 @@ pub enum Error {
         address: u64,
     },
 
+    /// Attempted to read or write a field index that is out of bounds for an object.
+    #[error("field index {index} out of bounds (length={length})")]
+    FieldOutOfBounds {
+        /// The index attempted to be accessed.
+        index: usize,
+        /// The number of fields the object has.
+        length: usize,
+    },
+
     /// An index did not resolve to a `Fieldref`.
     #[error("constant pool index {index} is not a valid Fieldref")]
     InvalidFieldref {
