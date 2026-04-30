@@ -1,12 +1,12 @@
-1.  *Update test suite in `crates/duke-interpreter/src/native.rs`*
-    - Extend the `crates/duke-interpreter/src/native.rs` test suite by appending an explicit `native_helper_tests` module.
-    - Test edge cases like un-wrapping correct structures and checking against `Err(Error::NullPointerException)` or `Err(Error::TypeMismatch)`.
-    - Also update `crates/duke-bytecode/src/decoder.rs` to include tests on `Cursor::new` ensuring read behaviors cover bounds error conditions.
-    - (Already done in trace).
-2.  *Run checks.*
-    - Ensure tests pass with `cargo test --all-targets --all-features`.
-    - (Already done in trace).
-3.  *Complete pre-commit steps*
-    - Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
-4.  *Submit the change*
-    - Commit with standard persona attributes. Title "🛡️ Sentry: [test coverage improvement]" and formatted description.
+1. Add fuzz tests and property tests to verify system stability and edge cases.
+    - Write a proptest for `DirectoryLoader::find_class` to check for path traversal vulnerabilities in `crates/duke-loader/tests/havoc_directory_loader_fuzz.rs`.
+    - Write a proptest for `JImageReader::open` in `crates/duke-loader/tests/havoc_jimage_fuzz.rs` to fuzz the jimage parsing format.
+    - Add tests for `duke_bytecode` to verify we don't OOM on corrupted `lookupswitch`/`tableswitch` tables in `crates/duke-bytecode/tests/havoc_bytecode_oom.rs`.
+    - Add tests for `duke_classfile` to verify we don't OOM on massive constant pool counts, interfaces, or method counts in `crates/duke-classfile/tests/havoc_classfile_oom.rs`.
+    - Add test for `duke_gc` to verify `Heap::allocate` gracefully handles bounds rather than hitting process capacity limits in `crates/duke-gc/tests/havoc_heap_oom.rs`.
+    - Add test for `duke_runtime::Frame` to verify it gracefully handles large variable capacity bounds in `crates/duke-runtime/tests/havoc_frame_oom.rs`.
+    - Add test for `duke_loader::ZipReader` to verify it handles fake massive EOCD entries gracefully in `crates/duke-loader/tests/havoc_zip_oom.rs`.
+    - Add test for `duke_loader::JImageReader` to verify it handles corrupted header counts gracefully in `crates/duke-loader/tests/havoc_jimage_oom.rs`.
+    - Add Loom test `havoc_system_properties_loom.rs` to verify thread-safe atomicity of setting system properties.
+2. Complete pre-commit steps to make sure proper testing, verifications, reviews, and reflections are done.
+3. Submit the change.

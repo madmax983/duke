@@ -1,3 +1,3 @@
-**[Title]
-**Tangle:** Tried to crash duke_classfile, duke_loader, duke_gc, and duke_interpreter with garbage data and fuzz tests using proptest.
-**Blueprint:** Found no panics. The codebase correctly uses `try_from`, `min()`, `checked_add`, `unwrap_or`, and proper Error returning instead of unwrapping blindly on untrusted inputs. I'll summarize these findings and submit.
+## 2025-04-30 - Havoc's Fuzzing Journey
+**Learning:** Found several areas to stress-test via proptest and manual OOM tests.
+**Action:** When adding chaos tests that deal with temporary files, use unique dynamic file names to prevent flaky race-condition bugs caused by concurrent test execution. When passing huge numbers or strings, track GlobalAlloc limits to ensure the application panics gracefully instead of allowing OS to OOM the process.
