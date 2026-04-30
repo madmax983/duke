@@ -55,6 +55,66 @@ fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
     args.get(idx).copied().unwrap_or(Slot::Reference(None))
 }
 
+const fn atomic_payload_error(this_ref: u64) -> Error {
+    Error::InvalidRef { address: this_ref }
+}
+
+fn with_atomic_i32<T>(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+    f: impl FnOnce(&AtomicI32) -> T,
+) -> Result<T> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Int(cell)) => Ok(f(cell)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn with_atomic_i64<T>(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+    f: impl FnOnce(&std::sync::atomic::AtomicI64) -> T,
+) -> Result<T> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Long(cell)) => Ok(f(cell)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn with_atomic_bool<T>(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+    f: impl FnOnce(&std::sync::atomic::AtomicBool) -> T,
+) -> Result<T> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Bool(cell)) => Ok(f(cell)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn with_atomic_reference<T>(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+    f: impl FnOnce(&std::sync::Mutex<Slot>) -> Result<T>,
+) -> Result<T> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Reference(cell)) => f(cell),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn load_atomic_reference(heap: &duke_gc::Heap, this_ref: u64) -> Result<Slot> {
+    with_atomic_reference(heap, this_ref, |cell| {
+        Ok(*cell
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner))
+    })
+}
+
+fn atomic_bool_arg(args: &[Slot], idx: usize) -> Result<bool> {
+    extract_int_arg(args, idx).map(|value| value != 0)
+}
+
 #[inline]
 fn extract_ref_arg(args: &[Slot], idx: usize) -> Result<u64> {
     match args.get(idx) {
@@ -255,6 +315,588 @@ fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> Result<String
         .string_value
         .clone()
         .ok_or(Error::NullPointerException)
+}
+
+const REPLACEMENT_CHAR: char = '\u{fffd}';
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StandardCharset {
+    Utf8,
+    Utf16,
+    Utf16Be,
+    Utf16Le,
+    UsAscii,
+    Iso88591,
+}
+
+impl StandardCharset {
+    const fn canonical_name(self) -> &'static str {
+        match self {
+            Self::Utf8 => "UTF-8",
+            Self::Utf16 => "UTF-16",
+            Self::Utf16Be => "UTF-16BE",
+            Self::Utf16Le => "UTF-16LE",
+            Self::UsAscii => "US-ASCII",
+            Self::Iso88591 => "ISO-8859-1",
+        }
+    }
+
+    fn from_canonical(name: &str) -> Option<Self> {
+        match name {
+            "UTF-8" => Some(Self::Utf8),
+            "UTF-16" => Some(Self::Utf16),
+            "UTF-16BE" => Some(Self::Utf16Be),
+            "UTF-16LE" => Some(Self::Utf16Le),
+            "US-ASCII" => Some(Self::UsAscii),
+            "ISO-8859-1" => Some(Self::Iso88591),
+            _ => None,
+        }
+    }
+}
+
+const fn charset_for_name(name: &str) -> Option<StandardCharset> {
+    if name.eq_ignore_ascii_case("UTF-8")
+        || name.eq_ignore_ascii_case("UTF8")
+        || name.eq_ignore_ascii_case("utf8")
+    {
+        return Some(StandardCharset::Utf8);
+    }
+    if name.eq_ignore_ascii_case("UTF-16") || name.eq_ignore_ascii_case("UTF16") {
+        return Some(StandardCharset::Utf16);
+    }
+    if name.eq_ignore_ascii_case("UTF-16BE") || name.eq_ignore_ascii_case("UTF16BE") {
+        return Some(StandardCharset::Utf16Be);
+    }
+    if name.eq_ignore_ascii_case("UTF-16LE") || name.eq_ignore_ascii_case("UTF16LE") {
+        return Some(StandardCharset::Utf16Le);
+    }
+    if name.eq_ignore_ascii_case("US-ASCII")
+        || name.eq_ignore_ascii_case("ASCII")
+        || name.eq_ignore_ascii_case("US_ASCII")
+    {
+        return Some(StandardCharset::UsAscii);
+    }
+    if name.eq_ignore_ascii_case("ISO-8859-1")
+        || name.eq_ignore_ascii_case("ISO8859-1")
+        || name.eq_ignore_ascii_case("ISO8859_1")
+        || name.eq_ignore_ascii_case("latin1")
+    {
+        return Some(StandardCharset::Iso88591);
+    }
+    None
+}
+
+pub(crate) fn allocate_standard_charset(heap: &mut duke_gc::Heap, canonical_name: &str) -> u64 {
+    if let Some(existing) = heap.find_string_backed_object("java/nio/charset/Charset", canonical_name)
+    {
+        return existing;
+    }
+    let charset_ref = heap.allocate("java/nio/charset/Charset".to_string(), 0);
+    if let Ok(obj) = heap.get_mut(charset_ref) {
+        obj.string_value = Some(canonical_name.to_string());
+    }
+    charset_ref
+}
+
+fn charset_ref(heap: &mut duke_gc::Heap, charset: StandardCharset) -> u64 {
+    allocate_standard_charset(heap, charset.canonical_name())
+}
+
+fn unsupported_charset_error(name: &str) -> Error {
+    push_pending_java_exception_message(
+        "java/nio/charset/UnsupportedCharsetException",
+        name.to_string(),
+    );
+    Error::JavaException {
+        class_name: "java/nio/charset/UnsupportedCharsetException".to_string(),
+    }
+}
+
+fn unsupported_encoding_error(name: &str) -> Error {
+    push_pending_java_exception_message("java/io/UnsupportedEncodingException", name.to_string());
+    Error::JavaException {
+        class_name: "java/io/UnsupportedEncodingException".to_string(),
+    }
+}
+
+fn charset_from_name_ref(
+    heap: &duke_gc::Heap,
+    string_ref: u64,
+    error_for_unknown: fn(&str) -> Error,
+) -> Result<StandardCharset> {
+    let name = string_value_from_ref(heap, string_ref)?;
+    charset_for_name(&name).ok_or_else(|| error_for_unknown(&name))
+}
+
+fn charset_from_arg(
+    args: &[Slot],
+    idx: usize,
+    heap: &duke_gc::Heap,
+) -> Result<StandardCharset> {
+    let charset_ref = extract_ref_arg(args, idx)?;
+    let obj = heap.get(charset_ref)?;
+    if obj.class_name != "java/nio/charset/Charset" {
+        return Err(Error::ClassCastException {
+            from: obj.class_name.clone(),
+            to: "java/nio/charset/Charset".to_string(),
+        });
+    }
+    let name = obj.string_value.as_deref().ok_or(Error::TypeMismatch {
+        expected: "Charset.string_value",
+        got: "None",
+    })?;
+    StandardCharset::from_canonical(name).ok_or_else(|| unsupported_charset_error(name))
+}
+
+fn java_string_hash(value: &str) -> i32 {
+    let mut hash = 0_i32;
+    for ch in value.chars() {
+        hash = hash.wrapping_mul(31).wrapping_add(ch as i32);
+    }
+    hash
+}
+
+fn java_byte_slot(byte: u8) -> Slot {
+    Slot::Int(i32::from(i8::from_ne_bytes([byte])))
+}
+
+const fn byte_from_slot(slot: Slot) -> Result<u8> {
+    match slot {
+        Slot::Int(value) => Ok(value.to_be_bytes()[3]),
+        _ => Err(Error::TypeMismatch {
+            expected: "byte",
+            got: "other",
+        }),
+    }
+}
+
+fn allocate_byte_array(heap: &mut duke_gc::Heap, bytes: &[u8]) -> Result<u64> {
+    let array_ref = heap.allocate("[B".to_string(), bytes.len());
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        heap.write_field(array_ref, idx, java_byte_slot(byte))?;
+    }
+    Ok(array_ref)
+}
+
+fn index_out_of_bounds_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+    }
+}
+
+fn byte_array_window(
+    heap: &duke_gc::Heap,
+    array_ref: u64,
+    offset: i32,
+    length: i32,
+) -> Result<Vec<u8>> {
+    if offset < 0 || length < 0 {
+        return Err(index_out_of_bounds_error());
+    }
+    let start = usize::try_from(offset).map_err(|_| index_out_of_bounds_error())?;
+    let count = usize::try_from(length).map_err(|_| index_out_of_bounds_error())?;
+    let end = start
+        .checked_add(count)
+        .ok_or_else(index_out_of_bounds_error)?;
+    let fields = &heap.get(array_ref)?.fields;
+    if end > fields.len() {
+        return Err(index_out_of_bounds_error());
+    }
+    fields[start..end]
+        .iter()
+        .copied()
+        .map(byte_from_slot)
+        .collect()
+}
+
+fn full_byte_array(heap: &duke_gc::Heap, array_ref: u64) -> Result<Vec<u8>> {
+    let length = i32::try_from(heap.get(array_ref)?.fields.len())
+        .map_err(|_| index_out_of_bounds_error())?;
+    byte_array_window(heap, array_ref, 0, length)
+}
+
+fn encode_string_with_charset(value: &str, charset: StandardCharset) -> Vec<u8> {
+    match charset {
+        StandardCharset::Utf8 => value.as_bytes().to_vec(),
+        StandardCharset::UsAscii => value
+            .chars()
+            .map(|ch| {
+                if ch <= '\u{7f}' {
+                    ch as u8
+                } else {
+                    b'?'
+                }
+            })
+            .collect(),
+        StandardCharset::Iso88591 => value
+            .chars()
+            .map(|ch| {
+                if u32::from(ch) <= 0xff {
+                    ch as u8
+                } else {
+                    b'?'
+                }
+            })
+            .collect(),
+        StandardCharset::Utf16 => {
+            let mut bytes = Vec::with_capacity(2 + value.len().saturating_mul(2));
+            bytes.extend_from_slice(&[0xfe, 0xff]);
+            for unit in value.encode_utf16() {
+                bytes.extend_from_slice(&unit.to_be_bytes());
+            }
+            bytes
+        }
+        StandardCharset::Utf16Be => {
+            let mut bytes = Vec::with_capacity(value.len().saturating_mul(2));
+            for unit in value.encode_utf16() {
+                bytes.extend_from_slice(&unit.to_be_bytes());
+            }
+            bytes
+        }
+        StandardCharset::Utf16Le => {
+            let mut bytes = Vec::with_capacity(value.len().saturating_mul(2));
+            for unit in value.encode_utf16() {
+                bytes.extend_from_slice(&unit.to_le_bytes());
+            }
+            bytes
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Utf16Endian {
+    Big,
+    Little,
+}
+
+fn decode_utf16_units(units: Vec<u16>, has_trailing_byte: bool) -> String {
+    let mut decoded: String = char::decode_utf16(units)
+        .map(|item| item.unwrap_or(REPLACEMENT_CHAR))
+        .collect();
+    if has_trailing_byte {
+        decoded.push(REPLACEMENT_CHAR);
+    }
+    decoded
+}
+
+fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
+    let mut chunks = bytes.chunks_exact(2);
+    let mut units = Vec::with_capacity(bytes.len() / 2);
+    for chunk in &mut chunks {
+        let pair = [chunk[0], chunk[1]];
+        let unit = match endian {
+            Utf16Endian::Big => u16::from_be_bytes(pair),
+            Utf16Endian::Little => u16::from_le_bytes(pair),
+        };
+        units.push(unit);
+    }
+    decode_utf16_units(units, !chunks.remainder().is_empty())
+}
+
+fn decode_string_with_charset(bytes: &[u8], charset: StandardCharset) -> String {
+    match charset {
+        StandardCharset::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
+        StandardCharset::UsAscii => bytes
+            .iter()
+            .map(|byte| {
+                if *byte <= 0x7f {
+                    char::from(*byte)
+                } else {
+                    REPLACEMENT_CHAR
+                }
+            })
+            .collect(),
+        StandardCharset::Iso88591 => bytes.iter().map(|byte| char::from(*byte)).collect(),
+        StandardCharset::Utf16 => match (
+            bytes.strip_prefix(&[0xfe, 0xff]),
+            bytes.strip_prefix(&[0xff, 0xfe]),
+        ) {
+            (Some(rest), _) => decode_utf16_bytes(rest, Utf16Endian::Big),
+            (None, Some(rest)) => decode_utf16_bytes(rest, Utf16Endian::Little),
+            (None, None) => decode_utf16_bytes(bytes, Utf16Endian::Big),
+        },
+        StandardCharset::Utf16Be => decode_utf16_bytes(bytes, Utf16Endian::Big),
+        StandardCharset::Utf16Le => decode_utf16_bytes(bytes, Utf16Endian::Little),
+    }
+}
+
+fn string_bytes_for_arg(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    charset: StandardCharset,
+) -> Result<Vec<u8>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .unwrap_or_default();
+    Ok(encode_string_with_charset(value, charset))
+}
+
+fn init_string_from_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    bytes: &[u8],
+    charset: StandardCharset,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let decoded = decode_string_with_charset(bytes, charset);
+    heap.get_mut(this_ref)?.string_value = Some(decoded);
+    Ok(None)
+}
+
+pub(crate) fn native_charset_for_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 0)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_charset_error)?;
+    Ok(Some(Slot::Reference(Some(charset_ref(heap, charset)))))
+}
+
+/// `Charset.defaultCharset()` returns UTF-8.
+///
+/// Duke intentionally mirrors JDK 18+ / JEP 400's deterministic UTF-8 default
+/// instead of inheriting a host-process locale.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_charset_default_charset(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(Some(charset_ref(
+        heap,
+        StandardCharset::Utf8,
+    )))))
+}
+
+pub(crate) fn native_charset_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let charset = charset_from_arg(args, 0, heap)?;
+    let name_ref = heap.allocate_string(charset.canonical_name().to_string());
+    Ok(Some(Slot::Reference(Some(name_ref))))
+}
+
+pub(crate) fn native_charset_is_registered(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _charset = charset_from_arg(args, 0, heap)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+pub(crate) fn native_charset_equals(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_charset = charset_from_arg(args, 0, heap)?;
+    let Ok(other_ref) = extract_ref_arg(args, 1) else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let other_obj = heap.get(other_ref)?;
+    if other_obj.class_name != "java/nio/charset/Charset" {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let equal = other_obj
+        .string_value
+        .as_deref()
+        .is_some_and(|name| name == this_charset.canonical_name());
+    Ok(Some(Slot::Int(i32::from(equal))))
+}
+
+pub(crate) fn native_charset_hash_code(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let charset = charset_from_arg(args, 0, heap)?;
+    Ok(Some(Slot::Int(java_string_hash(charset.canonical_name()))))
+}
+
+pub(crate) fn native_string_get_bytes_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes = string_bytes_for_arg(args, heap, StandardCharset::Utf8)?;
+    Ok(Some(Slot::Reference(Some(allocate_byte_array(
+        heap, &bytes,
+    )?))))
+}
+
+pub(crate) fn native_string_get_bytes_named(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 1)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_encoding_error)?;
+    let bytes = string_bytes_for_arg(args, heap, charset)?;
+    Ok(Some(Slot::Reference(Some(allocate_byte_array(
+        heap, &bytes,
+    )?))))
+}
+
+pub(crate) fn native_string_get_bytes_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let charset = charset_from_arg(args, 1, heap)?;
+    let bytes = string_bytes_for_arg(args, heap, charset)?;
+    Ok(Some(Slot::Reference(Some(allocate_byte_array(
+        heap, &bytes,
+    )?))))
+}
+
+pub(crate) fn native_string_init_bytes_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    init_string_from_bytes(args, heap, &bytes, StandardCharset::Utf8)
+}
+
+pub(crate) fn native_string_init_bytes_default_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let length = extract_int_arg(args, 3)?;
+    let bytes = byte_array_window(heap, bytes_ref, offset, length)?;
+    init_string_from_bytes(args, heap, &bytes, StandardCharset::Utf8)
+}
+
+pub(crate) fn native_string_init_bytes_named(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let name_ref = extract_ref_arg(args, 2)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_encoding_error)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+pub(crate) fn native_string_init_bytes_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let charset = charset_from_arg(args, 2, heap)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+pub(crate) fn native_string_init_bytes_range_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let length = extract_int_arg(args, 3)?;
+    let charset = charset_from_arg(args, 4, heap)?;
+    let bytes = byte_array_window(heap, bytes_ref, offset, length)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+pub(crate) fn native_string_init_bytes_range_named(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let length = extract_int_arg(args, 3)?;
+    let name_ref = extract_ref_arg(args, 4)?;
+    let charset = charset_from_name_ref(heap, name_ref, unsupported_encoding_error)?;
+    let bytes = byte_array_window(heap, bytes_ref, offset, length)?;
+    init_string_from_bytes(args, heap, &bytes, charset)
+}
+
+#[cfg(test)]
+mod charset_codec_tests {
+    use super::*;
+
+    #[test]
+    fn charset_aliases_map_to_canonical_variants() {
+        assert_eq!(charset_for_name("utf8"), Some(StandardCharset::Utf8));
+        assert_eq!(charset_for_name("latin1"), Some(StandardCharset::Iso88591));
+        assert_eq!(charset_for_name("ASCII"), Some(StandardCharset::UsAscii));
+        assert_eq!(charset_for_name("not-a-charset"), None);
+    }
+
+    #[test]
+    fn utf8_decode_replaces_malformed_sequence() {
+        assert_eq!(
+            decode_string_with_charset(&[0xc3, 0x28], StandardCharset::Utf8),
+            "\u{fffd}("
+        );
+    }
+
+    #[test]
+    fn utf16_encodes_bom_and_decodes_surrogate_pair() {
+        let value = decode_string_with_charset(
+            &[0xf0, 0x9f, 0x98, 0x80, b' ', b'e', b'm', b'o', b'j', b'i'],
+            StandardCharset::Utf8,
+        );
+        let bytes = encode_string_with_charset(&value, StandardCharset::Utf16);
+        assert_eq!(&bytes[0..2], &[0xfe, 0xff]);
+        assert_eq!(decode_string_with_charset(&bytes, StandardCharset::Utf16), value);
+    }
+
+    #[test]
+    fn ascii_and_latin1_encode_unmappable_as_question_mark() {
+        assert_eq!(
+            encode_string_with_charset("\u{20ac}", StandardCharset::UsAscii),
+            vec![b'?']
+        );
+        assert_eq!(
+            encode_string_with_charset("\u{20ac}", StandardCharset::Iso88591),
+            vec![b'?']
+        );
+    }
+
+    #[test]
+    fn standard_charset_allocation_is_canonical_per_heap() {
+        let mut heap = duke_gc::Heap::new();
+        let first = allocate_standard_charset(&mut heap, "UTF-8");
+        let second = allocate_standard_charset(&mut heap, "UTF-8");
+        assert_eq!(first, second);
+        assert_eq!(
+            heap.get(first).expect("charset object").string_value.as_deref(),
+            Some("UTF-8")
+        );
+    }
 }
 
 fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> Result<std::path::PathBuf> {
@@ -8349,7 +8991,602 @@ pub(crate) fn native_thread_sleep(
     Ok(None)
 }
 
-/// Native: `String.substring(int)` — substring from begin to end.
+// java.util.concurrent.atomic natives.
+pub(crate) fn native_atomic_integer_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::int(0));
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_integer_init_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_int_arg(args, 1)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::int(value));
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_integer_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(with_atomic_i32(heap, this_ref, |cell| {
+        cell.load(Ordering::SeqCst)
+    })?)))
+}
+
+pub(crate) fn native_atomic_integer_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_int_arg(args, 1)?;
+    with_atomic_i32(heap, this_ref, |cell| cell.store(value, Ordering::SeqCst))?;
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_integer_get_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_int_arg(args, 1)?;
+    let previous = with_atomic_i32(heap, this_ref, |cell| cell.swap(value, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(previous)))
+}
+
+pub(crate) fn native_atomic_integer_compare_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let expected = extract_int_arg(args, 1)?;
+    let update = extract_int_arg(args, 2)?;
+    let exchanged = with_atomic_i32(heap, this_ref, |cell| {
+        cell.compare_exchange(expected, update, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    })?;
+    Ok(Some(Slot::Int(i32::from(exchanged))))
+}
+
+pub(crate) fn native_atomic_integer_get_and_increment(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i32(heap, this_ref, |cell| cell.fetch_add(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(previous)))
+}
+
+pub(crate) fn native_atomic_integer_get_and_decrement(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i32(heap, this_ref, |cell| cell.fetch_sub(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(previous)))
+}
+
+pub(crate) fn native_atomic_integer_get_and_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let delta = extract_int_arg(args, 1)?;
+    let previous =
+        with_atomic_i32(heap, this_ref, |cell| cell.fetch_add(delta, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(previous)))
+}
+
+pub(crate) fn native_atomic_integer_increment_and_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i32(heap, this_ref, |cell| cell.fetch_add(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(previous.wrapping_add(1))))
+}
+
+pub(crate) fn native_atomic_integer_decrement_and_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i32(heap, this_ref, |cell| cell.fetch_sub(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(previous.wrapping_sub(1))))
+}
+
+pub(crate) fn native_atomic_integer_add_and_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let delta = extract_int_arg(args, 1)?;
+    let previous =
+        with_atomic_i32(heap, this_ref, |cell| cell.fetch_add(delta, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(previous.wrapping_add(delta))))
+}
+
+pub(crate) fn native_atomic_integer_long_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Long(i64::from(with_atomic_i32(
+        heap,
+        this_ref,
+        |cell| cell.load(Ordering::SeqCst),
+    )?))))
+}
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn native_atomic_integer_float_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_i32(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    Ok(Some(Slot::Float(value as f32)))
+}
+
+pub(crate) fn native_atomic_integer_double_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_i32(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    Ok(Some(Slot::Double(f64::from(value))))
+}
+
+pub(crate) fn native_atomic_integer_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_i32(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    let string_ref = heap.allocate_string(value.to_string());
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_atomic_long_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::long(0));
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_long_init_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_long_arg(args, 1)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::long(value));
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_long_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Long(with_atomic_i64(heap, this_ref, |cell| {
+        cell.load(Ordering::SeqCst)
+    })?)))
+}
+
+pub(crate) fn native_atomic_long_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_long_arg(args, 1)?;
+    with_atomic_i64(heap, this_ref, |cell| cell.store(value, Ordering::SeqCst))?;
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_long_get_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_long_arg(args, 1)?;
+    let previous = with_atomic_i64(heap, this_ref, |cell| cell.swap(value, Ordering::SeqCst))?;
+    Ok(Some(Slot::Long(previous)))
+}
+
+pub(crate) fn native_atomic_long_compare_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let expected = extract_long_arg(args, 1)?;
+    let update = extract_long_arg(args, 2)?;
+    let exchanged = with_atomic_i64(heap, this_ref, |cell| {
+        cell.compare_exchange(expected, update, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    })?;
+    Ok(Some(Slot::Int(i32::from(exchanged))))
+}
+
+pub(crate) fn native_atomic_long_get_and_increment(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i64(heap, this_ref, |cell| cell.fetch_add(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Long(previous)))
+}
+
+pub(crate) fn native_atomic_long_get_and_decrement(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i64(heap, this_ref, |cell| cell.fetch_sub(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Long(previous)))
+}
+
+pub(crate) fn native_atomic_long_get_and_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let delta = extract_long_arg(args, 1)?;
+    let previous =
+        with_atomic_i64(heap, this_ref, |cell| cell.fetch_add(delta, Ordering::SeqCst))?;
+    Ok(Some(Slot::Long(previous)))
+}
+
+pub(crate) fn native_atomic_long_increment_and_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i64(heap, this_ref, |cell| cell.fetch_add(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Long(previous.wrapping_add(1))))
+}
+
+pub(crate) fn native_atomic_long_decrement_and_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let previous = with_atomic_i64(heap, this_ref, |cell| cell.fetch_sub(1, Ordering::SeqCst))?;
+    Ok(Some(Slot::Long(previous.wrapping_sub(1))))
+}
+
+pub(crate) fn native_atomic_long_add_and_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let delta = extract_long_arg(args, 1)?;
+    let previous =
+        with_atomic_i64(heap, this_ref, |cell| cell.fetch_add(delta, Ordering::SeqCst))?;
+    Ok(Some(Slot::Long(previous.wrapping_add(delta))))
+}
+
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn native_atomic_long_int_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_i64(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(value as i32)))
+}
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn native_atomic_long_float_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_i64(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    Ok(Some(Slot::Float(value as f32)))
+}
+
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn native_atomic_long_double_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_i64(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    Ok(Some(Slot::Double(value as f64)))
+}
+
+pub(crate) fn native_atomic_long_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_i64(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    let string_ref = heap.allocate_string(value.to_string());
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_atomic_reference_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::reference(Slot::Reference(None)));
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_reference_init_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_slot_arg(args, 1);
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::reference(value));
+    heap.remember_reference_write(this_ref, value);
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_reference_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(load_atomic_reference(heap, this_ref)?))
+}
+
+pub(crate) fn native_atomic_reference_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_slot_arg(args, 1);
+    with_atomic_reference(heap, this_ref, |cell| {
+        *cell
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = value;
+        Ok(())
+    })?;
+    heap.remember_reference_write(this_ref, value);
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_reference_get_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_slot_arg(args, 1);
+    let previous = with_atomic_reference(heap, this_ref, |cell| {
+        let mut guard = cell
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let previous = *guard;
+        *guard = value;
+        drop(guard);
+        Ok(previous)
+    })?;
+    heap.remember_reference_write(this_ref, value);
+    Ok(Some(previous))
+}
+
+pub(crate) fn native_atomic_reference_compare_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let expected = extract_slot_arg(args, 1);
+    let update = extract_slot_arg(args, 2);
+    let exchanged = with_atomic_reference(heap, this_ref, |cell| {
+        let mut guard = cell
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let exchanged = *guard == expected;
+        if exchanged {
+            *guard = update;
+        }
+        drop(guard);
+        Ok(exchanged)
+    })?;
+    if exchanged {
+        heap.remember_reference_write(this_ref, update);
+    }
+    Ok(Some(Slot::Int(i32::from(exchanged))))
+}
+
+pub(crate) fn native_atomic_reference_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = load_atomic_reference(heap, this_ref)?;
+    let text = match value {
+        Slot::Reference(None) => "null".to_string(),
+        Slot::Reference(Some(reference)) => heap_object_to_string(heap.get(reference)?, reference),
+        Slot::Int(value) => value.to_string(),
+        Slot::Long(value) => value.to_string(),
+        Slot::Float(value) => value.to_string(),
+        Slot::Double(value) => value.to_string(),
+        Slot::ReturnAddress(value) => value.to_string(),
+    };
+    let string_ref = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_atomic_boolean_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::bool(false));
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_boolean_init_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = atomic_bool_arg(args, 1)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::bool(value));
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_boolean_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_bool(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(i32::from(value))))
+}
+
+pub(crate) fn native_atomic_boolean_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = atomic_bool_arg(args, 1)?;
+    with_atomic_bool(heap, this_ref, |cell| cell.store(value, Ordering::SeqCst))?;
+    Ok(None)
+}
+
+pub(crate) fn native_atomic_boolean_compare_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let expected = atomic_bool_arg(args, 1)?;
+    let update = atomic_bool_arg(args, 2)?;
+    let exchanged = with_atomic_bool(heap, this_ref, |cell| {
+        cell.compare_exchange(expected, update, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    })?;
+    Ok(Some(Slot::Int(i32::from(exchanged))))
+}
+
+pub(crate) fn native_atomic_boolean_get_and_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = atomic_bool_arg(args, 1)?;
+    let previous = with_atomic_bool(heap, this_ref, |cell| cell.swap(value, Ordering::SeqCst))?;
+    Ok(Some(Slot::Int(i32::from(previous))))
+}
+
+pub(crate) fn native_atomic_boolean_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = with_atomic_bool(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
+    let string_ref = heap.allocate_string(value.to_string());
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+/// Native: `String.substring(int)` - substring from begin to end.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn native_string_substring(
     args: &[Slot],
@@ -21049,6 +22286,613 @@ pub(crate) fn native_hashmap_get_or_default(
     Ok(Some(
         find_hashmap_entry_index(fields, &key, heap).map_or(default, |i| fields[i + 1]),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// ConcurrentHashMap natives
+// ---------------------------------------------------------------------------
+
+fn concurrent_hashmap_lock(
+    heap: &mut duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<()>>> {
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(payload) = &obj.atomic_payload {
+        return match payload {
+            duke_gc::AtomicPayload::ConcurrentMapLock(lock) => Ok(std::sync::Arc::clone(lock)),
+            duke_gc::AtomicPayload::Int(_)
+            | duke_gc::AtomicPayload::Long(_)
+            | duke_gc::AtomicPayload::Bool(_)
+            | duke_gc::AtomicPayload::Reference(_) => Err(Error::TypeMismatch {
+                expected: "concurrent map lock",
+                got: "other",
+            }),
+        };
+    }
+
+    let lock = std::sync::Arc::new(std::sync::Mutex::new(()));
+    obj.atomic_payload = Some(duke_gc::AtomicPayload::ConcurrentMapLock(
+        std::sync::Arc::clone(&lock),
+    ));
+    Ok(lock)
+}
+
+fn concurrent_hashmap_guard(
+    lock: &std::sync::Arc<std::sync::Mutex<()>>,
+) -> std::sync::MutexGuard<'_, ()> {
+    lock.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+const fn require_chm_non_null(slot: Slot) -> Result<Slot> {
+    if matches!(slot, Slot::Reference(None)) {
+        Err(Error::NullPointerException)
+    } else {
+        Ok(slot)
+    }
+}
+
+fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
+    require_chm_non_null(extract_slot_arg(args, idx))
+}
+
+fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
+    let fields = heap.get(map_ref)?.fields.clone();
+    let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
+    let mut i = 1usize;
+    while i + 1 < fields.len() {
+        entries.push((fields[i], fields[i + 1]));
+        i += 2;
+    }
+    Ok(entries)
+}
+
+pub(crate) fn native_concurrent_hashmap_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let _lock = concurrent_hashmap_lock(heap, this_ref)?;
+    native_hashmap_init(args, heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_init_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_concurrent_hashmap_init(args, heap, out, control)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let source_ref = extract_ref_arg(args, 1)?;
+    native_concurrent_hashmap_put_all(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(source_ref)),
+        ],
+        heap,
+        out,
+        control,
+    )
+}
+
+pub(crate) fn native_concurrent_hashmap_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_get_or_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let default = extract_slot_arg(args, 2);
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_get_or_default(
+        &[Slot::Reference(Some(this_ref)), key, default],
+        heap,
+        out,
+        control,
+    )
+}
+
+pub(crate) fn native_concurrent_hashmap_contains_key(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_contains_key(&[Slot::Reference(Some(this_ref)), key], heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_contains_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = chm_non_null_arg(args, 1)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_contains_value(&[Slot::Reference(Some(this_ref)), value], heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_size(args, heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_is_empty(args, heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_put(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let value = chm_non_null_arg(args, 2)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_put(
+        &[Slot::Reference(Some(this_ref)), key, value],
+        heap,
+        out,
+        control,
+    )
+}
+
+pub(crate) fn native_concurrent_hashmap_put_if_absent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let value = chm_non_null_arg(args, 2)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_put_if_absent(
+        &[Slot::Reference(Some(this_ref)), key, value],
+        heap,
+        out,
+        control,
+    )
+}
+
+pub(crate) fn native_concurrent_hashmap_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_remove_key_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let expected = chm_non_null_arg(args, 2)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_remove_key_value(
+        &[Slot::Reference(Some(this_ref)), key, expected],
+        heap,
+        out,
+        control,
+    )
+}
+
+pub(crate) fn native_concurrent_hashmap_replace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let value = chm_non_null_arg(args, 2)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_replace(
+        &[Slot::Reference(Some(this_ref)), key, value],
+        heap,
+        out,
+        control,
+    )
+}
+
+pub(crate) fn native_concurrent_hashmap_replace_key_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let expected = chm_non_null_arg(args, 2)?;
+    let replacement = chm_non_null_arg(args, 3)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    let fields = heap.get(this_ref)?.fields.clone();
+    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
+        let actual = fields[i + 1];
+        if slots_equal(&actual, &expected, heap) {
+            heap.get_mut(this_ref)?.fields[i + 1] = replacement;
+            return Ok(Some(Slot::Int(1)));
+        }
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+pub(crate) fn native_concurrent_hashmap_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_clear(args, heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_put_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let source_ref = extract_ref_arg(args, 1)?;
+    let entries = chm_entry_snapshot(heap, source_ref)?;
+    for (key, value) in &entries {
+        require_chm_non_null(*key)?;
+        require_chm_non_null(*value)?;
+    }
+
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    for (key, value) in entries {
+        native_hashmap_put(
+            &[Slot::Reference(Some(this_ref)), key, value],
+            heap,
+            out,
+            control,
+        )?;
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_concurrent_hashmap_key_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_key_set(args, heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_values(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_values(args, heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_entry_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    native_hashmap_entry_set(args, heap, out, control)
+}
+
+pub(crate) fn native_concurrent_hashmap_compute_if_absent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let fn_ref = extract_ref_arg(args, 2)?;
+    let fn_slot = Slot::Reference(Some(fn_ref));
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    {
+        let _guard = concurrent_hashmap_guard(&lock);
+        let fields = &heap.get(this_ref)?.fields;
+        if let Some(i) = find_hashmap_entry_index(fields, &key, heap) {
+            return Ok(Some(fields[i + 1]));
+        }
+    }
+
+    let computed = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![fn_slot, key],
+    )?;
+    let Some(value) = computed else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    if matches!(value, Slot::Reference(None)) {
+        return Ok(Some(Slot::Reference(None)));
+    }
+
+    let _guard = concurrent_hashmap_guard(&lock);
+    let fields = &heap.get(this_ref)?.fields;
+    if let Some(i) = find_hashmap_entry_index(fields, &key, heap) {
+        return Ok(Some(fields[i + 1]));
+    }
+    native_hashmap_put(
+        &[Slot::Reference(Some(this_ref)), key, value],
+        heap,
+        out,
+        &mut NativeControl::default(),
+    )?;
+    Ok(Some(value))
+}
+
+pub(crate) fn native_concurrent_hashmap_compute_if_present(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let fn_ref = extract_ref_arg(args, 2)?;
+    let fn_slot = Slot::Reference(Some(fn_ref));
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let old_value = {
+        let _guard = concurrent_hashmap_guard(&lock);
+        let fields = &heap.get(this_ref)?.fields;
+        match find_hashmap_entry_index(fields, &key, heap) {
+            Some(i) => fields[i + 1],
+            None => return Ok(Some(Slot::Reference(None))),
+        }
+    };
+
+    let new_value = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![fn_slot, key, old_value],
+    )?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    match new_value {
+        Some(value) if !matches!(value, Slot::Reference(None)) => {
+            native_hashmap_put(
+                &[Slot::Reference(Some(this_ref)), key, value],
+                heap,
+                out,
+                &mut NativeControl::default(),
+            )?;
+            Ok(Some(value))
+        }
+        _ => {
+            native_hashmap_remove(
+                &[Slot::Reference(Some(this_ref)), key],
+                heap,
+                out,
+                &mut NativeControl::default(),
+            )?;
+            Ok(Some(Slot::Reference(None)))
+        }
+    }
+}
+
+pub(crate) fn native_concurrent_hashmap_compute(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let fn_ref = extract_ref_arg(args, 2)?;
+    let fn_slot = Slot::Reference(Some(fn_ref));
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let old_value = {
+        let _guard = concurrent_hashmap_guard(&lock);
+        let fields = &heap.get(this_ref)?.fields;
+        find_hashmap_entry_index(fields, &key, heap)
+            .map_or(Slot::Reference(None), |i| fields[i + 1])
+    };
+
+    let new_value = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![fn_slot, key, old_value],
+    )?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    match new_value {
+        Some(value) if !matches!(value, Slot::Reference(None)) => {
+            native_hashmap_put(
+                &[Slot::Reference(Some(this_ref)), key, value],
+                heap,
+                out,
+                &mut NativeControl::default(),
+            )?;
+            Ok(Some(value))
+        }
+        _ => {
+            native_hashmap_remove(
+                &[Slot::Reference(Some(this_ref)), key],
+                heap,
+                out,
+                &mut NativeControl::default(),
+            )?;
+            Ok(Some(Slot::Reference(None)))
+        }
+    }
+}
+
+pub(crate) fn native_concurrent_hashmap_merge(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = chm_non_null_arg(args, 1)?;
+    let value = chm_non_null_arg(args, 2)?;
+    let fn_ref = extract_ref_arg(args, 3)?;
+    let fn_slot = Slot::Reference(Some(fn_ref));
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let old_value = {
+        let _guard = concurrent_hashmap_guard(&lock);
+        let fields = &heap.get(this_ref)?.fields;
+        if let Some(i) = find_hashmap_entry_index(fields, &key, heap) {
+            Some(fields[i + 1])
+        } else {
+            native_hashmap_put(
+                &[Slot::Reference(Some(this_ref)), key, value],
+                heap,
+                out,
+                &mut NativeControl::default(),
+            )?;
+            return Ok(Some(value));
+        }
+    };
+    let Some(old_value) = old_value else {
+        return Ok(Some(value));
+    };
+
+    let merged = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "apply",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![fn_slot, old_value, value],
+    )?;
+    let _guard = concurrent_hashmap_guard(&lock);
+    match merged {
+        Some(merged_value) if !matches!(merged_value, Slot::Reference(None)) => {
+            let merged_value = box_primitive_slot(merged_value, heap);
+            native_hashmap_put(
+                &[Slot::Reference(Some(this_ref)), key, merged_value],
+                heap,
+                out,
+                &mut NativeControl::default(),
+            )?;
+            Ok(Some(merged_value))
+        }
+        _ => {
+            native_hashmap_remove(
+                &[Slot::Reference(Some(this_ref)), key],
+                heap,
+                out,
+                &mut NativeControl::default(),
+            )?;
+            Ok(Some(Slot::Reference(None)))
+        }
+    }
+}
+
+pub(crate) fn native_concurrent_hashmap_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let consumer_ref = extract_ref_arg(args, 1)?;
+    let consumer_slot = Slot::Reference(Some(consumer_ref));
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    let lock = concurrent_hashmap_lock(heap, this_ref)?;
+    let entries = {
+        let _guard = concurrent_hashmap_guard(&lock);
+        chm_entry_snapshot(heap, this_ref)?
+    };
+    for (key, value) in entries {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;Ljava/lang/Object;)V",
+            vec![consumer_slot, key, value],
+        )?;
+    }
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------

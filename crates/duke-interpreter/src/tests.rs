@@ -5331,6 +5331,222 @@ fn run_service_loader_jar_int(jar_name: &str, class_name: &str, method_name: &st
     }
 }
 
+macro_rules! charset_fixture_int_test {
+    ($test_name:ident, $class_file:literal, $method_name:literal, $expected:expr) => {
+        #[test]
+        fn $test_name() {
+            assert_eq!(
+                run_bootstrap_int_completion($class_file, $method_name, "()I"),
+                $expected
+            );
+        }
+    };
+}
+
+charset_fixture_int_test!(
+    charset_for_name_utf8_name,
+    "CharsetForNameTest.class",
+    "utf8Name",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_utf16_name,
+    "CharsetForNameTest.class",
+    "utf16Name",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_utf16be_name,
+    "CharsetForNameTest.class",
+    "utf16beName",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_utf16le_name,
+    "CharsetForNameTest.class",
+    "utf16leName",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_ascii_name,
+    "CharsetForNameTest.class",
+    "asciiName",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_latin1_name,
+    "CharsetForNameTest.class",
+    "latin1Name",
+    1
+);
+charset_fixture_int_test!(
+    charset_aliases_resolve_to_canonical_instances,
+    "CharsetForNameTest.class",
+    "aliasesResolveToCanonicalInstances",
+    1
+);
+charset_fixture_int_test!(
+    charset_default_charset_is_utf8,
+    "CharsetForNameTest.class",
+    "defaultCharsetIsUtf8",
+    1
+);
+charset_fixture_int_test!(
+    charset_for_name_unknown_throws_unsupported_charset,
+    "CharsetForNameTest.class",
+    "unsupportedCharsetThrows",
+    1
+);
+charset_fixture_int_test!(
+    standard_charsets_use_canonical_cache,
+    "CharsetForNameTest.class",
+    "standardCharsetsUseCanonicalCache",
+    1
+);
+charset_fixture_int_test!(
+    charset_display_name_and_to_string_match_name,
+    "CharsetForNameTest.class",
+    "displayNameAndToStringMatchName",
+    1
+);
+charset_fixture_int_test!(
+    charset_equals_hash_code_and_registered,
+    "CharsetForNameTest.class",
+    "equalsHashCodeAndRegistered",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf8_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf8Matrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf16_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf16Matrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf16be_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf16beMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_utf16le_matrix,
+    "StringBytesRoundTripTest.class",
+    "utf16leMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_latin1_in_range,
+    "StringBytesRoundTripTest.class",
+    "latin1InRangeMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_round_trip_ascii_in_range,
+    "StringBytesRoundTripTest.class",
+    "asciiInRangeMatrix",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_lossy_charsets_use_question_mark,
+    "StringBytesRoundTripTest.class",
+    "lossyCharsetsUseQuestionMark",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_known_encoded_lengths,
+    "StringBytesRoundTripTest.class",
+    "knownEncodedLengths",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_default_offset_window,
+    "StringBytesRoundTripTest.class",
+    "defaultOffsetWindow",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_direct_charset_offset_window,
+    "StringBytesRoundTripTest.class",
+    "directCharsetOffsetWindow",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_get_bytes_utf8,
+    "StringBytesNamedCharsetTest.class",
+    "getBytesUtf8ByName",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_new_string_iso,
+    "StringBytesNamedCharsetTest.class",
+    "newStringIsoByName",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_default_bytes_use_utf8,
+    "StringBytesNamedCharsetTest.class",
+    "defaultBytesUseUtf8",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_offset_window,
+    "StringBytesNamedCharsetTest.class",
+    "namedOffsetWindow",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_get_bytes_unknown_throws_unsupported_encoding,
+    "StringBytesNamedCharsetTest.class",
+    "getBytesUnknownThrowsUnsupportedEncoding",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_constructor_unknown_throws_unsupported_encoding,
+    "StringBytesNamedCharsetTest.class",
+    "constructorUnknownThrowsUnsupportedEncoding",
+    1
+);
+charset_fixture_int_test!(
+    string_bytes_named_aliases_work,
+    "StringBytesNamedCharsetTest.class",
+    "aliasesWorkForNamedStringOverloads",
+    1
+);
+charset_fixture_int_test!(
+    charset_malformed_input_replaces_invalid_utf8,
+    "CharsetMalformedInputTest.class",
+    "invalidUtf8ReplacesMalformedBytes",
+    1
+);
+charset_fixture_int_test!(
+    charset_clinit_interop_header_length,
+    "CharsetClinitInteropTest.class",
+    "headerLength",
+    11
+);
+charset_fixture_int_test!(
+    charset_clinit_interop_protocol_name,
+    "CharsetClinitInteropTest.class",
+    "protocolName",
+    1
+);
+
+#[test]
+fn charset_clinit_interop_main_prints_static_values() {
+    let (_, lines) = run_bootstrap_with_output(
+        "CharsetClinitInteropTest.class",
+        "main",
+        "([Ljava/lang/String;)V",
+    )
+    .expect("clinit interop main should execute");
+    assert_eq!(lines, vec!["11".to_string(), "UTF-8".to_string()]);
+}
+
 struct TempCleanup(std::path::PathBuf);
 
 impl Drop for TempCleanup {
@@ -5400,6 +5616,485 @@ fn service_loader_jdbc_smoke_fixture_instantiates_driver() {
         ),
         1
     );
+}
+
+#[test]
+fn atomic_integer_basic_fixture_exercises_core_surface() {
+    assert_eq!(
+        run_bootstrap_int("AtomicIntegerBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_long_basic_fixture_preserves_wide_payloads() {
+    assert_eq!(
+        run_bootstrap_int("AtomicLongBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_reference_basic_fixture_uses_identity_cas() {
+    assert_eq!(
+        run_bootstrap_int("AtomicReferenceBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_boolean_basic_fixture_exercises_core_surface() {
+    assert_eq!(
+        run_bootstrap_int("AtomicBooleanBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn atomic_contended_fixture_is_linearizable_under_threading_runtime() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AtomicContendedTest.class",
+            "twoThreadsIncrementFiftyTrials",
+            "()I",
+        ),
+        2000
+    );
+}
+
+#[test]
+fn atomic_service_loader_interop_fixture_allows_atomic_clinit() {
+    assert_eq!(
+        run_service_loader_jar_int(
+            "service-loader-atomic.jar",
+            "AtomicServiceLoaderInteropTest",
+            "providerClinitUsesAtomicLong",
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_default_ctor_put_get_size() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "defaultCtorPutGetSize",
+            "()I"
+        ),
+        15
+    );
+}
+
+#[test]
+fn concurrent_hashmap_capacity_ctor() {
+    assert_eq!(
+        run_bootstrap_int("ConcurrentHashMapBasicTest.class", "capacityCtor", "()I"),
+        7
+    );
+}
+
+#[test]
+fn concurrent_hashmap_capacity_load_ctor() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "capacityLoadCtor",
+            "()I"
+        ),
+        8
+    );
+}
+
+#[test]
+fn concurrent_hashmap_capacity_load_concurrency_ctor() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "capacityLoadConcurrencyCtor",
+            "()I"
+        ),
+        9
+    );
+}
+
+#[test]
+fn concurrent_hashmap_copy_ctor_copies_existing_map() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "copyCtorCopiesExistingMap",
+            "()I"
+        ),
+        32
+    );
+}
+
+#[test]
+fn concurrent_hashmap_put_all_copies_entries() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "putAllCopiesEntries",
+            "()I"
+        ),
+        5
+    );
+}
+
+#[test]
+fn concurrent_hashmap_map_interface_dispatches() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "mapInterfaceDispatchesToConcurrentHashMap",
+            "()I"
+        ),
+        42
+    );
+}
+
+#[test]
+fn concurrent_hashmap_map_interface_key_set_dispatches() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "mapInterfaceKeySetDispatchesToConcurrentHashMap",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_concurrent_map_interface_dispatches() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "concurrentMapInterfaceDispatchesToConcurrentHashMap",
+            "()I"
+        ),
+        58
+    );
+}
+
+#[test]
+fn concurrent_hashmap_contains_key_true_false() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "containsKeyTrueFalse",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_contains_value_true_false() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "containsValueTrueFalse",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_get_or_default_hit_miss() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "getOrDefaultHitMiss",
+            "()I"
+        ),
+        45
+    );
+}
+
+#[test]
+fn concurrent_hashmap_remove_returns_prior_value() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "removeReturnsPriorValue",
+            "()I"
+        ),
+        12
+    );
+}
+
+#[test]
+fn concurrent_hashmap_conditional_remove_branches() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "conditionalRemoveBranches",
+            "()I"
+        ),
+        11
+    );
+}
+
+#[test]
+fn concurrent_hashmap_put_if_absent_branches() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "putIfAbsentBranches",
+            "()I"
+        ),
+        14
+    );
+}
+
+#[test]
+fn concurrent_hashmap_replace_value_branches() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "replaceValueBranches",
+            "()I"
+        ),
+        19
+    );
+}
+
+#[test]
+fn concurrent_hashmap_replace_cas_branches() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "replaceCasBranches",
+            "()I"
+        ),
+        18
+    );
+}
+
+#[test]
+fn concurrent_hashmap_clear_then_is_empty() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapBasicTest.class",
+            "clearThenIsEmpty",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_snapshot_views() {
+    assert_eq!(
+        run_bootstrap_int("ConcurrentHashMapBasicTest.class", "snapshotViews", "()I"),
+        12
+    );
+}
+
+#[test]
+fn concurrent_hashmap_compute_if_absent_miss_and_hit() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapComputeTest.class",
+            "computeIfAbsentMissAndHit",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_compute_if_present_hit() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapComputeTest.class",
+            "computeIfPresentHit",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_compute_if_present_miss() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapComputeTest.class",
+            "computeIfPresentMiss",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_compute_updates_value() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapComputeTest.class",
+            "computeUpdatesValue",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_merge_accumulates_count() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapComputeTest.class",
+            "mergeAccumulatesCount",
+            "()I"
+        ),
+        3
+    );
+}
+
+#[test]
+fn concurrent_hashmap_for_each_visits_snapshot() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapComputeTest.class",
+            "forEachVisitsSnapshot",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_put_null_key_throws() {
+    assert_eq!(
+        run_bootstrap_int("ConcurrentHashMapNullTest.class", "putNullKeyThrows", "()I"),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_put_null_value_throws() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapNullTest.class",
+            "putNullValueThrows",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_get_null_throws() {
+    assert_eq!(
+        run_bootstrap_int("ConcurrentHashMapNullTest.class", "getNullThrows", "()I"),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_contains_key_null_throws() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapNullTest.class",
+            "containsKeyNullThrows",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_put_if_absent_null_value_throws() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapNullTest.class",
+            "putIfAbsentNullValueThrows",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_merge_null_value_throws() {
+    assert_eq!(
+        run_bootstrap_int(
+            "ConcurrentHashMapNullTest.class",
+            "mergeNullValueThrows",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn concurrent_hashmap_contention_merge_is_linearizable() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ConcurrentHashMapContentionTest.class",
+            "twoThreadsMergeFiftyTrials",
+            "()I",
+        ),
+        2000
+    );
+}
+
+#[test]
+fn concurrent_hashmap_static_init_cache_reads() {
+    assert_eq!(
+        run_bootstrap_int("ConcurrentHashMapStaticInitTest.class", "readCache", "()I"),
+        126
+    );
+}
+
+#[test]
+fn concurrent_hashmap_static_init_prints_expected_values() {
+    let result =
+        run_bootstrap_with_output("ConcurrentHashMapStaticInitTest.class", "printCache", "()V");
+    assert!(
+        result.is_ok(),
+        "expected ConcurrentHashMap static init print smoke to run; got {result:?}"
+    );
+    let (value, lines) = result.unwrap();
+    assert_eq!(value, None);
+    assert_eq!(lines, vec!["42 84"]);
+}
+
+#[test]
+fn concurrent_hashmap_static_init_main_prints_expected_values() {
+    let ctx = load_class_context("ConcurrentHashMapStaticInitTest.class");
+    let entry_class = ctx.class_name.clone();
+    let mut registry = ClassRegistry::new();
+    registry.register(ctx);
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader = fixtures_loader();
+    let args_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+    let mut out: Vec<u8> = Vec::new();
+    let result = execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut out,
+        &entry_class,
+        "main",
+        "([Ljava/lang/String;)V",
+        &[Slot::Reference(Some(args_ref))],
+    );
+    assert!(
+        result.is_ok(),
+        "expected ConcurrentHashMap static init main smoke to run; got {result:?}"
+    );
+    assert_eq!(result.unwrap(), None);
+    let lines: Vec<String> = String::from_utf8(out)
+        .expect("captured output is utf8")
+        .lines()
+        .map(std::string::ToString::to_string)
+        .collect();
+    assert_eq!(lines, vec!["42 84"]);
 }
 
 #[test]

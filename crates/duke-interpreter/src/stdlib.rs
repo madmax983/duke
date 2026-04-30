@@ -5,6 +5,587 @@ use crate::registry::ClassRegistry;
 use crate::*;
 use duke_runtime::Slot;
 
+fn atomic_context(name: &str, super_class: &str, value_descriptor: &str) -> ClassContext {
+    ClassContext {
+        class_name: name.to_string(),
+        super_class: Some(super_class.to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: value_descriptor.to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    }
+}
+
+fn empty_synthetic_context(name: &str, super_class: &str) -> ClassContext {
+    ClassContext {
+        class_name: name.to_string(),
+        super_class: Some(super_class.to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    }
+}
+
+fn register_charset_classes(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    let charset_ctx = empty_synthetic_context("java/nio/charset/Charset", "java/lang/Object");
+    registry.register(charset_ctx);
+
+    let standard_charset_fields = [
+        ("UTF_8", "UTF-8"),
+        ("UTF_16", "UTF-16"),
+        ("UTF_16BE", "UTF-16BE"),
+        ("UTF_16LE", "UTF-16LE"),
+        ("US_ASCII", "US-ASCII"),
+        ("ISO_8859_1", "ISO-8859-1"),
+    ];
+    let standard_ctx = ClassContext {
+        class_name: "java/nio/charset/StandardCharsets".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: standard_charset_fields
+            .iter()
+            .map(|(field_name, _)| FieldEntry {
+                name: (*field_name).to_string(),
+                descriptor: "Ljava/nio/charset/Charset;".to_string(),
+                is_static: true,
+            })
+            .collect(),
+        static_fields: standard_charset_fields
+            .iter()
+            .map(|(_, canonical_name)| {
+                Slot::Reference(Some(allocate_standard_charset(heap, canonical_name)))
+            })
+            .collect(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(standard_ctx);
+
+    registry.register(empty_synthetic_context(
+        "java/nio/charset/UnsupportedCharsetException",
+        "java/lang/IllegalArgumentException",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/io/UnsupportedEncodingException",
+        "java/io/IOException",
+    ));
+}
+
+fn register_charset_natives(registry: &mut ClassRegistry) {
+    registry.natives_mut().register(
+        "java/nio/charset/Charset",
+        "forName",
+        "(Ljava/lang/String;)Ljava/nio/charset/Charset;",
+        native_charset_for_name,
+    );
+    registry.natives_mut().register(
+        "java/nio/charset/Charset",
+        "defaultCharset",
+        "()Ljava/nio/charset/Charset;",
+        native_charset_default_charset,
+    );
+    for method in ["name", "displayName", "toString"] {
+        registry.natives_mut().register(
+            "java/nio/charset/Charset",
+            method,
+            "()Ljava/lang/String;",
+            native_charset_name,
+        );
+    }
+    registry.natives_mut().register(
+        "java/nio/charset/Charset",
+        "isRegistered",
+        "()Z",
+        native_charset_is_registered,
+    );
+    registry.natives_mut().register(
+        "java/nio/charset/Charset",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        native_charset_equals,
+    );
+    registry.natives_mut().register(
+        "java/nio/charset/Charset",
+        "hashCode",
+        "()I",
+        native_charset_hash_code,
+    );
+}
+
+fn register_string_byte_conversion_natives(registry: &mut ClassRegistry) {
+    registry.natives_mut().register(
+        "java/lang/String",
+        "getBytes",
+        "()[B",
+        native_string_get_bytes_default,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "getBytes",
+        "(Ljava/lang/String;)[B",
+        native_string_get_bytes_named,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "getBytes",
+        "(Ljava/nio/charset/Charset;)[B",
+        native_string_get_bytes_charset,
+    );
+
+    for (descriptor, handler) in [
+        ("([B)V", native_string_init_bytes_default as NativeHandler),
+        ("([BII)V", native_string_init_bytes_default_range),
+        ("([BLjava/lang/String;)V", native_string_init_bytes_named),
+        (
+            "([BLjava/nio/charset/Charset;)V",
+            native_string_init_bytes_charset,
+        ),
+        (
+            "([BIILjava/nio/charset/Charset;)V",
+            native_string_init_bytes_range_charset,
+        ),
+        (
+            "([BIILjava/lang/String;)V",
+            native_string_init_bytes_range_named,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/lang/String", "<init>", descriptor, handler);
+    }
+}
+
+/// Registers `java.nio.charset` synthetics and the matching `String` byte conversions.
+fn register_charset_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    register_charset_classes(registry, heap);
+    register_charset_natives(registry);
+    register_string_byte_conversion_natives(registry);
+}
+
+/// Registers synthetic `java.util.concurrent.atomic` classes.
+///
+/// `AtomicReference.compareAndSet` is deliberately identity-based: it compares
+/// `Slot::Reference` addresses, not `Object.equals`, matching `HotSpot`'s object
+/// CAS behavior.
+#[allow(clippy::too_many_lines)]
+fn register_atomic_stdlib(registry: &mut ClassRegistry) {
+    let number_ctx = ClassContext {
+        class_name: "java/lang/Number".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(number_ctx);
+
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicInteger",
+        "java/lang/Number",
+        "I",
+    ));
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicLong",
+        "java/lang/Number",
+        "J",
+    ));
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicReference",
+        "java/lang/Object",
+        "Ljava/lang/Object;",
+    ));
+    registry.register(atomic_context(
+        "java/util/concurrent/atomic/AtomicBoolean",
+        "java/lang/Object",
+        "Z",
+    ));
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_atomic_integer_init as NativeHandler),
+        ("<init>", "(I)V", native_atomic_integer_init_value),
+        ("get", "()I", native_atomic_integer_get),
+        ("set", "(I)V", native_atomic_integer_set),
+        ("lazySet", "(I)V", native_atomic_integer_set),
+        ("getAndSet", "(I)I", native_atomic_integer_get_and_set),
+        (
+            "compareAndSet",
+            "(II)Z",
+            native_atomic_integer_compare_and_set,
+        ),
+        (
+            "weakCompareAndSet",
+            "(II)Z",
+            native_atomic_integer_compare_and_set,
+        ),
+        (
+            "getAndIncrement",
+            "()I",
+            native_atomic_integer_get_and_increment,
+        ),
+        (
+            "getAndDecrement",
+            "()I",
+            native_atomic_integer_get_and_decrement,
+        ),
+        ("getAndAdd", "(I)I", native_atomic_integer_get_and_add),
+        (
+            "incrementAndGet",
+            "()I",
+            native_atomic_integer_increment_and_get,
+        ),
+        (
+            "decrementAndGet",
+            "()I",
+            native_atomic_integer_decrement_and_get,
+        ),
+        ("addAndGet", "(I)I", native_atomic_integer_add_and_get),
+        ("intValue", "()I", native_atomic_integer_get),
+        ("longValue", "()J", native_atomic_integer_long_value),
+        ("floatValue", "()F", native_atomic_integer_float_value),
+        ("doubleValue", "()D", native_atomic_integer_double_value),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_integer_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicInteger",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_atomic_long_init as NativeHandler),
+        ("<init>", "(J)V", native_atomic_long_init_value),
+        ("get", "()J", native_atomic_long_get),
+        ("set", "(J)V", native_atomic_long_set),
+        ("lazySet", "(J)V", native_atomic_long_set),
+        ("getAndSet", "(J)J", native_atomic_long_get_and_set),
+        ("compareAndSet", "(JJ)Z", native_atomic_long_compare_and_set),
+        (
+            "weakCompareAndSet",
+            "(JJ)Z",
+            native_atomic_long_compare_and_set,
+        ),
+        (
+            "getAndIncrement",
+            "()J",
+            native_atomic_long_get_and_increment,
+        ),
+        (
+            "getAndDecrement",
+            "()J",
+            native_atomic_long_get_and_decrement,
+        ),
+        ("getAndAdd", "(J)J", native_atomic_long_get_and_add),
+        (
+            "incrementAndGet",
+            "()J",
+            native_atomic_long_increment_and_get,
+        ),
+        (
+            "decrementAndGet",
+            "()J",
+            native_atomic_long_decrement_and_get,
+        ),
+        ("addAndGet", "(J)J", native_atomic_long_add_and_get),
+        ("intValue", "()I", native_atomic_long_int_value),
+        ("longValue", "()J", native_atomic_long_get),
+        ("floatValue", "()F", native_atomic_long_float_value),
+        ("doubleValue", "()D", native_atomic_long_double_value),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_long_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicLong",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "()V",
+            native_atomic_reference_init as NativeHandler,
+        ),
+        (
+            "<init>",
+            "(Ljava/lang/Object;)V",
+            native_atomic_reference_init_value,
+        ),
+        ("get", "()Ljava/lang/Object;", native_atomic_reference_get),
+        ("set", "(Ljava/lang/Object;)V", native_atomic_reference_set),
+        (
+            "lazySet",
+            "(Ljava/lang/Object;)V",
+            native_atomic_reference_set,
+        ),
+        (
+            "getAndSet",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_atomic_reference_get_and_set,
+        ),
+        (
+            "compareAndSet",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_atomic_reference_compare_and_set,
+        ),
+        (
+            "weakCompareAndSet",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_atomic_reference_compare_and_set,
+        ),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_reference_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicReference",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_atomic_boolean_init as NativeHandler),
+        ("<init>", "(Z)V", native_atomic_boolean_init_value),
+        ("get", "()Z", native_atomic_boolean_get),
+        ("set", "(Z)V", native_atomic_boolean_set),
+        (
+            "compareAndSet",
+            "(ZZ)Z",
+            native_atomic_boolean_compare_and_set,
+        ),
+        ("getAndSet", "(Z)Z", native_atomic_boolean_get_and_set),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_atomic_boolean_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/atomic/AtomicBoolean",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+}
+
+/// Registers the synthetic `java.util.concurrent.ConcurrentHashMap` surface.
+///
+/// Duke stores entries in the same flat field layout used by synthetic
+/// `HashMap`: `fields[0]` is the size, followed by interleaved key/value
+/// slots. Each instance also receives a coarse host-side mutex in its heap
+/// payload. That is intentionally simpler than `HotSpot`'s striped bins, but it
+/// gives linearizable Duke-visible mutations because the threading runtime
+/// already runs bytecode and callbacks under the shared VM heap lock.
+///
+/// The `keySet`, `values`, and `entrySet` methods return snapshot copies,
+/// matching Duke's synthetic `HashMap` views rather than `HotSpot`'s live views.
+#[allow(clippy::too_many_lines)]
+fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
+    let concurrent_map_ctx = ClassContext {
+        class_name: "java/util/concurrent/ConcurrentMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/Map".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(concurrent_map_ctx);
+
+    let concurrent_hashmap_ctx = ClassContext {
+        class_name: "java/util/concurrent/ConcurrentHashMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/concurrent/ConcurrentMap".to_string(),
+            "java/util/Map".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(concurrent_hashmap_ctx);
+
+    for desc in ["()V", "(I)V", "(IF)V", "(IFI)V"] {
+        registry.natives_mut().register(
+            "java/util/concurrent/ConcurrentHashMap",
+            "<init>",
+            desc,
+            native_concurrent_hashmap_init,
+        );
+    }
+    registry.natives_mut().register(
+        "java/util/concurrent/ConcurrentHashMap",
+        "<init>",
+        "(Ljava/util/Map;)V",
+        native_concurrent_hashmap_init_map,
+    );
+
+    for (method, descriptor, handler) in [
+        (
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_get as NativeHandler,
+        ),
+        (
+            "getOrDefault",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_get_or_default,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_contains_key,
+        ),
+        (
+            "containsValue",
+            "(Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_contains_value,
+        ),
+        ("size", "()I", native_concurrent_hashmap_size),
+        ("isEmpty", "()Z", native_concurrent_hashmap_is_empty),
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_put,
+        ),
+        (
+            "putIfAbsent",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_put_if_absent,
+        ),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_remove,
+        ),
+        (
+            "remove",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_remove_key_value,
+        ),
+        (
+            "replace",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_concurrent_hashmap_replace,
+        ),
+        (
+            "replace",
+            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Z",
+            native_concurrent_hashmap_replace_key_value,
+        ),
+        ("clear", "()V", native_concurrent_hashmap_clear),
+        (
+            "putAll",
+            "(Ljava/util/Map;)V",
+            native_concurrent_hashmap_put_all,
+        ),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_concurrent_hashmap_key_set,
+        ),
+        (
+            "keySet",
+            "()Ljava/util/concurrent/ConcurrentHashMap$KeySetView;",
+            native_concurrent_hashmap_key_set,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_concurrent_hashmap_values,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_concurrent_hashmap_entry_set,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/ConcurrentHashMap",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "computeIfAbsent",
+        "(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;",
+        native_concurrent_hashmap_compute_if_absent,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_concurrent_hashmap_compute_if_present,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "compute",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_concurrent_hashmap_compute,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "merge",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_concurrent_hashmap_merge,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/ConcurrentHashMap",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_concurrent_hashmap_for_each,
+    );
+}
+
 #[allow(clippy::too_many_lines)]
 /// Bootstraps the minimal JDK standard library classes needed for native method support.
 ///
@@ -1083,6 +1664,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/Class;",
         native_object_get_class,
     );
+
+    register_charset_stdlib(registry, heap);
+    register_atomic_stdlib(registry);
+    register_concurrent_hashmap_stdlib(registry);
 
     // java/lang/Class — lightweight stub for class literals
     let class_ctx = ClassContext {

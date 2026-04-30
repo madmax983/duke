@@ -818,7 +818,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn make_reader(data: Vec<u8>, compressed: u64, uncompressed: u64) -> JImageReader {
-        let mut index = HashMap::new();
+        let mut index = HashMap::with_capacity(1);
         index.insert(
             "r".to_string(),
             ResourceInfo {
@@ -906,7 +906,7 @@ mod proptests {
             compressed in any::<u64>(),
             uncompressed in any::<u64>()
         ) {
-            let mut index = HashMap::new();
+            let mut index = HashMap::with_capacity(1);
             index.insert("test".to_string(), ResourceInfo {
                 offset,
                 compressed,
