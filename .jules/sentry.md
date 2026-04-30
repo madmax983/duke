@@ -20,3 +20,6 @@
 ## 2024-05-24 - Testing JImage Parsing Bounds
 **Learning:** JImage parsing edge cases with artificially corrupted files (`0x0001_0000` version tag required) that use `u64::MAX` or out-of-bounds offset metadata effectively verify robust error propagation in `duke_loader::JImageReader::read_resource`, ensuring we catch regressions that could otherwise cause out-of-bounds panics or incorrect bounds checks against raw uncompressed lengths.
 **Action:** Always test metadata parsers using edge-case inputs (e.g. `u64::MAX`, bounds mismatches) to verify format-specific bounds checking fails gracefully rather than panicking on indexing.
+## 2024-05-24 - Testing error paths for print functions
+**Learning:** Using a custom struct that implements `Write` and intentionally returns `io::Error` is a clean way to test the error paths of display or report functions, making sure that errors propagate or get handled instead of just running the happy path.
+**Action:** Implement a `FailingWriter` dummy object for testing formatting and printing APIs.
