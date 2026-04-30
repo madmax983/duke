@@ -178,6 +178,94 @@ fn register_charset_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Hea
     register_string_byte_conversion_natives(registry);
 }
 
+fn register_base64_stdlib(registry: &mut ClassRegistry) {
+    registry.register(empty_synthetic_context(
+        "java/util/Base64",
+        "java/lang/Object",
+    ));
+
+    for class_name in ["java/util/Base64$Encoder", "java/util/Base64$Decoder"] {
+        registry.register(ClassContext {
+            class_name: class_name.to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: vec![FieldEntry {
+                name: "variant".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            }],
+            static_fields: Vec::new(),
+            instance_field_count: 1,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+    }
+
+    for (method, descriptor, handler) in [
+        (
+            "getEncoder",
+            "()Ljava/util/Base64$Encoder;",
+            native_base64_get_encoder as NativeHandler,
+        ),
+        (
+            "getMimeEncoder",
+            "()Ljava/util/Base64$Encoder;",
+            native_base64_get_mime_encoder,
+        ),
+        (
+            "getUrlEncoder",
+            "()Ljava/util/Base64$Encoder;",
+            native_base64_get_url_encoder,
+        ),
+        (
+            "getDecoder",
+            "()Ljava/util/Base64$Decoder;",
+            native_base64_get_decoder,
+        ),
+        (
+            "getMimeDecoder",
+            "()Ljava/util/Base64$Decoder;",
+            native_base64_get_mime_decoder,
+        ),
+        (
+            "getUrlDecoder",
+            "()Ljava/util/Base64$Decoder;",
+            native_base64_get_url_decoder,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/Base64", method, descriptor, handler);
+    }
+
+    registry.natives_mut().register(
+        "java/util/Base64$Encoder",
+        "encodeToString",
+        "([B)Ljava/lang/String;",
+        native_base64_encoder_encode_to_string,
+    );
+    registry.natives_mut().register(
+        "java/util/Base64$Encoder",
+        "encode",
+        "([B)[B",
+        native_base64_encoder_encode,
+    );
+    registry.natives_mut().register(
+        "java/util/Base64$Decoder",
+        "decode",
+        "(Ljava/lang/String;)[B",
+        native_base64_decoder_decode_string,
+    );
+    registry.natives_mut().register(
+        "java/util/Base64$Decoder",
+        "decode",
+        "([B)[B",
+        native_base64_decoder_decode_bytes,
+    );
+}
+
 /// Registers synthetic `java.util.concurrent.atomic` classes.
 ///
 /// `AtomicReference.compareAndSet` is deliberately identity-based: it compares
@@ -1666,6 +1754,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     register_charset_stdlib(registry, heap);
+    register_base64_stdlib(registry);
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
 
