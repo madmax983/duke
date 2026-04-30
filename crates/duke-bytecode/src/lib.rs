@@ -17,7 +17,7 @@ pub(crate) mod error;
 pub(crate) mod instruction;
 pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
-pub mod reachability;
+pub(crate) mod reachability;
 pub(crate) mod verifier;
 
 #[cfg(feature = "nova")]
@@ -29,6 +29,8 @@ pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
 pub use error::{DecodeError, Error, Result, VerifyError};
 pub use instruction::{ArrayType, Instruction};
+#[cfg(feature = "nova")]
+pub use reachability::{find_dead_blocks, find_shortest_path, get_successors};
 pub use verifier::verify;
 
 #[cfg(test)]
