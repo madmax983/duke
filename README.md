@@ -34,4 +34,4 @@ Duke now vendors a hermetic OSS smoke harness under `tests/fixtures/oss-jars/` s
 
 | JAR | Version(s) | Status | Last-tested phase | Notes |
 | --- | --- | --- | --- | --- |
-| `slf4j-simple` | `slf4j-simple-2.0.13` + `slf4j-api-2.0.13` | Blocked (`oss_jar_smoke` future-canary is `#[ignore]`) | `Phase 117` | First discovered gap: `java/lang/System.getSecurityManager()Ljava/lang/SecurityManager;` tracked in [#687](https://github.com/madmax983/duke/issues/687) |
+| `slf4j-simple` | `slf4j-simple-2.0.13` + `slf4j-api-2.0.13` | Blocked (`oss_jar_smoke` future-canary is `#[ignore]`) | `Phase 117` | Progressed past issue [#687](https://github.com/madmax983/duke/issues/687); next discovered gap: `java/security/AccessController` |

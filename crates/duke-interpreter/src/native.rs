@@ -11478,6 +11478,18 @@ pub(crate) fn native_system_get_property_with_default(
     Ok(Some(result))
 }
 
+/// Native: `System.getSecurityManager()SecurityManager` — returns null when no
+/// security manager is installed.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_system_get_security_manager(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(None)))
+}
+
 /// Native: `System.lineSeparator()String` — returns the platform line separator.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_system_line_separator(

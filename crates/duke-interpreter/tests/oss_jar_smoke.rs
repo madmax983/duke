@@ -185,6 +185,7 @@ fn render_smoke_error(err: &Error) -> String {
         Error::MethodNotFound { name, descriptor } => {
             format!("Unsupported native: {name}{descriptor}")
         }
+        Error::ClassNotFound { name } => format!("Missing class: {name}"),
         Error::Unimplemented { mnemonic } => format!("Unimplemented opcode: {mnemonic}"),
         other => format!("{other:?}"),
     }
@@ -233,23 +234,21 @@ fn run_slf4j_simple_smoke() -> SmokeRun {
 }
 
 #[test]
-fn slf4j_simple_smoke_surfaces_first_missing_native_explicitly() {
+fn slf4j_simple_smoke_surfaces_first_missing_capability_explicitly() {
     let smoke = run_slf4j_simple_smoke();
     let err = smoke
         .result
-        .expect_err("slf4j smoke should still hit the first unsupported native");
+        .expect_err("slf4j smoke should still hit the first unsupported capability");
     let rendered = render_smoke_error(&err);
 
     assert!(
-        rendered.contains(
-            "Unsupported native: java/lang/System.getSecurityManager()Ljava/lang/SecurityManager;"
-        ),
-        "expected explicit missing-native diagnostic, got: {rendered}"
+        rendered.contains("Missing class: java/security/AccessController"),
+        "expected explicit missing-capability diagnostic, got: {rendered}"
     );
 }
 
 #[test]
-#[ignore = "Blocked on java/lang/System.getSecurityManager()Ljava/lang/SecurityManager; see issue #687."]
+#[ignore = "Blocked on java/security/AccessController after issue #687."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 

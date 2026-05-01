@@ -3135,6 +3135,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/System",
+        "getSecurityManager",
+        "()Ljava/lang/SecurityManager;",
+        native_system_get_security_manager,
+    );
+    registry.natives_mut().register(
+        "java/lang/System",
         "lineSeparator",
         "()Ljava/lang/String;",
         native_system_line_separator,

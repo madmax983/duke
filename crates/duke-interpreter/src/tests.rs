@@ -7842,6 +7842,14 @@ fn system_identity_hash_code_null() {
     );
 }
 
+#[test]
+fn system_get_security_manager_defaults_to_null() {
+    assert_eq!(
+        run_bootstrap_int("SystemExtTest.class", "testGetSecurityManager", "()I"),
+        1
+    );
+}
+
 // ---- Phase 30: Integer/Long bit ops, Objects, Collections utilities ----
 
 #[test]
