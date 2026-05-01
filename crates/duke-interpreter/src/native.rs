@@ -11635,6 +11635,817 @@ pub(crate) fn native_atomic_boolean_to_string(
     Ok(Some(Slot::Reference(Some(string_ref))))
 }
 
+fn illegal_monitor_state_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalMonitorStateException".to_string(),
+    }
+}
+
+fn unsupported_operation_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/UnsupportedOperationException".to_string(),
+    }
+}
+
+const fn request_native_retry(control: &mut NativeControl) {
+    control.request(NativeThreadAction::Retry);
+}
+
+fn current_host_thread_id() -> std::thread::ThreadId {
+    std::thread::current().id()
+}
+
+fn with_reentrant_lock_state<T>(
+    heap: &mut duke_gc::Heap,
+    this_ref: u64,
+    f: impl FnOnce(&std::sync::Arc<std::sync::Mutex<duke_gc::ReentrantLockState>>) -> Result<T>,
+) -> Result<T> {
+    let obj = heap.get_mut(this_ref)?;
+    if obj.atomic_payload.is_none() {
+        obj.atomic_payload = Some(duke_gc::AtomicPayload::reentrant_lock(false));
+    }
+    match obj.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::ReentrantLock(state)) => f(state),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn condition_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::ConditionState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Condition(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn read_write_lock_state(
+    heap: &mut duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::ReadWriteLockState>>> {
+    let obj = heap.get_mut(this_ref)?;
+    if obj.atomic_payload.is_none() {
+        obj.atomic_payload = Some(duke_gc::AtomicPayload::read_write_lock());
+    }
+    match obj.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::ReadWriteLock(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn read_write_view_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+    expected_kind: duke_gc::ReadWriteLockViewKind,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::ReadWriteLockState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::ReadWriteLockView { state, kind })
+            if *kind == expected_kind =>
+        {
+            Ok(std::sync::Arc::clone(state))
+        }
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn reentrant_lock_is_held_by(
+    state: &duke_gc::ReentrantLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    state.owner == Some(thread_id) && state.hold_count > 0
+}
+
+fn reentrant_lock_try_acquire(
+    state: &mut duke_gc::ReentrantLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    match state.owner {
+        Some(owner) if owner != thread_id => false,
+        Some(_) => {
+            state.hold_count = state.hold_count.saturating_add(1);
+            true
+        }
+        None => {
+            state.owner = Some(thread_id);
+            state.hold_count = 1;
+            true
+        }
+    }
+}
+
+fn reentrant_lock_release(
+    state: &mut duke_gc::ReentrantLockState,
+    thread_id: std::thread::ThreadId,
+) -> Result<()> {
+    if !reentrant_lock_is_held_by(state, thread_id) {
+        return Err(illegal_monitor_state_error());
+    }
+    state.hold_count -= 1;
+    if state.hold_count == 0 {
+        state.owner = None;
+    }
+    Ok(())
+}
+
+pub(crate) fn native_reentrant_lock_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::reentrant_lock(false));
+    Ok(None)
+}
+
+pub(crate) fn native_reentrant_lock_init_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fair = atomic_bool_arg(args, 1)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::reentrant_lock(fair));
+    Ok(None)
+}
+
+pub(crate) fn native_reentrant_lock_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let mut guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !reentrant_lock_try_acquire(&mut guard, thread_id) {
+            request_native_retry(control);
+        }
+        Ok(None)
+    })
+}
+
+pub(crate) fn native_reentrant_lock_try_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let mut guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(reentrant_lock_try_acquire(
+            &mut guard, thread_id,
+        )))))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_unlock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let mut guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reentrant_lock_release(&mut guard, thread_id)?;
+        Ok(None)
+    })
+}
+
+pub(crate) fn native_reentrant_lock_new_condition(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock_state =
+        with_reentrant_lock_state(heap, this_ref, |state| Ok(std::sync::Arc::clone(state)))?;
+    let condition_ref = heap.allocate("duke/util/concurrent/ConditionObject".to_string(), 0);
+    heap.get_mut(condition_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::condition(lock_state));
+    Ok(Some(Slot::Reference(Some(condition_ref))))
+}
+
+pub(crate) fn native_reentrant_lock_get_hold_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let hold_count = if guard.owner == Some(thread_id) {
+            guard.hold_count
+        } else {
+            0
+        };
+        Ok(Some(Slot::Int(hold_count)))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_is_held_by_current_thread(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(reentrant_lock_is_held_by(
+            &guard, thread_id,
+        )))))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_is_locked(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(
+            guard.owner.is_some() && guard.hold_count > 0,
+        ))))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_is_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(guard.fair))))
+    })
+}
+
+fn condition_await_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    control: &mut NativeControl,
+    timeout_nanos: Option<i64>,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let condition = condition_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let mut condition_guard = condition
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let lock_state = std::sync::Arc::clone(&condition_guard.lock);
+    let mut lock_guard = lock_state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if let Some(waiter_idx) = condition_guard
+        .waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        let waiter = &mut condition_guard.waiters[waiter_idx];
+        if !waiter.signaled && waiter.deadline.is_some_and(|deadline| now >= deadline) {
+            waiter.signaled = true;
+            waiter.timed_out = true;
+        }
+        if !waiter.signaled {
+            drop(lock_guard);
+            drop(condition_guard);
+            request_native_retry(control);
+            return Ok(None);
+        }
+
+        let released_hold_count = waiter.released_hold_count.max(1);
+        let timed_out = waiter.timed_out;
+        let deadline = waiter.deadline;
+        if reentrant_lock_try_acquire(&mut lock_guard, thread_id) {
+            lock_guard.hold_count = released_hold_count;
+            condition_guard.waiters.remove(waiter_idx);
+            let result = timeout_nanos.map(|_| {
+                let remaining = if timed_out {
+                    0
+                } else {
+                    deadline.map_or(0, |deadline| {
+                        i64::try_from(deadline.saturating_duration_since(now).as_nanos())
+                            .unwrap_or(i64::MAX)
+                    })
+                };
+                Slot::Long(remaining)
+            });
+            drop(lock_guard);
+            drop(condition_guard);
+            return Ok(result);
+        }
+
+        drop(lock_guard);
+        drop(condition_guard);
+        request_native_retry(control);
+        return Ok(None);
+    }
+
+    if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
+        drop(lock_guard);
+        drop(condition_guard);
+        return Err(illegal_monitor_state_error());
+    }
+
+    let released_hold_count = lock_guard.hold_count;
+    lock_guard.owner = None;
+    lock_guard.hold_count = 0;
+    drop(lock_guard);
+
+    let deadline = timeout_nanos.and_then(|nanos| {
+        u64::try_from(nanos.max(0))
+            .ok()
+            .and_then(|nanos| now.checked_add(std::time::Duration::from_nanos(nanos)))
+    });
+    let immediate_timeout = timeout_nanos.is_some_and(|nanos| nanos <= 0);
+    condition_guard.waiters.push(duke_gc::ConditionWaiter {
+        thread_id,
+        released_hold_count,
+        signaled: immediate_timeout,
+        deadline,
+        timed_out: immediate_timeout,
+    });
+    drop(condition_guard);
+    request_native_retry(control);
+    Ok(None)
+}
+
+pub(crate) fn native_condition_await(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    condition_await_common(args, heap, control, None)
+}
+
+pub(crate) fn native_condition_await_nanos(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let nanos = extract_long_arg(args, 1)?;
+    condition_await_common(args, heap, control, Some(nanos))
+}
+
+pub(crate) fn native_condition_signal(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let condition = condition_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let mut condition_guard = condition
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let lock_state = std::sync::Arc::clone(&condition_guard.lock);
+    let lock_guard = lock_state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
+        return Err(illegal_monitor_state_error());
+    }
+    drop(lock_guard);
+    if let Some(waiter) = condition_guard
+        .waiters
+        .iter_mut()
+        .find(|waiter| !waiter.signaled)
+    {
+        waiter.signaled = true;
+        waiter.timed_out = false;
+    }
+    drop(condition_guard);
+    Ok(None)
+}
+
+pub(crate) fn native_condition_signal_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let condition = condition_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let mut condition_guard = condition
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let lock_state = std::sync::Arc::clone(&condition_guard.lock);
+    let lock_guard = lock_state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
+        return Err(illegal_monitor_state_error());
+    }
+    drop(lock_guard);
+    for waiter in &mut condition_guard.waiters {
+        waiter.signaled = true;
+        waiter.timed_out = false;
+    }
+    drop(condition_guard);
+    Ok(None)
+}
+
+fn allocate_read_write_view(
+    heap: &mut duke_gc::Heap,
+    state: std::sync::Arc<std::sync::Mutex<duke_gc::ReadWriteLockState>>,
+    class_name: &str,
+    kind: duke_gc::ReadWriteLockViewKind,
+) -> Result<Slot> {
+    let view_ref = heap.allocate(class_name.to_string(), 0);
+    heap.get_mut(view_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::read_write_lock_view(state, kind));
+    Ok(Slot::Reference(Some(view_ref)))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = std::sync::Arc::new(std::sync::Mutex::new(
+        duke_gc::ReadWriteLockState::default(),
+    ));
+    let read_lock = allocate_read_write_view(
+        heap,
+        std::sync::Arc::clone(&state),
+        "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock",
+        duke_gc::ReadWriteLockViewKind::Read,
+    )?;
+    let write_lock = allocate_read_write_view(
+        heap,
+        std::sync::Arc::clone(&state),
+        "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock",
+        duke_gc::ReadWriteLockViewKind::Write,
+    )?;
+    let should_remember = {
+        let this = heap.get_mut(this_ref)?;
+        this.atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        if this.fields.len() >= 2 {
+            this.fields[0] = read_lock;
+            this.fields[1] = write_lock;
+            true
+        } else {
+            false
+        }
+    };
+    if should_remember {
+        heap.remember_reference_write(this_ref, read_lock);
+        heap.remember_reference_write(this_ref, write_lock);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_reentrant_read_write_lock_read_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = extract_field_arg(heap, this_ref, 0)?;
+    if matches!(slot, Slot::Reference(Some(_))) {
+        return Ok(Some(slot));
+    }
+    let state = read_write_lock_state(heap, this_ref)?;
+    let slot = allocate_read_write_view(
+        heap,
+        state,
+        "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock",
+        duke_gc::ReadWriteLockViewKind::Read,
+    )?;
+    let should_remember = {
+        let this = heap.get_mut(this_ref)?;
+        if this.fields.is_empty() {
+            false
+        } else {
+            this.fields[0] = slot;
+            true
+        }
+    };
+    if should_remember {
+        heap.remember_reference_write(this_ref, slot);
+    }
+    Ok(Some(slot))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_write_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = extract_field_arg(heap, this_ref, 1)?;
+    if matches!(slot, Slot::Reference(Some(_))) {
+        return Ok(Some(slot));
+    }
+    let state = read_write_lock_state(heap, this_ref)?;
+    let slot = allocate_read_write_view(
+        heap,
+        state,
+        "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock",
+        duke_gc::ReadWriteLockViewKind::Write,
+    )?;
+    let should_remember = {
+        let this = heap.get_mut(this_ref)?;
+        if this.fields.len() > 1 {
+            this.fields[1] = slot;
+            true
+        } else {
+            false
+        }
+    };
+    if should_remember {
+        heap.remember_reference_write(this_ref, slot);
+    }
+    Ok(Some(slot))
+}
+
+fn read_lock_try_acquire(
+    state: &mut duke_gc::ReadWriteLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    if state.writer.is_some_and(|writer| writer != thread_id) {
+        return false;
+    }
+    let count = state.readers.entry(thread_id).or_insert(0);
+    *count = count.saturating_add(1);
+    true
+}
+
+fn write_lock_try_acquire(
+    state: &mut duke_gc::ReadWriteLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    if state.writer == Some(thread_id) {
+        state.write_hold_count = state.write_hold_count.saturating_add(1);
+        return true;
+    }
+    if state.writer.is_some() || !state.readers.is_empty() {
+        return false;
+    }
+    state.writer = Some(thread_id);
+    state.write_hold_count = 1;
+    true
+}
+
+pub(crate) fn native_read_lock_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !read_lock_try_acquire(&mut guard, thread_id) {
+        request_native_retry(control);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_read_lock_try_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(read_lock_try_acquire(
+        &mut guard, thread_id,
+    )))))
+}
+
+pub(crate) fn native_read_lock_unlock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(count) = guard.readers.get_mut(&thread_id) else {
+        return Err(illegal_monitor_state_error());
+    };
+    *count -= 1;
+    if *count == 0 {
+        guard.readers.remove(&thread_id);
+    }
+    drop(guard);
+    Ok(None)
+}
+
+pub(crate) fn native_read_lock_new_condition(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Err(unsupported_operation_error())
+}
+
+pub(crate) fn native_write_lock_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !write_lock_try_acquire(&mut guard, thread_id) {
+        request_native_retry(control);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_write_lock_try_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(write_lock_try_acquire(
+        &mut guard, thread_id,
+    )))))
+}
+
+pub(crate) fn native_write_lock_unlock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.writer != Some(thread_id) || guard.write_hold_count <= 0 {
+        return Err(illegal_monitor_state_error());
+    }
+    guard.write_hold_count -= 1;
+    if guard.write_hold_count == 0 {
+        guard.writer = None;
+    }
+    drop(guard);
+    Ok(None)
+}
+
+pub(crate) fn native_write_lock_new_condition(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Err(unsupported_operation_error())
+}
+
+pub(crate) fn native_reentrant_read_write_lock_is_write_locked(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(guard.writer.is_some()))))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_is_write_locked_by_current_thread(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(guard.writer == Some(thread_id)))))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_get_write_hold_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let count = if guard.writer == Some(thread_id) {
+        guard.write_hold_count
+    } else {
+        0
+    };
+    Ok(Some(Slot::Int(count)))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_get_read_hold_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(
+        guard.readers.get(&thread_id).copied().unwrap_or_default(),
+    )))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_get_read_lock_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let count = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .readers
+        .values()
+        .copied()
+        .sum();
+    Ok(Some(Slot::Int(count)))
+}
+
 /// Native: `String.substring(int)` - substring from begin to end.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub(crate) fn native_string_substring(
@@ -15614,8 +16425,10 @@ pub fn execute(
                 frame.pop()?;
             }
             Instruction::Pop2 => {
-                frame.pop()?;
-                frame.pop()?;
+                let value = frame.pop()?;
+                if !matches!(value, Slot::Long(_) | Slot::Double(_)) {
+                    frame.pop()?;
+                }
             }
             Instruction::Dup => {
                 let v = frame.pop()?;
@@ -17180,12 +17993,22 @@ fn finish_native_call(
     frame: &mut Frame,
     idx: &mut usize,
     result: Option<Slot>,
+    retry_args: &[Slot],
 ) -> Result<Option<ExecutionOutcome>> {
+    let action = native_control.take();
+    if matches!(action, Some(NativeThreadAction::Retry)) {
+        for slot in retry_args {
+            frame.push(*slot)?;
+        }
+        return Ok(Some(ExecutionOutcome::ThreadAction(
+            NativeThreadAction::Retry,
+        )));
+    }
     if let Some(val) = result {
         frame.push(val)?;
     }
     *idx += 1;
-    if let Some(action) = native_control.take() {
+    if let Some(action) = action {
         return Ok(Some(ExecutionOutcome::ThreadAction(action)));
     }
     Ok(None)
@@ -17677,6 +18500,10 @@ fn handle_thread_action(
             Ok(())
         }
         NativeThreadAction::Join { thread_id } => join_java_thread(runtime, thread_id),
+        NativeThreadAction::Retry => {
+            std::thread::sleep(std::time::Duration::from_micros(1));
+            Ok(())
+        }
     }
 }
 
@@ -25695,7 +26522,11 @@ fn concurrent_hashmap_lock(
             duke_gc::AtomicPayload::Int(_)
             | duke_gc::AtomicPayload::Long(_)
             | duke_gc::AtomicPayload::Bool(_)
-            | duke_gc::AtomicPayload::Reference(_) => Err(Error::TypeMismatch {
+            | duke_gc::AtomicPayload::Reference(_)
+            | duke_gc::AtomicPayload::ReentrantLock(_)
+            | duke_gc::AtomicPayload::Condition(_)
+            | duke_gc::AtomicPayload::ReadWriteLock(_)
+            | duke_gc::AtomicPayload::ReadWriteLockView { .. } => Err(Error::TypeMismatch {
                 expected: "concurrent map lock",
                 got: "other",
             }),
