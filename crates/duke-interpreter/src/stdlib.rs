@@ -11858,6 +11858,60 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     // ---- Phase 62: java.time ----
+    registry.register(empty_synthetic_context(
+        "java/time/DateTimeException",
+        "java/lang/RuntimeException",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/time/format/DateTimeParseException",
+        "java/time/DateTimeException",
+    ));
+
+    let iso_instant_formatter_ref =
+        heap.allocate("java/time/format/DateTimeFormatter".to_string(), 0);
+    if let Ok(formatter) = heap.get_mut(iso_instant_formatter_ref) {
+        formatter.string_value = Some("ISO_INSTANT".to_string());
+    }
+    let iso_local_date_formatter_ref =
+        heap.allocate("java/time/format/DateTimeFormatter".to_string(), 0);
+    if let Ok(formatter) = heap.get_mut(iso_local_date_formatter_ref) {
+        formatter.string_value = Some("ISO_LOCAL_DATE".to_string());
+    }
+    let iso_local_date_time_formatter_ref =
+        heap.allocate("java/time/format/DateTimeFormatter".to_string(), 0);
+    if let Ok(formatter) = heap.get_mut(iso_local_date_time_formatter_ref) {
+        formatter.string_value = Some("ISO_LOCAL_DATE_TIME".to_string());
+    }
+    let date_time_formatter_ctx = ClassContext {
+        class_name: "java/time/format/DateTimeFormatter".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("ISO_INSTANT", "Ljava/time/format/DateTimeFormatter;", true),
+            synthetic_field(
+                "ISO_LOCAL_DATE",
+                "Ljava/time/format/DateTimeFormatter;",
+                true,
+            ),
+            synthetic_field(
+                "ISO_LOCAL_DATE_TIME",
+                "Ljava/time/format/DateTimeFormatter;",
+                true,
+            ),
+        ],
+        static_fields: vec![
+            Slot::Reference(Some(iso_instant_formatter_ref)),
+            Slot::Reference(Some(iso_local_date_formatter_ref)),
+            Slot::Reference(Some(iso_local_date_time_formatter_ref)),
+        ],
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(date_time_formatter_ctx);
+
     let localdate_ctx = ClassContext {
         class_name: "java/time/LocalDate".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -11956,6 +12010,54 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_localdate_to_string,
     );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "minusMonths",
+        "(J)Ljava/time/LocalDate;",
+        native_localdate_minus_months,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "withYear",
+        "(I)Ljava/time/LocalDate;",
+        native_localdate_with_year,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "parse",
+        "(Ljava/lang/CharSequence;)Ljava/time/LocalDate;",
+        native_localdate_parse,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "parse",
+        "(Ljava/lang/CharSequence;Ljava/time/format/DateTimeFormatter;)Ljava/time/LocalDate;",
+        native_localdate_parse_with_formatter,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "compareTo",
+        "(Ljava/time/chrono/ChronoLocalDate;)I",
+        native_localdate_compare_to,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_localdate_compare_to_object,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        native_localdate_equals,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDate",
+        "hashCode",
+        "()I",
+        native_localdate_hash_code,
+    );
 
     let duration_ctx = ClassContext {
         class_name: "java/time/Duration".to_string(),
@@ -12048,6 +12150,66 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "isZero",
         "()Z",
         native_duration_is_zero,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "ofMillis",
+        "(J)Ljava/time/Duration;",
+        native_duration_of_millis,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "ofNanos",
+        "(J)Ljava/time/Duration;",
+        native_duration_of_nanos,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "between",
+        "(Ljava/time/temporal/Temporal;Ljava/time/temporal/Temporal;)Ljava/time/Duration;",
+        native_duration_between,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "toMillis",
+        "()J",
+        native_duration_to_millis,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "toNanos",
+        "()J",
+        native_duration_to_nanos,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "negated",
+        "()Ljava/time/Duration;",
+        native_duration_negated,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "compareTo",
+        "(Ljava/time/Duration;)I",
+        native_duration_compare_to,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_duration_compare_to_object,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        native_duration_equals,
+    );
+    registry.natives_mut().register(
+        "java/time/Duration",
+        "hashCode",
+        "()I",
+        native_duration_hash_code,
     );
 
     let period_ctx = ClassContext {
@@ -12163,6 +12325,78 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/time/Instant;)Z",
         native_instant_is_after,
     );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "ofEpochSecond",
+        "(JJ)Ljava/time/Instant;",
+        native_instant_of_epoch_second_nanos,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "getNano",
+        "()I",
+        native_instant_get_nano,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "now",
+        "()Ljava/time/Instant;",
+        native_instant_now,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "plusSeconds",
+        "(J)Ljava/time/Instant;",
+        native_instant_plus_seconds,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "plusNanos",
+        "(J)Ljava/time/Instant;",
+        native_instant_plus_nanos,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "minusMillis",
+        "(J)Ljava/time/Instant;",
+        native_instant_minus_millis,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "parse",
+        "(Ljava/lang/CharSequence;)Ljava/time/Instant;",
+        native_instant_parse,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "toString",
+        "()Ljava/lang/String;",
+        native_instant_to_string,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "compareTo",
+        "(Ljava/time/Instant;)I",
+        native_instant_compare_to,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_instant_compare_to_object,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        native_instant_equals,
+    );
+    registry.natives_mut().register(
+        "java/time/Instant",
+        "hashCode",
+        "()I",
+        native_instant_hash_code,
+    );
 
     // ---- Phase 63: java.time.LocalDateTime ----
     let localdatetime_ctx = ClassContext {
@@ -12274,6 +12508,48 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "withHour",
         "(I)Ljava/time/LocalDateTime;",
         native_localdatetime_with_hour,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "plusHours",
+        "(J)Ljava/time/LocalDateTime;",
+        native_localdatetime_plus_hours,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "parse",
+        "(Ljava/lang/CharSequence;)Ljava/time/LocalDateTime;",
+        native_localdatetime_parse,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "parse",
+        "(Ljava/lang/CharSequence;Ljava/time/format/DateTimeFormatter;)Ljava/time/LocalDateTime;",
+        native_localdatetime_parse_with_formatter,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "compareTo",
+        "(Ljava/time/chrono/ChronoLocalDateTime;)I",
+        native_localdatetime_compare_to,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "compareTo",
+        "(Ljava/lang/Object;)I",
+        native_localdatetime_compare_to_object,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "equals",
+        "(Ljava/lang/Object;)Z",
+        native_localdatetime_equals,
+    );
+    registry.natives_mut().register(
+        "java/time/LocalDateTime",
+        "hashCode",
+        "()I",
+        native_localdatetime_hash_code,
     );
 
     // Phase 64 additions

@@ -27826,6 +27826,85 @@ fn test_localdatetime_now() {
     );
 }
 
+macro_rules! java_time_basic_int_test {
+    ($name:ident, $method:literal) => {
+        #[test]
+        fn $name() {
+            assert_eq!(
+                run_bootstrap_int_completion("JavaTimeBasicTest.class", $method, "()I"),
+                1
+            );
+        }
+    };
+}
+
+// ---- Issue 658: richer java.time surface ----
+java_time_basic_int_test!(
+    java_time_instant_epoch_second_and_nano,
+    "instantEpochSecondAndNano"
+);
+java_time_basic_int_test!(
+    java_time_instant_arithmetic_is_immutable,
+    "instantArithmeticIsImmutable"
+);
+java_time_basic_int_test!(java_time_instant_parse_round_trip, "instantParseRoundTrip");
+java_time_basic_int_test!(
+    java_time_instant_now_within_system_millis_window,
+    "instantNowWithinSystemMillisWindow"
+);
+java_time_basic_int_test!(
+    java_time_instant_compare_equals_hash_code,
+    "instantCompareEqualsHashCode"
+);
+java_time_basic_int_test!(
+    java_time_duration_factories_and_accessors,
+    "durationFactoriesAndAccessors"
+);
+java_time_basic_int_test!(
+    java_time_duration_between_instants,
+    "durationBetweenInstants"
+);
+java_time_basic_int_test!(
+    java_time_duration_arithmetic_is_immutable,
+    "durationArithmeticIsImmutable"
+);
+java_time_basic_int_test!(
+    java_time_duration_compare_equals_hash_code,
+    "durationCompareEqualsHashCode"
+);
+java_time_basic_int_test!(
+    java_time_local_date_arithmetic_is_immutable,
+    "localDateArithmeticIsImmutable"
+);
+java_time_basic_int_test!(
+    java_time_local_date_parse_round_trip,
+    "localDateParseRoundTrip"
+);
+java_time_basic_int_test!(
+    java_time_local_date_compare_equals_hash_code,
+    "localDateCompareEqualsHashCode"
+);
+java_time_basic_int_test!(
+    java_time_local_date_time_arithmetic_is_immutable,
+    "localDateTimeArithmeticIsImmutable"
+);
+java_time_basic_int_test!(
+    java_time_local_date_time_parse_round_trip,
+    "localDateTimeParseRoundTrip"
+);
+java_time_basic_int_test!(
+    java_time_local_date_time_compare_equals_hash_code,
+    "localDateTimeCompareEqualsHashCode"
+);
+java_time_basic_int_test!(
+    java_time_formatter_statics_resolve,
+    "dateTimeFormatterStaticsResolve"
+);
+java_time_basic_int_test!(
+    java_time_malformed_parse_raises_date_time_parse_exception,
+    "malformedParseRaisesDateTimeParseException"
+);
+
 // Phase 64: String.indent, StringBuilder.setCharAt, Collections.disjoint, HashMap.computeIfPresent
 #[test]
 fn test_string_indent_positive() {
