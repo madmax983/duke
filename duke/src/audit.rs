@@ -59,8 +59,8 @@ fn resolve_method_ref(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<(S
         CpEntry::Methodref {
             class_index,
             name_and_type_index,
-        } => (*class_index, *name_and_type_index),
-        CpEntry::InterfaceMethodref {
+        }
+        | CpEntry::InterfaceMethodref {
             class_index,
             name_and_type_index,
         } => (*class_index, *name_and_type_index),
@@ -128,21 +128,15 @@ pub fn dump_jar_audit(jar_path: &str) {
                                             if target_class == "java/lang/System"
                                                 && target_method == "exit"
                                             {
-                                                findings.push(format!(
-                                                    "  [!] System.exit() called in {} @ {}",
-                                                    full_name, pc
-                                                ));
+                                                findings.push(format!("  [!] System.exit() called in {full_name} @ {pc}"));
                                             } else if target_class == "java/lang/Runtime"
                                                 && target_method == "exec"
                                             {
-                                                findings.push(format!(
-                                                    "  [!] Runtime.exec() called in {} @ {}",
-                                                    full_name, pc
-                                                ));
+                                                findings.push(format!("  [!] Runtime.exec() called in {full_name} @ {pc}"));
                                             } else if target_class == "java/lang/reflect/Method"
                                                 && target_method == "invoke"
                                             {
-                                                findings.push(format!("  [!] Method.invoke() (Reflection) used in {} @ {}", full_name, pc));
+                                                findings.push(format!("  [!] Method.invoke() (Reflection) used in {full_name} @ {pc}"));
                                             }
                                         }
                                     }
@@ -166,7 +160,7 @@ pub fn dump_jar_audit(jar_path: &str) {
     } else {
         println!("🚨 Dangerous API usages found:");
         for finding in findings {
-            println!("{}", finding);
+            println!("{finding}");
         }
     }
 }

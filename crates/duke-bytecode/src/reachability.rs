@@ -39,8 +39,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
     clippy::cast_possible_truncation
 )]
 #[must_use]
+/// Optimization: Pre-allocate capacity of 2 since branch targets and fallthroughs max out at two.
+/// Reduces dynamic reallocation overhead during CFG construction.
 pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
-    let mut successors = Vec::new();
+    let mut successors = Vec::with_capacity(2);
     if let Some((last_pc, last_instr)) = block.instructions.last() {
         let next_block_id = block.end_pc;
         if last_instr.is_return() {
