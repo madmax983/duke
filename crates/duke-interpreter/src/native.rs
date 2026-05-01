@@ -3819,6 +3819,24 @@ pub(crate) fn native_throwable_init_string_cause(
     Ok(None)
 }
 
+/// Native: `Throwable.<init>(Throwable)V` - stores only the cause.
+pub(crate) fn native_throwable_init_cause(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    if let Some(&cause_slot) = args.get(1)
+        && let Ok(obj) = heap.get_mut(this_ref)
+        && !obj.fields.is_empty()
+    {
+        obj.fields[THROWABLE_CAUSE_FIELD] = cause_slot;
+    }
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
+    Ok(None)
+}
+
 /// Native: `Throwable.getCause()Throwable` — returns the stored cause.
 #[allow(clippy::unnecessary_wraps)]
 /// Native: `Throwable.fillInStackTrace()Throwable`.
@@ -11038,6 +11056,491 @@ pub(crate) fn native_thread_sleep(
         millis,
     )));
     Ok(None)
+}
+
+const EXECUTOR_SHUTDOWN_FIELD: usize = 0;
+const EXECUTOR_AWAIT_DEADLINE_FIELD: usize = 1;
+
+const FUTURE_STATE_FIELD: usize = 0;
+const FUTURE_RESULT_FIELD: usize = 1;
+const FUTURE_EXCEPTION_FIELD: usize = 2;
+const FUTURE_WAIT_DEADLINE_FIELD: usize = 3;
+const FUTURE_TASK_FIELD: usize = 4;
+
+const FUTURE_PENDING: i32 = 0;
+const FUTURE_RUNNING: i32 = 1;
+const FUTURE_DONE: i32 = 2;
+const FUTURE_CANCELLED: i32 = 3;
+const FUTURE_FAILED: i32 = 4;
+
+const TIMEUNIT_NANOS_FIELD: usize = 2;
+
+fn executor_shared(
+    heap: &duke_gc::Heap,
+    executor_ref: u64,
+) -> Result<std::sync::Arc<duke_gc::ExecutorShared>> {
+    match heap.get(executor_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Executor(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(executor_ref)),
+    }
+}
+
+fn allocate_executor(heap: &mut duke_gc::Heap, max_workers: usize) -> Result<Slot> {
+    let executor_ref = heap.allocate("duke/util/concurrent/DukeExecutorService".to_string(), 2);
+    {
+        let executor = heap.get_mut(executor_ref)?;
+        executor.fields[EXECUTOR_SHUTDOWN_FIELD] = Slot::Int(0);
+        executor.fields[EXECUTOR_AWAIT_DEADLINE_FIELD] = Slot::Long(0);
+        executor.atomic_payload = Some(duke_gc::AtomicPayload::executor(max_workers));
+    }
+    Ok(Slot::Reference(Some(executor_ref)))
+}
+
+pub(crate) fn native_executors_new_fixed_thread_pool(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let count = extract_int_arg(args, 0)?;
+    if count <= 0 {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IllegalArgumentException".to_string(),
+        });
+    }
+    Ok(Some(allocate_executor(
+        heap,
+        usize::try_from(count).unwrap_or(1),
+    )?))
+}
+
+pub(crate) fn native_executors_new_single_thread_executor(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(allocate_executor(heap, 1)?))
+}
+
+pub(crate) fn native_executors_new_cached_thread_pool(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(allocate_executor(heap, 64)?))
+}
+
+fn init_future(
+    heap: &mut duke_gc::Heap,
+    result: Slot,
+    task: Slot,
+) -> Result<u64> {
+    let future_ref = heap.allocate("duke/util/concurrent/DukeFuture".to_string(), 5);
+    {
+        let future = heap.get_mut(future_ref)?;
+        future.fields[FUTURE_STATE_FIELD] = Slot::Int(FUTURE_PENDING);
+        future.fields[FUTURE_RESULT_FIELD] = result;
+        future.fields[FUTURE_EXCEPTION_FIELD] = Slot::Reference(None);
+        future.fields[FUTURE_WAIT_DEADLINE_FIELD] = Slot::Long(0);
+        future.fields[FUTURE_TASK_FIELD] = task;
+    }
+    heap.remember_reference_write(future_ref, result);
+    heap.remember_reference_write(future_ref, task);
+    Ok(future_ref)
+}
+
+fn executor_submit_common(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    control: &mut NativeControl,
+    kind: duke_gc::ExecutorTaskKind,
+    preset_result: Slot,
+) -> Result<u64> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    let task_ref = extract_ref_arg(args, 1)?;
+    let executor = executor_shared(heap, executor_ref)?;
+    let is_shutdown = {
+        let guard = executor
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.shutdown
+    };
+    if is_shutdown {
+        return Err(Error::JavaException {
+            class_name: "java/util/concurrent/RejectedExecutionException".to_string(),
+        });
+    }
+
+    let future_ref = init_future(
+        heap,
+        preset_result,
+        Slot::Reference(Some(task_ref)),
+    )?;
+    control.request(NativeThreadAction::ExecutorSubmit {
+        executor_ref,
+        future_ref,
+        task_ref,
+        kind,
+    });
+    Ok(future_ref)
+}
+
+pub(crate) fn native_executor_submit_runnable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Runnable,
+        Slot::Reference(None),
+    )?;
+    Ok(Some(Slot::Reference(Some(future_ref))))
+}
+
+pub(crate) fn native_executor_submit_runnable_result(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let result = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Runnable,
+        result,
+    )?;
+    Ok(Some(Slot::Reference(Some(future_ref))))
+}
+
+pub(crate) fn native_executor_submit_callable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Callable,
+        Slot::Reference(None),
+    )?;
+    Ok(Some(Slot::Reference(Some(future_ref))))
+}
+
+pub(crate) fn native_executor_execute(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let _future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Runnable,
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_executor_shutdown(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    let executor = executor_shared(heap, executor_ref)?;
+    {
+        let mut guard = executor
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.shutdown = true;
+        guard.refresh_terminated();
+    }
+    executor.available.notify_all();
+    heap.write_field(executor_ref, EXECUTOR_SHUTDOWN_FIELD, Slot::Int(1))?;
+    Ok(None)
+}
+
+fn executor_is_shutdown(heap: &duke_gc::Heap, executor_ref: u64) -> Result<bool> {
+    let executor = executor_shared(heap, executor_ref)?;
+    let guard = executor
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(guard.shutdown)
+}
+
+pub(crate) fn native_executor_is_shutdown(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(executor_is_shutdown(
+        heap,
+        executor_ref,
+    )?))))
+}
+
+fn executor_is_terminated(heap: &duke_gc::Heap, executor_ref: u64) -> Result<bool> {
+    let executor = executor_shared(heap, executor_ref)?;
+    let mut guard = executor
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.refresh_terminated();
+    Ok(guard.terminated)
+}
+
+pub(crate) fn native_executor_is_terminated(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(executor_is_terminated(
+        heap,
+        executor_ref,
+    )?))))
+}
+
+fn timeunit_nanos_per_unit(heap: &duke_gc::Heap, unit_ref: u64) -> Result<i64> {
+    match heap.get(unit_ref)?.fields.get(TIMEUNIT_NANOS_FIELD) {
+        Some(Slot::Long(nanos)) => Ok(*nanos),
+        _ => Err(Error::TypeMismatch {
+            expected: "TimeUnit",
+            got: "other",
+        }),
+    }
+}
+
+fn saturating_mul_i64(lhs: i64, rhs: i64) -> i64 {
+    let value = i128::from(lhs).saturating_mul(i128::from(rhs));
+    let clamped = value.clamp(i128::from(i64::MIN), i128::from(i64::MAX));
+    match i64::try_from(clamped) {
+        Ok(value) => value,
+        Err(_) if clamped < 0 => i64::MIN,
+        Err(_) => i64::MAX,
+    }
+}
+
+fn timeout_nanos(timeout: i64, unit_ref: u64, heap: &duke_gc::Heap) -> Result<i64> {
+    Ok(saturating_mul_i64(
+        timeout.max(0),
+        timeunit_nanos_per_unit(heap, unit_ref)?,
+    ))
+}
+
+pub(crate) fn native_timeunit_to_nanos(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let unit_ref = extract_ref_arg(args, 0)?;
+    let value = extract_long_arg(args, 1)?;
+    Ok(Some(Slot::Long(saturating_mul_i64(
+        value,
+        timeunit_nanos_per_unit(heap, unit_ref)?,
+    ))))
+}
+
+pub(crate) fn native_timeunit_to_millis(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let unit_ref = extract_ref_arg(args, 0)?;
+    let value = extract_long_arg(args, 1)?;
+    Ok(Some(Slot::Long(
+        saturating_mul_i64(value, timeunit_nanos_per_unit(heap, unit_ref)?) / 1_000_000,
+    )))
+}
+
+pub(crate) fn native_executor_await_termination(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    if executor_is_terminated(heap, executor_ref)? {
+        heap.write_field(executor_ref, EXECUTOR_AWAIT_DEADLINE_FIELD, Slot::Long(0))?;
+        return Ok(Some(Slot::Int(1)));
+    }
+
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    if nanos <= 0 {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    let now = monotonic_nano_time_now();
+    let deadline = match extract_field_arg(heap, executor_ref, EXECUTOR_AWAIT_DEADLINE_FIELD)? {
+        Slot::Long(value) if value > 0 => value,
+        _ => {
+            let deadline = now.saturating_add(nanos);
+            heap.write_field(
+                executor_ref,
+                EXECUTOR_AWAIT_DEADLINE_FIELD,
+                Slot::Long(deadline),
+            )?;
+            deadline
+        }
+    };
+    if now >= deadline {
+        heap.write_field(executor_ref, EXECUTOR_AWAIT_DEADLINE_FIELD, Slot::Long(0))?;
+        return Ok(Some(Slot::Int(0)));
+    }
+    request_native_retry(control);
+    Ok(None)
+}
+
+fn future_state(heap: &duke_gc::Heap, future_ref: u64) -> Result<i32> {
+    match heap.get(future_ref)?.fields.get(FUTURE_STATE_FIELD) {
+        Some(Slot::Int(state)) => Ok(*state),
+        _ => Ok(FUTURE_PENDING),
+    }
+}
+
+pub(crate) fn native_future_cancel(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    if future_state(heap, future_ref)? == FUTURE_PENDING {
+        heap.write_field(future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_CANCELLED))?;
+        return Ok(Some(Slot::Int(1)));
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+pub(crate) fn native_future_is_cancelled(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(
+        future_state(heap, future_ref)? == FUTURE_CANCELLED,
+    ))))
+}
+
+pub(crate) fn native_future_is_done(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(matches!(
+        future_state(heap, future_ref)?,
+        FUTURE_DONE | FUTURE_CANCELLED | FUTURE_FAILED
+    )))))
+}
+
+fn future_get_common(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    control: &mut NativeControl,
+    timeout: Option<i64>,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    match future_state(heap, future_ref)? {
+        FUTURE_DONE => {
+            heap.write_field(future_ref, FUTURE_WAIT_DEADLINE_FIELD, Slot::Long(0))?;
+            Ok(Some(extract_field_arg(heap, future_ref, FUTURE_RESULT_FIELD)?))
+        }
+        FUTURE_CANCELLED => Err(Error::JavaException {
+            class_name: "java/util/concurrent/CancellationException".to_string(),
+        }),
+        FUTURE_FAILED => {
+            let cause = extract_field_arg(heap, future_ref, FUTURE_EXCEPTION_FIELD)?;
+            push_pending_java_exception_cause("java/util/concurrent/ExecutionException", cause);
+            Err(Error::JavaException {
+                class_name: "java/util/concurrent/ExecutionException".to_string(),
+            })
+        }
+        FUTURE_PENDING | FUTURE_RUNNING => {
+            if let Some(nanos) = timeout {
+                if nanos <= 0 {
+                    return Err(Error::JavaException {
+                        class_name: "java/util/concurrent/TimeoutException".to_string(),
+                    });
+                }
+                let now = monotonic_nano_time_now();
+                let deadline = match extract_field_arg(heap, future_ref, FUTURE_WAIT_DEADLINE_FIELD)?
+                {
+                    Slot::Long(value) if value > 0 => value,
+                    _ => {
+                        let deadline = now.saturating_add(nanos);
+                        heap.write_field(
+                            future_ref,
+                            FUTURE_WAIT_DEADLINE_FIELD,
+                            Slot::Long(deadline),
+                        )?;
+                        deadline
+                    }
+                };
+                if now >= deadline {
+                    heap.write_field(future_ref, FUTURE_WAIT_DEADLINE_FIELD, Slot::Long(0))?;
+                    return Err(Error::JavaException {
+                        class_name: "java/util/concurrent/TimeoutException".to_string(),
+                    });
+                }
+            }
+            request_native_retry(control);
+            Ok(None)
+        }
+        _ => Err(Error::InvalidRef {
+            address: future_ref,
+        }),
+    }
+}
+
+pub(crate) fn native_future_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    future_get_common(args, heap, control, None)
+}
+
+pub(crate) fn native_future_get_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    future_get_common(args, heap, control, Some(nanos))
 }
 
 // java.util.concurrent.atomic natives.
@@ -18373,6 +18876,8 @@ struct CompletionVm {
 struct CompletionRuntime {
     threads: threading::ThreadRuntime,
     handles: HashMap<i32, std::thread::JoinHandle<Result<()>>>,
+    next_executor_worker_id: i32,
+    executor_handles: HashMap<i32, std::thread::JoinHandle<Result<()>>>,
 }
 
 fn resolve_thread_entry(
@@ -18461,11 +18966,15 @@ fn wait_for_all_java_threads(
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if runtime.handles.is_empty() {
+            if runtime.handles.is_empty() && runtime.executor_handles.is_empty() {
                 return first_error.unwrap_or(Ok(()));
             }
-            let mut handles = Vec::with_capacity(runtime.handles.len());
+            let mut handles =
+                Vec::with_capacity(runtime.handles.len() + runtime.executor_handles.len());
             for (_, handle) in runtime.handles.drain() {
+                handles.push(handle);
+            }
+            for (_, handle) in runtime.executor_handles.drain() {
                 handles.push(handle);
             }
             drop(runtime);
@@ -18483,6 +18992,437 @@ fn wait_for_all_java_threads(
             }
         }
     }
+}
+
+struct ExecutorInvocation {
+    state: ExecutionState,
+    impl_desc: Option<String>,
+    sam_desc: Option<String>,
+}
+
+const fn executor_task_signature(kind: duke_gc::ExecutorTaskKind) -> (&'static str, &'static str) {
+    match kind {
+        duke_gc::ExecutorTaskKind::Runnable => ("run", "()V"),
+        duke_gc::ExecutorTaskKind::Callable => ("call", "()Ljava/lang/Object;"),
+    }
+}
+
+fn prepare_lambda_executor_invocation(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    task_ref: u64,
+    method: &str,
+    descriptor: &str,
+) -> Result<Option<ExecutorInvocation>> {
+    let task_class = heap.get(task_ref)?.class_name.clone();
+    let Some(lambda_info) = registry.get_lambda(&task_class).cloned() else {
+        return Ok(None);
+    };
+    if method != lambda_info.sam_method || descriptor != lambda_info.sam_desc {
+        return Ok(None);
+    }
+
+    let lambda_object = heap.get(task_ref)?;
+    let mut impl_args = Vec::with_capacity(lambda_info.captured_count);
+    for capture_index in 0..lambda_info.captured_count {
+        impl_args.push(
+            lambda_object
+                .fields
+                .get(capture_index)
+                .copied()
+                .ok_or(Error::Unimplemented {
+                    mnemonic: "lambda capture missing",
+                })?,
+        );
+    }
+
+    let _ = registry.ensure_loaded_from(&lambda_info.impl_class, Some(task_class.as_str()), loader);
+    let impl_class_key =
+        registry.class_key_from_source(&lambda_info.impl_class, Some(task_class.as_str()));
+    let dispatch_class = match lambda_info.impl_kind {
+        6 | 7 => impl_class_key,
+        5 | 9 => match impl_args.first().copied() {
+            Some(Slot::Reference(Some(receiver_ref))) => {
+                let receiver_class = heap.get(receiver_ref)?.class_name.clone();
+                if let Some((dispatch_class, _)) = resolve_method_in_hierarchy(
+                    registry,
+                    loader,
+                    &receiver_class,
+                    &lambda_info.impl_method,
+                    &lambda_info.impl_desc,
+                ) {
+                    dispatch_class
+                } else {
+                    impl_class_key
+                }
+            }
+            Some(Slot::Reference(None)) | None => return Err(Error::NullPointerException),
+            Some(_) => {
+                return Err(Error::TypeMismatch {
+                    expected: "reference",
+                    got: "other",
+                });
+            }
+        },
+        _ => {
+            return Err(Error::Unimplemented {
+                mnemonic: "executor lambda impl kind",
+            });
+        }
+    };
+    ensure_initialized(
+        registry,
+        loader,
+        heap,
+        output,
+        &dispatch_class,
+        task_class.as_str(),
+    )?;
+    let (_, method_idx) = resolve_method_in_hierarchy(
+        registry,
+        loader,
+        &dispatch_class,
+        &lambda_info.impl_method,
+        &lambda_info.impl_desc,
+    )
+    .ok_or_else(|| Error::MethodNotFound {
+        name: format!("{}.{}", dispatch_class, lambda_info.impl_method),
+        descriptor: lambda_info.impl_desc.clone(),
+    })?;
+    let impl_args = adapt_args_for_impl_desc(&impl_args, &lambda_info.impl_desc, heap);
+    let state = ExecutionState::new(
+        registry,
+        &dispatch_class,
+        &lambda_info.impl_method,
+        method_idx,
+        &impl_args,
+    )?;
+    Ok(Some(ExecutorInvocation {
+        state,
+        impl_desc: Some(lambda_info.impl_desc),
+        sam_desc: Some(lambda_info.sam_desc),
+    }))
+}
+
+fn prepare_executor_invocation(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    task: duke_gc::ExecutorTask,
+) -> Result<ExecutorInvocation> {
+    let (method, descriptor) = executor_task_signature(task.kind);
+    if let Some(invocation) =
+        prepare_lambda_executor_invocation(registry, loader, heap, output, task.task_ref, method, descriptor)?
+    {
+        return Ok(invocation);
+    }
+
+    let task_class = heap.get(task.task_ref)?.class_name.clone();
+    let (dispatch_class, method_idx) =
+        resolve_method_in_hierarchy(registry, loader, &task_class, method, descriptor).ok_or_else(
+            || Error::AbstractMethodError {
+                class_name: task_class.clone(),
+                method_name: method.to_string(),
+            },
+        )?;
+    ensure_initialized(
+        registry,
+        loader,
+        heap,
+        output,
+        &dispatch_class,
+        task_class.as_str(),
+    )?;
+    let state = ExecutionState::new(
+        registry,
+        &dispatch_class,
+        method,
+        method_idx,
+        &[Slot::Reference(Some(task.task_ref))],
+    )?;
+    Ok(ExecutorInvocation {
+        state,
+        impl_desc: None,
+        sam_desc: None,
+    })
+}
+
+fn run_executor_state_to_completion(
+    mut state: ExecutionState,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> Result<Option<Slot>> {
+    loop {
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            live_workers,
+        } = &mut *shared_guard;
+        let outcome = execution::run_execution(
+            &mut state,
+            registry,
+            loader.as_ref(),
+            heap,
+            output,
+            *live_workers == 0,
+            Some(DEFAULT_THREAD_QUANTUM),
+        )?;
+        drop(shared_guard);
+
+        match outcome {
+            ExecutionOutcome::Returned(result) => return Ok(result),
+            ExecutionOutcome::ThreadAction(action) => {
+                handle_thread_action(action, shared, runtime, loader)?;
+            }
+            ExecutionOutcome::Yield => {
+                std::thread::sleep(std::time::Duration::from_micros(1));
+            }
+        }
+    }
+}
+
+fn store_future_failure(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    future_ref: u64,
+    class_name: &str,
+) -> Result<()> {
+    let cause_ref = if let Some(exception_ref) = take_uncaught_java_exception_ref(class_name) {
+        exception_ref
+    } else {
+        materialize_java_exception_object(registry, loader, heap, class_name)?
+    };
+    heap.write_field(
+        future_ref,
+        FUTURE_EXCEPTION_FIELD,
+        Slot::Reference(Some(cause_ref)),
+    )?;
+    heap.write_field(future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_FAILED))?;
+    Ok(())
+}
+
+fn store_future_success(
+    heap: &mut duke_gc::Heap,
+    task: duke_gc::ExecutorTask,
+    result: Option<Slot>,
+    impl_desc: Option<&str>,
+    sam_desc: Option<&str>,
+) -> Result<()> {
+    if future_state(heap, task.future_ref)? == FUTURE_CANCELLED {
+        return Ok(());
+    }
+    let result = match task.kind {
+        duke_gc::ExecutorTaskKind::Runnable => {
+            extract_field_arg(heap, task.future_ref, FUTURE_RESULT_FIELD)?
+        }
+        duke_gc::ExecutorTaskKind::Callable => result.unwrap_or(Slot::Reference(None)),
+    };
+    let result = if let (Some(impl_desc), Some(sam_desc)) = (impl_desc, sam_desc) {
+        autobox_if_needed(Some(result), impl_desc, sam_desc, heap)?.unwrap_or(Slot::Reference(None))
+    } else {
+        result
+    };
+    heap.write_field(task.future_ref, FUTURE_RESULT_FIELD, result)?;
+    heap.remember_reference_write(task.future_ref, result);
+    heap.write_field(task.future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_DONE))?;
+    Ok(())
+}
+
+fn run_executor_task(
+    task: duke_gc::ExecutorTask,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> Result<()> {
+    {
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if future_state(&shared_guard.heap, task.future_ref)? == FUTURE_CANCELLED {
+            return Ok(());
+        }
+        shared_guard
+            .heap
+            .write_field(task.future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_RUNNING))?;
+    }
+
+    let invocation = {
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            ..
+        } = &mut *shared_guard;
+        let result = prepare_executor_invocation(registry, loader.as_ref(), heap, output, task);
+        drop(shared_guard);
+        result
+    };
+
+    let invocation = match invocation {
+        Ok(invocation) => invocation,
+        Err(Error::JavaException { class_name }) => {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let CompletionVm { registry, heap, .. } = &mut *shared_guard;
+            let result =
+                store_future_failure(registry, loader.as_ref(), heap, task.future_ref, &class_name);
+            drop(shared_guard);
+            result?;
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
+
+    let impl_desc = invocation.impl_desc.clone();
+    let sam_desc = invocation.sam_desc.clone();
+    match run_executor_state_to_completion(invocation.state, shared, runtime, loader) {
+        Ok(result) => {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let result = store_future_success(
+                &mut shared_guard.heap,
+                task,
+                result,
+                impl_desc.as_deref(),
+                sam_desc.as_deref(),
+            );
+            drop(shared_guard);
+            result
+        }
+        Err(Error::JavaException { class_name }) => {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let CompletionVm { registry, heap, .. } = &mut *shared_guard;
+            let result =
+                store_future_failure(registry, loader.as_ref(), heap, task.future_ref, &class_name);
+            drop(shared_guard);
+            result?;
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn run_executor_worker(
+    executor: &duke_gc::ExecutorShared,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> Result<()> {
+    loop {
+        let task = {
+            let mut guard = executor
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            loop {
+                if let Some(task) = guard.queue.pop_front() {
+                    guard.active = guard.active.saturating_add(1);
+                    break task;
+                }
+                if guard.shutdown {
+                    guard.workers = guard.workers.saturating_sub(1);
+                    guard.refresh_terminated();
+                    drop(guard);
+                    executor.available.notify_all();
+                    return Ok(());
+                }
+                guard = executor
+                    .available
+                    .wait(guard)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+        };
+
+        let result = run_executor_task(task, shared, runtime, loader);
+        {
+            let mut guard = executor
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.active = guard.active.saturating_sub(1);
+            guard.refresh_terminated();
+            drop(guard);
+            executor.available.notify_all();
+        }
+        result?;
+    }
+}
+
+fn spawn_executor_worker(
+    executor: std::sync::Arc<duke_gc::ExecutorShared>,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) {
+    let shared_clone = std::sync::Arc::clone(shared);
+    let runtime_clone = std::sync::Arc::clone(runtime);
+    let loader_clone = std::sync::Arc::clone(loader);
+    let handle = std::thread::spawn(move || {
+        let result = run_executor_worker(&executor, &shared_clone, &runtime_clone, &loader_clone);
+        {
+            let mut shared = shared_clone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            shared.live_workers = shared.live_workers.saturating_sub(1);
+        }
+        result
+    });
+    let mut runtime_guard = runtime
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let worker_id = runtime_guard.next_executor_worker_id;
+    runtime_guard.next_executor_worker_id = runtime_guard.next_executor_worker_id.wrapping_add(1);
+    runtime_guard.executor_handles.insert(worker_id, handle);
+}
+
+fn enqueue_executor_task(
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+    executor_ref: u64,
+    future_ref: u64,
+    task_ref: u64,
+    kind: duke_gc::ExecutorTaskKind,
+) -> Result<()> {
+    let executor = {
+        let shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        executor_shared(&shared_guard.heap, executor_ref)?
+    };
+    let mut workers_to_spawn = 0usize;
+    {
+        let mut guard = executor
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if guard.shutdown {
+            return Ok(());
+        }
+        guard.queue.push_back(duke_gc::ExecutorTask {
+            future_ref,
+            task_ref,
+            kind,
+        });
+        while guard.workers < guard.max_workers
+            && guard.workers < guard.queue.len().saturating_add(guard.active)
+        {
+            guard.workers = guard.workers.saturating_add(1);
+            workers_to_spawn = workers_to_spawn.saturating_add(1);
+        }
+        drop(guard);
+    }
+    for _ in 0..workers_to_spawn {
+        {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            shared_guard.live_workers = shared_guard.live_workers.saturating_add(1);
+        }
+        spawn_executor_worker(std::sync::Arc::clone(&executor), shared, runtime, loader);
+    }
+    executor.available.notify_all();
+    Ok(())
 }
 
 fn handle_thread_action(
@@ -18504,6 +19444,12 @@ fn handle_thread_action(
             std::thread::sleep(std::time::Duration::from_micros(1));
             Ok(())
         }
+        NativeThreadAction::ExecutorSubmit {
+            executor_ref,
+            future_ref,
+            task_ref,
+            kind,
+        } => enqueue_executor_task(shared, runtime, loader, executor_ref, future_ref, task_ref, kind),
     }
 }
 
@@ -21050,10 +21996,19 @@ fn materialize_java_exception_object(
     if let Some(message) = pop_pending_java_exception_message(class_name) {
         heap.get_mut(exc_ref)?.string_value = Some(message);
     }
+    if let Some(cause) = pop_pending_java_exception_cause(class_name)
+        && let Ok(obj) = heap.get_mut(exc_ref)
+        && !obj.fields.is_empty()
+    {
+        obj.fields[THROWABLE_CAUSE_FIELD] = cause;
+        heap.remember_reference_write(exc_ref, cause);
+    }
     Ok(exc_ref)
 }
 
 type PendingExceptionMessages = std::sync::Mutex<HashMap<String, VecDeque<String>>>;
+type PendingExceptionCauses = std::sync::Mutex<HashMap<String, VecDeque<Slot>>>;
+type UncaughtExceptionRefs = std::sync::Mutex<HashMap<std::thread::ThreadId, VecDeque<(String, u64)>>>;
 
 fn pending_java_exception_messages() -> &'static PendingExceptionMessages {
     static MESSAGES: OnceLock<PendingExceptionMessages> = OnceLock::new();
@@ -21080,6 +22035,65 @@ fn pop_pending_java_exception_message(class_name: &str) -> Option<String> {
         messages.remove(class_name);
     }
     message
+}
+
+fn pending_java_exception_causes() -> &'static PendingExceptionCauses {
+    static CAUSES: OnceLock<PendingExceptionCauses> = OnceLock::new();
+    CAUSES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn push_pending_java_exception_cause(class_name: &str, cause: Slot) {
+    let mut causes = pending_java_exception_causes()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    causes
+        .entry(class_name.to_string())
+        .or_default()
+        .push_back(cause);
+}
+
+fn pop_pending_java_exception_cause(class_name: &str) -> Option<Slot> {
+    let mut causes = pending_java_exception_causes()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let queue = causes.get_mut(class_name)?;
+    let cause = queue.pop_front();
+    if queue.is_empty() {
+        causes.remove(class_name);
+    }
+    cause
+}
+
+fn uncaught_java_exception_refs() -> &'static UncaughtExceptionRefs {
+    static REFS: OnceLock<UncaughtExceptionRefs> = OnceLock::new();
+    REFS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn record_uncaught_java_exception_ref(class_name: &str, exception_ref: u64) {
+    let mut refs = uncaught_java_exception_refs()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    refs.entry(std::thread::current().id())
+        .or_default()
+        .push_back((class_name.to_string(), exception_ref));
+}
+
+fn take_uncaught_java_exception_ref(class_name: &str) -> Option<u64> {
+    let mut refs = uncaught_java_exception_refs()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let thread_id = std::thread::current().id();
+    let queue = refs.get_mut(&thread_id)?;
+    let position = queue
+        .iter()
+        .position(|(queued_class, _)| queued_class == class_name)
+        .unwrap_or(0);
+    let (_, exception_ref) = queue.remove(position)?;
+    if queue.is_empty() {
+        refs.remove(&thread_id);
+    }
+    drop(refs);
+    Some(exception_ref)
 }
 
 fn allocate_reflection_instance(
@@ -26526,7 +27540,8 @@ fn concurrent_hashmap_lock(
             | duke_gc::AtomicPayload::ReentrantLock(_)
             | duke_gc::AtomicPayload::Condition(_)
             | duke_gc::AtomicPayload::ReadWriteLock(_)
-            | duke_gc::AtomicPayload::ReadWriteLockView { .. } => Err(Error::TypeMismatch {
+            | duke_gc::AtomicPayload::ReadWriteLockView { .. }
+            | duke_gc::AtomicPayload::Executor(_) => Err(Error::TypeMismatch {
                 expected: "concurrent map lock",
                 got: "other",
             }),

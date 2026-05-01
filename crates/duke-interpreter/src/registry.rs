@@ -98,6 +98,17 @@ pub enum NativeThreadAction {
     },
     /// Yield the VM lock and retry the same native invocation.
     Retry,
+    /// Enqueue a task on a synthetic `ExecutorService`.
+    ExecutorSubmit {
+        /// Heap reference to the executor service object.
+        executor_ref: u64,
+        /// Heap reference to the future tracking this task.
+        future_ref: u64,
+        /// Heap reference to the submitted runnable/callable.
+        task_ref: u64,
+        /// Invocation shape for the task.
+        kind: duke_gc::ExecutorTaskKind,
+    },
 }
 
 /// One Java-frame snapshot made available to native handlers that need to

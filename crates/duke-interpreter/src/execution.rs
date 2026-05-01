@@ -216,6 +216,7 @@ pub fn run_execution(
                 loop {
                     match call_stack.pop() {
                         None => {
+                            record_uncaught_java_exception_ref(&exc_class_name, exception_ref);
                             return Err(Error::JavaException {
                                 class_name: exc_class_name,
                             });

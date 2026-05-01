@@ -1551,6 +1551,284 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
     }
 }
 
+fn allocate_time_unit(heap: &mut duke_gc::Heap, name: &str, ordinal: i32, nanos: i64) -> Slot {
+    let unit_ref = heap.allocate("java/util/concurrent/TimeUnit".to_string(), 3);
+    let name_ref = heap.allocate_string(name.to_string());
+    if let Ok(unit) = heap.get_mut(unit_ref) {
+        unit.fields[0] = Slot::Reference(Some(name_ref));
+        unit.fields[1] = Slot::Int(ordinal);
+        unit.fields[2] = Slot::Long(nanos);
+    }
+    Slot::Reference(Some(unit_ref))
+}
+
+/// Registers Duke's minimal `ExecutorService` / `Future` surface.
+///
+/// The Java-visible types are synthetic, while queueing and worker state live in
+/// host payloads attached to `duke/util/concurrent/DukeExecutorService`.
+#[allow(clippy::too_many_lines)]
+fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    for interface_name in [
+        "java/util/concurrent/Executor",
+        "java/util/concurrent/ExecutorService",
+        "java/util/concurrent/Future",
+        "java/util/concurrent/Callable",
+    ] {
+        registry.register(lock_interface_context(interface_name));
+    }
+
+    registry.register(empty_synthetic_context(
+        "java/util/concurrent/Executors",
+        "java/lang/Object",
+    ));
+
+    registry.register(ClassContext {
+        class_name: "duke/util/concurrent/DukeExecutorService".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("shutdown", "Z", false),
+            synthetic_field("awaitDeadlineNanos", "J", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec![
+            "java/util/concurrent/ExecutorService".to_string(),
+            "java/util/concurrent/Executor".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "duke/util/concurrent/DukeFuture".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("state", "I", false),
+            synthetic_field("result", "Ljava/lang/Object;", false),
+            synthetic_field("exception", "Ljava/lang/Throwable;", false),
+            synthetic_field("waitDeadlineNanos", "J", false),
+            synthetic_field("task", "Ljava/lang/Object;", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: vec!["java/util/concurrent/Future".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    let time_units = [
+        ("NANOSECONDS", 0, 1_i64),
+        ("MICROSECONDS", 1, 1_000),
+        ("MILLISECONDS", 2, 1_000_000),
+        ("SECONDS", 3, 1_000_000_000),
+        ("MINUTES", 4, 60_000_000_000),
+        ("HOURS", 5, 3_600_000_000_000),
+        ("DAYS", 6, 86_400_000_000_000),
+    ];
+    let mut time_unit_fields: Vec<FieldEntry> = time_units
+        .iter()
+        .map(|(name, _, _)| synthetic_field(name, "Ljava/util/concurrent/TimeUnit;", true))
+        .collect();
+    time_unit_fields.push(synthetic_field("nanosPerUnit", "J", false));
+    let time_unit_static_fields: Vec<Slot> = time_units
+        .iter()
+        .map(|(name, ordinal, nanos)| allocate_time_unit(heap, name, *ordinal, *nanos))
+        .collect();
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/TimeUnit".to_string(),
+        super_class: Some("java/lang/Enum".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: time_unit_fields,
+        static_fields: time_unit_static_fields,
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    for (method, descriptor, handler) in [
+        (
+            "newFixedThreadPool",
+            "(I)Ljava/util/concurrent/ExecutorService;",
+            native_executors_new_fixed_thread_pool as NativeHandler,
+        ),
+        (
+            "newSingleThreadExecutor",
+            "()Ljava/util/concurrent/ExecutorService;",
+            native_executors_new_single_thread_executor,
+        ),
+        (
+            "newCachedThreadPool",
+            "()Ljava/util/concurrent/ExecutorService;",
+            native_executors_new_cached_thread_pool,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/Executors",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for class_name in [
+        "duke/util/concurrent/DukeExecutorService",
+        "java/util/concurrent/ExecutorService",
+    ] {
+        registry.natives_mut().register_callback(
+            class_name,
+            "submit",
+            "(Ljava/lang/Runnable;)Ljava/util/concurrent/Future;",
+            native_executor_submit_runnable,
+        );
+        registry.natives_mut().register_callback(
+            class_name,
+            "submit",
+            "(Ljava/lang/Runnable;Ljava/lang/Object;)Ljava/util/concurrent/Future;",
+            native_executor_submit_runnable_result,
+        );
+        registry.natives_mut().register_callback(
+            class_name,
+            "submit",
+            "(Ljava/util/concurrent/Callable;)Ljava/util/concurrent/Future;",
+            native_executor_submit_callable,
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "shutdown", "()V", native_executor_shutdown);
+        registry.natives_mut().register(
+            class_name,
+            "awaitTermination",
+            "(JLjava/util/concurrent/TimeUnit;)Z",
+            native_executor_await_termination,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "isShutdown",
+            "()Z",
+            native_executor_is_shutdown,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "isTerminated",
+            "()Z",
+            native_executor_is_terminated,
+        );
+    }
+    for class_name in [
+        "duke/util/concurrent/DukeExecutorService",
+        "java/util/concurrent/Executor",
+    ] {
+        registry.natives_mut().register_callback(
+            class_name,
+            "execute",
+            "(Ljava/lang/Runnable;)V",
+            native_executor_execute,
+        );
+    }
+
+    for class_name in [
+        "duke/util/concurrent/DukeFuture",
+        "java/util/concurrent/Future",
+    ] {
+        registry.natives_mut().register(
+            class_name,
+            "get",
+            "()Ljava/lang/Object;",
+            native_future_get,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "get",
+            "(JLjava/util/concurrent/TimeUnit;)Ljava/lang/Object;",
+            native_future_get_timeout,
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "cancel", "(Z)Z", native_future_cancel);
+        registry.natives_mut().register(
+            class_name,
+            "isCancelled",
+            "()Z",
+            native_future_is_cancelled,
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "isDone", "()Z", native_future_is_done);
+    }
+
+    registry.natives_mut().register(
+        "java/util/concurrent/TimeUnit",
+        "toMillis",
+        "(J)J",
+        native_timeunit_to_millis,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/TimeUnit",
+        "toNanos",
+        "(J)J",
+        native_timeunit_to_nanos,
+    );
+
+    for (name, super_name) in [
+        (
+            "java/util/concurrent/ExecutionException",
+            "java/lang/Exception",
+        ),
+        (
+            "java/util/concurrent/TimeoutException",
+            "java/lang/Exception",
+        ),
+        (
+            "java/util/concurrent/CancellationException",
+            "java/lang/IllegalStateException",
+        ),
+        (
+            "java/util/concurrent/RejectedExecutionException",
+            "java/lang/RuntimeException",
+        ),
+    ] {
+        registry.register(ClassContext {
+            class_name: name.to_string(),
+            super_class: Some(super_name.to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_throwable_init);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+            native_throwable_init_string_cause,
+        );
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/Throwable;)V",
+            native_throwable_init_cause,
+        );
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 /// Bootstraps the minimal JDK standard library classes needed for native method support.
 ///
@@ -2671,6 +2949,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
     register_locks_stdlib(registry);
+    register_executor_stdlib(registry, heap);
     register_jul_stdlib(registry, heap);
 
     // java/lang/Class — lightweight stub for class literals
