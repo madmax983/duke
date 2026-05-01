@@ -20,3 +20,10 @@
 ## 2024-05-24 - Testing JImage Parsing Bounds
 **Learning:** JImage parsing edge cases with artificially corrupted files (`0x0001_0000` version tag required) that use `u64::MAX` or out-of-bounds offset metadata effectively verify robust error propagation in `duke_loader::JImageReader::read_resource`, ensuring we catch regressions that could otherwise cause out-of-bounds panics or incorrect bounds checks against raw uncompressed lengths.
 **Action:** Always test metadata parsers using edge-case inputs (e.g. `u64::MAX`, bounds mismatches) to verify format-specific bounds checking fails gracefully rather than panicking on indexing.
+## 2024-05-24 - Testing Zip Reader Truncated Central Directories
+**Learning:** Certain edge cases in `parse_central_directory` related to `checked_add` bounds checking (like `name_start + filename_len > cd_end`) were previously uncovered, because most fuzzed zips generate completely malformed data rather than specific boundary truncations.
+**Action:** Craft specific byte buffers representing minimal zip central directories, manually defining exact `filename_len` or `cd_size` values that force the `checked_add` validation to fail gracefully without overflowing.
+
+## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
+**Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
+**Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.

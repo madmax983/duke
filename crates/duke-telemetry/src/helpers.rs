@@ -107,6 +107,13 @@ mod tests {
     }
 
     #[test]
+    fn test_empty_serialize() {
+        let empty_map = HashMap::<i32, &'static str>::new();
+        let w = MapWrapper { map: empty_map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+    }
+    #[test]
     fn test_keyed_map() {
         let mut map = HashMap::new();
         map.insert(1, "one");
