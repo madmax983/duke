@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use duke_loader::ZipLoader;
 use proptest::prelude::*;
 use std::path::PathBuf;
