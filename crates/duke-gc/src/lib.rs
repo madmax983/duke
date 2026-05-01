@@ -13,9 +13,9 @@
 //! [`Heap::get`] and [`Heap::get_mut`] are generation-agnostic; callers never
 //! need to know which gen an object lives in.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use duke_runtime::{Error, Result, Slot};
 
@@ -111,6 +111,84 @@ pub struct ReadWriteLockState {
     pub readers: HashMap<std::thread::ThreadId, i32>,
 }
 
+/// Callable shape for a synthetic executor task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutorTaskKind {
+    /// Invoke `Runnable.run()V`.
+    Runnable,
+    /// Invoke `Callable.call()Object`.
+    Callable,
+}
+
+/// One queued synthetic executor task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutorTask {
+    /// Heap reference to the `Future` object that receives task state.
+    pub future_ref: u64,
+    /// Heap reference to the submitted `Runnable` or `Callable`.
+    pub task_ref: u64,
+    /// Invocation shape.
+    pub kind: ExecutorTaskKind,
+}
+
+/// Host-side state for synthetic `ExecutorService` instances.
+#[derive(Debug)]
+pub struct ExecutorState {
+    /// Maximum number of worker threads this pool may create.
+    pub max_workers: usize,
+    /// Tasks not yet claimed by a worker.
+    pub queue: VecDeque<ExecutorTask>,
+    /// `shutdown()` has been called.
+    pub shutdown: bool,
+    /// Tasks currently executing.
+    pub active: usize,
+    /// Live host worker threads owned by this executor.
+    pub workers: usize,
+    /// Pool reached the JDK termination condition.
+    pub terminated: bool,
+}
+
+impl ExecutorState {
+    /// Create an empty executor state with at least one worker slot.
+    #[must_use]
+    pub fn new(max_workers: usize) -> Self {
+        Self {
+            max_workers: max_workers.max(1),
+            queue: VecDeque::new(),
+            shutdown: false,
+            active: 0,
+            workers: 0,
+            terminated: false,
+        }
+    }
+
+    /// Recompute termination after a queue, worker, or shutdown transition.
+    pub fn refresh_terminated(&mut self) {
+        self.terminated =
+            self.shutdown && self.queue.is_empty() && self.active == 0 && self.workers == 0;
+    }
+}
+
+/// Mutex/condvar pair for a synthetic executor.
+#[derive(Debug)]
+pub struct ExecutorShared {
+    /// Mutable executor state.
+    pub state: Mutex<ExecutorState>,
+    /// Worker wake-up signal for new tasks or shutdown.
+    pub available: Condvar,
+}
+
+impl ExecutorShared {
+    /// Create shared executor state.
+    #[must_use]
+    pub fn new(max_workers: usize) -> Self {
+        Self {
+            state: Mutex::new(ExecutorState::new(max_workers)),
+            available: Condvar::new(),
+        }
+    }
+}
+
 /// Host-side payload backing synthetic `java.util.concurrent` objects.
 #[derive(Debug)]
 pub enum AtomicPayload {
@@ -137,6 +215,8 @@ pub enum AtomicPayload {
         /// View represented by the heap object.
         kind: ReadWriteLockViewKind,
     },
+    /// Shared state for a synthetic `ExecutorService`.
+    Executor(Arc<ExecutorShared>),
 }
 
 impl Clone for AtomicPayload {
@@ -159,6 +239,7 @@ impl Clone for AtomicPayload {
                 state: Arc::clone(state),
                 kind: *kind,
             },
+            Self::Executor(state) => Self::Executor(Arc::clone(state)),
         }
     }
 }
@@ -221,6 +302,12 @@ impl AtomicPayload {
         Self::ReadWriteLockView { state, kind }
     }
 
+    /// Create host-side state for a synthetic `ExecutorService`.
+    #[must_use]
+    pub fn executor(max_workers: usize) -> Self {
+        Self::Executor(Arc::new(ExecutorShared::new(max_workers)))
+    }
+
     fn reference_slot(&self) -> Option<Slot> {
         match self {
             Self::Reference(cell) => Some(
@@ -235,7 +322,8 @@ impl AtomicPayload {
             | Self::ReentrantLock(_)
             | Self::Condition(_)
             | Self::ReadWriteLock(_)
-            | Self::ReadWriteLockView { .. } => None,
+            | Self::ReadWriteLockView { .. }
+            | Self::Executor(_) => None,
         }
     }
 

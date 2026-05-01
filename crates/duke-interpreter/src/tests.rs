@@ -5869,6 +5869,91 @@ fn read_write_lock_write_unlock_by_non_owner_throws() {
 }
 
 #[test]
+fn executor_basic_fixture_runs_side_effect_and_awaits_termination() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorBasicTest.class", "run", "()V")
+        .expect("executor basic fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["1"]);
+}
+
+#[test]
+fn executor_callable_future_get_returns_boxed_result() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorCallableTest.class", "run", "()V")
+        .expect("executor callable fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["42"]);
+}
+
+#[test]
+fn executor_pool_fixture_runs_thousand_tasks() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorPoolTest.class", "run", "()V")
+        .expect("executor pool fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["1000"]);
+}
+
+#[test]
+fn executor_timeout_fixture_reports_timeout() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorTimeoutTest.class", "run", "()V")
+        .expect("executor timeout fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["timeout"]);
+}
+
+#[test]
+fn executor_cancel_fixture_reports_cancelled() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorCancelTest.class", "run", "()V")
+        .expect("executor cancel fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["cancelled"]);
+}
+
+#[test]
+fn executor_cached_factory_works() {
+    assert_eq!(
+        run_bootstrap_int_completion("ExecutorCallableTest.class", "cachedFactoryWorks", "()I"),
+        1
+    );
+}
+
+#[test]
+fn executor_submit_runnable_with_result_routes_correctly() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ExecutorCallableTest.class",
+            "runnableWithResultWorks",
+            "()I",
+        ),
+        77
+    );
+}
+
+#[test]
+fn executor_execution_exception_wraps_original_cause() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ExecutorCallableTest.class",
+            "executionExceptionWrapsCause",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn timeunit_seconds_to_millis_converts() {
+    assert_eq!(
+        run_bootstrap_long("ExecutorCallableTest.class", "secondsToMillis", "()J"),
+        2000
+    );
+}
+
+#[test]
 fn atomic_service_loader_interop_fixture_allows_atomic_clinit() {
     assert_eq!(
         run_service_loader_jar_int(
