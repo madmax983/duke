@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use loom::sync::RwLock;
 use loom::thread;
 use std::collections::HashMap;
