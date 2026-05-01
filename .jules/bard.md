@@ -17,3 +17,11 @@
 ## 2024-05-21 - [ReflectedAnnotationConst Documentation]
 **Confusion:** The `ReflectedAnnotationConst` enum lacked documentation for its variants and was missing module-level examples, leading to `missing_docs` clippy warnings and making it hard to understand how raw JVM annotation values map to Rust.
 **Clarification:** Added complete documentation for each enum variant, explaining their JVM equivalents, and included an executable doctest demonstrating basic usage.
+
+## 2024-05-22 - [Bytecode Instruction/Types Documentation]
+**Confusion:** The massive `Instruction` enum in `duke-bytecode` and related types like `ArrayType` were entirely undocumented, causing the `missing_docs` clippy lint to be explicitly suppressed via `#[allow(missing_docs)]`. The same issue was present with intra-doc links in `duke-classfile/src/error.rs` causing warning when running `cargo doc`.
+**Clarification:** Added comprehensive module-level and struct-level documentation for `Instruction` and `ArrayType`, along with executable doctests demonstrating their usage and structural layout. Fixed broken intra-doc link in `duke-classfile/src/error.rs`.
+
+## 2024-05-23 - [Test Files Missing Docs]
+**Confusion:** Proptest and loom test binaries generated missing documentation warnings, which shouldn't require full crate documentation blocks.
+**Clarification:** Suppressed warnings in `havoc_jimage_proptest.rs`, `havoc_zip_proptest.rs`, and `havoc_zip_files_loom.rs` using `#![allow(missing_docs)]`. Added `//!` crate documentation to `duke-interpreter` to clarify its core orchestration role.

@@ -39,6 +39,631 @@ fn empty_synthetic_context(name: &str, super_class: &str) -> ClassContext {
     }
 }
 
+fn synthetic_field(name: &str, descriptor: &str, is_static: bool) -> FieldEntry {
+    FieldEntry {
+        name: name.to_string(),
+        descriptor: descriptor.to_string(),
+        is_static,
+    }
+}
+
+fn jul_allocate_level(heap: &mut duke_gc::Heap, name: &str, value: i32) -> Slot {
+    let level_ref = heap.allocate("java/util/logging/Level".to_string(), 1);
+    if let Ok(level) = heap.get_mut(level_ref) {
+        level.fields[0] = Slot::Int(value);
+        level.string_value = Some(name.to_string());
+    }
+    Slot::Reference(Some(level_ref))
+}
+
+fn jul_allocate_simple_formatter(heap: &mut duke_gc::Heap) -> Slot {
+    Slot::Reference(Some(
+        heap.allocate("java/util/logging/SimpleFormatter".to_string(), 0),
+    ))
+}
+
+fn jul_allocate_console_handler(heap: &mut duke_gc::Heap, level_slot: Slot) -> Slot {
+    let handler_ref = heap.allocate("java/util/logging/ConsoleHandler".to_string(), 2);
+    let formatter = jul_allocate_simple_formatter(heap);
+    if let Ok(handler) = heap.get_mut(handler_ref) {
+        handler.fields[0] = level_slot;
+        handler.fields[1] = formatter;
+    }
+    Slot::Reference(Some(handler_ref))
+}
+
+fn jul_allocate_logger(
+    heap: &mut duke_gc::Heap,
+    name: Option<&str>,
+    level_slot: Slot,
+    use_parent_handlers: bool,
+    parent_slot: Slot,
+    handlers: &[Slot],
+) -> Slot {
+    const LOGGER_HANDLERS_START: usize = 5;
+
+    let logger_ref = heap.allocate(
+        "java/util/logging/Logger".to_string(),
+        LOGGER_HANDLERS_START + handlers.len(),
+    );
+    let name_slot = name.map_or(Slot::Reference(None), |logger_name| {
+        Slot::Reference(Some(heap.allocate_string(logger_name.to_string())))
+    });
+    if let Ok(logger) = heap.get_mut(logger_ref) {
+        logger.fields[0] = name_slot;
+        logger.fields[1] = level_slot;
+        logger.fields[2] = Slot::Int(i32::from(use_parent_handlers));
+        logger.fields[3] = parent_slot;
+        logger.fields[4] = Slot::Int(i32::try_from(handlers.len()).unwrap_or(i32::MAX));
+        for (idx, handler) in handlers.iter().copied().enumerate() {
+            logger.fields[LOGGER_HANDLERS_START + idx] = handler;
+        }
+    }
+    Slot::Reference(Some(logger_ref))
+}
+
+fn jul_bootstrap_insert_logger(
+    heap: &mut duke_gc::Heap,
+    manager_ref: u64,
+    name: &str,
+    logger_slot: Slot,
+) {
+    let name_slot = Slot::Reference(Some(heap.allocate_string(name.to_string())));
+    if let Ok(manager) = heap.get_mut(manager_ref) {
+        let next_count = match manager.fields.get(1) {
+            Some(Slot::Int(count)) => count.saturating_add(1),
+            _ => 1,
+        };
+        manager.fields[1] = Slot::Int(next_count);
+        manager.fields.push(name_slot);
+        manager.fields.push(logger_slot);
+    }
+}
+
+/// Registers Duke's deliberately small `java.util.logging` surface.
+///
+/// `SimpleFormatter` intentionally diverges from the JDK's two-line default:
+/// the native formatter emits one line, `<level>: <message>`, so class
+/// initialization logging goes somewhere visible without pulling in the full
+/// JUL configuration stack.
+#[allow(clippy::too_many_lines)]
+fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    let level_specs = [
+        ("SEVERE", 1000),
+        ("WARNING", 900),
+        ("INFO", 800),
+        ("CONFIG", 700),
+        ("FINE", 500),
+        ("FINER", 400),
+        ("FINEST", 300),
+        ("ALL", i32::MIN),
+        ("OFF", i32::MAX),
+    ];
+    let mut level_fields: Vec<FieldEntry> = level_specs
+        .iter()
+        .map(|(name, _)| synthetic_field(name, "Ljava/util/logging/Level;", true))
+        .collect();
+    level_fields.push(synthetic_field("value", "I", false));
+    let level_static_fields: Vec<Slot> = level_specs
+        .iter()
+        .map(|(name, value)| jul_allocate_level(heap, name, *value))
+        .collect();
+    let info_level = level_static_fields[2];
+    let all_level = level_static_fields[7];
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/Level".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: level_fields,
+        static_fields: level_static_fields,
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/Logger".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("name", "Ljava/lang/String;", false),
+            synthetic_field("level", "Ljava/util/logging/Level;", false),
+            synthetic_field("useParentHandlers", "Z", false),
+            synthetic_field("parent", "Ljava/util/logging/Logger;", false),
+            synthetic_field("handlerCount", "I", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/Handler".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("level", "Ljava/util/logging/Level;", false),
+            synthetic_field("formatter", "Ljava/util/logging/Formatter;", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+    registry.register(empty_synthetic_context(
+        "java/util/logging/StreamHandler",
+        "java/util/logging/Handler",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/logging/ConsoleHandler",
+        "java/util/logging/StreamHandler",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/logging/Formatter",
+        "java/lang/Object",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/logging/SimpleFormatter",
+        "java/util/logging/Formatter",
+    ));
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/LogRecord".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("level", "Ljava/util/logging/Level;", false),
+            synthetic_field("message", "Ljava/lang/String;", false),
+            synthetic_field("loggerName", "Ljava/lang/String;", false),
+            synthetic_field("thrown", "Ljava/lang/Throwable;", false),
+            synthetic_field("millis", "J", false),
+            synthetic_field("parameters", "[Ljava/lang/Object;", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 6,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(empty_synthetic_context(
+        "java/util/Enumeration",
+        "java/lang/Object",
+    ));
+    registry.register(ClassContext {
+        class_name: "duke/util/JulLoggerNameEnumeration".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("index", "I", false),
+            synthetic_field("count", "I", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Enumeration".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    let root_handler = jul_allocate_console_handler(heap, all_level);
+    let root_logger = jul_allocate_logger(
+        heap,
+        Some(""),
+        info_level,
+        false,
+        Slot::Reference(None),
+        &[root_handler],
+    );
+    let global_logger = jul_allocate_logger(
+        heap,
+        Some("global"),
+        Slot::Reference(None),
+        true,
+        root_logger,
+        &[],
+    );
+
+    let manager_ref = heap.allocate("java/util/logging/LogManager".to_string(), 2);
+    if let Ok(manager) = heap.get_mut(manager_ref) {
+        manager.string_value = Some("singleton".to_string());
+        manager.fields[0] = root_logger;
+        manager.fields[1] = Slot::Int(0);
+    }
+    jul_bootstrap_insert_logger(heap, manager_ref, "", root_logger);
+    jul_bootstrap_insert_logger(heap, manager_ref, "global", global_logger);
+
+    registry.register(ClassContext {
+        class_name: "java/util/logging/LogManager".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("INSTANCE", "Ljava/util/logging/LogManager;", true),
+            synthetic_field("rootLogger", "Ljava/util/logging/Logger;", false),
+            synthetic_field("loggerCount", "I", false),
+        ],
+        static_fields: vec![Slot::Reference(Some(manager_ref))],
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.natives_mut().register(
+        "java/util/logging/Level",
+        "intValue",
+        "()I",
+        native_jul_level_int_value,
+    );
+    for method in ["getName", "toString"] {
+        registry.natives_mut().register(
+            "java/util/logging/Level",
+            method,
+            "()Ljava/lang/String;",
+            native_jul_level_get_name,
+        );
+    }
+    registry.natives_mut().register(
+        "java/util/logging/Level",
+        "parse",
+        "(Ljava/lang/String;)Ljava/util/logging/Level;",
+        native_jul_level_parse,
+    );
+
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getLogger",
+        "(Ljava/lang/String;)Ljava/util/logging/Logger;",
+        native_jul_logger_get_logger,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getLogger",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/util/logging/Logger;",
+        native_jul_logger_get_logger_with_bundle,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getGlobal",
+        "()Ljava/util/logging/Logger;",
+        native_jul_logger_get_global,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getAnonymousLogger",
+        "()Ljava/util/logging/Logger;",
+        native_jul_logger_get_anonymous_logger,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getName",
+        "()Ljava/lang/String;",
+        native_jul_logger_get_name,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getLevel",
+        "()Ljava/util/logging/Level;",
+        native_jul_logger_get_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "setLevel",
+        "(Ljava/util/logging/Level;)V",
+        native_jul_logger_set_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "isLoggable",
+        "(Ljava/util/logging/Level;)Z",
+        native_jul_logger_is_loggable,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;)V",
+        native_jul_logger_log,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/Object;)V",
+        native_jul_logger_log_object,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;[Ljava/lang/Object;)V",
+        native_jul_logger_log_object_array,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "log",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_jul_logger_log_throwable,
+    );
+    for (method, handler) in [
+        ("severe", native_jul_logger_severe as NativeHandler),
+        ("warning", native_jul_logger_warning),
+        ("info", native_jul_logger_info),
+        ("config", native_jul_logger_config),
+        ("fine", native_jul_logger_fine),
+        ("finer", native_jul_logger_finer),
+        ("finest", native_jul_logger_finest),
+    ] {
+        registry.natives_mut().register(
+            "java/util/logging/Logger",
+            method,
+            "(Ljava/lang/String;)V",
+            handler,
+        );
+    }
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "entering",
+        "(Ljava/lang/String;Ljava/lang/String;)V",
+        native_jul_logger_entering,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "exiting",
+        "(Ljava/lang/String;Ljava/lang/String;)V",
+        native_jul_logger_exiting,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "throwing",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_jul_logger_throwing,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "addHandler",
+        "(Ljava/util/logging/Handler;)V",
+        native_jul_logger_add_handler,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "removeHandler",
+        "(Ljava/util/logging/Handler;)V",
+        native_jul_logger_remove_handler,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getHandlers",
+        "()[Ljava/util/logging/Handler;",
+        native_jul_logger_get_handlers,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "setUseParentHandlers",
+        "(Z)V",
+        native_jul_logger_set_use_parent_handlers,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getUseParentHandlers",
+        "()Z",
+        native_jul_logger_get_use_parent_handlers,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "getParent",
+        "()Ljava/util/logging/Logger;",
+        native_jul_logger_get_parent,
+    );
+
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "getLogManager",
+        "()Ljava/util/logging/LogManager;",
+        native_jul_log_manager_get_log_manager,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "getLogger",
+        "(Ljava/lang/String;)Ljava/util/logging/Logger;",
+        native_jul_log_manager_get_logger,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "getLoggerNames",
+        "()Ljava/util/Enumeration;",
+        native_jul_log_manager_get_logger_names,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "readConfiguration",
+        "()V",
+        native_jul_noop_void,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/logging/LogManager",
+        "readConfiguration",
+        "(Ljava/io/InputStream;)V",
+        native_jul_log_manager_read_configuration_stream,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "reset",
+        "()V",
+        native_jul_noop_void,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogManager",
+        "addLogger",
+        "(Ljava/util/logging/Logger;)Z",
+        native_jul_log_manager_add_logger,
+    );
+
+    for class_name in [
+        "java/util/logging/Handler",
+        "java/util/logging/StreamHandler",
+        "java/util/logging/ConsoleHandler",
+    ] {
+        registry.natives_mut().register(
+            class_name,
+            "<init>",
+            "()V",
+            if class_name == "java/util/logging/ConsoleHandler" {
+                native_jul_console_handler_init
+            } else {
+                native_jul_handler_init
+            },
+        );
+        registry.natives_mut().register(
+            class_name,
+            "publish",
+            "(Ljava/util/logging/LogRecord;)V",
+            if class_name == "java/util/logging/ConsoleHandler" {
+                native_jul_console_handler_publish
+            } else {
+                native_jul_handler_publish
+            },
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "flush", "()V", native_jul_noop_void);
+        registry
+            .natives_mut()
+            .register(class_name, "close", "()V", native_jul_noop_void);
+        registry.natives_mut().register(
+            class_name,
+            "setLevel",
+            "(Ljava/util/logging/Level;)V",
+            native_jul_handler_set_level,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "getLevel",
+            "()Ljava/util/logging/Level;",
+            native_jul_handler_get_level,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "setFormatter",
+            "(Ljava/util/logging/Formatter;)V",
+            native_jul_handler_set_formatter,
+        );
+    }
+
+    for class_name in [
+        "java/util/logging/Formatter",
+        "java/util/logging/SimpleFormatter",
+    ] {
+        registry
+            .natives_mut()
+            .register(class_name, "<init>", "()V", native_jul_noop_void);
+        registry.natives_mut().register(
+            class_name,
+            "format",
+            "(Ljava/util/logging/LogRecord;)Ljava/lang/String;",
+            native_jul_simple_formatter_format,
+        );
+    }
+
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "<init>",
+        "(Ljava/util/logging/Level;Ljava/lang/String;)V",
+        native_jul_log_record_init,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getLevel",
+        "()Ljava/util/logging/Level;",
+        native_jul_log_record_get_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setLevel",
+        "(Ljava/util/logging/Level;)V",
+        native_jul_log_record_set_level,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getMessage",
+        "()Ljava/lang/String;",
+        native_jul_log_record_get_message,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setMessage",
+        "(Ljava/lang/String;)V",
+        native_jul_log_record_set_message,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getLoggerName",
+        "()Ljava/lang/String;",
+        native_jul_log_record_get_logger_name,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setLoggerName",
+        "(Ljava/lang/String;)V",
+        native_jul_log_record_set_logger_name,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getThrown",
+        "()Ljava/lang/Throwable;",
+        native_jul_log_record_get_thrown,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setThrown",
+        "(Ljava/lang/Throwable;)V",
+        native_jul_log_record_set_thrown,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getMillis",
+        "()J",
+        native_jul_log_record_get_millis,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "getParameters",
+        "()[Ljava/lang/Object;",
+        native_jul_log_record_get_parameters,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/LogRecord",
+        "setParameters",
+        "([Ljava/lang/Object;)V",
+        native_jul_log_record_set_parameters,
+    );
+
+    for class_name in [
+        "java/util/Enumeration",
+        "duke/util/JulLoggerNameEnumeration",
+    ] {
+        registry.natives_mut().register(
+            class_name,
+            "hasMoreElements",
+            "()Z",
+            native_jul_logger_names_has_more_elements,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "nextElement",
+            "()Ljava/lang/Object;",
+            native_jul_logger_names_next_element,
+        );
+    }
+}
+
 fn register_charset_classes(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     let charset_ctx = empty_synthetic_context("java/nio/charset/Charset", "java/lang/Object");
     registry.register(charset_ctx);
@@ -176,6 +801,94 @@ fn register_charset_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Hea
     register_charset_classes(registry, heap);
     register_charset_natives(registry);
     register_string_byte_conversion_natives(registry);
+}
+
+fn register_base64_stdlib(registry: &mut ClassRegistry) {
+    registry.register(empty_synthetic_context(
+        "java/util/Base64",
+        "java/lang/Object",
+    ));
+
+    for class_name in ["java/util/Base64$Encoder", "java/util/Base64$Decoder"] {
+        registry.register(ClassContext {
+            class_name: class_name.to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: vec![FieldEntry {
+                name: "variant".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            }],
+            static_fields: Vec::new(),
+            instance_field_count: 1,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+    }
+
+    for (method, descriptor, handler) in [
+        (
+            "getEncoder",
+            "()Ljava/util/Base64$Encoder;",
+            native_base64_get_encoder as NativeHandler,
+        ),
+        (
+            "getMimeEncoder",
+            "()Ljava/util/Base64$Encoder;",
+            native_base64_get_mime_encoder,
+        ),
+        (
+            "getUrlEncoder",
+            "()Ljava/util/Base64$Encoder;",
+            native_base64_get_url_encoder,
+        ),
+        (
+            "getDecoder",
+            "()Ljava/util/Base64$Decoder;",
+            native_base64_get_decoder,
+        ),
+        (
+            "getMimeDecoder",
+            "()Ljava/util/Base64$Decoder;",
+            native_base64_get_mime_decoder,
+        ),
+        (
+            "getUrlDecoder",
+            "()Ljava/util/Base64$Decoder;",
+            native_base64_get_url_decoder,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/Base64", method, descriptor, handler);
+    }
+
+    registry.natives_mut().register(
+        "java/util/Base64$Encoder",
+        "encodeToString",
+        "([B)Ljava/lang/String;",
+        native_base64_encoder_encode_to_string,
+    );
+    registry.natives_mut().register(
+        "java/util/Base64$Encoder",
+        "encode",
+        "([B)[B",
+        native_base64_encoder_encode,
+    );
+    registry.natives_mut().register(
+        "java/util/Base64$Decoder",
+        "decode",
+        "(Ljava/lang/String;)[B",
+        native_base64_decoder_decode_string,
+    );
+    registry.natives_mut().register(
+        "java/util/Base64$Decoder",
+        "decode",
+        "([B)[B",
+        native_base64_decoder_decode_bytes,
+    );
 }
 
 /// Registers synthetic `java.util.concurrent.atomic` classes.
@@ -586,6 +1299,697 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
     );
 }
 
+fn lock_interface_context(name: &str) -> ClassContext {
+    ClassContext {
+        class_name: name.to_string(),
+        super_class: None,
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    }
+}
+
+/// Registers synthetic `java.util.concurrent.locks` classes.
+///
+/// The actual lock state lives in host payloads attached to the heap objects;
+/// these synthetic contexts provide the Java type names and native dispatch
+/// surface required by javac-compiled fixtures.
+#[allow(clippy::too_many_lines)]
+fn register_locks_stdlib(registry: &mut ClassRegistry) {
+    for interface_name in [
+        "java/util/concurrent/locks/Lock",
+        "java/util/concurrent/locks/Condition",
+        "java/util/concurrent/locks/ReadWriteLock",
+    ] {
+        registry.register(lock_interface_context(interface_name));
+    }
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "duke/util/concurrent/ConditionObject".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Condition".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantReadWriteLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field(
+                "readerLock",
+                "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+                false,
+            ),
+            synthetic_field(
+                "writerLock",
+                "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+                false,
+            ),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/concurrent/locks/ReadWriteLock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_reentrant_lock_init as NativeHandler),
+        ("<init>", "(Z)V", native_reentrant_lock_init_fair),
+        ("lock", "()V", native_reentrant_lock_lock),
+        ("lockInterruptibly", "()V", native_reentrant_lock_lock),
+        ("tryLock", "()Z", native_reentrant_lock_try_lock),
+        ("unlock", "()V", native_reentrant_lock_unlock),
+        (
+            "newCondition",
+            "()Ljava/util/concurrent/locks/Condition;",
+            native_reentrant_lock_new_condition,
+        ),
+        ("getHoldCount", "()I", native_reentrant_lock_get_hold_count),
+        (
+            "isHeldByCurrentThread",
+            "()Z",
+            native_reentrant_lock_is_held_by_current_thread,
+        ),
+        ("isLocked", "()Z", native_reentrant_lock_is_locked),
+        ("isFair", "()Z", native_reentrant_lock_is_fair),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantLock",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("await", "()V", native_condition_await as NativeHandler),
+        ("awaitUninterruptibly", "()V", native_condition_await),
+        ("awaitNanos", "(J)J", native_condition_await_nanos),
+        ("signal", "()V", native_condition_signal),
+        ("signalAll", "()V", native_condition_signal_all),
+    ] {
+        registry.natives_mut().register(
+            "duke/util/concurrent/ConditionObject",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for desc in ["()V", "(Z)V"] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            "<init>",
+            desc,
+            native_reentrant_read_write_lock_init,
+        );
+    }
+    for desc in [
+        "()Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "()Ljava/util/concurrent/locks/Lock;",
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            "readLock",
+            desc,
+            native_reentrant_read_write_lock_read_lock,
+        );
+    }
+    for desc in [
+        "()Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        "()Ljava/util/concurrent/locks/Lock;",
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            "writeLock",
+            desc,
+            native_reentrant_read_write_lock_write_lock,
+        );
+    }
+    for (method, descriptor, handler) in [
+        (
+            "isWriteLocked",
+            "()Z",
+            native_reentrant_read_write_lock_is_write_locked as NativeHandler,
+        ),
+        (
+            "isWriteLockedByCurrentThread",
+            "()Z",
+            native_reentrant_read_write_lock_is_write_locked_by_current_thread,
+        ),
+        (
+            "getWriteHoldCount",
+            "()I",
+            native_reentrant_read_write_lock_get_write_hold_count,
+        ),
+        (
+            "getReadHoldCount",
+            "()I",
+            native_reentrant_read_write_lock_get_read_hold_count,
+        ),
+        (
+            "getReadLockCount",
+            "()I",
+            native_reentrant_read_write_lock_get_read_lock_count,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (class_name, lock_handler, try_handler, unlock_handler, condition_handler) in [
+        (
+            "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock",
+            native_read_lock_lock as NativeHandler,
+            native_read_lock_try_lock as NativeHandler,
+            native_read_lock_unlock as NativeHandler,
+            native_read_lock_new_condition as NativeHandler,
+        ),
+        (
+            "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock",
+            native_write_lock_lock as NativeHandler,
+            native_write_lock_try_lock as NativeHandler,
+            native_write_lock_unlock as NativeHandler,
+            native_write_lock_new_condition as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register(class_name, "lock", "()V", lock_handler);
+        registry
+            .natives_mut()
+            .register(class_name, "lockInterruptibly", "()V", lock_handler);
+        registry
+            .natives_mut()
+            .register(class_name, "tryLock", "()Z", try_handler);
+        registry
+            .natives_mut()
+            .register(class_name, "unlock", "()V", unlock_handler);
+        registry.natives_mut().register(
+            class_name,
+            "newCondition",
+            "()Ljava/util/concurrent/locks/Condition;",
+            condition_handler,
+        );
+    }
+}
+
+/// Registers synthetic `java.util.concurrent` synchronization primitives.
+///
+/// These are leaf implementations backed by host-side payload state rather than
+/// a public guest-visible `AbstractQueuedSynchronizer` surface. Java permits may
+/// grow through unmatched `Semaphore.release` calls, matching the JDK contract.
+#[allow(clippy::too_many_lines)]
+fn register_sync_primitives_stdlib(registry: &mut ClassRegistry) {
+    registry.register(empty_synthetic_context(
+        "java/util/concurrent/CountDownLatch",
+        "java/lang/Object",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/concurrent/Semaphore",
+        "java/lang/Object",
+    ));
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/CyclicBarrier".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![synthetic_field(
+            "barrierAction",
+            "Ljava/lang/Runnable;",
+            false,
+        )],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "(I)V",
+            native_count_down_latch_init as NativeHandler,
+        ),
+        ("await", "()V", native_count_down_latch_await),
+        (
+            "await",
+            "(JLjava/util/concurrent/TimeUnit;)Z",
+            native_count_down_latch_await_timeout,
+        ),
+        ("countDown", "()V", native_count_down_latch_count_down),
+        ("getCount", "()J", native_count_down_latch_get_count),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_count_down_latch_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/CountDownLatch",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("<init>", "(I)V", native_semaphore_init as NativeHandler),
+        ("<init>", "(IZ)V", native_semaphore_init_fair),
+        ("acquire", "()V", native_semaphore_acquire),
+        ("acquire", "(I)V", native_semaphore_acquire_many),
+        (
+            "acquireUninterruptibly",
+            "()V",
+            native_semaphore_acquire_uninterruptibly,
+        ),
+        (
+            "acquireUninterruptibly",
+            "(I)V",
+            native_semaphore_acquire_uninterruptibly_many,
+        ),
+        ("tryAcquire", "()Z", native_semaphore_try_acquire),
+        ("tryAcquire", "(I)Z", native_semaphore_try_acquire_many),
+        (
+            "tryAcquire",
+            "(JLjava/util/concurrent/TimeUnit;)Z",
+            native_semaphore_try_acquire_timeout,
+        ),
+        ("release", "()V", native_semaphore_release),
+        ("release", "(I)V", native_semaphore_release_many),
+        (
+            "availablePermits",
+            "()I",
+            native_semaphore_available_permits,
+        ),
+        ("drainPermits", "()I", native_semaphore_drain_permits),
+        (
+            "hasQueuedThreads",
+            "()Z",
+            native_semaphore_has_queued_threads,
+        ),
+        ("getQueueLength", "()I", native_semaphore_get_queue_length),
+        ("isFair", "()Z", native_semaphore_is_fair),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_semaphore_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/Semaphore",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "(I)V",
+            native_cyclic_barrier_init as NativeHandler,
+        ),
+        (
+            "<init>",
+            "(ILjava/lang/Runnable;)V",
+            native_cyclic_barrier_init_action,
+        ),
+        ("getParties", "()I", native_cyclic_barrier_get_parties),
+        (
+            "getNumberWaiting",
+            "()I",
+            native_cyclic_barrier_get_number_waiting,
+        ),
+        ("isBroken", "()Z", native_cyclic_barrier_is_broken),
+        ("reset", "()V", native_cyclic_barrier_reset),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_cyclic_barrier_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/CyclicBarrier",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/CyclicBarrier",
+        "await",
+        "()I",
+        native_cyclic_barrier_await,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/CyclicBarrier",
+        "await",
+        "(JLjava/util/concurrent/TimeUnit;)I",
+        native_cyclic_barrier_await_timeout,
+    );
+}
+
+fn allocate_time_unit(heap: &mut duke_gc::Heap, name: &str, ordinal: i32, nanos: i64) -> Slot {
+    let unit_ref = heap.allocate("java/util/concurrent/TimeUnit".to_string(), 3);
+    let name_ref = heap.allocate_string(name.to_string());
+    if let Ok(unit) = heap.get_mut(unit_ref) {
+        unit.fields[0] = Slot::Reference(Some(name_ref));
+        unit.fields[1] = Slot::Int(ordinal);
+        unit.fields[2] = Slot::Long(nanos);
+    }
+    Slot::Reference(Some(unit_ref))
+}
+
+/// Registers Duke's minimal `ExecutorService` / `Future` surface.
+///
+/// The Java-visible types are synthetic, while queueing and worker state live in
+/// host payloads attached to `duke/util/concurrent/DukeExecutorService`.
+#[allow(clippy::too_many_lines)]
+fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    for interface_name in [
+        "java/util/concurrent/Executor",
+        "java/util/concurrent/ExecutorService",
+        "java/util/concurrent/Future",
+        "java/util/concurrent/Callable",
+    ] {
+        registry.register(lock_interface_context(interface_name));
+    }
+
+    registry.register(empty_synthetic_context(
+        "java/util/concurrent/Executors",
+        "java/lang/Object",
+    ));
+
+    registry.register(ClassContext {
+        class_name: "duke/util/concurrent/DukeExecutorService".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("shutdown", "Z", false),
+            synthetic_field("awaitDeadlineNanos", "J", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec![
+            "java/util/concurrent/ExecutorService".to_string(),
+            "java/util/concurrent/Executor".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "duke/util/concurrent/DukeFuture".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("state", "I", false),
+            synthetic_field("result", "Ljava/lang/Object;", false),
+            synthetic_field("exception", "Ljava/lang/Throwable;", false),
+            synthetic_field("waitDeadlineNanos", "J", false),
+            synthetic_field("task", "Ljava/lang/Object;", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: vec!["java/util/concurrent/Future".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    let time_units = [
+        ("NANOSECONDS", 0, 1_i64),
+        ("MICROSECONDS", 1, 1_000),
+        ("MILLISECONDS", 2, 1_000_000),
+        ("SECONDS", 3, 1_000_000_000),
+        ("MINUTES", 4, 60_000_000_000),
+        ("HOURS", 5, 3_600_000_000_000),
+        ("DAYS", 6, 86_400_000_000_000),
+    ];
+    let mut time_unit_fields: Vec<FieldEntry> = time_units
+        .iter()
+        .map(|(name, _, _)| synthetic_field(name, "Ljava/util/concurrent/TimeUnit;", true))
+        .collect();
+    time_unit_fields.push(synthetic_field("nanosPerUnit", "J", false));
+    let time_unit_static_fields: Vec<Slot> = time_units
+        .iter()
+        .map(|(name, ordinal, nanos)| allocate_time_unit(heap, name, *ordinal, *nanos))
+        .collect();
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/TimeUnit".to_string(),
+        super_class: Some("java/lang/Enum".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: time_unit_fields,
+        static_fields: time_unit_static_fields,
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    for (method, descriptor, handler) in [
+        (
+            "newFixedThreadPool",
+            "(I)Ljava/util/concurrent/ExecutorService;",
+            native_executors_new_fixed_thread_pool as NativeHandler,
+        ),
+        (
+            "newSingleThreadExecutor",
+            "()Ljava/util/concurrent/ExecutorService;",
+            native_executors_new_single_thread_executor,
+        ),
+        (
+            "newCachedThreadPool",
+            "()Ljava/util/concurrent/ExecutorService;",
+            native_executors_new_cached_thread_pool,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/Executors",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for class_name in [
+        "duke/util/concurrent/DukeExecutorService",
+        "java/util/concurrent/ExecutorService",
+    ] {
+        registry.natives_mut().register_callback(
+            class_name,
+            "submit",
+            "(Ljava/lang/Runnable;)Ljava/util/concurrent/Future;",
+            native_executor_submit_runnable,
+        );
+        registry.natives_mut().register_callback(
+            class_name,
+            "submit",
+            "(Ljava/lang/Runnable;Ljava/lang/Object;)Ljava/util/concurrent/Future;",
+            native_executor_submit_runnable_result,
+        );
+        registry.natives_mut().register_callback(
+            class_name,
+            "submit",
+            "(Ljava/util/concurrent/Callable;)Ljava/util/concurrent/Future;",
+            native_executor_submit_callable,
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "shutdown", "()V", native_executor_shutdown);
+        registry.natives_mut().register(
+            class_name,
+            "awaitTermination",
+            "(JLjava/util/concurrent/TimeUnit;)Z",
+            native_executor_await_termination,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "isShutdown",
+            "()Z",
+            native_executor_is_shutdown,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "isTerminated",
+            "()Z",
+            native_executor_is_terminated,
+        );
+    }
+    for class_name in [
+        "duke/util/concurrent/DukeExecutorService",
+        "java/util/concurrent/Executor",
+    ] {
+        registry.natives_mut().register_callback(
+            class_name,
+            "execute",
+            "(Ljava/lang/Runnable;)V",
+            native_executor_execute,
+        );
+    }
+
+    for class_name in [
+        "duke/util/concurrent/DukeFuture",
+        "java/util/concurrent/Future",
+    ] {
+        registry.natives_mut().register(
+            class_name,
+            "get",
+            "()Ljava/lang/Object;",
+            native_future_get,
+        );
+        registry.natives_mut().register(
+            class_name,
+            "get",
+            "(JLjava/util/concurrent/TimeUnit;)Ljava/lang/Object;",
+            native_future_get_timeout,
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "cancel", "(Z)Z", native_future_cancel);
+        registry.natives_mut().register(
+            class_name,
+            "isCancelled",
+            "()Z",
+            native_future_is_cancelled,
+        );
+        registry
+            .natives_mut()
+            .register(class_name, "isDone", "()Z", native_future_is_done);
+    }
+
+    registry.natives_mut().register(
+        "java/util/concurrent/TimeUnit",
+        "toMillis",
+        "(J)J",
+        native_timeunit_to_millis,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/TimeUnit",
+        "toNanos",
+        "(J)J",
+        native_timeunit_to_nanos,
+    );
+
+    for (name, super_name) in [
+        (
+            "java/util/concurrent/ExecutionException",
+            "java/lang/Exception",
+        ),
+        (
+            "java/util/concurrent/TimeoutException",
+            "java/lang/Exception",
+        ),
+        (
+            "java/util/concurrent/BrokenBarrierException",
+            "java/lang/Exception",
+        ),
+        (
+            "java/util/concurrent/CancellationException",
+            "java/lang/IllegalStateException",
+        ),
+        (
+            "java/util/concurrent/RejectedExecutionException",
+            "java/lang/RuntimeException",
+        ),
+    ] {
+        registry.register(ClassContext {
+            class_name: name.to_string(),
+            super_class: Some(super_name.to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_throwable_init);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;Ljava/lang/Throwable;)V",
+            native_throwable_init_string_cause,
+        );
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/Throwable;)V",
+            native_throwable_init_cause,
+        );
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 /// Bootstraps the minimal JDK standard library classes needed for native method support.
 ///
@@ -611,8 +2015,8 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
 /// ```
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
-    let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
-    let ps_err_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
+    let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 1);
+    let ps_err_ref = heap.allocate("java/io/PrintStream".to_string(), 1);
 
     // Create java/lang/System ClassContext with static fields `out`, `err`, `lineSeparator`.
     let system_ctx = ClassContext {
@@ -649,9 +2053,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "out".to_string(),
+            descriptor: "Ljava/io/OutputStream;".to_string(),
+            is_static: false,
+        }],
         static_fields: Vec::new(),
-        instance_field_count: 0,
+        instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -671,6 +2079,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/io/PrintStream", "println", "()V", native_println_void);
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "<init>",
+        "(Ljava/io/OutputStream;)V",
+        native_printstream_init_output_stream,
+    );
 
     let file_ctx = ClassContext {
         class_name: "java/io/File".to_string(),
@@ -805,6 +2219,32 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(output_stream_ctx);
+
+    let byte_array_output_stream_ctx = ClassContext {
+        class_name: "java/io/ByteArrayOutputStream".to_string(),
+        super_class: Some("java/io/OutputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(byte_array_output_stream_ctx);
+    registry.natives_mut().register(
+        "java/io/ByteArrayOutputStream",
+        "<init>",
+        "()V",
+        native_byte_array_output_stream_init,
+    );
+    registry.natives_mut().register(
+        "java/io/ByteArrayOutputStream",
+        "toString",
+        "()Ljava/lang/String;",
+        native_byte_array_output_stream_to_string,
+    );
 
     let process_ctx = ClassContext {
         class_name: "java/lang/Process".to_string(),
@@ -1666,8 +3106,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     register_charset_stdlib(registry, heap);
+    register_base64_stdlib(registry);
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
+    register_locks_stdlib(registry);
+    register_sync_primitives_stdlib(registry);
+    register_executor_stdlib(registry, heap);
+    register_jul_stdlib(registry, heap);
 
     // java/lang/Class — lightweight stub for class literals
     let class_ctx = ClassContext {
@@ -2556,9 +4001,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "I".to_string(),
                 is_static: false,
             },
+            FieldEntry {
+                name: "interrupted".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "hostKey".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
-        instance_field_count: 2,
+        instance_field_count: 4,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -2590,9 +4045,104 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         .register("java/lang/Thread", "sleep", "(J)V", native_thread_sleep);
     registry.natives_mut().register(
         "java/lang/Thread",
+        "interrupt",
+        "()V",
+        native_thread_interrupt,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "isInterrupted",
+        "()Z",
+        native_thread_is_interrupted,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "interrupted",
+        "()Z",
+        native_thread_interrupted,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
         "setContextClassLoader",
         "(Ljava/lang/ClassLoader;)V",
         native_void_noop,
+    );
+
+    let stack_trace_element_ctx = ClassContext {
+        class_name: "java/lang/StackTraceElement".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "declaringClass".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "methodName".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "fileName".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "lineNumber".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(stack_trace_element_ctx);
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V",
+        native_stack_trace_element_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getClassName",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_get_class_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getMethodName",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_get_method_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getFileName",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_get_file_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getLineNumber",
+        "()I",
+        native_stack_trace_element_get_line_number,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "isNativeMethod",
+        "()Z",
+        native_stack_trace_element_is_native_method,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "toString",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_to_string,
     );
 
     // java/lang/Throwable extends Object
@@ -2601,13 +4151,25 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "cause".to_string(),
-            descriptor: "Ljava/lang/Throwable;".to_string(),
-            is_static: false,
-        }],
+        fields: vec![
+            FieldEntry {
+                name: "cause".to_string(),
+                descriptor: "Ljava/lang/Throwable;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "stackTrace".to_string(),
+                descriptor: "[Ljava/lang/StackTraceElement;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "suppressedExceptions".to_string(),
+                descriptor: "[Ljava/lang/Throwable;".to_string(),
+                is_static: false,
+            },
+        ],
         static_fields: Vec::new(),
-        instance_field_count: 1,
+        instance_field_count: 3,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -2619,9 +4181,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Throwable;)V",
         native_throwable_add_suppressed,
     );
-    registry
-        .natives_mut()
-        .register("java/lang/Throwable", "<init>", "()V", native_object_init);
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "<init>",
+        "()V",
+        native_throwable_init,
+    );
     registry.natives_mut().register(
         "java/lang/Throwable",
         "<init>",
@@ -2636,6 +4201,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Throwable",
+        "getLocalizedMessage",
+        "()Ljava/lang/String;",
+        native_throwable_get_message,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
         "getCause",
         "()Ljava/lang/Throwable;",
         native_throwable_get_cause,
@@ -2645,6 +4216,42 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "toString",
         "()Ljava/lang/String;",
         native_throwable_tostring,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "fillInStackTrace",
+        "()Ljava/lang/Throwable;",
+        native_throwable_fill_in_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "getStackTrace",
+        "()[Ljava/lang/StackTraceElement;",
+        native_throwable_get_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "setStackTrace",
+        "([Ljava/lang/StackTraceElement;)V",
+        native_throwable_set_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "getSuppressed",
+        "()[Ljava/lang/Throwable;",
+        native_throwable_get_suppressed,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "printStackTrace",
+        "()V",
+        native_throwable_print_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "printStackTrace",
+        "(Ljava/io/PrintStream;)V",
+        native_throwable_print_stack_trace_print_stream,
     );
 
     // java/lang/Exception extends Throwable
@@ -2661,15 +4268,43 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(exception_ctx);
-    registry
-        .natives_mut()
-        .register("java/lang/Exception", "<init>", "()V", native_object_init);
+    registry.natives_mut().register(
+        "java/lang/Exception",
+        "<init>",
+        "()V",
+        native_throwable_init,
+    );
     registry.natives_mut().register(
         "java/lang/Exception",
         "<init>",
         "(Ljava/lang/String;)V",
         native_throwable_init_string,
     );
+
+    {
+        let name = "java/lang/InterruptedException";
+        registry.register(ClassContext {
+            class_name: name.to_string(),
+            super_class: Some("java/lang/Exception".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_throwable_init);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
+    }
 
     // java/lang/RuntimeException extends Exception
     let rte_ctx = ClassContext {
@@ -2689,7 +4324,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/RuntimeException",
         "<init>",
         "()V",
-        native_object_init,
+        native_throwable_init,
     );
     registry.natives_mut().register(
         "java/lang/RuntimeException",
@@ -2721,7 +4356,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/IllegalArgumentException",
         "<init>",
         "()V",
-        native_object_init,
+        native_throwable_init,
     );
     registry.natives_mut().register(
         "java/lang/IllegalArgumentException",
@@ -2733,7 +4368,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/IllegalArgumentException",
         "<init>",
         "(Ljava/lang/String;Ljava/lang/Throwable;)V",
-        native_throwable_init_string,
+        native_throwable_init_string_cause,
     );
 
     let illegal_thread_state_ctx = ClassContext {
@@ -2877,11 +4512,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/RuntimeException",
         ),
         (
+            "java/lang/IllegalMonitorStateException",
+            "java/lang/RuntimeException",
+        ),
+        (
             "java/lang/IllegalStateException",
             "java/lang/RuntimeException",
         ),
         (
             "java/lang/NumberFormatException",
+            "java/lang/IllegalArgumentException",
+        ),
+        (
+            "java/util/regex/PatternSyntaxException",
             "java/lang/IllegalArgumentException",
         ),
     ] {
@@ -2900,7 +4543,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         registry.register(ctx);
         registry
             .natives_mut()
-            .register(name, "<init>", "()V", native_object_init);
+            .register(name, "<init>", "()V", native_throwable_init);
         registry.natives_mut().register(
             name,
             "<init>",
@@ -2945,7 +4588,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         registry.register(ctx);
         registry
             .natives_mut()
-            .register(name, "<init>", "()V", native_object_init);
+            .register(name, "<init>", "()V", native_throwable_init);
         registry.natives_mut().register(
             name,
             "<init>",
@@ -4787,6 +6430,224 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/util/function/BiConsumer;)V",
         native_hashmap_for_each,
     );
+
+    // java/util/Hashtable — minimal synchronized-map ancestor for Properties.
+    // Duke is single-threaded, so this deliberately reuses the HashMap layout and natives.
+    let hashtable_ctx = ClassContext {
+        class_name: "java/util/Hashtable".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Map".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(hashtable_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_hashmap_init as NativeHandler),
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_put as NativeHandler,
+        ),
+        (
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_get as NativeHandler,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_hashmap_contains_key as NativeHandler,
+        ),
+        ("size", "()I", native_hashmap_size as NativeHandler),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_remove as NativeHandler,
+        ),
+        ("isEmpty", "()Z", native_hashmap_is_empty as NativeHandler),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_hashmap_key_set as NativeHandler,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_hashmap_values as NativeHandler,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_hashmap_entry_set as NativeHandler,
+        ),
+        ("clear", "()V", native_hashmap_clear as NativeHandler),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/Hashtable", method, descriptor, handler);
+    }
+
+    // java/util/Properties — String-keyed map with optional defaults chain.
+    // Layout: fields[0] inherited Hashtable size, fields[1] defaults, fields[2..] key/value pairs.
+    let properties_ctx = ClassContext {
+        class_name: "java/util/Properties".to_string(),
+        super_class: Some("java/util/Hashtable".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "defaults".to_string(),
+            descriptor: "Ljava/util/Properties;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Map".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(properties_ctx);
+    let properties_enum_ctx = ClassContext {
+        class_name: "duke/util/PropertiesEnumeration".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "index".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "count".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Enumeration".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(properties_enum_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_properties_init as NativeHandler),
+        (
+            "<init>",
+            "(Ljava/util/Properties;)V",
+            native_properties_init_defaults as NativeHandler,
+        ),
+        (
+            "setProperty",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
+            native_properties_set_property as NativeHandler,
+        ),
+        (
+            "getProperty",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            native_properties_get_property as NativeHandler,
+        ),
+        (
+            "getProperty",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            native_properties_get_property_default as NativeHandler,
+        ),
+        (
+            "load",
+            "(Ljava/io/InputStream;)V",
+            native_properties_load as NativeHandler,
+        ),
+        (
+            "store",
+            "(Ljava/io/OutputStream;Ljava/lang/String;)V",
+            native_properties_store as NativeHandler,
+        ),
+        (
+            "propertyNames",
+            "()Ljava/util/Enumeration;",
+            native_properties_property_names as NativeHandler,
+        ),
+        (
+            "stringPropertyNames",
+            "()Ljava/util/Set;",
+            native_properties_string_property_names as NativeHandler,
+        ),
+        ("size", "()I", native_properties_size as NativeHandler),
+        (
+            "isEmpty",
+            "()Z",
+            native_properties_is_empty as NativeHandler,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_properties_contains_key as NativeHandler,
+        ),
+        ("clear", "()V", native_properties_clear as NativeHandler),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_properties_remove as NativeHandler,
+        ),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_properties_key_set as NativeHandler,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_properties_values as NativeHandler,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_properties_entry_set as NativeHandler,
+        ),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_properties_to_string as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/Properties", method, descriptor, handler);
+    }
+    for (method, descriptor, handler) in [
+        (
+            "hasMoreElements",
+            "()Z",
+            native_properties_enum_has_more_elements as NativeHandler,
+        ),
+        (
+            "nextElement",
+            "()Ljava/lang/Object;",
+            native_properties_enum_next_element as NativeHandler,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "duke/util/PropertiesEnumeration",
+            method,
+            descriptor,
+            handler,
+        );
+    }
 
     // java/util/LinkedList — doubly-ended list/deque backed by ArrayList field layout
     // fields[0] = Int(size), fields[1..] = elements (head-to-tail order)
@@ -7225,14 +9086,34 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     // java/util/regex/Pattern — compiled regex pattern, string_value = regex string
+    let pattern_flag_fields = [
+        ("UNIX_LINES", 1),
+        ("CASE_INSENSITIVE", 2),
+        ("COMMENTS", 4),
+        ("MULTILINE", 8),
+        ("LITERAL", 16),
+        ("DOTALL", 32),
+        ("UNICODE_CASE", 64),
+        ("CANON_EQ", 128),
+        ("UNICODE_CHARACTER_CLASS", 256),
+    ];
+    let mut pattern_fields: Vec<FieldEntry> = pattern_flag_fields
+        .iter()
+        .map(|(name, _)| synthetic_field(name, "I", true))
+        .collect();
+    pattern_fields.push(synthetic_field("flags", "I", false));
+    let pattern_static_fields: Vec<Slot> = pattern_flag_fields
+        .iter()
+        .map(|(_, value)| Slot::Int(*value))
+        .collect();
     let pattern_ctx = ClassContext {
         class_name: "java/util/regex/Pattern".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
-        instance_field_count: 0,
+        fields: pattern_fields,
+        static_fields: pattern_static_fields,
+        instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -7246,6 +9127,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/regex/Pattern",
+        "compile",
+        "(Ljava/lang/String;I)Ljava/util/regex/Pattern;",
+        native_pattern_compile_flags,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Pattern",
         "matcher",
         "(Ljava/lang/CharSequence;)Ljava/util/regex/Matcher;",
         native_pattern_matcher,
@@ -7256,9 +9143,22 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;Ljava/lang/CharSequence;)Z",
         native_pattern_matches_static,
     );
+    registry.natives_mut().register(
+        "java/util/regex/Pattern",
+        "split",
+        "(Ljava/lang/CharSequence;)[Ljava/lang/String;",
+        native_pattern_split,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Pattern",
+        "split",
+        "(Ljava/lang/CharSequence;I)[Ljava/lang/String;",
+        native_pattern_split_limit,
+    );
 
     // java/util/regex/Matcher — stateful matcher
-    // fields[0]=Pattern, [1]=input, [2]=pos, [3]=match_start, [4]=match_end
+    // fields[0]=Pattern, [1]=input, [2]=pos, [3]=match_start, [4]=match_end,
+    // [5]=append_pos
     let matcher_ctx = ClassContext {
         class_name: "java/util/regex/Matcher".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -7290,9 +9190,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "I".to_string(),
                 is_static: false,
             },
+            FieldEntry {
+                name: "appendPos".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
-        instance_field_count: 5,
+        instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -7324,13 +9229,61 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/regex/Matcher",
+        "group",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        native_matcher_group_name,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "groupCount",
+        "()I",
+        native_matcher_group_count,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
         "start",
         "()I",
         native_matcher_start,
     );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "start",
+        "(Ljava/lang/String;)I",
+        native_matcher_start_name,
+    );
     registry
         .natives_mut()
         .register("java/util/regex/Matcher", "end", "()I", native_matcher_end);
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "end",
+        "(Ljava/lang/String;)I",
+        native_matcher_end_name,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "reset",
+        "()Ljava/util/regex/Matcher;",
+        native_matcher_reset,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "reset",
+        "(Ljava/lang/CharSequence;)Ljava/util/regex/Matcher;",
+        native_matcher_reset_input,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "appendReplacement",
+        "(Ljava/lang/StringBuilder;Ljava/lang/String;)Ljava/util/regex/Matcher;",
+        native_matcher_append_replacement_sb,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "appendTail",
+        "(Ljava/lang/StringBuilder;)Ljava/lang/StringBuilder;",
+        native_matcher_append_tail_sb,
+    );
     registry.natives_mut().register(
         "java/util/regex/Matcher",
         "replaceAll",
@@ -7674,6 +9627,106 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Z",
         native_random_next_boolean,
     );
+
+    // java/util/UUID — immutable 128-bit value type
+    // fields[0] = most significant bits, fields[1] = least significant bits
+    let uuid_ctx = ClassContext {
+        class_name: "java/util/UUID".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "mostSigBits".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "leastSigBits".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec![
+            "java/io/Serializable".to_string(),
+            "java/lang/Comparable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(uuid_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "(JJ)V", native_uuid_init as NativeHandler),
+        (
+            "randomUUID",
+            "()Ljava/util/UUID;",
+            native_uuid_random_uuid as NativeHandler,
+        ),
+        (
+            "nameUUIDFromBytes",
+            "([B)Ljava/util/UUID;",
+            native_uuid_name_uuid_from_bytes as NativeHandler,
+        ),
+        (
+            "fromString",
+            "(Ljava/lang/String;)Ljava/util/UUID;",
+            native_uuid_from_string as NativeHandler,
+        ),
+        (
+            "getMostSignificantBits",
+            "()J",
+            native_uuid_get_most_significant_bits as NativeHandler,
+        ),
+        (
+            "getLeastSignificantBits",
+            "()J",
+            native_uuid_get_least_significant_bits as NativeHandler,
+        ),
+        ("version", "()I", native_uuid_version as NativeHandler),
+        ("variant", "()I", native_uuid_variant as NativeHandler),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_uuid_to_string as NativeHandler,
+        ),
+        (
+            "equals",
+            "(Ljava/lang/Object;)Z",
+            native_uuid_equals as NativeHandler,
+        ),
+        ("hashCode", "()I", native_uuid_hash_code as NativeHandler),
+        (
+            "compareTo",
+            "(Ljava/util/UUID;)I",
+            native_uuid_compare_to as NativeHandler,
+        ),
+        (
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            native_uuid_compare_to as NativeHandler,
+        ),
+        (
+            "timestamp",
+            "()J",
+            native_uuid_unsupported_version1_accessor as NativeHandler,
+        ),
+        (
+            "clockSequence",
+            "()I",
+            native_uuid_unsupported_version1_accessor as NativeHandler,
+        ),
+        (
+            "node",
+            "()J",
+            native_uuid_unsupported_version1_accessor as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/UUID", method, descriptor, handler);
+    }
 
     let no_such_algorithm_ctx = ClassContext {
         class_name: "java/security/NoSuchAlgorithmException".to_string(),

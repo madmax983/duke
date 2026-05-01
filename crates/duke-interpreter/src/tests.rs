@@ -364,6 +364,186 @@ fn crypto_spec_provider_registration_is_visible_to_standard_apis() {
 }
 
 #[test]
+fn uuid_from_string_round_trips_canonical_text() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testFromStringRoundTrip", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_from_string_rejects_invalid_text_with_illegal_argument_exception() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testInvalidFromStringThrowsIllegalArgumentException",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_constructor_preserves_most_significant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testConstructorPreservesMostSignificantBits",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_constructor_preserves_least_significant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testConstructorPreservesLeastSignificantBits",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_random_uuid_sets_version_and_variant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testRandomUuidVersionAndVariant", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_name_uuid_from_bytes_matches_hotspot_reference() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testNameUuidMatchesHotSpotReference",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_name_uuid_from_bytes_sets_version_and_variant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testNameUuidVersionAndVariant", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_equals_uses_128_bit_value() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testEqualsUses128BitValue", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_hash_code_uses_128_bit_value() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testHashCodeUses128BitValue", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_hashmap_key_lookup_uses_uuid_equality() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testHashMapKeyLookupUsesUuidEquality",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_hashset_membership_uses_uuid_equality() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testHashSetMembershipUsesUuidEquality",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_compare_to_orders_by_most_then_least_significant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testCompareToOrdersByMostThenLeastSignificantBits",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_fixture_runs_all_acceptance_criteria() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "runAll", "()I"),
+        1
+    );
+}
+
+#[test]
+fn base64_fixture_runs() {
+    assert_eq!(run_bootstrap_int("Base64Test.class", "runAll", "()I"), 1);
+}
+
+#[test]
+fn jul_logger_basic_outputs_info_warning_and_drops_fine() {
+    let (result, lines) =
+        run_bootstrap_with_output("JulLoggerBasicTest.class", "run", "()I").unwrap();
+    assert_eq!(result, Some(Slot::Int(1)));
+    let output = lines.join("\n");
+    assert!(output.contains("INFO:"));
+    assert!(output.contains("WARNING:"));
+    assert!(!output.contains("dropped"));
+}
+
+#[test]
+fn jul_logger_get_logger_interns_by_name() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulLoggerInterningTest.class", "sameNameIdentity", "()I"),
+        1
+    );
+}
+
+#[test]
+fn jul_level_statics_and_parse_are_canonical() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulLevelStaticsTest.class", "staticsAndParse", "()I"),
+        1
+    );
+}
+
+#[test]
+fn jul_log_record_stores_core_fields() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulLogRecordTest.class", "recordBasics", "()I"),
+        1
+    );
+}
+
+#[test]
+fn jul_clinit_survives_logger_atomic_and_pattern_fields() {
+    assert_eq!(
+        run_bootstrap_int_completion("JulClinitSurvivalTest.class", "clinitSurvives", "()I"),
+        1
+    );
+}
+
+#[test]
 fn native_registry_register_callback_can_be_looked_up() {
     #[allow(clippy::unnecessary_wraps)]
     fn dummy_cb(
@@ -879,6 +1059,8 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "TestInvokevirtualMissing".to_string(),
@@ -963,6 +1145,8 @@ fn object_constructor_dispatches_via_invokespecial() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let target_ctx = ClassContext {
         class_name: "CtorTarget".to_string(),
@@ -1043,6 +1227,8 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "InvokevirtualCaller".to_string(),
@@ -1082,6 +1268,8 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let child_ctx = ClassContext {
         class_name: "ConcreteChild".to_string(),
@@ -1172,6 +1360,8 @@ fn registered_native_overrides_loaded_bytecode_method() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "NativeOverrideCaller".to_string(),
@@ -1199,6 +1389,8 @@ fn registered_native_overrides_loaded_bytecode_method() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let target_ctx = ClassContext {
         class_name: "NativeOverrideTarget".to_string(),
@@ -1291,6 +1483,8 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         max_locals: 0,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (3, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "NativeOverrideStaticCaller".to_string(),
@@ -1318,6 +1512,8 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         max_locals: 0,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let target_ctx = ClassContext {
         class_name: "NativeOverrideStaticTarget".to_string(),
@@ -1634,6 +1830,8 @@ fn hashset_iterator_supports_invokeinterface_iteration() {
             (27, 11),
             (28, 12),
         ])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "HashSetIterCaller".to_string(),
@@ -5663,6 +5861,343 @@ fn atomic_contended_fixture_is_linearizable_under_threading_runtime() {
 }
 
 #[test]
+fn reentrant_lock_reports_hold_count_and_owner_status() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReentrantLockBasicTest.class",
+            "reentrantHoldCountAndStatus",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn reentrant_lock_try_lock_fails_while_other_thread_holds_lock() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReentrantLockBasicTest.class",
+            "tryLockFailsWhileAnotherThreadHolds",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn reentrant_lock_unlock_by_non_owner_throws() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReentrantLockBasicTest.class",
+            "unlockByNonOwnerThrows",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn condition_producer_consumer_preserves_sequence() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ConditionProducerConsumerTest.class",
+            "producerConsumerSequence",
+            "()I",
+        ),
+        12345
+    );
+}
+
+#[test]
+fn condition_await_reacquires_lock_after_signal() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ConditionProducerConsumerTest.class",
+            "awaitReacquiresLockAfterSignal",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn condition_operations_require_lock_ownership() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ConditionProducerConsumerTest.class",
+            "conditionCallsRequireLockOwnership",
+            "()I",
+        ),
+        1111
+    );
+}
+
+#[test]
+fn count_down_latch_basic_fixture_exercises_core_surface() {
+    assert_eq!(
+        run_bootstrap_int_completion("CountDownLatchBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn count_down_latch_contended_fixture_releases_all_waiters() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "CountDownLatchContendedTest.class",
+            "fiveWorkersCompleteTwentyFiveTrials",
+            "()I",
+        ),
+        125
+    );
+}
+
+#[test]
+fn semaphore_basic_fixture_exercises_permits_and_timeout() {
+    assert_eq!(
+        run_bootstrap_int_completion("SemaphoreBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn semaphore_contended_fixture_bounds_parallelism() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SemaphoreContendedTest.class",
+            "boundedCriticalSectionTenTrials",
+            "()I",
+        ),
+        3
+    );
+}
+
+#[test]
+fn cyclic_barrier_basic_fixture_reuses_generations() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "CyclicBarrierBasicTest.class",
+            "twoCyclesReturnAllArrivalIndexes",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn cyclic_barrier_action_fixture_runs_once_per_generation() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "CyclicBarrierActionTest.class",
+            "actionRunsOncePerGeneration",
+            "()I",
+        ),
+        4
+    );
+}
+
+#[test]
+fn sync_primitive_interop_fixture_composes_all_three() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInteropTest.class",
+            "primitivesCoordinateTogether",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn sync_primitive_interrupt_fixture_latch_raises_interrupted_exception() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInterruptTest.class",
+            "latchAwaitInterruptRaises",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn sync_primitive_interrupt_fixture_uninterruptible_acquire_preserves_flag() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInterruptTest.class",
+            "semaphoreUninterruptiblePreservesFlag",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn sync_primitive_interrupt_fixture_barrier_breaks_generation() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInterruptTest.class",
+            "barrierInterruptBreaksGeneration",
+            "()I",
+        ),
+        110
+    );
+}
+
+#[test]
+fn read_write_lock_allows_overlapping_readers() {
+    assert_eq!(
+        run_bootstrap_int_completion("ReadWriteLockTest.class", "twoReadersMayOverlap", "()I"),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_write_lock_excludes_readers_until_unlock() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "writeLockExcludesReadersUntilUnlock",
+            "()I",
+        ),
+        3
+    );
+}
+
+#[test]
+fn read_write_lock_read_lock_excludes_writer_try_lock() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "readLockExcludesWriterTryLock",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_supports_write_reentrancy_and_downgrade() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "writeReentrantAndDowngrade",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_read_lock_new_condition_is_unsupported() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "readLockNewConditionUnsupported",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_write_unlock_by_non_owner_throws() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "writeUnlockByNonOwnerThrows",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn executor_basic_fixture_runs_side_effect_and_awaits_termination() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorBasicTest.class", "run", "()V")
+        .expect("executor basic fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["1"]);
+}
+
+#[test]
+fn executor_callable_future_get_returns_boxed_result() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorCallableTest.class", "run", "()V")
+        .expect("executor callable fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["42"]);
+}
+
+#[test]
+fn executor_pool_fixture_runs_thousand_tasks() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorPoolTest.class", "run", "()V")
+        .expect("executor pool fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["1000"]);
+}
+
+#[test]
+fn executor_timeout_fixture_reports_timeout() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorTimeoutTest.class", "run", "()V")
+        .expect("executor timeout fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["timeout"]);
+}
+
+#[test]
+fn executor_cancel_fixture_reports_cancelled() {
+    let (result, lines) = run_bootstrap_with_output("ExecutorCancelTest.class", "run", "()V")
+        .expect("executor cancel fixture should execute");
+
+    assert_eq!(result, None);
+    assert_eq!(lines, vec!["cancelled"]);
+}
+
+#[test]
+fn executor_cached_factory_works() {
+    assert_eq!(
+        run_bootstrap_int_completion("ExecutorCallableTest.class", "cachedFactoryWorks", "()I"),
+        1
+    );
+}
+
+#[test]
+fn executor_submit_runnable_with_result_routes_correctly() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ExecutorCallableTest.class",
+            "runnableWithResultWorks",
+            "()I",
+        ),
+        77
+    );
+}
+
+#[test]
+fn executor_execution_exception_wraps_original_cause() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ExecutorCallableTest.class",
+            "executionExceptionWrapsCause",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn timeunit_seconds_to_millis_converts() {
+    assert_eq!(
+        run_bootstrap_long("ExecutorCallableTest.class", "secondsToMillis", "()J"),
+        2000
+    );
+}
+
+#[test]
 fn atomic_service_loader_interop_fixture_allows_atomic_clinit() {
     assert_eq!(
         run_service_loader_jar_int(
@@ -7757,6 +8292,101 @@ fn throwable_catch_get_message() {
 }
 
 #[test]
+fn throwable_stack_trace_basic_frames() {
+    let frames = run_bootstrap_int("StackTraceBasicTest.class", "testBasicFrames", "()I");
+    assert!(
+        frames >= 3,
+        "expected at least three real frames, got fixture code {frames}"
+    );
+}
+
+#[test]
+fn throwable_stack_trace_defensive_copy_and_setter() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceBasicTest.class",
+            "testDefensiveCopyAndSetStackTrace",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_localized_message_still_falls_back_to_message() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceBasicTest.class",
+            "testLocalizedMessageStillFallsBack",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_print_stack_trace_includes_cause_chain() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceCausedByTest.class",
+            "testPrintStackTraceCause",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_suppressed_exceptions_are_retained() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceSuppressedTest.class",
+            "testSuppressedIsRetained",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_lambda_trace_keeps_user_frame() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceLambdaTest.class",
+            "testLambdaTraceIncludesUserCaller",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_print_stack_trace_format_matches_golden_shape() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceFormatGoldenTest.class",
+            "testPrintStackTraceFormat",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn stack_trace_line_lookup_uses_deepest_preceding_bci() {
+    let table = vec![(0, 10), (4, 12), (12, 30)];
+    assert_eq!(line_number_for_bci(&table, 0), 10);
+    assert_eq!(line_number_for_bci(&table, 7), 12);
+    assert_eq!(line_number_for_bci(&table, 99), 30);
+}
+
+#[test]
+fn stack_trace_line_lookup_returns_unknown_for_empty_or_before_first_entry() {
+    assert_eq!(line_number_for_bci(&[], 7), -1);
+    assert_eq!(line_number_for_bci(&[(10, 40)], 7), -1);
+}
+
+#[test]
 fn list_of_zero() {
     assert_eq!(
         run_bootstrap_int("ListOfTest.class", "testListOfZero", "()I"),
@@ -9203,6 +9833,100 @@ fn file_io_write_after_close_raises_io_exception() {
         result.unwrap(),
         Some(Slot::Int(1)),
         "writeAfterClose should catch IOException"
+    );
+}
+
+// ---- Issue 649: java.util.Properties ----
+
+#[test]
+fn properties_loads_sample_file_with_escapes_and_continuations() {
+    let sample_path = fixture("sample.properties");
+
+    let result = run_bootstrap_with_string_args(
+        "PropertiesBasicTest.class",
+        "loadSample",
+        "(Ljava/lang/String;)I",
+        &[sample_path.to_string_lossy().into_owned()],
+    );
+
+    assert_eq!(result.unwrap(), Some(Slot::Int(0)));
+}
+
+#[test]
+fn properties_get_property_overloads_handle_defaults() {
+    assert_eq!(
+        run_bootstrap_int("PropertiesBasicTest.class", "getPropertyDefaults", "()I"),
+        0
+    );
+}
+
+#[test]
+fn properties_chained_defaults_are_consulted_after_local_map() {
+    assert_eq!(
+        run_bootstrap_int("PropertiesBasicTest.class", "chainedDefaults", "()I"),
+        0
+    );
+}
+
+#[test]
+fn properties_set_property_returns_prior_value() {
+    assert_eq!(
+        run_bootstrap_int(
+            "PropertiesBasicTest.class",
+            "setPropertyReturnsPriorValue",
+            "()I"
+        ),
+        0
+    );
+}
+
+#[test]
+fn properties_store_round_trips_loaded_map() {
+    let (root, _cleanup) = make_temp_root("duke-properties-store");
+    let output_path = root.join("roundtrip.properties");
+
+    let result = run_bootstrap_with_string_args(
+        "PropertiesBasicTest.class",
+        "storeRoundTrip",
+        "(Ljava/lang/String;)I",
+        &[output_path.to_string_lossy().into_owned()],
+    );
+
+    assert_eq!(result.unwrap(), Some(Slot::Int(0)));
+}
+
+#[test]
+fn properties_store_escapes_special_keys_and_values() {
+    let (root, _cleanup) = make_temp_root("duke-properties-escaped-store");
+    let output_path = root.join("escaped.properties");
+
+    let result = run_bootstrap_with_string_args(
+        "PropertiesBasicTest.class",
+        "storeEscapedRoundTrip",
+        "(Ljava/lang/String;)I",
+        &[output_path.to_string_lossy().into_owned()],
+    );
+
+    assert_eq!(result.unwrap(), Some(Slot::Int(0)));
+}
+
+#[test]
+fn properties_property_name_views_include_defaults() {
+    assert_eq!(
+        run_bootstrap_int(
+            "PropertiesBasicTest.class",
+            "propertyNamesIncludeDefaults",
+            "()I"
+        ),
+        0
+    );
+}
+
+#[test]
+fn properties_local_views_and_mutation_ignore_defaults() {
+    assert_eq!(
+        run_bootstrap_int("PropertiesBasicTest.class", "localViewsAndMutation", "()I"),
+        0
     );
 }
 
@@ -13120,6 +13844,8 @@ fn execute_class_synthetic(
         max_locals,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -17011,6 +17737,8 @@ fn ec_multianewarray_negative_dim_errors() {
         max_locals: 1,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let cp = vec![
         None,
@@ -17085,6 +17813,8 @@ fn ec_multianewarray_zero_dim_succeeds() {
         max_locals: 1,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let cp = vec![
         None,
@@ -17429,6 +18159,8 @@ fn ec_ldcw_string_pushes_nonnull_ref() {
         max_locals: 0,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -17500,6 +18232,8 @@ fn ec_ldcw_class_constant_pushes_nonnull_ref() {
         max_locals: 0,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -17607,6 +18341,8 @@ fn ec_new_initialises_reference_field_to_null() {
         max_locals: 0,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -19751,6 +20487,8 @@ fn install_loader_keyed_hello_world_probe(
         max_locals: 1,
         exception_table,
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = registry
         .get_mut(class_key)
@@ -23868,6 +24606,62 @@ fn matcher_replace_first() {
     assert_eq!(
         run_bootstrap_int("Phase39Test.class", "testMatcherReplaceFirst", "()I"),
         1,
+    );
+}
+
+#[test]
+fn regex_flags_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexFlagsTest.class", "runAll", "()I"),
+        6
+    );
+}
+
+#[test]
+fn regex_split_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexSplitTest.class", "runAll", "()I"),
+        4
+    );
+}
+
+#[test]
+fn regex_group_count_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexGroupCountTest.class", "runAll", "()I"),
+        3,
+    );
+}
+
+#[test]
+fn regex_named_groups_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexNamedGroupsTest.class", "runAll", "()I"),
+        4,
+    );
+}
+
+#[test]
+fn regex_reset_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexResetTest.class", "runAll", "()I"),
+        2
+    );
+}
+
+#[test]
+fn regex_append_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexAppendTest.class", "runAll", "()I"),
+        1
+    );
+}
+
+#[test]
+fn regex_backref_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexBackrefTest.class", "runAll", "()I"),
+        2
     );
 }
 

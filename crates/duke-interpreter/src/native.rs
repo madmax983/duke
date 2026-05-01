@@ -317,6 +317,1574 @@ fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> Result<String
         .ok_or(Error::NullPointerException)
 }
 
+const JUL_LEVEL_VALUE_FIELD: usize = 0;
+
+const JUL_LOGGER_NAME_FIELD: usize = 0;
+const JUL_LOGGER_LEVEL_FIELD: usize = 1;
+const JUL_LOGGER_USE_PARENT_HANDLERS_FIELD: usize = 2;
+const JUL_LOGGER_PARENT_FIELD: usize = 3;
+const JUL_LOGGER_HANDLER_COUNT_FIELD: usize = 4;
+const JUL_LOGGER_HANDLERS_START: usize = 5;
+
+const JUL_HANDLER_LEVEL_FIELD: usize = 0;
+const JUL_HANDLER_FORMATTER_FIELD: usize = 1;
+
+const JUL_MANAGER_ROOT_LOGGER_FIELD: usize = 0;
+const JUL_MANAGER_LOGGER_COUNT_FIELD: usize = 1;
+const JUL_MANAGER_LOGGERS_START: usize = 2;
+
+const JUL_LOG_RECORD_LEVEL_FIELD: usize = 0;
+const JUL_LOG_RECORD_MESSAGE_FIELD: usize = 1;
+const JUL_LOG_RECORD_LOGGER_NAME_FIELD: usize = 2;
+const JUL_LOG_RECORD_THROWN_FIELD: usize = 3;
+const JUL_LOG_RECORD_MILLIS_FIELD: usize = 4;
+const JUL_LOG_RECORD_PARAMETERS_FIELD: usize = 5;
+
+const JUL_ENUM_INDEX_FIELD: usize = 0;
+const JUL_ENUM_COUNT_FIELD: usize = 1;
+const JUL_ENUM_NAMES_START: usize = 2;
+
+const JUL_LEVELS: [(&str, i32); 9] = [
+    ("SEVERE", 1000),
+    ("WARNING", 900),
+    ("INFO", 800),
+    ("CONFIG", 700),
+    ("FINE", 500),
+    ("FINER", 400),
+    ("FINEST", 300),
+    ("ALL", i32::MIN),
+    ("OFF", i32::MAX),
+];
+
+fn jul_level_spec_by_name(name: &str) -> Option<i32> {
+    JUL_LEVELS
+        .iter()
+        .find_map(|(level_name, value)| (*level_name == name).then_some(*value))
+}
+
+fn jul_level_name_by_value(value: i32) -> Option<&'static str> {
+    JUL_LEVELS
+        .iter()
+        .find_map(|(level_name, level_value)| (*level_value == value).then_some(*level_name))
+}
+
+fn jul_illegal_argument(message: String) -> Error {
+    push_pending_java_exception_message("java/lang/IllegalArgumentException", message);
+    Error::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    }
+}
+
+fn jul_allocate_level(heap: &mut duke_gc::Heap, name: &str, value: i32) -> Result<u64> {
+    let level_ref = heap.allocate("java/util/logging/Level".to_string(), 1);
+    heap.write_field(level_ref, JUL_LEVEL_VALUE_FIELD, Slot::Int(value))?;
+    heap.get_mut(level_ref)?.string_value = Some(name.to_string());
+    Ok(level_ref)
+}
+
+fn jul_level_ref_by_name(heap: &duke_gc::Heap, name: &str) -> Option<u64> {
+    heap.find_string_backed_object("java/util/logging/Level", name)
+}
+
+fn jul_level_ref_by_value(heap: &duke_gc::Heap, value: i32) -> Option<u64> {
+    let canonical_name = jul_level_name_by_value(value)?;
+    jul_level_ref_by_name(heap, canonical_name)
+}
+
+fn jul_level_slot_by_name(heap: &mut duke_gc::Heap, name: &str) -> Result<Slot> {
+    if let Some(level_ref) = jul_level_ref_by_name(heap, name) {
+        return Ok(Slot::Reference(Some(level_ref)));
+    }
+    let Some(value) = jul_level_spec_by_name(name) else {
+        return Err(jul_illegal_argument(format!("Bad level: {name}")));
+    };
+    Ok(Slot::Reference(Some(jul_allocate_level(heap, name, value)?)))
+}
+
+fn jul_level_slot_by_value(heap: &mut duke_gc::Heap, value: i32) -> Result<Slot> {
+    if let Some(level_ref) = jul_level_ref_by_value(heap, value) {
+        return Ok(Slot::Reference(Some(level_ref)));
+    }
+    let name = value.to_string();
+    Ok(Slot::Reference(Some(jul_allocate_level(heap, &name, value)?)))
+}
+
+fn jul_level_value(heap: &duke_gc::Heap, level_ref: u64) -> Result<i32> {
+    match heap.get(level_ref)?.fields.get(JUL_LEVEL_VALUE_FIELD) {
+        Some(Slot::Int(value)) => Ok(*value),
+        _ => Err(Error::InvalidRef { address: level_ref }),
+    }
+}
+
+fn jul_level_value_from_slot(heap: &duke_gc::Heap, level_slot: Slot) -> Result<i32> {
+    match level_slot {
+        Slot::Reference(Some(level_ref)) => jul_level_value(heap, level_ref),
+        Slot::Reference(None) => Err(Error::NullPointerException),
+        _ => Err(Error::TypeMismatch {
+            expected: "Level",
+            got: "other",
+        }),
+    }
+}
+
+fn jul_level_name(heap: &duke_gc::Heap, level_ref: u64) -> Result<String> {
+    if let Some(name) = heap.get(level_ref)?.string_value.clone() {
+        return Ok(name);
+    }
+    Ok(jul_level_value(heap, level_ref)?.to_string())
+}
+
+fn jul_level_name_from_slot(heap: &duke_gc::Heap, level_slot: Slot) -> Result<String> {
+    match level_slot {
+        Slot::Reference(Some(level_ref)) => jul_level_name(heap, level_ref),
+        Slot::Reference(None) => Ok("null".to_string()),
+        _ => Ok(jul_level_value_from_slot(heap, level_slot)?.to_string()),
+    }
+}
+
+fn jul_push_dynamic_field(heap: &mut duke_gc::Heap, obj_ref: u64, value: Slot) -> Result<()> {
+    let field_idx = {
+        let obj = heap.get_mut(obj_ref)?;
+        let field_idx = obj.fields.len();
+        obj.fields.push(Slot::Reference(None));
+        field_idx
+    };
+    heap.write_field(obj_ref, field_idx, value)
+}
+
+fn jul_create_simple_formatter(heap: &mut duke_gc::Heap) -> Slot {
+    Slot::Reference(Some(heap.allocate(
+        "java/util/logging/SimpleFormatter".to_string(),
+        0,
+    )))
+}
+
+fn jul_create_console_handler(heap: &mut duke_gc::Heap) -> Result<Slot> {
+    let handler_ref = heap.allocate("java/util/logging/ConsoleHandler".to_string(), 2);
+    let all_level = jul_level_slot_by_name(heap, "ALL")?;
+    let formatter = jul_create_simple_formatter(heap);
+    heap.write_field(handler_ref, JUL_HANDLER_LEVEL_FIELD, all_level)?;
+    heap.write_field(handler_ref, JUL_HANDLER_FORMATTER_FIELD, formatter)?;
+    Ok(Slot::Reference(Some(handler_ref)))
+}
+
+fn jul_create_logger(
+    heap: &mut duke_gc::Heap,
+    name: Option<&str>,
+    level_slot: Slot,
+    use_parent_handlers: bool,
+    parent_slot: Slot,
+    handlers: &[Slot],
+) -> Result<Slot> {
+    let logger_ref = heap.allocate(
+        "java/util/logging/Logger".to_string(),
+        JUL_LOGGER_HANDLERS_START + handlers.len(),
+    );
+    let name_slot = name.map_or(Slot::Reference(None), |logger_name| {
+        Slot::Reference(Some(heap.allocate_string(logger_name.to_string())))
+    });
+    heap.write_field(logger_ref, JUL_LOGGER_NAME_FIELD, name_slot)?;
+    heap.write_field(logger_ref, JUL_LOGGER_LEVEL_FIELD, level_slot)?;
+    heap.write_field(
+        logger_ref,
+        JUL_LOGGER_USE_PARENT_HANDLERS_FIELD,
+        Slot::Int(i32::from(use_parent_handlers)),
+    )?;
+    heap.write_field(logger_ref, JUL_LOGGER_PARENT_FIELD, parent_slot)?;
+    heap.write_field(
+        logger_ref,
+        JUL_LOGGER_HANDLER_COUNT_FIELD,
+        Slot::Int(i32::try_from(handlers.len()).unwrap_or(i32::MAX)),
+    )?;
+    for (idx, handler) in handlers.iter().copied().enumerate() {
+        heap.write_field(logger_ref, JUL_LOGGER_HANDLERS_START + idx, handler)?;
+    }
+    Ok(Slot::Reference(Some(logger_ref)))
+}
+
+fn jul_bootstrap_fallback_manager(heap: &mut duke_gc::Heap) -> Result<u64> {
+    let info_level = jul_level_slot_by_name(heap, "INFO")?;
+    let root_handler = jul_create_console_handler(heap)?;
+    let root_logger = jul_create_logger(
+        heap,
+        Some(""),
+        info_level,
+        false,
+        Slot::Reference(None),
+        &[root_handler],
+    )?;
+    let global_logger = jul_create_logger(
+        heap,
+        Some("global"),
+        Slot::Reference(None),
+        true,
+        root_logger,
+        &[],
+    )?;
+    let manager_ref = heap.allocate("java/util/logging/LogManager".to_string(), 2);
+    heap.get_mut(manager_ref)?.string_value = Some("singleton".to_string());
+    heap.write_field(manager_ref, JUL_MANAGER_ROOT_LOGGER_FIELD, root_logger)?;
+    heap.write_field(manager_ref, JUL_MANAGER_LOGGER_COUNT_FIELD, Slot::Int(0))?;
+    jul_manager_insert_logger(heap, manager_ref, "", root_logger)?;
+    jul_manager_insert_logger(heap, manager_ref, "global", global_logger)?;
+    Ok(manager_ref)
+}
+
+fn jul_manager_ref(heap: &mut duke_gc::Heap) -> Result<u64> {
+    if let Some(manager_ref) =
+        heap.find_string_backed_object("java/util/logging/LogManager", "singleton")
+    {
+        return Ok(manager_ref);
+    }
+    jul_bootstrap_fallback_manager(heap)
+}
+
+fn jul_manager_count(heap: &duke_gc::Heap, manager_ref: u64) -> usize {
+    match heap
+        .get(manager_ref)
+        .ok()
+        .and_then(|manager| manager.fields.get(JUL_MANAGER_LOGGER_COUNT_FIELD).copied())
+    {
+        Some(Slot::Int(count)) => usize::try_from(count.max(0)).unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn jul_manager_find_logger_by_name(
+    heap: &duke_gc::Heap,
+    manager_ref: u64,
+    name: &str,
+) -> Result<Option<u64>> {
+    let fields = heap.get(manager_ref)?.fields.clone();
+    let count = jul_manager_count(heap, manager_ref);
+    for idx in 0..count {
+        let name_idx = JUL_MANAGER_LOGGERS_START + idx * 2;
+        let logger_idx = name_idx + 1;
+        let Some(Slot::Reference(Some(name_ref))) = fields.get(name_idx).copied() else {
+            continue;
+        };
+        if string_value_from_ref(heap, name_ref)? == name
+            && let Some(Slot::Reference(Some(logger_ref))) = fields.get(logger_idx).copied()
+        {
+            return Ok(Some(logger_ref));
+        }
+    }
+    Ok(None)
+}
+
+fn jul_manager_insert_logger(
+    heap: &mut duke_gc::Heap,
+    manager_ref: u64,
+    name: &str,
+    logger_slot: Slot,
+) -> Result<bool> {
+    if jul_manager_find_logger_by_name(heap, manager_ref, name)?.is_some() {
+        return Ok(false);
+    }
+    let count = jul_manager_count(heap, manager_ref);
+    let name_ref = heap.allocate_string(name.to_string());
+    jul_push_dynamic_field(heap, manager_ref, Slot::Reference(Some(name_ref)))?;
+    jul_push_dynamic_field(heap, manager_ref, logger_slot)?;
+    heap.write_field(
+        manager_ref,
+        JUL_MANAGER_LOGGER_COUNT_FIELD,
+        Slot::Int(i32::try_from(count.saturating_add(1)).unwrap_or(i32::MAX)),
+    )?;
+    Ok(true)
+}
+
+fn jul_root_logger_slot(heap: &mut duke_gc::Heap) -> Result<Slot> {
+    let manager_ref = jul_manager_ref(heap)?;
+    Ok(heap
+        .get(manager_ref)?
+        .fields
+        .get(JUL_MANAGER_ROOT_LOGGER_FIELD)
+        .copied()
+        .unwrap_or(Slot::Reference(None)))
+}
+
+fn jul_get_or_create_logger(heap: &mut duke_gc::Heap, name: &str) -> Result<u64> {
+    let manager_ref = jul_manager_ref(heap)?;
+    if let Some(logger_ref) = jul_manager_find_logger_by_name(heap, manager_ref, name)? {
+        return Ok(logger_ref);
+    }
+    let parent_slot = jul_root_logger_slot(heap)?;
+    let logger_slot = jul_create_logger(
+        heap,
+        Some(name),
+        Slot::Reference(None),
+        true,
+        parent_slot,
+        &[],
+    )?;
+    jul_manager_insert_logger(heap, manager_ref, name, logger_slot)?;
+    match logger_slot {
+        Slot::Reference(Some(logger_ref)) => Ok(logger_ref),
+        _ => Err(Error::InvalidRef { address: 0 }),
+    }
+}
+
+fn jul_logger_name_string(heap: &duke_gc::Heap, logger_ref: u64) -> Result<Option<String>> {
+    match heap
+        .get(logger_ref)?
+        .fields
+        .get(JUL_LOGGER_NAME_FIELD)
+        .copied()
+        .unwrap_or(Slot::Reference(None))
+    {
+        Slot::Reference(Some(name_ref)) => Ok(Some(string_value_from_ref(heap, name_ref)?)),
+        Slot::Reference(None) => Ok(None),
+        _ => Err(Error::TypeMismatch {
+            expected: "String",
+            got: "other",
+        }),
+    }
+}
+
+fn jul_effective_level_value(heap: &duke_gc::Heap, logger_ref: u64) -> Result<i32> {
+    let mut current = Some(logger_ref);
+    let mut depth = 0usize;
+    while let Some(current_ref) = current {
+        if depth > 64 {
+            return Ok(800);
+        }
+        let logger = heap.get(current_ref)?;
+        let level_slot = logger
+            .fields
+            .get(JUL_LOGGER_LEVEL_FIELD)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        if !matches!(level_slot, Slot::Reference(None)) {
+            return jul_level_value_from_slot(heap, level_slot);
+        }
+        current = match logger
+            .fields
+            .get(JUL_LOGGER_PARENT_FIELD)
+            .copied()
+            .unwrap_or(Slot::Reference(None))
+        {
+            Slot::Reference(Some(parent_ref)) => Some(parent_ref),
+            _ => None,
+        };
+        depth = depth.saturating_add(1);
+    }
+    Ok(800)
+}
+
+const fn jul_is_loggable_for_value(effective: i32, candidate: i32) -> bool {
+    effective != i32::MAX && candidate != i32::MAX && candidate >= effective
+}
+
+fn jul_logger_is_loggable(heap: &duke_gc::Heap, logger_ref: u64, level_slot: Slot) -> Result<bool> {
+    let candidate = jul_level_value_from_slot(heap, level_slot)?;
+    let effective = jul_effective_level_value(heap, logger_ref)?;
+    Ok(jul_is_loggable_for_value(effective, candidate))
+}
+
+fn jul_slot_to_text(heap: &duke_gc::Heap, slot: Slot) -> Result<String> {
+    match slot {
+        Slot::Reference(Some(obj_ref)) => Ok(heap_object_to_string(heap.get(obj_ref)?, obj_ref)),
+        Slot::Reference(None) => Ok("null".to_string()),
+        Slot::Int(value) => Ok(value.to_string()),
+        Slot::Long(value) => Ok(value.to_string()),
+        Slot::Float(value) => Ok(format_java_float(value)),
+        Slot::Double(value) => Ok(format_java_double(value)),
+        Slot::ReturnAddress(value) => Ok(value.to_string()),
+    }
+}
+
+fn jul_apply_parameters(heap: &duke_gc::Heap, message: &str, params: &[Slot]) -> Result<String> {
+    let mut rendered = message.to_string();
+    for (idx, param) in params.iter().copied().enumerate() {
+        let token = format!("{{{idx}}}");
+        if rendered.contains(&token) {
+            let value = jul_slot_to_text(heap, param)?;
+            rendered = rendered.replace(&token, &value);
+        }
+    }
+    Ok(rendered)
+}
+
+fn jul_current_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+        })
+}
+
+fn jul_allocate_record(
+    heap: &mut duke_gc::Heap,
+    logger_ref: u64,
+    level_slot: Slot,
+    message: &str,
+    thrown_slot: Slot,
+    params: &[Slot],
+) -> Result<u64> {
+    let record_ref = heap.allocate("java/util/logging/LogRecord".to_string(), 6);
+    let message_ref = heap.allocate_string(message.to_string());
+    let logger_name_slot = heap
+        .get(logger_ref)?
+        .fields
+        .get(JUL_LOGGER_NAME_FIELD)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    let parameters_slot = if params.is_empty() {
+        Slot::Reference(None)
+    } else {
+        let array_ref = allocate_reference_array_from_slots(heap, "[Ljava/lang/Object;", params)?;
+        Slot::Reference(Some(array_ref))
+    };
+    heap.write_field(record_ref, JUL_LOG_RECORD_LEVEL_FIELD, level_slot)?;
+    heap.write_field(
+        record_ref,
+        JUL_LOG_RECORD_MESSAGE_FIELD,
+        Slot::Reference(Some(message_ref)),
+    )?;
+    heap.write_field(record_ref, JUL_LOG_RECORD_LOGGER_NAME_FIELD, logger_name_slot)?;
+    heap.write_field(record_ref, JUL_LOG_RECORD_THROWN_FIELD, thrown_slot)?;
+    heap.write_field(
+        record_ref,
+        JUL_LOG_RECORD_MILLIS_FIELD,
+        Slot::Long(jul_current_millis()),
+    )?;
+    heap.write_field(record_ref, JUL_LOG_RECORD_PARAMETERS_FIELD, parameters_slot)?;
+    Ok(record_ref)
+}
+
+fn jul_record_level_slot(heap: &duke_gc::Heap, record_ref: u64) -> Slot {
+    heap.get(record_ref)
+        .ok()
+        .and_then(|record| record.fields.get(JUL_LOG_RECORD_LEVEL_FIELD).copied())
+        .unwrap_or(Slot::Reference(None))
+}
+
+fn jul_record_message(heap: &duke_gc::Heap, record_ref: u64) -> Result<String> {
+    match heap
+        .get(record_ref)?
+        .fields
+        .get(JUL_LOG_RECORD_MESSAGE_FIELD)
+        .copied()
+        .unwrap_or(Slot::Reference(None))
+    {
+        Slot::Reference(Some(message_ref)) => string_value_from_ref(heap, message_ref),
+        Slot::Reference(None) => Ok(String::new()),
+        _ => Err(Error::TypeMismatch {
+            expected: "String",
+            got: "other",
+        }),
+    }
+}
+
+fn jul_format_record(heap: &duke_gc::Heap, record_ref: u64) -> Result<String> {
+    let level_name = jul_level_name_from_slot(heap, jul_record_level_slot(heap, record_ref))?;
+    let message = jul_record_message(heap, record_ref)?;
+    Ok(format!("{level_name}: {message}"))
+}
+
+fn jul_handler_allows_record(
+    heap: &duke_gc::Heap,
+    handler_ref: u64,
+    record_ref: u64,
+) -> Result<bool> {
+    let handler_level = heap
+        .get(handler_ref)?
+        .fields
+        .get(JUL_HANDLER_LEVEL_FIELD)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    if matches!(handler_level, Slot::Reference(None)) {
+        return Ok(true);
+    }
+    let handler_value = jul_level_value_from_slot(heap, handler_level)?;
+    let record_value = jul_level_value_from_slot(heap, jul_record_level_slot(heap, record_ref))?;
+    Ok(jul_is_loggable_for_value(handler_value, record_value))
+}
+
+fn jul_publish_record_to_handler(
+    heap: &duke_gc::Heap,
+    out: &mut dyn Write,
+    handler_ref: u64,
+    record_ref: u64,
+) -> Result<()> {
+    if !jul_handler_allows_record(heap, handler_ref, record_ref)? {
+        return Ok(());
+    }
+    let line = jul_format_record(heap, record_ref)?;
+    writeln!(out, "{line}").ok();
+    Ok(())
+}
+
+fn jul_publish_record_to_logger(
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    logger_ref: u64,
+    record_ref: u64,
+    depth: usize,
+) -> Result<()> {
+    if depth > 64 {
+        return Ok(());
+    }
+    let fields = heap.get(logger_ref)?.fields.clone();
+    let handler_count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    for idx in 0..handler_count {
+        if let Some(Slot::Reference(Some(handler_ref))) =
+            fields.get(JUL_LOGGER_HANDLERS_START + idx).copied()
+        {
+            jul_publish_record_to_handler(heap, out, handler_ref, record_ref)?;
+        }
+    }
+    let use_parent_handlers = matches!(
+        fields.get(JUL_LOGGER_USE_PARENT_HANDLERS_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    );
+    if use_parent_handlers
+        && let Some(Slot::Reference(Some(parent_ref))) = fields.get(JUL_LOGGER_PARENT_FIELD).copied()
+    {
+        jul_publish_record_to_logger(heap, out, parent_ref, record_ref, depth + 1)?;
+    }
+    Ok(())
+}
+
+fn jul_log_text(
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    logger_ref: u64,
+    level_slot: Slot,
+    message: &str,
+    params: &[Slot],
+    thrown_slot: Slot,
+) -> Result<()> {
+    let rendered = jul_apply_parameters(heap, message, params)?;
+    let record_ref = jul_allocate_record(
+        heap,
+        logger_ref,
+        level_slot,
+        &rendered,
+        thrown_slot,
+        params,
+    )?;
+    jul_publish_record_to_logger(heap, out, logger_ref, record_ref, 0)
+}
+
+fn jul_log_message_slot(
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    logger_ref: u64,
+    level_slot: Slot,
+    message_slot: Slot,
+    params: &[Slot],
+    thrown_slot: Slot,
+) -> Result<()> {
+    if !jul_logger_is_loggable(heap, logger_ref, level_slot)? {
+        return Ok(());
+    }
+    let message = jul_slot_to_text(heap, message_slot)?;
+    jul_log_text(
+        heap,
+        out,
+        logger_ref,
+        level_slot,
+        &message,
+        params,
+        thrown_slot,
+    )
+}
+
+fn jul_log_named_level(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    level_name: &str,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let level_slot = jul_level_slot_by_name(heap, level_name)?;
+    let message_slot = extract_slot_arg(args, 1);
+    jul_log_message_slot(
+        heap,
+        out,
+        logger_ref,
+        level_slot,
+        message_slot,
+        &[],
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_level_int_value(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let level_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(jul_level_value(heap, level_ref)?)))
+}
+
+pub(crate) fn native_jul_level_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let level_ref = extract_ref_arg(args, 0)?;
+    let name_ref = heap.allocate_string(jul_level_name(heap, level_ref)?);
+    Ok(Some(Slot::Reference(Some(name_ref))))
+}
+
+pub(crate) fn native_jul_level_parse(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 0)?;
+    let text = string_value_from_ref(heap, name_ref)?;
+    if jul_level_spec_by_name(text.as_str()).is_some() {
+        return Ok(Some(jul_level_slot_by_name(heap, &text)?));
+    }
+    if let Ok(value) = text.parse::<i32>() {
+        return Ok(Some(jul_level_slot_by_value(heap, value)?));
+    }
+    Err(jul_illegal_argument(format!("Bad level: {text}")))
+}
+
+pub(crate) fn native_jul_logger_get_logger(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 0)?;
+    let name = string_value_from_ref(heap, name_ref)?;
+    let logger_ref = jul_get_or_create_logger(heap, &name)?;
+    Ok(Some(Slot::Reference(Some(logger_ref))))
+}
+
+pub(crate) fn native_jul_logger_get_logger_with_bundle(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_jul_logger_get_logger(args, heap, out, control)
+}
+
+pub(crate) fn native_jul_logger_get_global(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = jul_get_or_create_logger(heap, "global")?;
+    Ok(Some(Slot::Reference(Some(logger_ref))))
+}
+
+pub(crate) fn native_jul_logger_get_anonymous_logger(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let parent_slot = jul_root_logger_slot(heap)?;
+    Ok(Some(jul_create_logger(
+        heap,
+        None,
+        Slot::Reference(None),
+        true,
+        parent_slot,
+        &[],
+    )?))
+}
+
+pub(crate) fn native_jul_logger_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        heap.get(logger_ref)?
+            .fields
+            .get(JUL_LOGGER_NAME_FIELD)
+            .copied()
+            .unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+pub(crate) fn native_jul_logger_get_level(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        heap.get(logger_ref)?
+            .fields
+            .get(JUL_LOGGER_LEVEL_FIELD)
+            .copied()
+            .unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+pub(crate) fn native_jul_logger_set_level(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    heap.write_field(logger_ref, JUL_LOGGER_LEVEL_FIELD, extract_slot_arg(args, 1))?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_is_loggable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let level_slot = extract_slot_arg(args, 1);
+    Ok(Some(Slot::Int(i32::from(jul_logger_is_loggable(
+        heap, logger_ref, level_slot,
+    )?))))
+}
+
+pub(crate) fn native_jul_logger_log(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    jul_log_message_slot(
+        heap,
+        out,
+        logger_ref,
+        extract_slot_arg(args, 1),
+        extract_slot_arg(args, 2),
+        &[],
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_log_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let param = extract_slot_arg(args, 3);
+    jul_log_message_slot(
+        heap,
+        out,
+        logger_ref,
+        extract_slot_arg(args, 1),
+        extract_slot_arg(args, 2),
+        &[param],
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_log_object_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let params = match extract_slot_arg(args, 3) {
+        Slot::Reference(Some(array_ref)) => heap.get(array_ref)?.fields.clone(),
+        Slot::Reference(None) => Vec::new(),
+        _ => {
+            return Err(Error::TypeMismatch {
+                expected: "Object[]",
+                got: "other",
+            });
+        }
+    };
+    jul_log_message_slot(
+        heap,
+        out,
+        logger_ref,
+        extract_slot_arg(args, 1),
+        extract_slot_arg(args, 2),
+        &params,
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_log_throwable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    jul_log_message_slot(
+        heap,
+        out,
+        logger_ref,
+        extract_slot_arg(args, 1),
+        extract_slot_arg(args, 2),
+        &[],
+        extract_slot_arg(args, 3),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_severe(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_named_level(args, heap, out, "SEVERE")
+}
+
+pub(crate) fn native_jul_logger_warning(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_named_level(args, heap, out, "WARNING")
+}
+
+pub(crate) fn native_jul_logger_info(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_named_level(args, heap, out, "INFO")
+}
+
+pub(crate) fn native_jul_logger_config(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_named_level(args, heap, out, "CONFIG")
+}
+
+pub(crate) fn native_jul_logger_fine(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_named_level(args, heap, out, "FINE")
+}
+
+pub(crate) fn native_jul_logger_finer(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_named_level(args, heap, out, "FINER")
+}
+
+pub(crate) fn native_jul_logger_finest(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_named_level(args, heap, out, "FINEST")
+}
+
+pub(crate) fn native_jul_logger_entering(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let level_slot = jul_level_slot_by_name(heap, "FINER")?;
+    if !jul_logger_is_loggable(heap, logger_ref, level_slot)? {
+        return Ok(None);
+    }
+    let source_class = jul_slot_to_text(heap, extract_slot_arg(args, 1))?;
+    let source_method = jul_slot_to_text(heap, extract_slot_arg(args, 2))?;
+    jul_log_text(
+        heap,
+        out,
+        logger_ref,
+        level_slot,
+        &format!("ENTRY {source_class}.{source_method}"),
+        &[],
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_exiting(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let level_slot = jul_level_slot_by_name(heap, "FINER")?;
+    if !jul_logger_is_loggable(heap, logger_ref, level_slot)? {
+        return Ok(None);
+    }
+    let source_class = jul_slot_to_text(heap, extract_slot_arg(args, 1))?;
+    let source_method = jul_slot_to_text(heap, extract_slot_arg(args, 2))?;
+    jul_log_text(
+        heap,
+        out,
+        logger_ref,
+        level_slot,
+        &format!("RETURN {source_class}.{source_method}"),
+        &[],
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_throwing(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let level_slot = jul_level_slot_by_name(heap, "FINER")?;
+    if !jul_logger_is_loggable(heap, logger_ref, level_slot)? {
+        return Ok(None);
+    }
+    let source_class = jul_slot_to_text(heap, extract_slot_arg(args, 1))?;
+    let source_method = jul_slot_to_text(heap, extract_slot_arg(args, 2))?;
+    jul_log_text(
+        heap,
+        out,
+        logger_ref,
+        level_slot,
+        &format!("THROW {source_class}.{source_method}"),
+        &[],
+        extract_slot_arg(args, 3),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_add_handler(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let handler_slot = match extract_slot_arg(args, 1) {
+        Slot::Reference(Some(_)) => extract_slot_arg(args, 1),
+        Slot::Reference(None) => return Err(Error::NullPointerException),
+        _ => {
+            return Err(Error::TypeMismatch {
+                expected: "Handler",
+                got: "other",
+            });
+        }
+    };
+    let count = match heap
+        .get(logger_ref)?
+        .fields
+        .get(JUL_LOGGER_HANDLER_COUNT_FIELD)
+    {
+        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    jul_push_dynamic_field(heap, logger_ref, handler_slot)?;
+    heap.write_field(
+        logger_ref,
+        JUL_LOGGER_HANDLER_COUNT_FIELD,
+        Slot::Int(i32::try_from(count.saturating_add(1)).unwrap_or(i32::MAX)),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_remove_handler(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let fields = heap.get(logger_ref)?.fields.clone();
+    let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    let mut retained = Vec::new();
+    let mut removed = false;
+    for idx in 0..count {
+        let handler_slot = fields
+            .get(JUL_LOGGER_HANDLERS_START + idx)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        if !removed && handler_slot == target {
+            removed = true;
+        } else {
+            retained.push(handler_slot);
+        }
+    }
+    heap.get_mut(logger_ref)?
+        .fields
+        .truncate(JUL_LOGGER_HANDLERS_START);
+    for handler_slot in &retained {
+        jul_push_dynamic_field(heap, logger_ref, *handler_slot)?;
+    }
+    heap.write_field(
+        logger_ref,
+        JUL_LOGGER_HANDLER_COUNT_FIELD,
+        Slot::Int(i32::try_from(retained.len()).unwrap_or(i32::MAX)),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_get_handlers(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(logger_ref)?.fields.clone();
+    let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    let handlers: Vec<Slot> = (0..count)
+        .map(|idx| {
+            fields
+                .get(JUL_LOGGER_HANDLERS_START + idx)
+                .copied()
+                .unwrap_or(Slot::Reference(None))
+        })
+        .collect();
+    let array_ref = allocate_reference_array_from_slots(
+        heap,
+        "[Ljava/util/logging/Handler;",
+        &handlers,
+    )?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+pub(crate) fn native_jul_logger_set_use_parent_handlers(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    let enabled = extract_int_arg(args, 1)?;
+    heap.write_field(
+        logger_ref,
+        JUL_LOGGER_USE_PARENT_HANDLERS_FIELD,
+        Slot::Int(i32::from(enabled != 0)),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_logger_get_use_parent_handlers(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        heap.get(logger_ref)?
+            .fields
+            .get(JUL_LOGGER_USE_PARENT_HANDLERS_FIELD)
+            .copied()
+            .unwrap_or(Slot::Int(0)),
+    ))
+}
+
+pub(crate) fn native_jul_logger_get_parent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let logger_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        heap.get(logger_ref)?
+            .fields
+            .get(JUL_LOGGER_PARENT_FIELD)
+            .copied()
+            .unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+pub(crate) fn native_jul_log_manager_get_log_manager(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(Some(jul_manager_ref(heap)?))))
+}
+
+pub(crate) fn native_jul_log_manager_get_logger(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let manager_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let name = string_value_from_ref(heap, name_ref)?;
+    Ok(Some(
+        jul_manager_find_logger_by_name(heap, manager_ref, &name)?
+            .map_or(Slot::Reference(None), |logger_ref| {
+                Slot::Reference(Some(logger_ref))
+            }),
+    ))
+}
+
+pub(crate) fn native_jul_log_manager_get_logger_names(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let manager_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(manager_ref)?.fields.clone();
+    let count = jul_manager_count(heap, manager_ref);
+    let names: Vec<Slot> = (0..count)
+        .map(|idx| {
+            fields
+                .get(JUL_MANAGER_LOGGERS_START + idx * 2)
+                .copied()
+                .unwrap_or(Slot::Reference(None))
+        })
+        .collect();
+    let enumeration_ref = heap.allocate(
+        "duke/util/JulLoggerNameEnumeration".to_string(),
+        JUL_ENUM_NAMES_START + names.len(),
+    );
+    heap.write_field(enumeration_ref, JUL_ENUM_INDEX_FIELD, Slot::Int(0))?;
+    heap.write_field(
+        enumeration_ref,
+        JUL_ENUM_COUNT_FIELD,
+        Slot::Int(i32::try_from(names.len()).unwrap_or(i32::MAX)),
+    )?;
+    for (idx, name_slot) in names.iter().copied().enumerate() {
+        heap.write_field(enumeration_ref, JUL_ENUM_NAMES_START + idx, name_slot)?;
+    }
+    Ok(Some(Slot::Reference(Some(enumeration_ref))))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_jul_noop_void(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(None)
+}
+
+pub(crate) fn native_jul_log_manager_read_configuration_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let stream_ref = extract_ref_arg(args, 1)?;
+    let stream_class = heap.get(stream_ref)?.class_name.clone();
+    for _ in 0..1_048_576 {
+        match ops.invoke(
+            heap,
+            out,
+            &stream_class,
+            "read",
+            "()I",
+            vec![Slot::Reference(Some(stream_ref))],
+        ) {
+            Ok(Some(Slot::Int(value))) if value < 0 => break,
+            Ok(Some(Slot::Int(_))) => {}
+            Ok(_) | Err(Error::MethodNotFound { .. }) => break,
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_jul_log_manager_add_logger(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let manager_ref = extract_ref_arg(args, 0)?;
+    let logger_ref = extract_ref_arg(args, 1)?;
+    let Some(name) = jul_logger_name_string(heap, logger_ref)? else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let inserted = jul_manager_insert_logger(
+        heap,
+        manager_ref,
+        &name,
+        Slot::Reference(Some(logger_ref)),
+    )?;
+    Ok(Some(Slot::Int(i32::from(inserted))))
+}
+
+pub(crate) fn native_jul_handler_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let handler_ref = extract_ref_arg(args, 0)?;
+    let all_level = jul_level_slot_by_name(heap, "ALL")?;
+    heap.write_field(handler_ref, JUL_HANDLER_LEVEL_FIELD, all_level)?;
+    heap.write_field(
+        handler_ref,
+        JUL_HANDLER_FORMATTER_FIELD,
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_console_handler_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let handler_ref = extract_ref_arg(args, 0)?;
+    let all_level = jul_level_slot_by_name(heap, "ALL")?;
+    let formatter = jul_create_simple_formatter(heap);
+    heap.write_field(handler_ref, JUL_HANDLER_LEVEL_FIELD, all_level)?;
+    heap.write_field(handler_ref, JUL_HANDLER_FORMATTER_FIELD, formatter)?;
+    Ok(None)
+}
+
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_jul_handler_publish(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(None)
+}
+
+pub(crate) fn native_jul_console_handler_publish(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let handler_ref = extract_ref_arg(args, 0)?;
+    let record_ref = extract_ref_arg(args, 1)?;
+    jul_publish_record_to_handler(heap, out, handler_ref, record_ref)?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_handler_set_level(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let handler_ref = extract_ref_arg(args, 0)?;
+    heap.write_field(handler_ref, JUL_HANDLER_LEVEL_FIELD, extract_slot_arg(args, 1))?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_handler_get_level(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let handler_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        heap.get(handler_ref)?
+            .fields
+            .get(JUL_HANDLER_LEVEL_FIELD)
+            .copied()
+            .unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+pub(crate) fn native_jul_handler_set_formatter(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let handler_ref = extract_ref_arg(args, 0)?;
+    heap.write_field(
+        handler_ref,
+        JUL_HANDLER_FORMATTER_FIELD,
+        extract_slot_arg(args, 1),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_simple_formatter_format(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let record_ref = extract_ref_arg(args, 1)?;
+    let formatted_ref = heap.allocate_string(jul_format_record(heap, record_ref)?);
+    Ok(Some(Slot::Reference(Some(formatted_ref))))
+}
+
+pub(crate) fn native_jul_log_record_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let record_ref = extract_ref_arg(args, 0)?;
+    heap.write_field(record_ref, JUL_LOG_RECORD_LEVEL_FIELD, extract_slot_arg(args, 1))?;
+    heap.write_field(
+        record_ref,
+        JUL_LOG_RECORD_MESSAGE_FIELD,
+        extract_slot_arg(args, 2),
+    )?;
+    heap.write_field(
+        record_ref,
+        JUL_LOG_RECORD_LOGGER_NAME_FIELD,
+        Slot::Reference(None),
+    )?;
+    heap.write_field(record_ref, JUL_LOG_RECORD_THROWN_FIELD, Slot::Reference(None))?;
+    heap.write_field(
+        record_ref,
+        JUL_LOG_RECORD_MILLIS_FIELD,
+        Slot::Long(jul_current_millis()),
+    )?;
+    heap.write_field(
+        record_ref,
+        JUL_LOG_RECORD_PARAMETERS_FIELD,
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+fn jul_log_record_get_field(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    field_idx: usize,
+) -> Result<Slot> {
+    let record_ref = extract_ref_arg(args, 0)?;
+    Ok(heap
+        .get(record_ref)?
+        .fields
+        .get(field_idx)
+        .copied()
+        .unwrap_or(Slot::Reference(None)))
+}
+
+fn jul_log_record_set_field(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    field_idx: usize,
+    value_idx: usize,
+) -> Result<Option<Slot>> {
+    let record_ref = extract_ref_arg(args, 0)?;
+    heap.write_field(record_ref, field_idx, extract_slot_arg(args, value_idx))?;
+    Ok(None)
+}
+
+pub(crate) fn native_jul_log_record_get_level(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(jul_log_record_get_field(
+        args,
+        heap,
+        JUL_LOG_RECORD_LEVEL_FIELD,
+    )?))
+}
+
+pub(crate) fn native_jul_log_record_set_level(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_record_set_field(args, heap, JUL_LOG_RECORD_LEVEL_FIELD, 1)
+}
+
+pub(crate) fn native_jul_log_record_get_message(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(jul_log_record_get_field(
+        args,
+        heap,
+        JUL_LOG_RECORD_MESSAGE_FIELD,
+    )?))
+}
+
+pub(crate) fn native_jul_log_record_set_message(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_record_set_field(args, heap, JUL_LOG_RECORD_MESSAGE_FIELD, 1)
+}
+
+pub(crate) fn native_jul_log_record_get_logger_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(jul_log_record_get_field(
+        args,
+        heap,
+        JUL_LOG_RECORD_LOGGER_NAME_FIELD,
+    )?))
+}
+
+pub(crate) fn native_jul_log_record_set_logger_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_record_set_field(args, heap, JUL_LOG_RECORD_LOGGER_NAME_FIELD, 1)
+}
+
+pub(crate) fn native_jul_log_record_get_thrown(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(jul_log_record_get_field(
+        args,
+        heap,
+        JUL_LOG_RECORD_THROWN_FIELD,
+    )?))
+}
+
+pub(crate) fn native_jul_log_record_set_thrown(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_record_set_field(args, heap, JUL_LOG_RECORD_THROWN_FIELD, 1)
+}
+
+pub(crate) fn native_jul_log_record_get_millis(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let record_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(match heap.get(record_ref)?.fields.get(JUL_LOG_RECORD_MILLIS_FIELD) {
+        Some(Slot::Long(value)) => Slot::Long(*value),
+        _ => Slot::Long(0),
+    }))
+}
+
+pub(crate) fn native_jul_log_record_get_parameters(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(jul_log_record_get_field(
+        args,
+        heap,
+        JUL_LOG_RECORD_PARAMETERS_FIELD,
+    )?))
+}
+
+pub(crate) fn native_jul_log_record_set_parameters(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    jul_log_record_set_field(args, heap, JUL_LOG_RECORD_PARAMETERS_FIELD, 1)
+}
+
+pub(crate) fn native_jul_logger_names_has_more_elements(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let enum_ref = extract_ref_arg(args, 0)?;
+    let fields = &heap.get(enum_ref)?.fields;
+    let index = match fields.get(JUL_ENUM_INDEX_FIELD) {
+        Some(Slot::Int(index)) => *index,
+        _ => 0,
+    };
+    let count = match fields.get(JUL_ENUM_COUNT_FIELD) {
+        Some(Slot::Int(count)) => *count,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(index < count))))
+}
+
+pub(crate) fn native_jul_logger_names_next_element(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let enum_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(enum_ref)?.fields.clone();
+    let index = match fields.get(JUL_ENUM_INDEX_FIELD) {
+        Some(Slot::Int(index)) => usize::try_from((*index).max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    let count = match fields.get(JUL_ENUM_COUNT_FIELD) {
+        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+        _ => 0,
+    };
+    if index >= count {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    heap.write_field(
+        enum_ref,
+        JUL_ENUM_INDEX_FIELD,
+        Slot::Int(i32::try_from(index.saturating_add(1)).unwrap_or(i32::MAX)),
+    )?;
+    Ok(Some(
+        fields
+            .get(JUL_ENUM_NAMES_START + index)
+            .copied()
+            .unwrap_or(Slot::Reference(None)),
+    ))
+}
+
 const REPLACEMENT_CHAR: char = '\u{fffd}';
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1924,29 +3492,298 @@ pub(crate) fn native_object_clone(
     Ok(Some(Slot::Reference(Some(new_ref))))
 }
 
+const THROWABLE_CAUSE_FIELD: usize = 0;
+const THROWABLE_STACK_TRACE_FIELD: usize = 1;
+const THROWABLE_SUPPRESSED_FIELD: usize = 2;
+const STACK_TRACE_ELEMENT_CLASS: &str = "java/lang/StackTraceElement";
+const STACK_TRACE_ARRAY_CLASS: &str = "[Ljava/lang/StackTraceElement;";
+const THROWABLE_ARRAY_CLASS: &str = "[Ljava/lang/Throwable;";
+
+fn set_object_field(heap: &mut duke_gc::Heap, obj_ref: u64, index: usize, value: Slot) -> Result<()> {
+    let obj = heap.get_mut(obj_ref)?;
+    if obj.fields.len() <= index {
+        obj.fields.resize(index + 1, Slot::Reference(None));
+    }
+    obj.fields[index] = value;
+    Ok(())
+}
+
+fn allocate_slot_array(heap: &mut duke_gc::Heap, class_name: &str, elements: &[Slot]) -> Result<u64> {
+    let array_ref = heap.allocate(class_name.to_string(), elements.len());
+    heap.get_mut(array_ref)?.fields.clone_from_slice(elements);
+    Ok(array_ref)
+}
+
+fn allocate_empty_reference_array(heap: &mut duke_gc::Heap, class_name: &str) -> Result<u64> {
+    allocate_slot_array(heap, class_name, &[])
+}
+
+fn string_slot(heap: &mut duke_gc::Heap, value: &str) -> Slot {
+    Slot::Reference(Some(heap.allocate_string(value.to_string())))
+}
+
+fn optional_string_slot(heap: &mut duke_gc::Heap, value: Option<&str>) -> Slot {
+    value.map_or(Slot::Reference(None), |s| string_slot(heap, s))
+}
+
+fn slot_string(heap: &duke_gc::Heap, slot: Slot) -> Result<Option<String>> {
+    match slot {
+        Slot::Reference(Some(r)) => Ok(heap.get(r)?.string_value.clone()),
+        _ => Ok(None),
+    }
+}
+
+fn allocate_stack_trace_element(
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+    method_name: &str,
+    file_name: Option<&str>,
+    line_number: i32,
+) -> Result<u64> {
+    let element_ref = heap.allocate(STACK_TRACE_ELEMENT_CLASS.to_string(), 4);
+    let declaring_class = class_name.replace('/', ".");
+    let class_slot = string_slot(heap, &declaring_class);
+    let method_slot = string_slot(heap, method_name);
+    let file_slot = optional_string_slot(heap, file_name);
+    let obj = heap.get_mut(element_ref)?;
+    obj.fields[0] = class_slot;
+    obj.fields[1] = method_slot;
+    obj.fields[2] = file_slot;
+    obj.fields[3] = Slot::Int(line_number);
+    Ok(element_ref)
+}
+
+fn store_throwable_stack_trace_from_frames(
+    heap: &mut duke_gc::Heap,
+    throwable_ref: u64,
+    frames: &[NativeStackFrame],
+) -> Result<()> {
+    let mut elements = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let element_ref = allocate_stack_trace_element(
+            heap,
+            &frame.class_name,
+            &frame.method_name,
+            frame.file_name.as_deref(),
+            frame.line_number,
+        )?;
+        elements.push(Slot::Reference(Some(element_ref)));
+    }
+    let array_ref = allocate_slot_array(heap, STACK_TRACE_ARRAY_CLASS, &elements)?;
+    set_object_field(
+        heap,
+        throwable_ref,
+        THROWABLE_STACK_TRACE_FIELD,
+        Slot::Reference(Some(array_ref)),
+    )
+}
+
+fn clone_reference_array(
+    heap: &mut duke_gc::Heap,
+    slot: Slot,
+    default_class_name: &str,
+) -> Result<Slot> {
+    let Some(array_ref) = slot.as_reference() else {
+        let empty_ref = allocate_empty_reference_array(heap, default_class_name)?;
+        return Ok(Slot::Reference(Some(empty_ref)));
+    };
+    let (class_name, elements) = {
+        let obj = heap.get(array_ref)?;
+        (obj.class_name.clone(), obj.fields.clone())
+    };
+    let cloned_ref = allocate_slot_array(heap, &class_name, &elements)?;
+    Ok(Slot::Reference(Some(cloned_ref)))
+}
+
+fn throwable_field_slot(heap: &duke_gc::Heap, throwable_ref: u64, index: usize) -> Result<Slot> {
+    Ok(heap
+        .get(throwable_ref)?
+        .fields
+        .get(index)
+        .copied()
+        .unwrap_or(Slot::Reference(None)))
+}
+
+fn throwable_header(heap: &duke_gc::Heap, throwable_ref: u64) -> Result<String> {
+    let obj = heap.get(throwable_ref)?;
+    let class_name = obj.class_name.replace('/', ".");
+    Ok(match &obj.string_value {
+        Some(msg) => format!("{class_name}: {msg}"),
+        None => class_name,
+    })
+}
+
+fn stack_trace_element_text(heap: &duke_gc::Heap, element_ref: u64) -> Result<String> {
+    let fields = heap.get(element_ref)?.fields.clone();
+    let class_name = slot_string(heap, fields.first().copied().unwrap_or(Slot::Reference(None)))?
+        .unwrap_or_default();
+    let method_name = slot_string(heap, fields.get(1).copied().unwrap_or(Slot::Reference(None)))?
+        .unwrap_or_default();
+    let file_name = slot_string(heap, fields.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+    let line_number = match fields.get(3) {
+        Some(Slot::Int(line)) => *line,
+        _ => -1,
+    };
+    let location = match (file_name, line_number) {
+        (_, -2) => "Native Method".to_string(),
+        (Some(file), line) if line >= 0 => format!("{file}:{line}"),
+        (Some(file), _) => file,
+        (None, _) => "Unknown Source".to_string(),
+    };
+    Ok(format!("{class_name}.{method_name}({location})"))
+}
+
+fn append_throwable_trace(
+    heap: &duke_gc::Heap,
+    throwable_ref: u64,
+    caption: &str,
+    frame_indent: &str,
+    out: &mut String,
+    visited: &mut std::collections::HashSet<u64>,
+) -> Result<()> {
+    if !visited.insert(throwable_ref) {
+        out.push_str(caption);
+        out.push_str("[CIRCULAR REFERENCE: ");
+        out.push_str(&throwable_header(heap, throwable_ref)?);
+        out.push_str("]\n");
+        return Ok(());
+    }
+
+    out.push_str(caption);
+    out.push_str(&throwable_header(heap, throwable_ref)?);
+    out.push('\n');
+
+    let stack_slot = throwable_field_slot(heap, throwable_ref, THROWABLE_STACK_TRACE_FIELD)?;
+    if let Some(stack_ref) = stack_slot.as_reference() {
+        for frame_slot in &heap.get(stack_ref)?.fields {
+            if let Slot::Reference(Some(element_ref)) = frame_slot {
+                out.push_str(frame_indent);
+                out.push_str("\tat ");
+                out.push_str(&stack_trace_element_text(heap, *element_ref)?);
+                out.push('\n');
+            }
+        }
+    }
+
+    let suppressed_slot = throwable_field_slot(heap, throwable_ref, THROWABLE_SUPPRESSED_FIELD)?;
+    if let Some(suppressed_ref) = suppressed_slot.as_reference() {
+        for suppressed in &heap.get(suppressed_ref)?.fields {
+            if let Slot::Reference(Some(suppressed_ref)) = suppressed {
+                let mut suppressed_caption = String::from(frame_indent);
+                suppressed_caption.push_str("\tSuppressed: ");
+                let mut suppressed_indent = String::from(frame_indent);
+                suppressed_indent.push('\t');
+                append_throwable_trace(
+                    heap,
+                    *suppressed_ref,
+                    &suppressed_caption,
+                    &suppressed_indent,
+                    out,
+                    visited,
+                )?;
+            }
+        }
+    }
+
+    let cause_slot = throwable_field_slot(heap, throwable_ref, THROWABLE_CAUSE_FIELD)?;
+    if let Some(cause_ref) = cause_slot.as_reference()
+        && cause_ref != throwable_ref
+    {
+        append_throwable_trace(heap, cause_ref, "Caused by: ", frame_indent, out, visited)?;
+    }
+    Ok(())
+}
+
+fn throwable_trace_string(heap: &duke_gc::Heap, throwable_ref: u64) -> Result<String> {
+    let mut out = String::new();
+    let mut visited = std::collections::HashSet::new();
+    append_throwable_trace(heap, throwable_ref, "", "", &mut out, &mut visited)?;
+    Ok(out)
+}
+
+fn write_to_print_stream_or_output(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    text: &str,
+) -> Result<()> {
+    let print_stream_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    if let Some(print_stream_ref) = print_stream_slot.as_reference() {
+        let target_slot = heap
+            .get(print_stream_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        if let Some(target_ref) = target_slot.as_reference()
+            && heap.get(target_ref)?.class_name == "java/io/ByteArrayOutputStream"
+        {
+            let target = heap.get_mut(target_ref)?;
+            target.string_value.get_or_insert_with(String::new).push_str(text);
+            return Ok(());
+        }
+    }
+    write!(out, "{text}").ok();
+    Ok(())
+}
+
+fn fill_throwable_stack_trace_from_control(
+    heap: &mut duke_gc::Heap,
+    throwable_ref: u64,
+    control: &NativeControl,
+) -> Result<()> {
+    store_throwable_stack_trace_from_frames(heap, throwable_ref, control.stack_trace())
+}
+
 /// `Throwable.addSuppressed(Throwable suppressed)V`
 ///
-/// No-op stub. Control flow is handled entirely by the bytecode desugaring —
-/// `addSuppressed` only affects what `getSuppressed()` returns, which is not
-/// yet implemented. Suppressed exception is silently dropped.
-///
 /// Signature: `args[0]` = this (Throwable), `args[1]` = suppressed (Throwable)
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_throwable_add_suppressed(
-    _args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
     _stdout: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let suppressed = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    if suppressed.as_reference().is_none() {
+        return Ok(None);
+    }
+    let existing = throwable_field_slot(heap, this_ref, THROWABLE_SUPPRESSED_FIELD)?;
+    let mut elements = existing.as_reference().map_or_else(Vec::new, |array_ref| {
+        heap.get(array_ref)
+            .map(|obj| obj.fields.clone())
+            .unwrap_or_default()
+    });
+    elements.push(suppressed);
+    let array_ref = allocate_slot_array(heap, THROWABLE_ARRAY_CLASS, &elements)?;
+    set_object_field(
+        heap,
+        this_ref,
+        THROWABLE_SUPPRESSED_FIELD,
+        Slot::Reference(Some(array_ref)),
+    )?;
     Ok(None)
 }
 
 /// Native: `Throwable.<init>(String)V` — stores detail message in `string_value`.
+/// Native: `Throwable.<init>()V` - captures the construction stack trace.
+pub(crate) fn native_throwable_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
+    Ok(None)
+}
+
 pub(crate) fn native_throwable_init_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let msg = match args.get(1) {
@@ -1954,6 +3791,7 @@ pub(crate) fn native_throwable_init_string(
         _ => None,
     };
     heap.get_mut(this_ref)?.string_value = msg;
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
 }
 
@@ -1962,7 +3800,7 @@ pub(crate) fn native_throwable_init_string_cause(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let msg = match args.get(1) {
@@ -1975,13 +3813,44 @@ pub(crate) fn native_throwable_init_string_cause(
         && let Ok(obj) = heap.get_mut(this_ref)
         && !obj.fields.is_empty()
     {
-        obj.fields[0] = cause_slot;
+        obj.fields[THROWABLE_CAUSE_FIELD] = cause_slot;
     }
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
+    Ok(None)
+}
+
+/// Native: `Throwable.<init>(Throwable)V` - stores only the cause.
+pub(crate) fn native_throwable_init_cause(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    if let Some(&cause_slot) = args.get(1)
+        && let Ok(obj) = heap.get_mut(this_ref)
+        && !obj.fields.is_empty()
+    {
+        obj.fields[THROWABLE_CAUSE_FIELD] = cause_slot;
+    }
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
 }
 
 /// Native: `Throwable.getCause()Throwable` — returns the stored cause.
 #[allow(clippy::unnecessary_wraps)]
+/// Native: `Throwable.fillInStackTrace()Throwable`.
+pub(crate) fn native_throwable_fill_in_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
 pub(crate) fn native_throwable_get_cause(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1990,7 +3859,7 @@ pub(crate) fn native_throwable_get_cause(
 ) -> Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let cause = extract_first_field_arg(heap, *r)?;
+            let cause = throwable_field_slot(heap, *r, THROWABLE_CAUSE_FIELD)?;
             Ok(Some(cause))
         }
         _ => Ok(Some(Slot::Reference(None))),
@@ -2025,15 +3894,213 @@ pub(crate) fn native_throwable_tostring(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let obj = heap.get(this_ref)?;
-    let class_name = obj.class_name.replace('/', ".");
-    let s = match &obj.string_value {
-        Some(msg) => format!("{class_name}: {msg}"),
-        None => class_name,
-    };
-    let _ = obj;
+    let s = throwable_header(heap, this_ref)?;
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Throwable.getStackTrace()StackTraceElement[]`.
+pub(crate) fn native_throwable_get_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = throwable_field_slot(heap, this_ref, THROWABLE_STACK_TRACE_FIELD)?;
+    Ok(Some(clone_reference_array(
+        heap,
+        slot,
+        STACK_TRACE_ARRAY_CLASS,
+    )?))
+}
+
+/// Native: `Throwable.setStackTrace(StackTraceElement[])V`.
+pub(crate) fn native_throwable_set_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let new_trace = clone_reference_array(
+        heap,
+        args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        STACK_TRACE_ARRAY_CLASS,
+    )?;
+    set_object_field(heap, this_ref, THROWABLE_STACK_TRACE_FIELD, new_trace)?;
+    Ok(None)
+}
+
+/// Native: `Throwable.getSuppressed()Throwable[]`.
+pub(crate) fn native_throwable_get_suppressed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = throwable_field_slot(heap, this_ref, THROWABLE_SUPPRESSED_FIELD)?;
+    Ok(Some(clone_reference_array(heap, slot, THROWABLE_ARRAY_CLASS)?))
+}
+
+/// Native: `Throwable.printStackTrace()V`.
+pub(crate) fn native_throwable_print_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = throwable_trace_string(heap, this_ref)?;
+    write!(out, "{text}").ok();
+    Ok(None)
+}
+
+/// Native: `Throwable.printStackTrace(PrintStream)V`.
+pub(crate) fn native_throwable_print_stack_trace_print_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = throwable_trace_string(heap, this_ref)?;
+    write_to_print_stream_or_output(args, heap, out, &text)?;
+    Ok(None)
+}
+
+/// Native: `StackTraceElement.<init>(String,String,String,int)V`.
+pub(crate) fn native_stack_trace_element_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let class_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let method_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let file_slot = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let line_slot = args.get(4).copied().unwrap_or(Slot::Int(-1));
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.len() < 4 {
+        obj.fields.resize(4, Slot::Reference(None));
+    }
+    obj.fields[0] = class_slot;
+    obj.fields[1] = method_slot;
+    obj.fields[2] = file_slot;
+    obj.fields[3] = line_slot;
+    Ok(None)
+}
+
+fn stack_trace_element_field(args: &[Slot], heap: &duke_gc::Heap, index: usize) -> Result<Slot> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(heap
+        .get(this_ref)?
+        .fields
+        .get(index)
+        .copied()
+        .unwrap_or(Slot::Reference(None)))
+}
+
+pub(crate) fn native_stack_trace_element_get_class_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(stack_trace_element_field(args, heap, 0)?))
+}
+
+pub(crate) fn native_stack_trace_element_get_method_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(stack_trace_element_field(args, heap, 1)?))
+}
+
+pub(crate) fn native_stack_trace_element_get_file_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(stack_trace_element_field(args, heap, 2)?))
+}
+
+pub(crate) fn native_stack_trace_element_get_line_number(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    match stack_trace_element_field(args, heap, 3)? {
+        Slot::Int(line) => Ok(Some(Slot::Int(line))),
+        _ => Ok(Some(Slot::Int(-1))),
+    }
+}
+
+pub(crate) fn native_stack_trace_element_is_native_method(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let is_native = matches!(stack_trace_element_field(args, heap, 3)?, Slot::Int(-2));
+    Ok(Some(Slot::Int(i32::from(is_native))))
+}
+
+pub(crate) fn native_stack_trace_element_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = stack_trace_element_text(heap, this_ref)?;
+    let string_ref = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_printstream_init_output_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    set_object_field(heap, this_ref, 0, target)?;
+    Ok(None)
+}
+
+pub(crate) fn native_byte_array_output_stream_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.string_value = Some(String::new());
+    Ok(None)
+}
+
+pub(crate) fn native_byte_array_output_stream_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = heap
+        .get(this_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let string_ref = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(string_ref))))
 }
 
 // ---- List.of / Set.of / Map.of factory methods ----
@@ -8898,6 +10965,82 @@ pub(crate) fn native_system_nano_time(
 
 const THREAD_TARGET_SLOT: usize = 0;
 const THREAD_ID_SLOT: usize = 1;
+const THREAD_INTERRUPTED_SLOT: usize = 2;
+const THREAD_HOST_KEY_SLOT: usize = 3;
+
+static NEXT_THREAD_HOST_KEY: AtomicI32 = AtomicI32::new(1);
+
+fn next_thread_host_key() -> i32 {
+    NEXT_THREAD_HOST_KEY.fetch_add(1, Ordering::Relaxed)
+}
+
+fn java_thread_hosts() -> &'static RwLock<HashMap<i32, std::thread::ThreadId>> {
+    static HOSTS: OnceLock<RwLock<HashMap<i32, std::thread::ThreadId>>> = OnceLock::new();
+    HOSTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn interrupted_host_threads() -> &'static RwLock<HashSet<std::thread::ThreadId>> {
+    static INTERRUPTED: OnceLock<RwLock<HashSet<std::thread::ThreadId>>> = OnceLock::new();
+    INTERRUPTED.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+fn register_java_host_thread(host_key: i32, host_thread_id: std::thread::ThreadId) {
+    java_thread_hosts()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(host_key, host_thread_id);
+}
+
+fn unregister_java_host_thread(host_key: i32) {
+    let removed_host_thread = java_thread_hosts()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&host_key);
+    if let Some(host_thread_id) = removed_host_thread {
+        interrupted_host_threads()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&host_thread_id);
+    }
+}
+
+fn host_thread_for_java_thread(host_key: i32) -> Option<std::thread::ThreadId> {
+    java_thread_hosts()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&host_key)
+        .copied()
+}
+
+fn java_host_key_for_current_host() -> Option<i32> {
+    let host_thread_id = current_host_thread_id();
+    java_thread_hosts()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find_map(|(host_key, mapped_host)| (*mapped_host == host_thread_id).then_some(*host_key))
+}
+
+fn interrupt_host_thread(host_thread_id: std::thread::ThreadId) {
+    interrupted_host_threads()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(host_thread_id);
+}
+
+fn current_host_thread_is_interrupted() -> bool {
+    interrupted_host_threads()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains(&current_host_thread_id())
+}
+
+fn take_current_host_thread_interrupted() -> bool {
+    interrupted_host_threads()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&current_host_thread_id())
+}
 
 pub(crate) fn native_thread_current_thread(
     _args: &[Slot],
@@ -8905,10 +11048,12 @@ pub(crate) fn native_thread_current_thread(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 2);
+    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 4);
     let thread = heap.get_mut(thread_ref)?;
     thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
     thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    thread.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(i32::from(current_host_thread_is_interrupted()));
+    thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(java_host_key_for_current_host().unwrap_or(-1));
     Ok(Some(Slot::Reference(Some(thread_ref))))
 }
 
@@ -8922,6 +11067,8 @@ pub(crate) fn native_thread_init(
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
+    this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
     Ok(None)
 }
 
@@ -8936,6 +11083,8 @@ pub(crate) fn native_thread_init_runnable(
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = target;
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
+    this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
     Ok(None)
 }
 
@@ -8989,6 +11138,491 @@ pub(crate) fn native_thread_sleep(
         millis,
     )));
     Ok(None)
+}
+
+const EXECUTOR_SHUTDOWN_FIELD: usize = 0;
+const EXECUTOR_AWAIT_DEADLINE_FIELD: usize = 1;
+
+const FUTURE_STATE_FIELD: usize = 0;
+const FUTURE_RESULT_FIELD: usize = 1;
+const FUTURE_EXCEPTION_FIELD: usize = 2;
+const FUTURE_WAIT_DEADLINE_FIELD: usize = 3;
+const FUTURE_TASK_FIELD: usize = 4;
+
+const FUTURE_PENDING: i32 = 0;
+const FUTURE_RUNNING: i32 = 1;
+const FUTURE_DONE: i32 = 2;
+const FUTURE_CANCELLED: i32 = 3;
+const FUTURE_FAILED: i32 = 4;
+
+const TIMEUNIT_NANOS_FIELD: usize = 2;
+
+fn executor_shared(
+    heap: &duke_gc::Heap,
+    executor_ref: u64,
+) -> Result<std::sync::Arc<duke_gc::ExecutorShared>> {
+    match heap.get(executor_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Executor(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(executor_ref)),
+    }
+}
+
+fn allocate_executor(heap: &mut duke_gc::Heap, max_workers: usize) -> Result<Slot> {
+    let executor_ref = heap.allocate("duke/util/concurrent/DukeExecutorService".to_string(), 2);
+    {
+        let executor = heap.get_mut(executor_ref)?;
+        executor.fields[EXECUTOR_SHUTDOWN_FIELD] = Slot::Int(0);
+        executor.fields[EXECUTOR_AWAIT_DEADLINE_FIELD] = Slot::Long(0);
+        executor.atomic_payload = Some(duke_gc::AtomicPayload::executor(max_workers));
+    }
+    Ok(Slot::Reference(Some(executor_ref)))
+}
+
+pub(crate) fn native_executors_new_fixed_thread_pool(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let count = extract_int_arg(args, 0)?;
+    if count <= 0 {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IllegalArgumentException".to_string(),
+        });
+    }
+    Ok(Some(allocate_executor(
+        heap,
+        usize::try_from(count).unwrap_or(1),
+    )?))
+}
+
+pub(crate) fn native_executors_new_single_thread_executor(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(allocate_executor(heap, 1)?))
+}
+
+pub(crate) fn native_executors_new_cached_thread_pool(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(allocate_executor(heap, 64)?))
+}
+
+fn init_future(
+    heap: &mut duke_gc::Heap,
+    result: Slot,
+    task: Slot,
+) -> Result<u64> {
+    let future_ref = heap.allocate("duke/util/concurrent/DukeFuture".to_string(), 5);
+    {
+        let future = heap.get_mut(future_ref)?;
+        future.fields[FUTURE_STATE_FIELD] = Slot::Int(FUTURE_PENDING);
+        future.fields[FUTURE_RESULT_FIELD] = result;
+        future.fields[FUTURE_EXCEPTION_FIELD] = Slot::Reference(None);
+        future.fields[FUTURE_WAIT_DEADLINE_FIELD] = Slot::Long(0);
+        future.fields[FUTURE_TASK_FIELD] = task;
+    }
+    heap.remember_reference_write(future_ref, result);
+    heap.remember_reference_write(future_ref, task);
+    Ok(future_ref)
+}
+
+fn executor_submit_common(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    control: &mut NativeControl,
+    kind: duke_gc::ExecutorTaskKind,
+    preset_result: Slot,
+) -> Result<u64> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    let task_ref = extract_ref_arg(args, 1)?;
+    let executor = executor_shared(heap, executor_ref)?;
+    let is_shutdown = {
+        let guard = executor
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.shutdown
+    };
+    if is_shutdown {
+        return Err(Error::JavaException {
+            class_name: "java/util/concurrent/RejectedExecutionException".to_string(),
+        });
+    }
+
+    let future_ref = init_future(
+        heap,
+        preset_result,
+        Slot::Reference(Some(task_ref)),
+    )?;
+    control.request(NativeThreadAction::ExecutorSubmit {
+        executor_ref,
+        future_ref,
+        task_ref,
+        kind,
+    });
+    Ok(future_ref)
+}
+
+pub(crate) fn native_executor_submit_runnable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Runnable,
+        Slot::Reference(None),
+    )?;
+    Ok(Some(Slot::Reference(Some(future_ref))))
+}
+
+pub(crate) fn native_executor_submit_runnable_result(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let result = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Runnable,
+        result,
+    )?;
+    Ok(Some(Slot::Reference(Some(future_ref))))
+}
+
+pub(crate) fn native_executor_submit_callable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Callable,
+        Slot::Reference(None),
+    )?;
+    Ok(Some(Slot::Reference(Some(future_ref))))
+}
+
+pub(crate) fn native_executor_execute(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let _future_ref = executor_submit_common(
+        args,
+        heap,
+        control,
+        duke_gc::ExecutorTaskKind::Runnable,
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_executor_shutdown(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    let executor = executor_shared(heap, executor_ref)?;
+    {
+        let mut guard = executor
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.shutdown = true;
+        guard.refresh_terminated();
+    }
+    executor.available.notify_all();
+    heap.write_field(executor_ref, EXECUTOR_SHUTDOWN_FIELD, Slot::Int(1))?;
+    Ok(None)
+}
+
+fn executor_is_shutdown(heap: &duke_gc::Heap, executor_ref: u64) -> Result<bool> {
+    let executor = executor_shared(heap, executor_ref)?;
+    let guard = executor
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(guard.shutdown)
+}
+
+pub(crate) fn native_executor_is_shutdown(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(executor_is_shutdown(
+        heap,
+        executor_ref,
+    )?))))
+}
+
+fn executor_is_terminated(heap: &duke_gc::Heap, executor_ref: u64) -> Result<bool> {
+    let executor = executor_shared(heap, executor_ref)?;
+    let mut guard = executor
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.refresh_terminated();
+    Ok(guard.terminated)
+}
+
+pub(crate) fn native_executor_is_terminated(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(executor_is_terminated(
+        heap,
+        executor_ref,
+    )?))))
+}
+
+fn timeunit_nanos_per_unit(heap: &duke_gc::Heap, unit_ref: u64) -> Result<i64> {
+    match heap.get(unit_ref)?.fields.get(TIMEUNIT_NANOS_FIELD) {
+        Some(Slot::Long(nanos)) => Ok(*nanos),
+        _ => Err(Error::TypeMismatch {
+            expected: "TimeUnit",
+            got: "other",
+        }),
+    }
+}
+
+fn saturating_mul_i64(lhs: i64, rhs: i64) -> i64 {
+    let value = i128::from(lhs).saturating_mul(i128::from(rhs));
+    let clamped = value.clamp(i128::from(i64::MIN), i128::from(i64::MAX));
+    match i64::try_from(clamped) {
+        Ok(value) => value,
+        Err(_) if clamped < 0 => i64::MIN,
+        Err(_) => i64::MAX,
+    }
+}
+
+fn timeout_nanos(timeout: i64, unit_ref: u64, heap: &duke_gc::Heap) -> Result<i64> {
+    Ok(saturating_mul_i64(
+        timeout.max(0),
+        timeunit_nanos_per_unit(heap, unit_ref)?,
+    ))
+}
+
+pub(crate) fn native_timeunit_to_nanos(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let unit_ref = extract_ref_arg(args, 0)?;
+    let value = extract_long_arg(args, 1)?;
+    Ok(Some(Slot::Long(saturating_mul_i64(
+        value,
+        timeunit_nanos_per_unit(heap, unit_ref)?,
+    ))))
+}
+
+pub(crate) fn native_timeunit_to_millis(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let unit_ref = extract_ref_arg(args, 0)?;
+    let value = extract_long_arg(args, 1)?;
+    Ok(Some(Slot::Long(
+        saturating_mul_i64(value, timeunit_nanos_per_unit(heap, unit_ref)?) / 1_000_000,
+    )))
+}
+
+pub(crate) fn native_executor_await_termination(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    if executor_is_terminated(heap, executor_ref)? {
+        heap.write_field(executor_ref, EXECUTOR_AWAIT_DEADLINE_FIELD, Slot::Long(0))?;
+        return Ok(Some(Slot::Int(1)));
+    }
+
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    if nanos <= 0 {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    let now = monotonic_nano_time_now();
+    let deadline = match extract_field_arg(heap, executor_ref, EXECUTOR_AWAIT_DEADLINE_FIELD)? {
+        Slot::Long(value) if value > 0 => value,
+        _ => {
+            let deadline = now.saturating_add(nanos);
+            heap.write_field(
+                executor_ref,
+                EXECUTOR_AWAIT_DEADLINE_FIELD,
+                Slot::Long(deadline),
+            )?;
+            deadline
+        }
+    };
+    if now >= deadline {
+        heap.write_field(executor_ref, EXECUTOR_AWAIT_DEADLINE_FIELD, Slot::Long(0))?;
+        return Ok(Some(Slot::Int(0)));
+    }
+    request_native_retry(control);
+    Ok(None)
+}
+
+fn future_state(heap: &duke_gc::Heap, future_ref: u64) -> Result<i32> {
+    match heap.get(future_ref)?.fields.get(FUTURE_STATE_FIELD) {
+        Some(Slot::Int(state)) => Ok(*state),
+        _ => Ok(FUTURE_PENDING),
+    }
+}
+
+pub(crate) fn native_future_cancel(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    if future_state(heap, future_ref)? == FUTURE_PENDING {
+        heap.write_field(future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_CANCELLED))?;
+        return Ok(Some(Slot::Int(1)));
+    }
+    Ok(Some(Slot::Int(0)))
+}
+
+pub(crate) fn native_future_is_cancelled(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(
+        future_state(heap, future_ref)? == FUTURE_CANCELLED,
+    ))))
+}
+
+pub(crate) fn native_future_is_done(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(matches!(
+        future_state(heap, future_ref)?,
+        FUTURE_DONE | FUTURE_CANCELLED | FUTURE_FAILED
+    )))))
+}
+
+fn future_get_common(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    control: &mut NativeControl,
+    timeout: Option<i64>,
+) -> Result<Option<Slot>> {
+    let future_ref = extract_ref_arg(args, 0)?;
+    match future_state(heap, future_ref)? {
+        FUTURE_DONE => {
+            heap.write_field(future_ref, FUTURE_WAIT_DEADLINE_FIELD, Slot::Long(0))?;
+            Ok(Some(extract_field_arg(heap, future_ref, FUTURE_RESULT_FIELD)?))
+        }
+        FUTURE_CANCELLED => Err(Error::JavaException {
+            class_name: "java/util/concurrent/CancellationException".to_string(),
+        }),
+        FUTURE_FAILED => {
+            let cause = extract_field_arg(heap, future_ref, FUTURE_EXCEPTION_FIELD)?;
+            push_pending_java_exception_cause("java/util/concurrent/ExecutionException", cause);
+            Err(Error::JavaException {
+                class_name: "java/util/concurrent/ExecutionException".to_string(),
+            })
+        }
+        FUTURE_PENDING | FUTURE_RUNNING => {
+            if let Some(nanos) = timeout {
+                if nanos <= 0 {
+                    return Err(Error::JavaException {
+                        class_name: "java/util/concurrent/TimeoutException".to_string(),
+                    });
+                }
+                let now = monotonic_nano_time_now();
+                let deadline = match extract_field_arg(heap, future_ref, FUTURE_WAIT_DEADLINE_FIELD)?
+                {
+                    Slot::Long(value) if value > 0 => value,
+                    _ => {
+                        let deadline = now.saturating_add(nanos);
+                        heap.write_field(
+                            future_ref,
+                            FUTURE_WAIT_DEADLINE_FIELD,
+                            Slot::Long(deadline),
+                        )?;
+                        deadline
+                    }
+                };
+                if now >= deadline {
+                    heap.write_field(future_ref, FUTURE_WAIT_DEADLINE_FIELD, Slot::Long(0))?;
+                    return Err(Error::JavaException {
+                        class_name: "java/util/concurrent/TimeoutException".to_string(),
+                    });
+                }
+            }
+            request_native_retry(control);
+            Ok(None)
+        }
+        _ => Err(Error::InvalidRef {
+            address: future_ref,
+        }),
+    }
+}
+
+pub(crate) fn native_future_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    future_get_common(args, heap, control, None)
+}
+
+pub(crate) fn native_future_get_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    future_get_common(args, heap, control, Some(nanos))
 }
 
 // java.util.concurrent.atomic natives.
@@ -9584,6 +12218,1693 @@ pub(crate) fn native_atomic_boolean_to_string(
     let value = with_atomic_bool(heap, this_ref, |cell| cell.load(Ordering::SeqCst))?;
     let string_ref = heap.allocate_string(value.to_string());
     Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+fn illegal_monitor_state_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalMonitorStateException".to_string(),
+    }
+}
+
+fn unsupported_operation_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/UnsupportedOperationException".to_string(),
+    }
+}
+
+fn illegal_argument_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    }
+}
+
+fn interrupted_exception_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/InterruptedException".to_string(),
+    }
+}
+
+fn broken_barrier_exception_error() -> Error {
+    Error::JavaException {
+        class_name: "java/util/concurrent/BrokenBarrierException".to_string(),
+    }
+}
+
+fn timeout_exception_error() -> Error {
+    Error::JavaException {
+        class_name: "java/util/concurrent/TimeoutException".to_string(),
+    }
+}
+
+const fn request_native_retry(control: &mut NativeControl) {
+    control.request(NativeThreadAction::Retry);
+}
+
+fn current_host_thread_id() -> std::thread::ThreadId {
+    std::thread::current().id()
+}
+
+fn with_reentrant_lock_state<T>(
+    heap: &mut duke_gc::Heap,
+    this_ref: u64,
+    f: impl FnOnce(&std::sync::Arc<std::sync::Mutex<duke_gc::ReentrantLockState>>) -> Result<T>,
+) -> Result<T> {
+    let obj = heap.get_mut(this_ref)?;
+    if obj.atomic_payload.is_none() {
+        obj.atomic_payload = Some(duke_gc::AtomicPayload::reentrant_lock(false));
+    }
+    match obj.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::ReentrantLock(state)) => f(state),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn condition_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::ConditionState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Condition(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn count_down_latch_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::CountDownLatchState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::CountDownLatch(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn semaphore_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::SemaphoreState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Semaphore(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn cyclic_barrier_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::CyclicBarrierState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::CyclicBarrier(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn deadline_from_now(nanos: i64) -> Option<std::time::Instant> {
+    let now = std::time::Instant::now();
+    u64::try_from(nanos)
+        .ok()
+        .and_then(|nanos| now.checked_add(std::time::Duration::from_nanos(nanos)))
+}
+
+fn read_write_lock_state(
+    heap: &mut duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::ReadWriteLockState>>> {
+    let obj = heap.get_mut(this_ref)?;
+    if obj.atomic_payload.is_none() {
+        obj.atomic_payload = Some(duke_gc::AtomicPayload::read_write_lock());
+    }
+    match obj.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::ReadWriteLock(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn read_write_view_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+    expected_kind: duke_gc::ReadWriteLockViewKind,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::ReadWriteLockState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::ReadWriteLockView { state, kind })
+            if *kind == expected_kind =>
+        {
+            Ok(std::sync::Arc::clone(state))
+        }
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn reentrant_lock_is_held_by(
+    state: &duke_gc::ReentrantLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    state.owner == Some(thread_id) && state.hold_count > 0
+}
+
+fn reentrant_lock_try_acquire(
+    state: &mut duke_gc::ReentrantLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    match state.owner {
+        Some(owner) if owner != thread_id => false,
+        Some(_) => {
+            state.hold_count = state.hold_count.saturating_add(1);
+            true
+        }
+        None => {
+            state.owner = Some(thread_id);
+            state.hold_count = 1;
+            true
+        }
+    }
+}
+
+fn reentrant_lock_release(
+    state: &mut duke_gc::ReentrantLockState,
+    thread_id: std::thread::ThreadId,
+) -> Result<()> {
+    if !reentrant_lock_is_held_by(state, thread_id) {
+        return Err(illegal_monitor_state_error());
+    }
+    state.hold_count -= 1;
+    if state.hold_count == 0 {
+        state.owner = None;
+    }
+    Ok(())
+}
+
+pub(crate) fn native_reentrant_lock_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::reentrant_lock(false));
+    Ok(None)
+}
+
+pub(crate) fn native_reentrant_lock_init_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fair = atomic_bool_arg(args, 1)?;
+    heap.get_mut(this_ref)?.atomic_payload = Some(duke_gc::AtomicPayload::reentrant_lock(fair));
+    Ok(None)
+}
+
+pub(crate) fn native_reentrant_lock_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let mut guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !reentrant_lock_try_acquire(&mut guard, thread_id) {
+            request_native_retry(control);
+        }
+        Ok(None)
+    })
+}
+
+pub(crate) fn native_reentrant_lock_try_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let mut guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(reentrant_lock_try_acquire(
+            &mut guard, thread_id,
+        )))))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_unlock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let mut guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reentrant_lock_release(&mut guard, thread_id)?;
+        Ok(None)
+    })
+}
+
+pub(crate) fn native_reentrant_lock_new_condition(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let lock_state =
+        with_reentrant_lock_state(heap, this_ref, |state| Ok(std::sync::Arc::clone(state)))?;
+    let condition_ref = heap.allocate("duke/util/concurrent/ConditionObject".to_string(), 0);
+    heap.get_mut(condition_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::condition(lock_state));
+    Ok(Some(Slot::Reference(Some(condition_ref))))
+}
+
+pub(crate) fn native_reentrant_lock_get_hold_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let hold_count = if guard.owner == Some(thread_id) {
+            guard.hold_count
+        } else {
+            0
+        };
+        Ok(Some(Slot::Int(hold_count)))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_is_held_by_current_thread(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let thread_id = current_host_thread_id();
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(reentrant_lock_is_held_by(
+            &guard, thread_id,
+        )))))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_is_locked(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(
+            guard.owner.is_some() && guard.hold_count > 0,
+        ))))
+    })
+}
+
+pub(crate) fn native_reentrant_lock_is_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    with_reentrant_lock_state(heap, this_ref, |state| {
+        let guard = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Some(Slot::Int(i32::from(guard.fair))))
+    })
+}
+
+fn condition_await_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    control: &mut NativeControl,
+    timeout_nanos: Option<i64>,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let condition = condition_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let mut condition_guard = condition
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let lock_state = std::sync::Arc::clone(&condition_guard.lock);
+    let mut lock_guard = lock_state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if let Some(waiter_idx) = condition_guard
+        .waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        let waiter = &mut condition_guard.waiters[waiter_idx];
+        if !waiter.signaled && waiter.deadline.is_some_and(|deadline| now >= deadline) {
+            waiter.signaled = true;
+            waiter.timed_out = true;
+        }
+        if !waiter.signaled {
+            drop(lock_guard);
+            drop(condition_guard);
+            request_native_retry(control);
+            return Ok(None);
+        }
+
+        let released_hold_count = waiter.released_hold_count.max(1);
+        let timed_out = waiter.timed_out;
+        let deadline = waiter.deadline;
+        if reentrant_lock_try_acquire(&mut lock_guard, thread_id) {
+            lock_guard.hold_count = released_hold_count;
+            condition_guard.waiters.remove(waiter_idx);
+            let result = timeout_nanos.map(|_| {
+                let remaining = if timed_out {
+                    0
+                } else {
+                    deadline.map_or(0, |deadline| {
+                        i64::try_from(deadline.saturating_duration_since(now).as_nanos())
+                            .unwrap_or(i64::MAX)
+                    })
+                };
+                Slot::Long(remaining)
+            });
+            drop(lock_guard);
+            drop(condition_guard);
+            return Ok(result);
+        }
+
+        drop(lock_guard);
+        drop(condition_guard);
+        request_native_retry(control);
+        return Ok(None);
+    }
+
+    if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
+        drop(lock_guard);
+        drop(condition_guard);
+        return Err(illegal_monitor_state_error());
+    }
+
+    let released_hold_count = lock_guard.hold_count;
+    lock_guard.owner = None;
+    lock_guard.hold_count = 0;
+    drop(lock_guard);
+
+    let deadline = timeout_nanos.and_then(|nanos| {
+        u64::try_from(nanos.max(0))
+            .ok()
+            .and_then(|nanos| now.checked_add(std::time::Duration::from_nanos(nanos)))
+    });
+    let immediate_timeout = timeout_nanos.is_some_and(|nanos| nanos <= 0);
+    condition_guard.waiters.push(duke_gc::ConditionWaiter {
+        thread_id,
+        released_hold_count,
+        signaled: immediate_timeout,
+        deadline,
+        timed_out: immediate_timeout,
+    });
+    drop(condition_guard);
+    request_native_retry(control);
+    Ok(None)
+}
+
+pub(crate) fn native_condition_await(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    condition_await_common(args, heap, control, None)
+}
+
+pub(crate) fn native_condition_await_nanos(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let nanos = extract_long_arg(args, 1)?;
+    condition_await_common(args, heap, control, Some(nanos))
+}
+
+pub(crate) fn native_condition_signal(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let condition = condition_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let mut condition_guard = condition
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let lock_state = std::sync::Arc::clone(&condition_guard.lock);
+    let lock_guard = lock_state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
+        return Err(illegal_monitor_state_error());
+    }
+    drop(lock_guard);
+    if let Some(waiter) = condition_guard
+        .waiters
+        .iter_mut()
+        .find(|waiter| !waiter.signaled)
+    {
+        waiter.signaled = true;
+        waiter.timed_out = false;
+    }
+    drop(condition_guard);
+    Ok(None)
+}
+
+pub(crate) fn native_condition_signal_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let condition = condition_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let mut condition_guard = condition
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let lock_state = std::sync::Arc::clone(&condition_guard.lock);
+    let lock_guard = lock_state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
+        return Err(illegal_monitor_state_error());
+    }
+    drop(lock_guard);
+    for waiter in &mut condition_guard.waiters {
+        waiter.signaled = true;
+        waiter.timed_out = false;
+    }
+    drop(condition_guard);
+    Ok(None)
+}
+
+pub(crate) fn native_thread_interrupt(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let thread_ref = extract_ref_arg(args, 0)?;
+    let host_key = match heap.get(thread_ref)?.fields.get(THREAD_HOST_KEY_SLOT) {
+        Some(Slot::Int(host_key)) => *host_key,
+        _ => -1,
+    };
+    heap.write_field(thread_ref, THREAD_INTERRUPTED_SLOT, Slot::Int(1))?;
+    if let Some(host_thread_id) = host_thread_for_java_thread(host_key) {
+        interrupt_host_thread(host_thread_id);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_thread_is_interrupted(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let thread_ref = extract_ref_arg(args, 0)?;
+    let field_interrupted = matches!(
+        heap.get(thread_ref)?.fields.get(THREAD_INTERRUPTED_SLOT),
+        Some(Slot::Int(value)) if *value != 0
+    );
+    let host_key = match heap.get(thread_ref)?.fields.get(THREAD_HOST_KEY_SLOT) {
+        Some(Slot::Int(host_key)) => *host_key,
+        _ => -1,
+    };
+    let host_interrupted = host_thread_for_java_thread(host_key)
+        .is_some_and(|host_thread_id| {
+            interrupted_host_threads()
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&host_thread_id)
+        });
+    Ok(Some(Slot::Int(i32::from(
+        field_interrupted || host_interrupted,
+    ))))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_thread_interrupted(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Int(i32::from(
+        take_current_host_thread_interrupted(),
+    ))))
+}
+
+pub(crate) fn native_count_down_latch_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let count = extract_int_arg(args, 1)?;
+    if count < 0 {
+        return Err(illegal_argument_error());
+    }
+    heap.get_mut(this_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::count_down_latch(count));
+    Ok(None)
+}
+
+fn count_down_latch_await_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    control: &mut NativeControl,
+    timeout_nanos: Option<i64>,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let interrupted = take_current_host_thread_interrupted();
+    let mut guard = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if interrupted {
+        guard.waiters.retain(|waiter| waiter.thread_id != thread_id);
+        return Err(interrupted_exception_error());
+    }
+
+    if guard.count <= 0 {
+        guard.waiters.retain(|waiter| waiter.thread_id != thread_id);
+        return Ok(timeout_nanos.map(|_| Slot::Int(1)));
+    }
+    if timeout_nanos.is_some_and(|nanos| nanos <= 0) {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    if let Some(waiter_idx) = guard
+        .waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        if guard.waiters[waiter_idx]
+            .deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            guard.waiters.remove(waiter_idx);
+            return Ok(Some(Slot::Int(0)));
+        }
+    } else {
+        guard.waiters.push(duke_gc::CountDownLatchWaiter {
+            thread_id,
+            deadline: timeout_nanos.and_then(deadline_from_now),
+        });
+    }
+    drop(guard);
+    request_native_retry(control);
+    Ok(None)
+}
+
+pub(crate) fn native_count_down_latch_await(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    count_down_latch_await_common(args, heap, control, None)
+}
+
+pub(crate) fn native_count_down_latch_await_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    count_down_latch_await_common(args, heap, control, Some(nanos))
+}
+
+pub(crate) fn native_count_down_latch_count_down(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let mut guard = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.count > 0 {
+        guard.count -= 1;
+        if guard.count == 0 {
+            guard.waiters.clear();
+        }
+    }
+    drop(guard);
+    Ok(None)
+}
+
+pub(crate) fn native_count_down_latch_get_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let count = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .count;
+    Ok(Some(Slot::Long(i64::from(count.max(0)))))
+}
+
+pub(crate) fn native_count_down_latch_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let count = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .count
+        .max(0);
+    let string_ref = heap.allocate_string(format!(
+        "java.util.concurrent.CountDownLatch[Count = {count}]"
+    ));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_semaphore_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let permits = extract_int_arg(args, 1)?;
+    heap.get_mut(this_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::semaphore(permits, false));
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_init_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let permits = extract_int_arg(args, 1)?;
+    let fair = atomic_bool_arg(args, 2)?;
+    heap.get_mut(this_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::semaphore(permits, fair));
+    Ok(None)
+}
+
+fn semaphore_validate_permits(permits: i32) -> Result<()> {
+    if permits < 0 {
+        return Err(illegal_argument_error());
+    }
+    Ok(())
+}
+
+fn semaphore_remove_waiter(
+    waiters: &mut VecDeque<duke_gc::SemaphoreWaiter>,
+    thread_id: std::thread::ThreadId,
+) {
+    if let Some(idx) = waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        waiters.remove(idx);
+    }
+}
+
+fn semaphore_can_acquire(
+    state: &duke_gc::SemaphoreState,
+    thread_id: std::thread::ThreadId,
+    permits: i32,
+) -> bool {
+    if state.permits < permits {
+        return false;
+    }
+    if !state.fair {
+        return true;
+    }
+    state
+        .waiters
+        .front()
+        .is_none_or(|waiter| waiter.thread_id == thread_id)
+}
+
+fn semaphore_try_acquire_immediate(
+    state: &mut duke_gc::SemaphoreState,
+    thread_id: std::thread::ThreadId,
+    permits: i32,
+    honor_fairness: bool,
+) -> bool {
+    if permits == 0 {
+        return true;
+    }
+    let can_acquire = if honor_fairness {
+        semaphore_can_acquire(state, thread_id, permits)
+    } else {
+        state.permits >= permits
+    };
+    if !can_acquire {
+        return false;
+    }
+    state.permits -= permits;
+    semaphore_remove_waiter(&mut state.waiters, thread_id);
+    true
+}
+
+fn semaphore_acquire_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    control: &mut NativeControl,
+    permits: i32,
+    timeout_nanos: Option<i64>,
+    returns_bool: bool,
+    interruptible: bool,
+) -> Result<Option<Slot>> {
+    semaphore_validate_permits(permits)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let interrupted = interruptible && take_current_host_thread_interrupted();
+    let mut guard = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if interrupted {
+        semaphore_remove_waiter(&mut guard.waiters, thread_id);
+        return Err(interrupted_exception_error());
+    }
+
+    if semaphore_try_acquire_immediate(&mut guard, thread_id, permits, true) {
+        return Ok(returns_bool.then_some(Slot::Int(1)));
+    }
+    if timeout_nanos.is_some_and(|nanos| nanos <= 0) {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    if let Some(waiter_idx) = guard
+        .waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        if guard.waiters[waiter_idx]
+            .deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            guard.waiters.remove(waiter_idx);
+            return Ok(Some(Slot::Int(0)));
+        }
+    } else {
+        guard.waiters.push_back(duke_gc::SemaphoreWaiter {
+            thread_id,
+            permits,
+            deadline: timeout_nanos.and_then(deadline_from_now),
+        });
+    }
+    drop(guard);
+    request_native_retry(control);
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_acquire(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_acquire_common(args, heap, control, 1, None, false, true)
+}
+
+pub(crate) fn native_semaphore_acquire_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_acquire_common(args, heap, control, permits, None, false, true)
+}
+
+pub(crate) fn native_semaphore_acquire_uninterruptibly(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_acquire_common(args, heap, control, 1, None, false, false)
+}
+
+pub(crate) fn native_semaphore_acquire_uninterruptibly_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_acquire_common(args, heap, control, permits, None, false, false)
+}
+
+fn semaphore_try_acquire_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    permits: i32,
+) -> Result<Option<Slot>> {
+    semaphore_validate_permits(permits)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let acquired = semaphore_try_acquire_immediate(
+        &mut semaphore
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        thread_id,
+        permits,
+        false,
+    );
+    Ok(Some(Slot::Int(i32::from(acquired))))
+}
+
+pub(crate) fn native_semaphore_try_acquire(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_try_acquire_common(args, heap, 1)
+}
+
+pub(crate) fn native_semaphore_try_acquire_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_try_acquire_common(args, heap, permits)
+}
+
+pub(crate) fn native_semaphore_try_acquire_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    semaphore_acquire_common(args, heap, control, 1, Some(nanos), true, true)
+}
+
+fn semaphore_release_common(args: &[Slot], heap: &duke_gc::Heap, permits: i32) -> Result<()> {
+    semaphore_validate_permits(permits)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let mut guard = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.permits = guard.permits.saturating_add(permits);
+    drop(guard);
+    Ok(())
+}
+
+pub(crate) fn native_semaphore_release(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_release_common(args, heap, 1)?;
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_release_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_release_common(args, heap, permits)?;
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_available_permits(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let permits = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .permits;
+    Ok(Some(Slot::Int(permits)))
+}
+
+pub(crate) fn native_semaphore_drain_permits(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let mut guard = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let drained = guard.permits;
+    guard.permits = 0;
+    drop(guard);
+    Ok(Some(Slot::Int(drained)))
+}
+
+pub(crate) fn native_semaphore_has_queued_threads(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let has_waiters = !semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .waiters
+        .is_empty();
+    Ok(Some(Slot::Int(i32::from(has_waiters))))
+}
+
+pub(crate) fn native_semaphore_get_queue_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let len = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .waiters
+        .len();
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(i32::MAX))))
+}
+
+pub(crate) fn native_semaphore_is_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let fair = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .fair;
+    Ok(Some(Slot::Int(i32::from(fair))))
+}
+
+pub(crate) fn native_semaphore_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let permits = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .permits;
+    let string_ref =
+        heap.allocate_string(format!("java.util.concurrent.Semaphore[Permits = {permits}]"));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_cyclic_barrier_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let parties = extract_int_arg(args, 1)?;
+    if parties <= 0 {
+        return Err(illegal_argument_error());
+    }
+    let this = heap.get_mut(this_ref)?;
+    this.atomic_payload = Some(duke_gc::AtomicPayload::cyclic_barrier(parties));
+    if !this.fields.is_empty() {
+        this.fields[0] = Slot::Reference(None);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_cyclic_barrier_init_action(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_cyclic_barrier_init(args, heap, out, control)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let action = extract_slot_arg(args, 2);
+    if !heap.get(this_ref)?.fields.is_empty() {
+        heap.write_field(this_ref, 0, action)?;
+        heap.remember_reference_write(this_ref, action);
+    }
+    Ok(None)
+}
+
+fn cyclic_barrier_break_current(
+    barrier: &std::sync::Arc<std::sync::Mutex<duke_gc::CyclicBarrierState>>,
+) {
+    barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .break_generation();
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cyclic_barrier_await_common(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+    timeout_nanos: Option<i64>,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let action = extract_field_arg(heap, this_ref, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let interrupted = take_current_host_thread_interrupted();
+    let run_action = {
+        let mut guard = barrier
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(waiter_idx) = guard
+            .waiters
+            .iter()
+            .position(|waiter| waiter.thread_id == thread_id)
+        {
+            if interrupted {
+                guard.break_generation();
+                guard.waiters.remove(waiter_idx);
+                return Err(interrupted_exception_error());
+            }
+            if guard.waiters[waiter_idx].broken {
+                guard.waiters.remove(waiter_idx);
+                return Err(broken_barrier_exception_error());
+            }
+            if guard.waiters[waiter_idx].generation != guard.generation {
+                let arrival_index = guard.waiters[waiter_idx].arrival_index;
+                guard.waiters.remove(waiter_idx);
+                return Ok(Some(Slot::Int(arrival_index)));
+            }
+            if guard.waiters[waiter_idx]
+                .deadline
+                .is_some_and(|deadline| now >= deadline)
+            {
+                guard.break_generation();
+                guard.waiters.remove(waiter_idx);
+                return Err(timeout_exception_error());
+            }
+            drop(guard);
+            request_native_retry(control);
+            return Ok(None);
+        }
+
+        if guard.broken {
+            return Err(broken_barrier_exception_error());
+        }
+        if interrupted {
+            guard.break_generation();
+            return Err(interrupted_exception_error());
+        }
+        if timeout_nanos.is_some_and(|nanos| nanos <= 0) {
+            guard.break_generation();
+            return Err(timeout_exception_error());
+        }
+
+        let arrival_index = guard.count.saturating_sub(1);
+        guard.count = arrival_index;
+        if arrival_index == 0 {
+            action.as_reference()
+        } else {
+            let generation = guard.generation;
+            guard.waiters.push(duke_gc::CyclicBarrierWaiter {
+                thread_id,
+                generation,
+                arrival_index,
+                deadline: timeout_nanos.and_then(deadline_from_now),
+                broken: false,
+            });
+            drop(guard);
+            request_native_retry(control);
+            return Ok(None);
+        }
+    };
+
+    if let Some(action_ref) = run_action {
+        let action_class = heap.get(action_ref)?.class_name.clone();
+        let action_result = ops.invoke(
+            heap,
+            out,
+            &action_class,
+            "run",
+            "()V",
+            vec![Slot::Reference(Some(action_ref))],
+        );
+        if action_result.is_err() {
+            cyclic_barrier_break_current(&barrier);
+            return Err(broken_barrier_exception_error());
+        }
+    }
+    barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .trip_generation();
+    Ok(Some(Slot::Int(0)))
+}
+
+pub(crate) fn native_cyclic_barrier_await(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    cyclic_barrier_await_common(args, heap, out, control, ops, None)
+}
+
+pub(crate) fn native_cyclic_barrier_await_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    cyclic_barrier_await_common(args, heap, out, control, ops, Some(nanos))
+}
+
+pub(crate) fn native_cyclic_barrier_get_parties(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let parties = barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .parties;
+    Ok(Some(Slot::Int(parties)))
+}
+
+pub(crate) fn native_cyclic_barrier_get_number_waiting(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let waiting = {
+        let guard = barrier
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard
+            .waiters
+            .iter()
+            .filter(|waiter| waiter.generation == guard.generation && !waiter.broken)
+            .count()
+    };
+    Ok(Some(Slot::Int(i32::try_from(waiting).unwrap_or(i32::MAX))))
+}
+
+pub(crate) fn native_cyclic_barrier_is_broken(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let broken = barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .broken;
+    Ok(Some(Slot::Int(i32::from(broken))))
+}
+
+pub(crate) fn native_cyclic_barrier_reset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .reset();
+    Ok(None)
+}
+
+pub(crate) fn native_cyclic_barrier_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let (parties, count) = {
+        let guard = barrier
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (guard.parties, guard.count)
+    };
+    let string_ref = heap.allocate_string(format!(
+        "java.util.concurrent.CyclicBarrier[Parties = {parties}, Count = {count}]"
+    ));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+fn allocate_read_write_view(
+    heap: &mut duke_gc::Heap,
+    state: std::sync::Arc<std::sync::Mutex<duke_gc::ReadWriteLockState>>,
+    class_name: &str,
+    kind: duke_gc::ReadWriteLockViewKind,
+) -> Result<Slot> {
+    let view_ref = heap.allocate(class_name.to_string(), 0);
+    heap.get_mut(view_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::read_write_lock_view(state, kind));
+    Ok(Slot::Reference(Some(view_ref)))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = std::sync::Arc::new(std::sync::Mutex::new(
+        duke_gc::ReadWriteLockState::default(),
+    ));
+    let read_lock = allocate_read_write_view(
+        heap,
+        std::sync::Arc::clone(&state),
+        "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock",
+        duke_gc::ReadWriteLockViewKind::Read,
+    )?;
+    let write_lock = allocate_read_write_view(
+        heap,
+        std::sync::Arc::clone(&state),
+        "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock",
+        duke_gc::ReadWriteLockViewKind::Write,
+    )?;
+    let should_remember = {
+        let this = heap.get_mut(this_ref)?;
+        this.atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        if this.fields.len() >= 2 {
+            this.fields[0] = read_lock;
+            this.fields[1] = write_lock;
+            true
+        } else {
+            false
+        }
+    };
+    if should_remember {
+        heap.remember_reference_write(this_ref, read_lock);
+        heap.remember_reference_write(this_ref, write_lock);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_reentrant_read_write_lock_read_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = extract_field_arg(heap, this_ref, 0)?;
+    if matches!(slot, Slot::Reference(Some(_))) {
+        return Ok(Some(slot));
+    }
+    let state = read_write_lock_state(heap, this_ref)?;
+    let slot = allocate_read_write_view(
+        heap,
+        state,
+        "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock",
+        duke_gc::ReadWriteLockViewKind::Read,
+    )?;
+    let should_remember = {
+        let this = heap.get_mut(this_ref)?;
+        if this.fields.is_empty() {
+            false
+        } else {
+            this.fields[0] = slot;
+            true
+        }
+    };
+    if should_remember {
+        heap.remember_reference_write(this_ref, slot);
+    }
+    Ok(Some(slot))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_write_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = extract_field_arg(heap, this_ref, 1)?;
+    if matches!(slot, Slot::Reference(Some(_))) {
+        return Ok(Some(slot));
+    }
+    let state = read_write_lock_state(heap, this_ref)?;
+    let slot = allocate_read_write_view(
+        heap,
+        state,
+        "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock",
+        duke_gc::ReadWriteLockViewKind::Write,
+    )?;
+    let should_remember = {
+        let this = heap.get_mut(this_ref)?;
+        if this.fields.len() > 1 {
+            this.fields[1] = slot;
+            true
+        } else {
+            false
+        }
+    };
+    if should_remember {
+        heap.remember_reference_write(this_ref, slot);
+    }
+    Ok(Some(slot))
+}
+
+fn read_lock_try_acquire(
+    state: &mut duke_gc::ReadWriteLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    if state.writer.is_some_and(|writer| writer != thread_id) {
+        return false;
+    }
+    let count = state.readers.entry(thread_id).or_insert(0);
+    *count = count.saturating_add(1);
+    true
+}
+
+fn write_lock_try_acquire(
+    state: &mut duke_gc::ReadWriteLockState,
+    thread_id: std::thread::ThreadId,
+) -> bool {
+    if state.writer == Some(thread_id) {
+        state.write_hold_count = state.write_hold_count.saturating_add(1);
+        return true;
+    }
+    if state.writer.is_some() || !state.readers.is_empty() {
+        return false;
+    }
+    state.writer = Some(thread_id);
+    state.write_hold_count = 1;
+    true
+}
+
+pub(crate) fn native_read_lock_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !read_lock_try_acquire(&mut guard, thread_id) {
+        request_native_retry(control);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_read_lock_try_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(read_lock_try_acquire(
+        &mut guard, thread_id,
+    )))))
+}
+
+pub(crate) fn native_read_lock_unlock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(count) = guard.readers.get_mut(&thread_id) else {
+        return Err(illegal_monitor_state_error());
+    };
+    *count -= 1;
+    if *count == 0 {
+        guard.readers.remove(&thread_id);
+    }
+    drop(guard);
+    Ok(None)
+}
+
+pub(crate) fn native_read_lock_new_condition(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Err(unsupported_operation_error())
+}
+
+pub(crate) fn native_write_lock_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !write_lock_try_acquire(&mut guard, thread_id) {
+        request_native_retry(control);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_write_lock_try_lock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(write_lock_try_acquire(
+        &mut guard, thread_id,
+    )))))
+}
+
+pub(crate) fn native_write_lock_unlock(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
+    let thread_id = current_host_thread_id();
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.writer != Some(thread_id) || guard.write_hold_count <= 0 {
+        return Err(illegal_monitor_state_error());
+    }
+    guard.write_hold_count -= 1;
+    if guard.write_hold_count == 0 {
+        guard.writer = None;
+    }
+    drop(guard);
+    Ok(None)
+}
+
+pub(crate) fn native_write_lock_new_condition(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Err(unsupported_operation_error())
+}
+
+pub(crate) fn native_reentrant_read_write_lock_is_write_locked(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(guard.writer.is_some()))))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_is_write_locked_by_current_thread(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(i32::from(guard.writer == Some(thread_id)))))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_get_write_hold_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let count = if guard.writer == Some(thread_id) {
+        guard.write_hold_count
+    } else {
+        0
+    };
+    Ok(Some(Slot::Int(count)))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_get_read_hold_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let guard = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Ok(Some(Slot::Int(
+        guard.readers.get(&thread_id).copied().unwrap_or_default(),
+    )))
+}
+
+pub(crate) fn native_reentrant_read_write_lock_get_read_lock_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let state = read_write_lock_state(heap, this_ref)?;
+    let count = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .readers
+        .values()
+        .copied()
+        .sum();
+    Ok(Some(Slot::Int(count)))
 }
 
 /// Native: `String.substring(int)` - substring from begin to end.
@@ -13565,8 +17886,10 @@ pub fn execute(
                 frame.pop()?;
             }
             Instruction::Pop2 => {
-                frame.pop()?;
-                frame.pop()?;
+                let value = frame.pop()?;
+                if !matches!(value, Slot::Long(_) | Slot::Double(_)) {
+                    frame.pop()?;
+                }
             }
             Instruction::Dup => {
                 let v = frame.pop()?;
@@ -15131,12 +19454,22 @@ fn finish_native_call(
     frame: &mut Frame,
     idx: &mut usize,
     result: Option<Slot>,
+    retry_args: &[Slot],
 ) -> Result<Option<ExecutionOutcome>> {
+    let action = native_control.take();
+    if matches!(action, Some(NativeThreadAction::Retry)) {
+        for slot in retry_args {
+            frame.push(*slot)?;
+        }
+        return Ok(Some(ExecutionOutcome::ThreadAction(
+            NativeThreadAction::Retry,
+        )));
+    }
     if let Some(val) = result {
         frame.push(val)?;
     }
     *idx += 1;
-    if let Some(action) = native_control.take() {
+    if let Some(action) = action {
         return Ok(Some(ExecutionOutcome::ThreadAction(action)));
     }
     Ok(None)
@@ -15501,6 +19834,8 @@ struct CompletionVm {
 struct CompletionRuntime {
     threads: threading::ThreadRuntime,
     handles: HashMap<i32, std::thread::JoinHandle<Result<()>>>,
+    next_executor_worker_id: i32,
+    executor_handles: HashMap<i32, std::thread::JoinHandle<Result<()>>>,
 }
 
 fn resolve_thread_entry(
@@ -15589,11 +19924,15 @@ fn wait_for_all_java_threads(
     loop {
         let handles = {
             let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if runtime.handles.is_empty() {
+            if runtime.handles.is_empty() && runtime.executor_handles.is_empty() {
                 return first_error.unwrap_or(Ok(()));
             }
-            let mut handles = Vec::with_capacity(runtime.handles.len());
+            let mut handles =
+                Vec::with_capacity(runtime.handles.len() + runtime.executor_handles.len());
             for (_, handle) in runtime.handles.drain() {
+                handles.push(handle);
+            }
+            for (_, handle) in runtime.executor_handles.drain() {
                 handles.push(handle);
             }
             drop(runtime);
@@ -15613,6 +19952,437 @@ fn wait_for_all_java_threads(
     }
 }
 
+struct ExecutorInvocation {
+    state: ExecutionState,
+    impl_desc: Option<String>,
+    sam_desc: Option<String>,
+}
+
+const fn executor_task_signature(kind: duke_gc::ExecutorTaskKind) -> (&'static str, &'static str) {
+    match kind {
+        duke_gc::ExecutorTaskKind::Runnable => ("run", "()V"),
+        duke_gc::ExecutorTaskKind::Callable => ("call", "()Ljava/lang/Object;"),
+    }
+}
+
+fn prepare_lambda_executor_invocation(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    task_ref: u64,
+    method: &str,
+    descriptor: &str,
+) -> Result<Option<ExecutorInvocation>> {
+    let task_class = heap.get(task_ref)?.class_name.clone();
+    let Some(lambda_info) = registry.get_lambda(&task_class).cloned() else {
+        return Ok(None);
+    };
+    if method != lambda_info.sam_method || descriptor != lambda_info.sam_desc {
+        return Ok(None);
+    }
+
+    let lambda_object = heap.get(task_ref)?;
+    let mut impl_args = Vec::with_capacity(lambda_info.captured_count);
+    for capture_index in 0..lambda_info.captured_count {
+        impl_args.push(
+            lambda_object
+                .fields
+                .get(capture_index)
+                .copied()
+                .ok_or(Error::Unimplemented {
+                    mnemonic: "lambda capture missing",
+                })?,
+        );
+    }
+
+    let _ = registry.ensure_loaded_from(&lambda_info.impl_class, Some(task_class.as_str()), loader);
+    let impl_class_key =
+        registry.class_key_from_source(&lambda_info.impl_class, Some(task_class.as_str()));
+    let dispatch_class = match lambda_info.impl_kind {
+        6 | 7 => impl_class_key,
+        5 | 9 => match impl_args.first().copied() {
+            Some(Slot::Reference(Some(receiver_ref))) => {
+                let receiver_class = heap.get(receiver_ref)?.class_name.clone();
+                if let Some((dispatch_class, _)) = resolve_method_in_hierarchy(
+                    registry,
+                    loader,
+                    &receiver_class,
+                    &lambda_info.impl_method,
+                    &lambda_info.impl_desc,
+                ) {
+                    dispatch_class
+                } else {
+                    impl_class_key
+                }
+            }
+            Some(Slot::Reference(None)) | None => return Err(Error::NullPointerException),
+            Some(_) => {
+                return Err(Error::TypeMismatch {
+                    expected: "reference",
+                    got: "other",
+                });
+            }
+        },
+        _ => {
+            return Err(Error::Unimplemented {
+                mnemonic: "executor lambda impl kind",
+            });
+        }
+    };
+    ensure_initialized(
+        registry,
+        loader,
+        heap,
+        output,
+        &dispatch_class,
+        task_class.as_str(),
+    )?;
+    let (_, method_idx) = resolve_method_in_hierarchy(
+        registry,
+        loader,
+        &dispatch_class,
+        &lambda_info.impl_method,
+        &lambda_info.impl_desc,
+    )
+    .ok_or_else(|| Error::MethodNotFound {
+        name: format!("{}.{}", dispatch_class, lambda_info.impl_method),
+        descriptor: lambda_info.impl_desc.clone(),
+    })?;
+    let impl_args = adapt_args_for_impl_desc(&impl_args, &lambda_info.impl_desc, heap);
+    let state = ExecutionState::new(
+        registry,
+        &dispatch_class,
+        &lambda_info.impl_method,
+        method_idx,
+        &impl_args,
+    )?;
+    Ok(Some(ExecutorInvocation {
+        state,
+        impl_desc: Some(lambda_info.impl_desc),
+        sam_desc: Some(lambda_info.sam_desc),
+    }))
+}
+
+fn prepare_executor_invocation(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    task: duke_gc::ExecutorTask,
+) -> Result<ExecutorInvocation> {
+    let (method, descriptor) = executor_task_signature(task.kind);
+    if let Some(invocation) =
+        prepare_lambda_executor_invocation(registry, loader, heap, output, task.task_ref, method, descriptor)?
+    {
+        return Ok(invocation);
+    }
+
+    let task_class = heap.get(task.task_ref)?.class_name.clone();
+    let (dispatch_class, method_idx) =
+        resolve_method_in_hierarchy(registry, loader, &task_class, method, descriptor).ok_or_else(
+            || Error::AbstractMethodError {
+                class_name: task_class.clone(),
+                method_name: method.to_string(),
+            },
+        )?;
+    ensure_initialized(
+        registry,
+        loader,
+        heap,
+        output,
+        &dispatch_class,
+        task_class.as_str(),
+    )?;
+    let state = ExecutionState::new(
+        registry,
+        &dispatch_class,
+        method,
+        method_idx,
+        &[Slot::Reference(Some(task.task_ref))],
+    )?;
+    Ok(ExecutorInvocation {
+        state,
+        impl_desc: None,
+        sam_desc: None,
+    })
+}
+
+fn run_executor_state_to_completion(
+    mut state: ExecutionState,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> Result<Option<Slot>> {
+    loop {
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            live_workers,
+        } = &mut *shared_guard;
+        let outcome = execution::run_execution(
+            &mut state,
+            registry,
+            loader.as_ref(),
+            heap,
+            output,
+            *live_workers == 0,
+            Some(DEFAULT_THREAD_QUANTUM),
+        )?;
+        drop(shared_guard);
+
+        match outcome {
+            ExecutionOutcome::Returned(result) => return Ok(result),
+            ExecutionOutcome::ThreadAction(action) => {
+                handle_thread_action(action, shared, runtime, loader)?;
+            }
+            ExecutionOutcome::Yield => {
+                std::thread::sleep(std::time::Duration::from_micros(1));
+            }
+        }
+    }
+}
+
+fn store_future_failure(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    future_ref: u64,
+    class_name: &str,
+) -> Result<()> {
+    let cause_ref = if let Some(exception_ref) = take_uncaught_java_exception_ref(class_name) {
+        exception_ref
+    } else {
+        materialize_java_exception_object(registry, loader, heap, class_name)?
+    };
+    heap.write_field(
+        future_ref,
+        FUTURE_EXCEPTION_FIELD,
+        Slot::Reference(Some(cause_ref)),
+    )?;
+    heap.write_field(future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_FAILED))?;
+    Ok(())
+}
+
+fn store_future_success(
+    heap: &mut duke_gc::Heap,
+    task: duke_gc::ExecutorTask,
+    result: Option<Slot>,
+    impl_desc: Option<&str>,
+    sam_desc: Option<&str>,
+) -> Result<()> {
+    if future_state(heap, task.future_ref)? == FUTURE_CANCELLED {
+        return Ok(());
+    }
+    let result = match task.kind {
+        duke_gc::ExecutorTaskKind::Runnable => {
+            extract_field_arg(heap, task.future_ref, FUTURE_RESULT_FIELD)?
+        }
+        duke_gc::ExecutorTaskKind::Callable => result.unwrap_or(Slot::Reference(None)),
+    };
+    let result = if let (Some(impl_desc), Some(sam_desc)) = (impl_desc, sam_desc) {
+        autobox_if_needed(Some(result), impl_desc, sam_desc, heap)?.unwrap_or(Slot::Reference(None))
+    } else {
+        result
+    };
+    heap.write_field(task.future_ref, FUTURE_RESULT_FIELD, result)?;
+    heap.remember_reference_write(task.future_ref, result);
+    heap.write_field(task.future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_DONE))?;
+    Ok(())
+}
+
+fn run_executor_task(
+    task: duke_gc::ExecutorTask,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> Result<()> {
+    {
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if future_state(&shared_guard.heap, task.future_ref)? == FUTURE_CANCELLED {
+            return Ok(());
+        }
+        shared_guard
+            .heap
+            .write_field(task.future_ref, FUTURE_STATE_FIELD, Slot::Int(FUTURE_RUNNING))?;
+    }
+
+    let invocation = {
+        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let CompletionVm {
+            registry,
+            heap,
+            output,
+            ..
+        } = &mut *shared_guard;
+        let result = prepare_executor_invocation(registry, loader.as_ref(), heap, output, task);
+        drop(shared_guard);
+        result
+    };
+
+    let invocation = match invocation {
+        Ok(invocation) => invocation,
+        Err(Error::JavaException { class_name }) => {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let CompletionVm { registry, heap, .. } = &mut *shared_guard;
+            let result =
+                store_future_failure(registry, loader.as_ref(), heap, task.future_ref, &class_name);
+            drop(shared_guard);
+            result?;
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
+
+    let impl_desc = invocation.impl_desc.clone();
+    let sam_desc = invocation.sam_desc.clone();
+    match run_executor_state_to_completion(invocation.state, shared, runtime, loader) {
+        Ok(result) => {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let result = store_future_success(
+                &mut shared_guard.heap,
+                task,
+                result,
+                impl_desc.as_deref(),
+                sam_desc.as_deref(),
+            );
+            drop(shared_guard);
+            result
+        }
+        Err(Error::JavaException { class_name }) => {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let CompletionVm { registry, heap, .. } = &mut *shared_guard;
+            let result =
+                store_future_failure(registry, loader.as_ref(), heap, task.future_ref, &class_name);
+            drop(shared_guard);
+            result?;
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn run_executor_worker(
+    executor: &duke_gc::ExecutorShared,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) -> Result<()> {
+    loop {
+        let task = {
+            let mut guard = executor
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            loop {
+                if let Some(task) = guard.queue.pop_front() {
+                    guard.active = guard.active.saturating_add(1);
+                    break task;
+                }
+                if guard.shutdown {
+                    guard.workers = guard.workers.saturating_sub(1);
+                    guard.refresh_terminated();
+                    drop(guard);
+                    executor.available.notify_all();
+                    return Ok(());
+                }
+                guard = executor
+                    .available
+                    .wait(guard)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+        };
+
+        let result = run_executor_task(task, shared, runtime, loader);
+        {
+            let mut guard = executor
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.active = guard.active.saturating_sub(1);
+            guard.refresh_terminated();
+            drop(guard);
+            executor.available.notify_all();
+        }
+        result?;
+    }
+}
+
+fn spawn_executor_worker(
+    executor: std::sync::Arc<duke_gc::ExecutorShared>,
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+) {
+    let shared_clone = std::sync::Arc::clone(shared);
+    let runtime_clone = std::sync::Arc::clone(runtime);
+    let loader_clone = std::sync::Arc::clone(loader);
+    let handle = std::thread::spawn(move || {
+        let result = run_executor_worker(&executor, &shared_clone, &runtime_clone, &loader_clone);
+        {
+            let mut shared = shared_clone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            shared.live_workers = shared.live_workers.saturating_sub(1);
+        }
+        result
+    });
+    let mut runtime_guard = runtime
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let worker_id = runtime_guard.next_executor_worker_id;
+    runtime_guard.next_executor_worker_id = runtime_guard.next_executor_worker_id.wrapping_add(1);
+    runtime_guard.executor_handles.insert(worker_id, handle);
+}
+
+fn enqueue_executor_task(
+    shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
+    runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
+    loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
+    executor_ref: u64,
+    future_ref: u64,
+    task_ref: u64,
+    kind: duke_gc::ExecutorTaskKind,
+) -> Result<()> {
+    let executor = {
+        let shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        executor_shared(&shared_guard.heap, executor_ref)?
+    };
+    let mut workers_to_spawn = 0usize;
+    {
+        let mut guard = executor
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if guard.shutdown {
+            return Ok(());
+        }
+        guard.queue.push_back(duke_gc::ExecutorTask {
+            future_ref,
+            task_ref,
+            kind,
+        });
+        while guard.workers < guard.max_workers
+            && guard.workers < guard.queue.len().saturating_add(guard.active)
+        {
+            guard.workers = guard.workers.saturating_add(1);
+            workers_to_spawn = workers_to_spawn.saturating_add(1);
+        }
+        drop(guard);
+    }
+    for _ in 0..workers_to_spawn {
+        {
+            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            shared_guard.live_workers = shared_guard.live_workers.saturating_add(1);
+        }
+        spawn_executor_worker(std::sync::Arc::clone(&executor), shared, runtime, loader);
+    }
+    executor.available.notify_all();
+    Ok(())
+}
+
 fn handle_thread_action(
     action: NativeThreadAction,
     shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
@@ -15628,6 +20398,16 @@ fn handle_thread_action(
             Ok(())
         }
         NativeThreadAction::Join { thread_id } => join_java_thread(runtime, thread_id),
+        NativeThreadAction::Retry => {
+            std::thread::sleep(std::time::Duration::from_micros(1));
+            Ok(())
+        }
+        NativeThreadAction::ExecutorSubmit {
+            executor_ref,
+            future_ref,
+            task_ref,
+            kind,
+        } => enqueue_executor_task(shared, runtime, loader, executor_ref, future_ref, task_ref, kind),
     }
 }
 
@@ -15691,6 +20471,7 @@ fn spawn_java_thread(
         }
     }
 
+    let host_key = next_thread_host_key();
     let thread_id = {
         let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let thread_id = runtime.threads.allocate_thread_id();
@@ -15705,6 +20486,7 @@ fn spawn_java_thread(
         {
             let thread = shared_guard.heap.get_mut(thread_ref)?;
             thread.fields[THREAD_ID_SLOT] = Slot::Int(thread_id);
+            thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(host_key);
         }
         let CompletionVm {
             registry,
@@ -15733,6 +20515,25 @@ fn spawn_java_thread(
     let runtime_clone = std::sync::Arc::clone(runtime);
     let loader_clone = std::sync::Arc::clone(loader);
     let handle = std::thread::spawn(move || {
+        let host_thread_id = std::thread::current().id();
+        register_java_host_thread(host_key, host_thread_id);
+        let interrupted_before_start = {
+            let shared = shared_clone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            matches!(
+                shared
+                    .heap
+                    .get(thread_ref)
+                    .ok()
+                    .and_then(|thread| thread.fields.get(THREAD_INTERRUPTED_SLOT))
+                    .copied(),
+                Some(Slot::Int(value)) if value != 0
+            )
+        };
+        if interrupted_before_start {
+            interrupt_host_thread(host_thread_id);
+        }
         let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
         {
             let mut shared = shared_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -15743,6 +20544,7 @@ fn spawn_java_thread(
             .unwrap()
             .threads
             .mark_finished_by_java_ref(thread_ref);
+        unregister_java_host_thread(host_key);
         result
     });
     runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner).handles.insert(thread_id, handle);
@@ -15918,6 +20720,117 @@ struct CallFrame {
     class_name: String,
 }
 
+fn line_number_for_bci(line_number_table: &[(u16, u16)], bci: usize) -> i32 {
+    line_number_table
+        .iter()
+        .filter(|(start_pc, _)| usize::from(*start_pc) <= bci)
+        .max_by_key(|(start_pc, _)| *start_pc)
+        .map_or(-1, |(_, line)| i32::from(*line))
+}
+
+fn stack_frame_for_method(
+    registry: &ClassRegistry,
+    class_name: &str,
+    method_idx: usize,
+    bci: usize,
+) -> Option<NativeStackFrame> {
+    let method = registry.get(class_name).ok()?.methods.get(method_idx)?;
+    let line_number = if method.is_native {
+        -2
+    } else {
+        line_number_for_bci(&method.line_number_table, bci)
+    };
+    Some(NativeStackFrame {
+        class_name: class_name.to_string(),
+        method_name: method.name.clone(),
+        file_name: method.source_file.clone(),
+        line_number,
+    })
+}
+
+fn capture_stack_trace_snapshot(
+    registry: &ClassRegistry,
+    current_class: &str,
+    method_idx: usize,
+    bci: usize,
+    call_stack: &[CallFrame],
+) -> Vec<NativeStackFrame> {
+    let mut frames = Vec::with_capacity(call_stack.len() + 1);
+    if let Some(frame) = stack_frame_for_method(registry, current_class, method_idx, bci) {
+        frames.push(frame);
+    }
+    for caller in call_stack.iter().rev() {
+        let caller_bci = registry
+            .get(&caller.class_name)
+            .ok()
+            .and_then(|ctx| ctx.methods.get(caller.method_idx))
+            .and_then(|method| {
+                caller
+                    .resume_idx
+                    .checked_sub(1)
+                    .and_then(|idx| method.instructions.get(idx))
+                    .map(|(pc, _)| *pc)
+            })
+            .unwrap_or(0);
+        if let Some(frame) =
+            stack_frame_for_method(registry, &caller.class_name, caller.method_idx, caller_bci)
+        {
+            frames.push(frame);
+        }
+    }
+    frames
+}
+
+fn is_throwable_class(registry: &ClassRegistry, class_name: &str) -> bool {
+    let mut current = Some(class_name.to_string());
+    while let Some(name) = current {
+        if name == "java/lang/Throwable" {
+            return true;
+        }
+        current = registry.get(&name).ok().and_then(|ctx| ctx.super_class.clone());
+    }
+    false
+}
+
+fn native_needs_stack_snapshot(
+    registry: &ClassRegistry,
+    native_class: &str,
+    native_method: &str,
+    native_desc: &str,
+) -> bool {
+    (native_method == "fillInStackTrace" && native_desc == "()Ljava/lang/Throwable;")
+        || (native_method == "<init>"
+            && matches!(
+                native_desc,
+                "()V" | "(Ljava/lang/String;)V" | "(Ljava/lang/String;Ljava/lang/Throwable;)V"
+            )
+            && is_throwable_class(registry, native_class))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn native_control_for_call(
+    registry: &ClassRegistry,
+    current_class: &str,
+    method_idx: usize,
+    bci: usize,
+    call_stack: &[CallFrame],
+    native_class: &str,
+    native_method: &str,
+    native_desc: &str,
+) -> NativeControl {
+    let mut control = NativeControl::default();
+    if native_needs_stack_snapshot(registry, native_class, native_method, native_desc) {
+        control.set_stack_trace(capture_stack_trace_snapshot(
+            registry,
+            current_class,
+            method_idx,
+            bci,
+            call_stack,
+        ));
+    }
+    control
+}
+
 /// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
@@ -15928,6 +20841,17 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
     use duke_classfile::MethodAccessFlags;
     use duke_classfile::types::{AttributeData, CpEntry};
+
+    let source_file = cf.attributes.iter().find_map(|a| {
+        if let AttributeData::SourceFile { sourcefile_index } = &a.data {
+            match cf.constant_pool.get(sourcefile_index.0 as usize) {
+                Some(Some(CpEntry::Utf8(s))) => Some(s.clone()),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
 
     cf
         .methods
@@ -15968,10 +20892,28 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
                         max_locals: 0,
                         exception_table: vec![],
                         pc_to_idx: std::sync::Arc::new(std::collections::HashMap::new()),
+                        line_number_table: Vec::new(),
+                        source_file: source_file.clone(),
                     });
                 }
                 return None; // no Code and not native/abstract — malformed, skip
             };
+            let line_number_table = code
+                .attributes
+                .iter()
+                .find_map(|attr| {
+                    if let AttributeData::LineNumberTable(entries) = &attr.data {
+                        Some(
+                            entries
+                                .iter()
+                                .map(|entry| (entry.start_pc, entry.line_number))
+                                .collect::<Vec<_>>(),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
             let instructions = decode(&code.code).ok()?;
             let exception_table: Vec<ExceptionEntry> = code
                 .exception_table
@@ -16023,6 +20965,8 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
                 max_locals: code.max_locals,
                 exception_table,
                 pc_to_idx: std::sync::Arc::new(pc_to_idx_map),
+                line_number_table,
+                source_file: source_file.clone(),
             })
         })
         .collect()
@@ -18032,10 +22976,19 @@ fn materialize_java_exception_object(
     if let Some(message) = pop_pending_java_exception_message(class_name) {
         heap.get_mut(exc_ref)?.string_value = Some(message);
     }
+    if let Some(cause) = pop_pending_java_exception_cause(class_name)
+        && let Ok(obj) = heap.get_mut(exc_ref)
+        && !obj.fields.is_empty()
+    {
+        obj.fields[THROWABLE_CAUSE_FIELD] = cause;
+        heap.remember_reference_write(exc_ref, cause);
+    }
     Ok(exc_ref)
 }
 
 type PendingExceptionMessages = std::sync::Mutex<HashMap<String, VecDeque<String>>>;
+type PendingExceptionCauses = std::sync::Mutex<HashMap<String, VecDeque<Slot>>>;
+type UncaughtExceptionRefs = std::sync::Mutex<HashMap<std::thread::ThreadId, VecDeque<(String, u64)>>>;
 
 fn pending_java_exception_messages() -> &'static PendingExceptionMessages {
     static MESSAGES: OnceLock<PendingExceptionMessages> = OnceLock::new();
@@ -18062,6 +23015,65 @@ fn pop_pending_java_exception_message(class_name: &str) -> Option<String> {
         messages.remove(class_name);
     }
     message
+}
+
+fn pending_java_exception_causes() -> &'static PendingExceptionCauses {
+    static CAUSES: OnceLock<PendingExceptionCauses> = OnceLock::new();
+    CAUSES.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn push_pending_java_exception_cause(class_name: &str, cause: Slot) {
+    let mut causes = pending_java_exception_causes()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    causes
+        .entry(class_name.to_string())
+        .or_default()
+        .push_back(cause);
+}
+
+fn pop_pending_java_exception_cause(class_name: &str) -> Option<Slot> {
+    let mut causes = pending_java_exception_causes()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let queue = causes.get_mut(class_name)?;
+    let cause = queue.pop_front();
+    if queue.is_empty() {
+        causes.remove(class_name);
+    }
+    cause
+}
+
+fn uncaught_java_exception_refs() -> &'static UncaughtExceptionRefs {
+    static REFS: OnceLock<UncaughtExceptionRefs> = OnceLock::new();
+    REFS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn record_uncaught_java_exception_ref(class_name: &str, exception_ref: u64) {
+    let mut refs = uncaught_java_exception_refs()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    refs.entry(std::thread::current().id())
+        .or_default()
+        .push_back((class_name.to_string(), exception_ref));
+}
+
+fn take_uncaught_java_exception_ref(class_name: &str) -> Option<u64> {
+    let mut refs = uncaught_java_exception_refs()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let thread_id = std::thread::current().id();
+    let queue = refs.get_mut(&thread_id)?;
+    let position = queue
+        .iter()
+        .position(|(queued_class, _)| queued_class == class_name)
+        .unwrap_or(0);
+    let (_, exception_ref) = queue.remove(position)?;
+    if queue.is_empty() {
+        refs.remove(&thread_id);
+    }
+    drop(refs);
+    Some(exception_ref)
 }
 
 fn allocate_reflection_instance(
@@ -20667,6 +25679,321 @@ fn alloc_byte_array(heap: &mut duke_gc::Heap, bytes: &[u8]) -> u64 {
     array_ref
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Base64Variant {
+    Standard,
+    Mime,
+    Url,
+}
+
+impl Base64Variant {
+    const fn field_value(self) -> i32 {
+        match self {
+            Self::Standard => 0,
+            Self::Mime => 1,
+            Self::Url => 2,
+        }
+    }
+
+    const fn from_field(value: i32) -> Option<Self> {
+        match value {
+            0 => Some(Self::Standard),
+            1 => Some(Self::Mime),
+            2 => Some(Self::Url),
+            _ => None,
+        }
+    }
+
+    const fn alphabet(self) -> &'static [u8; 64] {
+        match self {
+            Self::Standard | Self::Mime => {
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            }
+            Self::Url => b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        }
+    }
+}
+
+fn invalid_base64_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    }
+}
+
+fn allocate_base64_coder(
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+    variant: Base64Variant,
+) -> Result<u64> {
+    let coder_ref = heap.allocate(class_name.to_string(), 1);
+    heap.get_mut(coder_ref)?.fields[0] = Slot::Int(variant.field_value());
+    Ok(coder_ref)
+}
+
+fn base64_variant_arg(args: &[Slot], heap: &duke_gc::Heap) -> Result<Base64Variant> {
+    let coder_ref = extract_ref_arg(args, 0)?;
+    let Some(Slot::Int(value)) = heap.get(coder_ref)?.fields.first() else {
+        return Err(Error::TypeMismatch {
+            expected: "Base64 variant",
+            got: "other",
+        });
+    };
+    Base64Variant::from_field(*value).ok_or_else(invalid_base64_error)
+}
+
+fn encode_base64(input: &[u8], variant: Base64Variant) -> String {
+    let alphabet = variant.alphabet();
+    let mut out = Vec::with_capacity(input.len().div_ceil(3) * 4);
+    let mut line_len = 0_usize;
+
+    for chunk in input.chunks(3) {
+        let first = u32::from(chunk[0]);
+        let second = chunk.get(1).copied().map_or(0, u32::from);
+        let third = chunk.get(2).copied().map_or(0, u32::from);
+        let triple = (first << 16) | (second << 8) | third;
+        let encoded = [
+            alphabet[((triple >> 18) & 0x3f) as usize],
+            alphabet[((triple >> 12) & 0x3f) as usize],
+            if chunk.len() > 1 {
+                alphabet[((triple >> 6) & 0x3f) as usize]
+            } else {
+                b'='
+            },
+            if chunk.len() > 2 {
+                alphabet[(triple & 0x3f) as usize]
+            } else {
+                b'='
+            },
+        ];
+
+        for byte in encoded {
+            if variant == Base64Variant::Mime && line_len == 76 {
+                out.extend_from_slice(b"\r\n");
+                line_len = 0;
+            }
+            out.push(byte);
+            line_len += 1;
+        }
+    }
+
+    out.into_iter().map(char::from).collect()
+}
+
+fn base64_decode_value(byte: u8, variant: Base64Variant) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' if variant != Base64Variant::Url => Some(62),
+        b'/' if variant != Base64Variant::Url => Some(63),
+        b'-' if variant == Base64Variant::Url => Some(62),
+        b'_' if variant == Base64Variant::Url => Some(63),
+        _ => None,
+    }
+}
+
+fn filtered_base64_input(input: &[u8], variant: Base64Variant) -> Vec<u8> {
+    input
+        .iter()
+        .copied()
+        .filter(|byte| {
+            variant != Base64Variant::Mime || !matches!(byte, b'\r' | b'\n' | b' ' | b'\t')
+        })
+        .collect()
+}
+
+fn require_base64_value(byte: u8, variant: Base64Variant) -> Result<u8> {
+    base64_decode_value(byte, variant).ok_or_else(invalid_base64_error)
+}
+
+fn push_base64_triplet(out: &mut Vec<u8>, values: [u8; 4]) {
+    out.push((values[0] << 2) | (values[1] >> 4));
+    out.push(((values[1] & 0x0f) << 4) | (values[2] >> 2));
+    out.push(((values[2] & 0x03) << 6) | values[3]);
+}
+
+fn decode_base64(input: &[u8], variant: Base64Variant) -> Result<Vec<u8>> {
+    let bytes = filtered_base64_input(input, variant);
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut first_padding = None;
+    for (idx, byte) in bytes.iter().copied().enumerate() {
+        if byte == b'=' {
+            first_padding.get_or_insert(idx);
+        } else if first_padding.is_some() || base64_decode_value(byte, variant).is_none() {
+            return Err(invalid_base64_error());
+        }
+    }
+
+    let data_len = first_padding.unwrap_or(bytes.len());
+    if let Some(first_padding_idx) = first_padding {
+        let pad_count = bytes.len() - first_padding_idx;
+        let data_remainder = data_len % 4;
+        if pad_count > 2
+            || !bytes.len().is_multiple_of(4)
+            || (pad_count == 1 && data_remainder != 3)
+            || (pad_count == 2 && data_remainder != 2)
+        {
+            return Err(invalid_base64_error());
+        }
+    } else if data_len % 4 == 1 {
+        return Err(invalid_base64_error());
+    }
+
+    let mut out = Vec::with_capacity((data_len / 4) * 3 + 2);
+    let mut idx = 0;
+    while idx + 4 <= data_len {
+        let values = [
+            require_base64_value(bytes[idx], variant)?,
+            require_base64_value(bytes[idx + 1], variant)?,
+            require_base64_value(bytes[idx + 2], variant)?,
+            require_base64_value(bytes[idx + 3], variant)?,
+        ];
+        push_base64_triplet(&mut out, values);
+        idx += 4;
+    }
+
+    match data_len - idx {
+        0 => {}
+        2 => {
+            let first = require_base64_value(bytes[idx], variant)?;
+            let second = require_base64_value(bytes[idx + 1], variant)?;
+            out.push((first << 2) | (second >> 4));
+        }
+        3 => {
+            let first = require_base64_value(bytes[idx], variant)?;
+            let second = require_base64_value(bytes[idx + 1], variant)?;
+            let third = require_base64_value(bytes[idx + 2], variant)?;
+            out.push((first << 2) | (second >> 4));
+            out.push(((second & 0x0f) << 4) | (third >> 2));
+        }
+        _ => return Err(invalid_base64_error()),
+    }
+
+    Ok(out)
+}
+
+pub(crate) fn native_base64_get_encoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let encoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Encoder", Base64Variant::Standard)?;
+    Ok(Some(Slot::Reference(Some(encoder_ref))))
+}
+
+pub(crate) fn native_base64_get_mime_encoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let encoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Encoder", Base64Variant::Mime)?;
+    Ok(Some(Slot::Reference(Some(encoder_ref))))
+}
+
+pub(crate) fn native_base64_get_url_encoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let encoder_ref = allocate_base64_coder(heap, "java/util/Base64$Encoder", Base64Variant::Url)?;
+    Ok(Some(Slot::Reference(Some(encoder_ref))))
+}
+
+pub(crate) fn native_base64_get_decoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let decoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Decoder", Base64Variant::Standard)?;
+    Ok(Some(Slot::Reference(Some(decoder_ref))))
+}
+
+pub(crate) fn native_base64_get_mime_decoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let decoder_ref =
+        allocate_base64_coder(heap, "java/util/Base64$Decoder", Base64Variant::Mime)?;
+    Ok(Some(Slot::Reference(Some(decoder_ref))))
+}
+
+pub(crate) fn native_base64_get_url_decoder(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let decoder_ref = allocate_base64_coder(heap, "java/util/Base64$Decoder", Base64Variant::Url)?;
+    Ok(Some(Slot::Reference(Some(decoder_ref))))
+}
+
+pub(crate) fn native_base64_encoder_encode_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let string_ref = heap.allocate_string(encode_base64(&input, variant));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_base64_encoder_encode(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let encoded = encode_base64(&input, variant);
+    let array_ref = alloc_byte_array(heap, &encoded.into_bytes());
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+pub(crate) fn native_base64_decoder_decode_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = string_value_from_ref(heap, input_ref)?;
+    let decoded = decode_base64(input.as_bytes(), variant)?;
+    let array_ref = alloc_byte_array(heap, &decoded);
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+pub(crate) fn native_base64_decoder_decode_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let variant = base64_variant_arg(args, heap)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let decoded = decode_base64(&input, variant)?;
+    let array_ref = alloc_byte_array(heap, &decoded);
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
 const DUKE_SECURITY_PROVIDER: &str = "DUKE";
 const MESSAGE_DIGEST_SERVICE_TYPE: &str = "MessageDigest";
 const MESSAGE_DIGEST_ALGORITHMS: [&str; 3] = ["SHA-256", "SHA-1", "MD5"];
@@ -21183,6 +26510,310 @@ pub(crate) fn native_secure_random_generate_seed(
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
+const UUID_MSB_FIELD: usize = 0;
+const UUID_LSB_FIELD: usize = 1;
+
+fn uuid_bits_from_object(obj: &duke_gc::HeapObject) -> Option<(i64, i64)> {
+    match (
+        obj.fields.get(UUID_MSB_FIELD),
+        obj.fields.get(UUID_LSB_FIELD),
+    ) {
+        (Some(Slot::Long(msb)), Some(Slot::Long(lsb))) => Some((*msb, *lsb)),
+        _ => None,
+    }
+}
+
+fn uuid_bits_from_ref(heap: &duke_gc::Heap, uuid_ref: u64) -> Result<(i64, i64)> {
+    uuid_bits_from_object(heap.get(uuid_ref)?).ok_or(Error::TypeMismatch {
+        expected: "UUID fields",
+        got: "other",
+    })
+}
+
+fn write_uuid_bits(heap: &mut duke_gc::Heap, uuid_ref: u64, msb: i64, lsb: i64) -> Result<()> {
+    let uuid = heap.get_mut(uuid_ref)?;
+    if uuid.fields.len() <= UUID_LSB_FIELD {
+        uuid.fields.resize(UUID_LSB_FIELD + 1, Slot::Long(0));
+    }
+    uuid.fields[UUID_MSB_FIELD] = Slot::Long(msb);
+    uuid.fields[UUID_LSB_FIELD] = Slot::Long(lsb);
+    Ok(())
+}
+
+fn allocate_uuid(heap: &mut duke_gc::Heap, msb: i64, lsb: i64) -> Result<u64> {
+    let uuid_ref = heap.allocate("java/util/UUID".to_string(), 2);
+    write_uuid_bits(heap, uuid_ref, msb, lsb)?;
+    Ok(uuid_ref)
+}
+
+fn uuid_bits_from_bytes(bytes: &[u8; 16]) -> (i64, i64) {
+    let mut msb_bytes = [0_u8; 8];
+    let mut lsb_bytes = [0_u8; 8];
+    msb_bytes.copy_from_slice(&bytes[..8]);
+    lsb_bytes.copy_from_slice(&bytes[8..]);
+    (i64::from_be_bytes(msb_bytes), i64::from_be_bytes(lsb_bytes))
+}
+
+fn uuid_invalid_format() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    }
+}
+
+fn uuid_hex_nibble(byte: u8) -> Option<u64> {
+    match byte {
+        b'0'..=b'9' => Some(u64::from(byte - b'0')),
+        b'a'..=b'f' => Some(u64::from(byte - b'a' + 10)),
+        b'A'..=b'F' => Some(u64::from(byte - b'A' + 10)),
+        _ => None,
+    }
+}
+
+fn parse_uuid_hex_u64(bytes: &[u8]) -> Result<u64> {
+    let mut value = 0_u64;
+    for byte in bytes {
+        let nibble = uuid_hex_nibble(*byte).ok_or_else(uuid_invalid_format)?;
+        value = (value << 4) | nibble;
+    }
+    Ok(value)
+}
+
+fn parse_uuid_string(text: &str) -> Result<(i64, i64)> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 36
+        || bytes[8] != b'-'
+        || bytes[13] != b'-'
+        || bytes[18] != b'-'
+        || bytes[23] != b'-'
+    {
+        return Err(uuid_invalid_format());
+    }
+    let msb = (parse_uuid_hex_u64(&bytes[0..8])? << 32)
+        | (parse_uuid_hex_u64(&bytes[9..13])? << 16)
+        | parse_uuid_hex_u64(&bytes[14..18])?;
+    let lsb = (parse_uuid_hex_u64(&bytes[19..23])? << 48)
+        | parse_uuid_hex_u64(&bytes[24..36])?;
+    Ok((msb.cast_signed(), lsb.cast_signed()))
+}
+
+fn uuid_to_string(msb: i64, lsb: i64) -> String {
+    let msb = msb.cast_unsigned();
+    let lsb = lsb.cast_unsigned();
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        (msb >> 32) & 0xffff_ffff,
+        (msb >> 16) & 0xffff,
+        msb & 0xffff,
+        (lsb >> 48) & 0xffff,
+        lsb & 0xffff_ffff_ffff
+    )
+}
+
+/// Native: `UUID.<init>(long,long)V` — stores the two canonical 64-bit halves.
+pub(crate) fn native_uuid_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let msb = extract_long_arg(args, 1)?;
+    let lsb = extract_long_arg(args, 2)?;
+    write_uuid_bits(heap, this_ref, msb, lsb)?;
+    Ok(None)
+}
+
+/// Native: `UUID.randomUUID()UUID` — RFC 4122 version-4 UUID from host CSPRNG.
+pub(crate) fn native_uuid_random_uuid(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| Error::JavaException {
+        class_name: "java/lang/InternalError".to_string(),
+    })?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let (msb, lsb) = uuid_bits_from_bytes(&bytes);
+    let uuid_ref = allocate_uuid(heap, msb, lsb)?;
+    Ok(Some(Slot::Reference(Some(uuid_ref))))
+}
+
+/// Native: `UUID.nameUUIDFromBytes(byte[])UUID` — RFC 4122 version-3 MD5 UUID.
+pub(crate) fn native_uuid_name_uuid_from_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let input_ref = extract_ref_arg(args, 0)?;
+    let input = byte_array_from_ref(heap, input_ref)?;
+    let digest = compute_message_digest("MD5", &input)?;
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x30;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let (msb, lsb) = uuid_bits_from_bytes(&bytes);
+    let uuid_ref = allocate_uuid(heap, msb, lsb)?;
+    Ok(Some(Slot::Reference(Some(uuid_ref))))
+}
+
+/// Native: `UUID.fromString(String)UUID` — parses canonical 8-4-4-4-12 UUID text.
+pub(crate) fn native_uuid_from_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let text_ref = extract_ref_arg(args, 0)?;
+    let text = string_value_from_ref(heap, text_ref)?;
+    let (msb, lsb) = parse_uuid_string(&text)?;
+    let uuid_ref = allocate_uuid(heap, msb, lsb)?;
+    Ok(Some(Slot::Reference(Some(uuid_ref))))
+}
+
+/// Native: `UUID.getMostSignificantBits()long`.
+pub(crate) fn native_uuid_get_most_significant_bits(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (msb, _) = uuid_bits_from_ref(heap, this_ref)?;
+    Ok(Some(Slot::Long(msb)))
+}
+
+/// Native: `UUID.getLeastSignificantBits()long`.
+pub(crate) fn native_uuid_get_least_significant_bits(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (_, lsb) = uuid_bits_from_ref(heap, this_ref)?;
+    Ok(Some(Slot::Long(lsb)))
+}
+
+/// Native: `UUID.version()int`.
+pub(crate) fn native_uuid_version(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (msb, _) = uuid_bits_from_ref(heap, this_ref)?;
+    let version = i32::try_from((msb.cast_unsigned() >> 12) & 0x0f)
+        .expect("UUID version nibble fits in i32");
+    Ok(Some(Slot::Int(version)))
+}
+
+/// Native: `UUID.variant()int`.
+pub(crate) fn native_uuid_variant(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (_, lsb) = uuid_bits_from_ref(heap, this_ref)?;
+    let lsb = lsb.cast_unsigned();
+    let variant = if (lsb >> 63) == 0 {
+        0
+    } else if (lsb >> 62) == 0b10 {
+        2
+    } else if (lsb >> 61) == 0b110 {
+        6
+    } else {
+        7
+    };
+    Ok(Some(Slot::Int(variant)))
+}
+
+/// Native: `UUID.toString()String`.
+pub(crate) fn native_uuid_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (msb, lsb) = uuid_bits_from_ref(heap, this_ref)?;
+    let string_ref = heap.allocate_string(uuid_to_string(msb, lsb));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+/// Native: `UUID.equals(Object)boolean`.
+pub(crate) fn native_uuid_equals(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let Ok(other_ref) = extract_ref_arg(args, 1) else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let this_bits = uuid_bits_from_ref(heap, this_ref)?;
+    let other = heap.get(other_ref)?;
+    let equal = other.class_name == "java/util/UUID"
+        && uuid_bits_from_object(other).is_some_and(|other_bits| other_bits == this_bits);
+    Ok(Some(Slot::Int(i32::from(equal))))
+}
+
+/// Native: `UUID.hashCode()int`.
+pub(crate) fn native_uuid_hash_code(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (msb, lsb) = uuid_bits_from_ref(heap, this_ref)?;
+    let hilo = msb.cast_unsigned() ^ lsb.cast_unsigned();
+    let high = u32::try_from(hilo >> 32).expect("upper 32 bits fit in u32");
+    let low = u32::try_from(hilo & 0xffff_ffff).expect("lower 32 bits fit in u32");
+    Ok(Some(Slot::Int((high ^ low).cast_signed())))
+}
+
+/// Native: `UUID.compareTo(UUID)int`.
+pub(crate) fn native_uuid_compare_to(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let this_bits = uuid_bits_from_ref(heap, this_ref)?;
+    let other_bits = uuid_bits_from_ref(heap, other_ref)?;
+    let ordering = this_bits
+        .0
+        .cmp(&other_bits.0)
+        .then_with(|| this_bits.1.cmp(&other_bits.1));
+    Ok(Some(Slot::Int(match ordering {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    })))
+}
+
+/// Native: version-1 UUID accessors are intentionally deferred for v3/v4 UUIDs.
+pub(crate) fn native_uuid_unsupported_version1_accessor(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Err(Error::JavaException {
+        class_name: "java/lang/UnsupportedOperationException".to_string(),
+    })
+}
+
 // ---------------------------------------------------------------------------
 // java.util.regex.Pattern / Matcher
 // Pattern: string_value = regex string.
@@ -21191,12 +26822,218 @@ pub(crate) fn native_secure_random_generate_seed(
 //          string_value = last matched text.
 // ---------------------------------------------------------------------------
 
+const PATTERN_UNIX_LINES: i32 = 1;
+const PATTERN_CASE_INSENSITIVE: i32 = 2;
+const PATTERN_COMMENTS: i32 = 4;
+const PATTERN_MULTILINE: i32 = 8;
+const PATTERN_LITERAL: i32 = 16;
+const PATTERN_DOTALL: i32 = 32;
+const PATTERN_UNICODE_CASE: i32 = 64;
+const PATTERN_CANON_EQ: i32 = 128;
+const PATTERN_UNICODE_CHARACTER_CLASS: i32 = 256;
+const PATTERN_SUPPORTED_FLAGS: i32 = PATTERN_UNIX_LINES
+    | PATTERN_CASE_INSENSITIVE
+    | PATTERN_COMMENTS
+    | PATTERN_MULTILINE
+    | PATTERN_LITERAL
+    | PATTERN_DOTALL
+    | PATTERN_UNICODE_CASE
+    | PATTERN_CANON_EQ
+    | PATTERN_UNICODE_CHARACTER_CLASS;
+
+const PATTERN_FLAGS_FIELD: usize = 0;
+
+const MATCHER_PATTERN_FIELD: usize = 0;
+const MATCHER_INPUT_FIELD: usize = 1;
+const MATCHER_POS_FIELD: usize = 2;
+const MATCHER_MATCH_START_FIELD: usize = 3;
+const MATCHER_MATCH_END_FIELD: usize = 4;
+const MATCHER_APPEND_POS_FIELD: usize = 5;
+const MATCHER_FIELD_COUNT: usize = 6;
+
+#[derive(Clone, Copy)]
+enum MatcherGroup<'a> {
+    Index(usize),
+    Name(&'a str),
+}
+
+fn regex_java_exception(class_name: &str, message: impl Into<String>) -> Error {
+    push_pending_java_exception_message(class_name, message.into());
+    Error::JavaException {
+        class_name: class_name.to_string(),
+    }
+}
+
+fn regex_pattern_syntax_error(message: impl Into<String>) -> Error {
+    regex_java_exception("java/util/regex/PatternSyntaxException", message)
+}
+
+fn regex_illegal_argument(message: impl Into<String>) -> Error {
+    regex_java_exception("java/lang/IllegalArgumentException", message)
+}
+
+fn regex_illegal_state(message: impl Into<String>) -> Error {
+    regex_java_exception("java/lang/IllegalStateException", message)
+}
+
+fn regex_index_out_of_bounds(message: impl Into<String>) -> Error {
+    regex_java_exception("java/lang/IndexOutOfBoundsException", message)
+}
+
+fn validate_pattern_flags(flags: i32) -> Result<()> {
+    if flags & !PATTERN_SUPPORTED_FLAGS != 0 {
+        return Err(regex_illegal_argument(format!("Unknown regex flags: {flags}")));
+    }
+    if flags & PATTERN_CANON_EQ != 0 {
+        return Err(regex_pattern_syntax_error(
+            "CANON_EQ is not supported by Duke's regex engine",
+        ));
+    }
+    Ok(())
+}
+
+fn translate_java_named_groups(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '(' {
+            let mut probe = chars.clone();
+            if probe.next() == Some('?') && probe.next() == Some('<') {
+                match probe.next() {
+                    Some('=' | '!') | None => out.push(ch),
+                    Some(_) => {
+                        out.push_str("(?P<");
+                        chars.next();
+                        chars.next();
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn copy_group_name(chars: &[char], start: usize, out: &mut String) -> Option<usize> {
+    let mut idx = start;
+    while idx < chars.len() {
+        let ch = chars[idx];
+        out.push(ch);
+        idx += 1;
+        if ch == '>' {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+fn expand_ascii_case_insensitive(pattern: &str) -> String {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = String::with_capacity(pattern.len());
+    let mut idx = 0;
+    let mut escaped = false;
+    let mut in_class = false;
+    while idx < chars.len() {
+        let ch = chars[idx];
+        if escaped {
+            out.push(ch);
+            escaped = false;
+            idx += 1;
+            continue;
+        }
+        if ch == '\\' {
+            out.push(ch);
+            escaped = true;
+            idx += 1;
+            continue;
+        }
+        if !in_class && ch == '(' && chars.get(idx + 1) == Some(&'?') {
+            if chars.get(idx + 2) == Some(&'P') && chars.get(idx + 3) == Some(&'<') {
+                out.push_str("(?P<");
+                if let Some(next_idx) = copy_group_name(&chars, idx + 4, &mut out) {
+                    idx = next_idx;
+                    continue;
+                }
+            } else if chars.get(idx + 2) == Some(&'<')
+                && !matches!(chars.get(idx + 3), Some('=' | '!') | None)
+            {
+                out.push_str("(?<");
+                if let Some(next_idx) = copy_group_name(&chars, idx + 3, &mut out) {
+                    idx = next_idx;
+                    continue;
+                }
+            }
+        }
+        match ch {
+            '[' => {
+                in_class = true;
+                out.push(ch);
+            }
+            ']' if in_class => {
+                in_class = false;
+                out.push(ch);
+            }
+            _ if !in_class && ch.is_ascii_alphabetic() => {
+                out.push('[');
+                out.push(ch.to_ascii_lowercase());
+                out.push(ch.to_ascii_uppercase());
+                out.push(']');
+            }
+            _ => out.push(ch),
+        }
+        idx += 1;
+    }
+    out
+}
+
 /// Helper: compile a regex from a pattern string.
 /// Returns `Err` with `JavaException` on bad pattern.
 fn compile_java_regex(pattern: &str) -> Result<regex::Regex> {
-    regex::Regex::new(pattern).map_err(|e| duke_runtime::Error::JavaException {
-        class_name: format!("java/util/regex/PatternSyntaxException: {e}"),
-    })
+    compile_java_regex_with_flags(pattern, 0)
+}
+
+fn compile_java_regex_with_flags(pattern: &str, flags: i32) -> Result<regex::Regex> {
+    validate_pattern_flags(flags)?;
+    let mut source = if flags & PATTERN_LITERAL != 0 {
+        regex::escape(pattern)
+    } else {
+        translate_java_named_groups(pattern)
+    };
+    let ascii_case_insensitive =
+        flags & PATTERN_CASE_INSENSITIVE != 0 && flags & PATTERN_UNICODE_CASE == 0;
+    if ascii_case_insensitive {
+        source = expand_ascii_case_insensitive(&source);
+    }
+
+    let mut builder = regex::RegexBuilder::new(&source);
+    builder
+        .case_insensitive(flags & PATTERN_CASE_INSENSITIVE != 0 && !ascii_case_insensitive)
+        .multi_line(flags & PATTERN_MULTILINE != 0)
+        .dot_matches_new_line(flags & PATTERN_DOTALL != 0)
+        .ignore_whitespace(flags & PATTERN_COMMENTS != 0)
+        .unicode(true);
+    builder.build().map_err(|e| regex_pattern_syntax_error(e.to_string()))
+}
+
+fn pattern_text_and_flags(heap: &duke_gc::Heap, pat_ref: u64) -> Result<(String, i32)> {
+    let pat = heap.get(pat_ref)?;
+    let pattern_str = pat.string_value.clone().unwrap_or_default();
+    let flags = match pat.fields.get(PATTERN_FLAGS_FIELD).copied() {
+        Some(Slot::Int(flags)) => flags,
+        _ => 0,
+    };
+    Ok((pattern_str, flags))
+}
+
+fn allocate_pattern(heap: &mut duke_gc::Heap, pattern_str: String, flags: i32) -> Result<u64> {
+    let pat_ref = heap.allocate("java/util/regex/Pattern".to_string(), 1);
+    let pat = heap.get_mut(pat_ref)?;
+    pat.fields[PATTERN_FLAGS_FIELD] = Slot::Int(flags);
+    pat.string_value = Some(pattern_str);
+    Ok(pat_ref)
 }
 
 /// Native: `Pattern.compile(String)Pattern` — static factory.
@@ -21214,8 +27051,26 @@ pub(crate) fn native_pattern_compile(
         .unwrap_or_default();
     // Validate the regex eagerly so we fail here not at match time.
     compile_java_regex(&pattern_str)?;
-    let pat_ref = heap.allocate("java/util/regex/Pattern".to_string(), 0);
-    heap.get_mut(pat_ref)?.string_value = Some(pattern_str);
+    let pat_ref = allocate_pattern(heap, pattern_str, 0)?;
+    Ok(Some(Slot::Reference(Some(pat_ref))))
+}
+
+/// Native: `Pattern.compile(String,int)Pattern` — static factory with flags.
+pub(crate) fn native_pattern_compile_flags(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let pat_str_ref = extract_ref_arg(args, 0)?;
+    let flags = extract_int_arg(args, 1)?;
+    let pattern_str = heap
+        .get(pat_str_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    compile_java_regex_with_flags(&pattern_str, flags)?;
+    let pat_ref = allocate_pattern(heap, pattern_str, flags)?;
     Ok(Some(Slot::Reference(Some(pat_ref))))
 }
 
@@ -21228,13 +27083,11 @@ pub(crate) fn native_pattern_matcher(
 ) -> Result<Option<Slot>> {
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_slot = extract_slot_arg(args, 1);
-    // fields: [0]=pattern_ref, [1]=input_ref, [2]=pos, [3]=match_start, [4]=match_end
-    let m_ref = heap.allocate("java/util/regex/Matcher".to_string(), 5);
-    heap.get_mut(m_ref)?.fields[0] = Slot::Reference(Some(pat_ref));
-    heap.get_mut(m_ref)?.fields[1] = input_slot;
-    heap.get_mut(m_ref)?.fields[2] = Slot::Int(0);
-    heap.get_mut(m_ref)?.fields[3] = Slot::Int(-1);
-    heap.get_mut(m_ref)?.fields[4] = Slot::Int(0);
+    // fields: pattern, input, next find position, last match start/end, append position
+    let m_ref = heap.allocate("java/util/regex/Matcher".to_string(), MATCHER_FIELD_COUNT);
+    heap.get_mut(m_ref)?.fields[MATCHER_PATTERN_FIELD] = Slot::Reference(Some(pat_ref));
+    heap.get_mut(m_ref)?.fields[MATCHER_INPUT_FIELD] = input_slot;
+    reset_matcher_fields(heap, m_ref)?;
     Ok(Some(Slot::Reference(Some(m_ref))))
 }
 
@@ -21260,6 +27113,207 @@ pub(crate) fn native_pattern_matches_static(
     Ok(Some(Slot::Int(i32::from(result))))
 }
 
+fn regex_split_parts(re: &regex::Regex, input: &str, limit: i32) -> Vec<String> {
+    if limit > 0 {
+        return re
+            .splitn(input, usize::try_from(limit).unwrap_or(usize::MAX))
+            .map(str::to_string)
+            .collect();
+    }
+    let mut parts: Vec<String> = re.split(input).map(str::to_string).collect();
+    if limit == 0 {
+        while parts.last().is_some_and(String::is_empty) {
+            parts.pop();
+        }
+    }
+    parts
+}
+
+fn alloc_string_array_from_parts(heap: &mut duke_gc::Heap, parts: &[String]) -> Result<u64> {
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
+    for (idx, part) in parts.iter().enumerate() {
+        let str_ref = heap.allocate_string(part.clone());
+        heap.get_mut(arr_ref)?.fields[idx] = Slot::Reference(Some(str_ref));
+    }
+    Ok(arr_ref)
+}
+
+fn pattern_split_impl(args: &[Slot], heap: &mut duke_gc::Heap, limit: i32) -> Result<Option<Slot>> {
+    let pat_ref = extract_ref_arg(args, 0)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
+    let input = heap
+        .get(input_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let parts = regex_split_parts(&re, &input, limit);
+    let arr_ref = alloc_string_array_from_parts(heap, &parts)?;
+    Ok(Some(Slot::Reference(Some(arr_ref))))
+}
+
+/// Native: `Pattern.split(CharSequence)String[]`.
+pub(crate) fn native_pattern_split(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    pattern_split_impl(args, heap, 0)
+}
+
+/// Native: `Pattern.split(CharSequence,int)String[]`.
+pub(crate) fn native_pattern_split_limit(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    pattern_split_impl(args, heap, extract_int_arg(args, 2)?)
+}
+
+fn matcher_pattern_input(heap: &duke_gc::Heap, m_ref: u64) -> Result<Option<(u64, u64)>> {
+    let fields = heap.get(m_ref)?.fields.clone();
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
+        return Ok(None);
+    };
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
+        return Ok(None);
+    };
+    Ok(Some((pat_ref, input_ref)))
+}
+
+fn matcher_pattern_input_text(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+) -> Result<Option<(String, i32, String)>> {
+    let Some((pat_ref, input_ref)) = matcher_pattern_input(heap, m_ref)? else {
+        return Ok(None);
+    };
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
+    let input = heap
+        .get(input_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    Ok(Some((pattern_str, flags, input)))
+}
+
+fn matcher_field_int(heap: &duke_gc::Heap, m_ref: u64, field: usize, default: i32) -> Result<i32> {
+    Ok(match heap.get(m_ref)?.fields.get(field).copied() {
+        Some(Slot::Int(value)) => value,
+        _ => default,
+    })
+}
+
+fn set_matcher_no_match(heap: &mut duke_gc::Heap, m_ref: u64) -> Result<()> {
+    let matcher = heap.get_mut(m_ref)?;
+    matcher.fields[MATCHER_MATCH_START_FIELD] = Slot::Int(-1);
+    matcher.fields[MATCHER_MATCH_END_FIELD] = Slot::Int(0);
+    matcher.string_value = None;
+    Ok(())
+}
+
+fn reset_matcher_fields(heap: &mut duke_gc::Heap, m_ref: u64) -> Result<()> {
+    let matcher = heap.get_mut(m_ref)?;
+    matcher.fields[MATCHER_POS_FIELD] = Slot::Int(0);
+    matcher.fields[MATCHER_MATCH_START_FIELD] = Slot::Int(-1);
+    matcher.fields[MATCHER_MATCH_END_FIELD] = Slot::Int(0);
+    matcher.fields[MATCHER_APPEND_POS_FIELD] = Slot::Int(0);
+    matcher.string_value = None;
+    Ok(())
+}
+
+fn next_find_pos(input: &str, start: usize, end: usize) -> usize {
+    if start != end || end >= input.len() {
+        return end;
+    }
+    input[end..]
+        .chars()
+        .next()
+        .map_or(end, |ch| end + ch.len_utf8())
+}
+
+fn store_matcher_match(
+    heap: &mut duke_gc::Heap,
+    m_ref: u64,
+    input: &str,
+    start: usize,
+    end: usize,
+) -> Result<()> {
+    let next_pos = next_find_pos(input, start, end);
+    let start_i32 = i32::try_from(start).unwrap_or(i32::MAX);
+    let end_i32 = i32::try_from(end).unwrap_or(i32::MAX);
+    let next_i32 = i32::try_from(next_pos).unwrap_or(i32::MAX);
+    let matcher = heap.get_mut(m_ref)?;
+    matcher.fields[MATCHER_POS_FIELD] = Slot::Int(next_i32);
+    matcher.fields[MATCHER_MATCH_START_FIELD] = Slot::Int(start_i32);
+    matcher.fields[MATCHER_MATCH_END_FIELD] = Slot::Int(end_i32);
+    matcher.string_value = Some(input[start..end].to_string());
+    Ok(())
+}
+
+fn last_match_bounds(heap: &duke_gc::Heap, m_ref: u64) -> Result<(usize, usize)> {
+    let start = matcher_field_int(heap, m_ref, MATCHER_MATCH_START_FIELD, -1)?;
+    let end = matcher_field_int(heap, m_ref, MATCHER_MATCH_END_FIELD, 0)?;
+    if start < 0 {
+        return Err(regex_illegal_state("No match available"));
+    }
+    Ok((
+        usize::try_from(start).unwrap_or(0),
+        usize::try_from(end.max(0)).unwrap_or(0),
+    ))
+}
+
+fn matcher_group_bounds(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+    group: MatcherGroup<'_>,
+) -> Result<Option<(usize, usize)>> {
+    let (match_start, match_end) = last_match_bounds(heap, m_ref)?;
+    let Some((pattern_str, flags, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let Some(caps) = re.captures_at(&input, match_start) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let Some(whole) = caps.get(0) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    if whole.start() != match_start || whole.end() != match_end {
+        return Err(regex_illegal_state("No match available"));
+    }
+    match group {
+        MatcherGroup::Index(index) => {
+            if index >= caps.len() {
+                return Err(regex_index_out_of_bounds(format!("No group {index}")));
+            }
+            Ok(caps.get(index).map(|m| (m.start(), m.end())))
+        }
+        MatcherGroup::Name(name) => {
+            if !re.capture_names().flatten().any(|candidate| candidate == name) {
+                return Err(regex_illegal_argument(format!(
+                    "No group with name <{name}>"
+                )));
+            }
+            Ok(caps.name(name).map(|m| (m.start(), m.end())))
+        }
+    }
+}
+
+fn matcher_group_text(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+    group: MatcherGroup<'_>,
+) -> Result<Option<String>> {
+    let Some((_, _, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    Ok(matcher_group_bounds(heap, m_ref, group)?.map(|(start, end)| input[start..end].to_string()))
+}
+
 /// Native: `Matcher.find()Z` — finds next match; advances position.
 pub(crate) fn native_matcher_find(
     args: &[Slot],
@@ -21269,35 +27323,32 @@ pub(crate) fn native_matcher_find(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
-    let input_slot = fields.get(1).copied().unwrap_or(Slot::Reference(None));
+    let input_slot = fields
+        .get(MATCHER_INPUT_FIELD)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
     let Slot::Reference(Some(input_ref)) = input_slot else {
         return Ok(Some(Slot::Int(0)));
     };
-    let pos = match fields.get(2).copied() {
+    let pos = match fields.get(MATCHER_POS_FIELD).copied() {
         Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
         _ => 0,
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
-    if let Some(m) = re.find_at(&input, pos) {
-        let start = i32::try_from(m.start()).unwrap_or(0);
-        let end = i32::try_from(m.end()).unwrap_or(0);
-        let matched = m.as_str().to_string();
-        heap.get_mut(m_ref)?.fields[2] = Slot::Int(end); // advance past match
-        heap.get_mut(m_ref)?.fields[3] = Slot::Int(start);
-        heap.get_mut(m_ref)?.fields[4] = Slot::Int(end);
-        heap.get_mut(m_ref)?.string_value = Some(matched);
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    if let Some(m) = re.find_at(&input, pos.min(input.len())) {
+        store_matcher_match(heap, m_ref, &input, m.start(), m.end())?;
         Ok(Some(Slot::Int(1)))
     } else {
-        heap.get_mut(m_ref)?.fields[3] = Slot::Int(-1);
+        set_matcher_no_match(heap, m_ref)?;
         Ok(Some(Slot::Int(0)))
     }
 }
@@ -21311,29 +27362,28 @@ pub(crate) fn native_matcher_matches(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
-    let result = re
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let matched = re
         .find(&input)
-        .is_some_and(|m| m.start() == 0 && m.end() == input.len());
-    if result {
-        let end = i32::try_from(input.len()).unwrap_or(0);
-        heap.get_mut(m_ref)?.fields[3] = Slot::Int(0);
-        heap.get_mut(m_ref)?.fields[4] = Slot::Int(end);
-        heap.get_mut(m_ref)?.string_value = Some(input);
+        .filter(|m| m.start() == 0 && m.end() == input.len());
+    if let Some(m) = matched {
+        store_matcher_match(heap, m_ref, &input, m.start(), m.end())?;
+    } else {
+        set_matcher_no_match(heap, m_ref)?;
     }
-    Ok(Some(Slot::Int(i32::from(result))))
+    Ok(Some(Slot::Int(i32::from(matched.is_some()))))
 }
 
 /// Native: `Matcher.group()String` — returns text of last match.
@@ -21344,7 +27394,9 @@ pub(crate) fn native_matcher_group(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let matched = heap.get(m_ref)?.string_value.clone().unwrap_or_default();
+    let Some(matched) = matcher_group_text(heap, m_ref, MatcherGroup::Index(0))? else {
+        return Ok(Some(Slot::Reference(None)));
+    };
     let r = heap.allocate_string(matched);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -21358,38 +27410,56 @@ pub(crate) fn native_matcher_group_n(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
-        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        Some(Slot::Int(n)) if n >= 0 => usize::try_from(n).unwrap_or(0),
+        Some(Slot::Int(n)) => return Err(regex_index_out_of_bounds(format!("No group {n}"))),
         _ => 0,
     };
     if n == 0 {
         // group(0) == group() — full match
         return native_matcher_group(args, heap, out, control);
     }
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(group) = matcher_group_text(heap, m_ref, MatcherGroup::Index(n))? else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
-        return Ok(Some(Slot::Reference(None)));
-    };
-    let start = match fields.get(3).copied() {
-        Some(Slot::Int(s)) if s >= 0 => usize::try_from(s).unwrap_or(0),
-        _ => return Ok(Some(Slot::Reference(None))),
-    };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
-    let input = heap
-        .get(input_ref)?
+    let s = heap.allocate_string(group);
+    Ok(Some(Slot::Reference(Some(s))))
+}
+
+/// Native: `Matcher.group(String)String` — returns a named capture group.
+pub(crate) fn native_matcher_group_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let name = heap
+        .get(name_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
-    if let Some(caps) = re.captures_at(&input, start)
-        && let Some(g) = caps.get(n)
-    {
-        let s = heap.allocate_string(g.as_str().to_string());
-        return Ok(Some(Slot::Reference(Some(s))));
-    }
-    Ok(Some(Slot::Reference(None)))
+    let Some(group) = matcher_group_text(heap, m_ref, MatcherGroup::Name(&name))? else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let s = heap.allocate_string(group);
+    Ok(Some(Slot::Reference(Some(s))))
+}
+
+/// Native: `Matcher.groupCount()I` — number of capturing groups, excluding group 0.
+pub(crate) fn native_matcher_group_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let Some((pattern_str, flags, _)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let count = re.captures_len().saturating_sub(1);
+    Ok(Some(Slot::Int(i32::try_from(count).unwrap_or(i32::MAX))))
 }
 
 /// Native: `Matcher.start()I` — start index of last match.
@@ -21400,10 +27470,27 @@ pub(crate) fn native_matcher_start(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let start = match heap.get(m_ref)?.fields.get(3).copied() {
-        Some(Slot::Int(n)) => n,
-        _ => -1,
-    };
+    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+        .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(start)))
+}
+
+/// Native: `Matcher.start(String)I` — start index of a named capture group.
+pub(crate) fn native_matcher_start_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+        .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(start)))
 }
 
@@ -21415,11 +27502,135 @@ pub(crate) fn native_matcher_end(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let end = match heap.get(m_ref)?.fields.get(4).copied() {
-        Some(Slot::Int(n)) => n,
-        _ => 0,
-    };
+    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+        .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(end)))
+}
+
+/// Native: `Matcher.end(String)I` — exclusive end index of a named capture group.
+pub(crate) fn native_matcher_end_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+        .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(end)))
+}
+
+/// Native: `Matcher.reset()Matcher` — reset state against the current input.
+pub(crate) fn native_matcher_reset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    reset_matcher_fields(heap, m_ref)?;
+    Ok(Some(Slot::Reference(Some(m_ref))))
+}
+
+/// Native: `Matcher.reset(CharSequence)Matcher` — reset state against new input.
+pub(crate) fn native_matcher_reset_input(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let input_slot = extract_slot_arg(args, 1);
+    heap.get_mut(m_ref)?.fields[MATCHER_INPUT_FIELD] = input_slot;
+    reset_matcher_fields(heap, m_ref)?;
+    Ok(Some(Slot::Reference(Some(m_ref))))
+}
+
+fn append_to_string_builder(heap: &mut duke_gc::Heap, builder_ref: u64, text: &str) -> Result<()> {
+    let builder = heap.get_mut(builder_ref)?;
+    builder
+        .string_value
+        .get_or_insert_with(String::new)
+        .push_str(text);
+    Ok(())
+}
+
+/// Native: `Matcher.appendReplacement(StringBuilder,String)Matcher`.
+pub(crate) fn native_matcher_append_replacement_sb(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let builder_ref = extract_ref_arg(args, 1)?;
+    let replacement_ref = extract_ref_arg(args, 2)?;
+    let replacement = heap
+        .get(replacement_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let (match_start, match_end) = last_match_bounds(heap, m_ref)?;
+    let append_pos = usize::try_from(matcher_field_int(
+        heap,
+        m_ref,
+        MATCHER_APPEND_POS_FIELD,
+        0,
+    )?)
+    .unwrap_or(0);
+    let Some((pattern_str, flags, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let Some(caps) = re.captures_at(&input, match_start) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let Some(whole) = caps.get(0) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    if whole.start() != match_start || whole.end() != match_end {
+        return Err(regex_illegal_state("No match available"));
+    }
+    let mut expanded = String::new();
+    caps.expand(&replacement, &mut expanded);
+    let safe_append_pos = append_pos.min(match_start);
+    append_to_string_builder(heap, builder_ref, &input[safe_append_pos..match_start])?;
+    append_to_string_builder(heap, builder_ref, &expanded)?;
+    heap.get_mut(m_ref)?.fields[MATCHER_APPEND_POS_FIELD] =
+        Slot::Int(i32::try_from(match_end).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Reference(Some(m_ref))))
+}
+
+/// Native: `Matcher.appendTail(StringBuilder)StringBuilder`.
+pub(crate) fn native_matcher_append_tail_sb(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let builder_ref = extract_ref_arg(args, 1)?;
+    let append_pos = usize::try_from(matcher_field_int(
+        heap,
+        m_ref,
+        MATCHER_APPEND_POS_FIELD,
+        0,
+    )?)
+    .unwrap_or(0);
+    let Some((_, _, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Ok(Some(Slot::Reference(Some(builder_ref))));
+    };
+    let safe_append_pos = append_pos.min(input.len());
+    append_to_string_builder(heap, builder_ref, &input[safe_append_pos..])?;
+    heap.get_mut(m_ref)?.fields[MATCHER_APPEND_POS_FIELD] =
+        Slot::Int(i32::try_from(input.len()).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Reference(Some(builder_ref))))
 }
 
 /// Native: `Matcher.replaceAll(String)String` — replace all matches.
@@ -21432,20 +27643,20 @@ pub(crate) fn native_matcher_replace_all(
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
     let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace_all(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
@@ -21461,20 +27672,20 @@ pub(crate) fn native_matcher_replace_first(
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
     let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
@@ -22113,6 +28324,7 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
             }
             match oa.class_name.as_str() {
                 "java/lang/String" | "java/lang/Class" => oa.string_value == ob.string_value,
+                "java/util/UUID" => uuid_bits_from_object(oa) == uuid_bits_from_object(ob),
                 class_name if uses_first_field_value_equality(class_name) => {
                     oa.fields.first() == ob.fields.first()
                 }
@@ -22289,6 +28501,892 @@ pub(crate) fn native_hashmap_get_or_default(
 }
 
 // ---------------------------------------------------------------------------
+// java.util.Properties natives
+// ---------------------------------------------------------------------------
+
+const PROPERTIES_SIZE_FIELD: usize = 0;
+const PROPERTIES_DEFAULTS_FIELD: usize = 1;
+const PROPERTIES_ENTRIES_START: usize = 2;
+const PROPERTIES_ENUM_INDEX_FIELD: usize = 0;
+const PROPERTIES_ENUM_COUNT_FIELD: usize = 1;
+const PROPERTIES_ENUM_NAMES_START: usize = 2;
+const PROPERTIES_STORE_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
+
+fn properties_illegal_argument() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    }
+}
+
+fn properties_io_exception() -> Error {
+    Error::JavaException {
+        class_name: "java/io/IOException".to_string(),
+    }
+}
+
+fn properties_stream_id_from_slot(slot: Slot, heap: &duke_gc::Heap) -> Result<i32> {
+    let Slot::Reference(Some(stream_ref)) = slot else {
+        return Err(Error::NullPointerException);
+    };
+    match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(id)) if *id > 0 => Ok(*id),
+        _ => Err(properties_io_exception()),
+    }
+}
+
+fn ensure_properties_layout(heap: &mut duke_gc::Heap, props_ref: u64) -> Result<()> {
+    let props = heap.get_mut(props_ref)?;
+    if props.fields.len() < PROPERTIES_ENTRIES_START {
+        props
+            .fields
+            .resize(PROPERTIES_ENTRIES_START, Slot::Reference(None));
+    }
+    Ok(())
+}
+
+fn init_properties_with_defaults(
+    heap: &mut duke_gc::Heap,
+    props_ref: u64,
+    defaults: Slot,
+) -> Result<()> {
+    ensure_properties_layout(heap, props_ref)?;
+    let props = heap.get_mut(props_ref)?;
+    props.fields[PROPERTIES_SIZE_FIELD] = Slot::Int(0);
+    props.fields[PROPERTIES_DEFAULTS_FIELD] = defaults;
+    props.fields.truncate(PROPERTIES_ENTRIES_START);
+    Ok(())
+}
+
+fn properties_entry_index(fields: &[Slot], key: &Slot, heap: &duke_gc::Heap) -> Option<usize> {
+    (PROPERTIES_ENTRIES_START..fields.len())
+        .step_by(2)
+        .find(|&idx| idx + 1 < fields.len() && slots_equal(&fields[idx], key, heap))
+}
+
+fn slot_is_java_string(heap: &duke_gc::Heap, slot: Slot) -> bool {
+    let Slot::Reference(Some(string_ref)) = slot else {
+        return false;
+    };
+    heap.get(string_ref).is_ok_and(|obj| {
+        obj.class_name == "java/lang/String" && obj.string_value.is_some()
+    })
+}
+
+fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
+    let Slot::Reference(Some(string_ref)) = slot else {
+        return None;
+    };
+    heap.get(string_ref)
+        .ok()
+        .and_then(|obj| obj.string_value.clone())
+}
+
+fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
+    let fields = heap.get(props_ref)?.fields.clone();
+    let mut entries = Vec::new();
+    let mut idx = PROPERTIES_ENTRIES_START;
+    while idx + 1 < fields.len() {
+        entries.push((fields[idx], fields[idx + 1]));
+        idx += 2;
+    }
+    Ok(entries)
+}
+
+fn properties_local_string_entries(
+    heap: &duke_gc::Heap,
+    props_ref: u64,
+) -> Result<Vec<(String, String)>> {
+    let mut entries = Vec::new();
+    for (key_slot, value_slot) in properties_local_entries(heap, props_ref)? {
+        let Some(key) = string_from_slot(heap, key_slot) else {
+            continue;
+        };
+        let Some(value) = string_from_slot(heap, value_slot) else {
+            continue;
+        };
+        entries.push((key, value));
+    }
+    Ok(entries)
+}
+
+fn properties_put_slots(
+    heap: &mut duke_gc::Heap,
+    props_ref: u64,
+    key: Slot,
+    value: Slot,
+) -> Result<Slot> {
+    ensure_properties_layout(heap, props_ref)?;
+    let entry_idx = {
+        let fields = &heap.get(props_ref)?.fields;
+        properties_entry_index(fields, &key, heap)
+    };
+
+    if let Some(idx) = entry_idx {
+        let old = heap.get(props_ref)?.fields[idx + 1];
+        heap.get_mut(props_ref)?.fields[idx + 1] = value;
+        return Ok(old);
+    }
+
+    let props = heap.get_mut(props_ref)?;
+    match props.fields.get_mut(PROPERTIES_SIZE_FIELD) {
+        Some(Slot::Int(size)) => *size += 1,
+        _ => props.fields[PROPERTIES_SIZE_FIELD] = Slot::Int(1),
+    }
+    props.fields.push(key);
+    props.fields.push(value);
+    Ok(Slot::Reference(None))
+}
+
+fn properties_put_string_pair(
+    heap: &mut duke_gc::Heap,
+    props_ref: u64,
+    key: String,
+    value: String,
+) -> Result<()> {
+    let key_slot = Slot::Reference(Some(heap.allocate_string(key)));
+    let value_slot = Slot::Reference(Some(heap.allocate_string(value)));
+    properties_put_slots(heap, props_ref, key_slot, value_slot)?;
+    Ok(())
+}
+
+fn properties_get_property_slot(
+    heap: &duke_gc::Heap,
+    props_ref: u64,
+    key: Slot,
+) -> Result<Slot> {
+    let fields = heap.get(props_ref)?.fields.clone();
+    if let Some(idx) = properties_entry_index(&fields, &key, heap) {
+        let value = fields[idx + 1];
+        if slot_is_java_string(heap, value) {
+            return Ok(value);
+        }
+    }
+
+    match fields.get(PROPERTIES_DEFAULTS_FIELD).copied() {
+        Some(Slot::Reference(Some(defaults_ref))) => {
+            properties_get_property_slot(heap, defaults_ref, key)
+        }
+        _ => Ok(Slot::Reference(None)),
+    }
+}
+
+fn properties_push_unique_name(heap: &duke_gc::Heap, names: &mut Vec<Slot>, key: Slot) {
+    if !slot_is_java_string(heap, key) {
+        return;
+    }
+    if names.iter().any(|existing| slots_equal(existing, &key, heap)) {
+        return;
+    }
+    names.push(key);
+}
+
+fn properties_collect_name_slots(
+    heap: &duke_gc::Heap,
+    props_ref: u64,
+    names: &mut Vec<Slot>,
+) -> Result<()> {
+    let fields = heap.get(props_ref)?.fields.clone();
+    if let Some(Slot::Reference(Some(defaults_ref))) = fields.get(PROPERTIES_DEFAULTS_FIELD) {
+        properties_collect_name_slots(heap, *defaults_ref, names)?;
+    }
+
+    let mut idx = PROPERTIES_ENTRIES_START;
+    while idx + 1 < fields.len() {
+        let key = fields[idx];
+        let value = fields[idx + 1];
+        if slot_is_java_string(heap, value) {
+            properties_push_unique_name(heap, names, key);
+        }
+        idx += 2;
+    }
+    Ok(())
+}
+
+const fn is_properties_whitespace(ch: char) -> bool {
+    matches!(ch, ' ' | '\t' | '\u{000c}')
+}
+
+fn split_properties_lines(text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                if matches!(chars.peek(), Some('\n')) {
+                    chars.next();
+                }
+                lines.push(std::mem::take(&mut current));
+            }
+            '\n' => lines.push(std::mem::take(&mut current)),
+            _ => current.push(ch),
+        }
+    }
+    lines.push(current);
+    lines
+}
+
+fn has_odd_trailing_backslashes(line: &str) -> bool {
+    let mut count = 0usize;
+    for ch in line.chars().rev() {
+        if ch != '\\' {
+            break;
+        }
+        count += 1;
+    }
+    count % 2 == 1
+}
+
+fn logical_properties_lines(text: &str) -> Vec<String> {
+    let mut logical = Vec::new();
+    let mut pending = String::new();
+    let mut continuing = false;
+
+    for line in split_properties_lines(text) {
+        let mut piece = if continuing {
+            line.trim_start_matches(is_properties_whitespace).to_string()
+        } else {
+            line
+        };
+
+        if continuing && piece.is_empty() {
+            continue;
+        }
+
+        if has_odd_trailing_backslashes(&piece) {
+            piece.pop();
+            pending.push_str(&piece);
+            continuing = true;
+        } else {
+            pending.push_str(&piece);
+            logical.push(std::mem::take(&mut pending));
+            continuing = false;
+        }
+    }
+
+    if continuing || !pending.is_empty() {
+        logical.push(pending);
+    }
+    logical
+}
+
+fn hex_value(ch: char) -> Option<u32> {
+    match ch {
+        '0'..='9' => Some(u32::from(ch) - u32::from('0')),
+        'a'..='f' => Some(u32::from(ch) - u32::from('a') + 10),
+        'A'..='F' => Some(u32::from(ch) - u32::from('A') + 10),
+        _ => None,
+    }
+}
+
+fn unescape_property_text(raw: &str) -> Result<String> {
+    let mut result = String::new();
+    let mut chars = raw.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            result.push(ch);
+            continue;
+        }
+
+        let Some(escaped) = chars.next() else {
+            result.push('\\');
+            break;
+        };
+
+        match escaped {
+            'n' => result.push('\n'),
+            'r' => result.push('\r'),
+            't' => result.push('\t'),
+            'f' => result.push('\u{000c}'),
+            'u' => {
+                let mut code = 0_u32;
+                for _ in 0..4 {
+                    let Some(hex) = chars.next().and_then(hex_value) else {
+                        return Err(properties_illegal_argument());
+                    };
+                    code = (code << 4) | hex;
+                }
+                let Some(decoded) = char::from_u32(code) else {
+                    return Err(properties_illegal_argument());
+                };
+                result.push(decoded);
+            }
+            other => result.push(other),
+        }
+    }
+    Ok(result)
+}
+
+fn parse_property_logical_line(line: &str) -> Result<Option<(String, String)>> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut idx = 0usize;
+    while idx < chars.len() && is_properties_whitespace(chars[idx]) {
+        idx += 1;
+    }
+    if idx >= chars.len() || matches!(chars[idx], '#' | '!') {
+        return Ok(None);
+    }
+
+    let key_start = idx;
+    let mut escaped = false;
+    while idx < chars.len() {
+        let ch = chars[idx];
+        if escaped {
+            escaped = false;
+            idx += 1;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            idx += 1;
+            continue;
+        }
+        if matches!(ch, '=' | ':') || is_properties_whitespace(ch) {
+            break;
+        }
+        idx += 1;
+    }
+
+    let key_end = idx;
+    let value_start = if idx < chars.len() {
+        if is_properties_whitespace(chars[idx]) {
+            while idx < chars.len() && is_properties_whitespace(chars[idx]) {
+                idx += 1;
+            }
+            if idx < chars.len() && matches!(chars[idx], '=' | ':') {
+                idx += 1;
+            }
+        } else {
+            idx += 1;
+        }
+        while idx < chars.len() && is_properties_whitespace(chars[idx]) {
+            idx += 1;
+        }
+        idx
+    } else {
+        chars.len()
+    };
+
+    let raw_key: String = chars[key_start..key_end].iter().collect();
+    let raw_value: String = chars[value_start..].iter().collect();
+    Ok(Some((
+        unescape_property_text(&raw_key)?,
+        unescape_property_text(&raw_value)?,
+    )))
+}
+
+fn parse_properties_bytes(bytes: &[u8]) -> Result<Vec<(String, String)>> {
+    let text: String = bytes.iter().map(|byte| char::from(*byte)).collect();
+    let mut entries = Vec::new();
+    for line in logical_properties_lines(&text) {
+        if let Some((key, value)) = parse_property_logical_line(&line)? {
+            entries.push((key, value));
+        }
+    }
+    Ok(entries)
+}
+
+fn push_u16_escape(out: &mut String, unit: u16) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    out.push('\\');
+    out.push('u');
+    for shift in [12, 8, 4, 0] {
+        let idx = usize::from((unit >> shift) & 0x000f);
+        out.push(char::from(HEX[idx]));
+    }
+}
+
+fn push_unicode_escape(out: &mut String, ch: char) {
+    let mut encoded = [0_u16; 2];
+    for unit in ch.encode_utf16(&mut encoded).iter().copied() {
+        push_u16_escape(out, unit);
+    }
+}
+
+fn push_escaped_key_char(out: &mut String, ch: char) {
+    match ch {
+        '\\' => out.push_str("\\\\"),
+        '=' => out.push_str("\\="),
+        ':' => out.push_str("\\:"),
+        ' ' => out.push_str("\\ "),
+        '#' => out.push_str("\\#"),
+        '!' => out.push_str("\\!"),
+        '\n' => out.push_str("\\n"),
+        '\r' => out.push_str("\\r"),
+        '\t' => out.push_str("\\t"),
+        '\u{000c}' => out.push_str("\\f"),
+        _ if !ch.is_ascii() || u32::from(ch) < 0x20 || u32::from(ch) > 0x7e => {
+            push_unicode_escape(out, ch);
+        }
+        _ => out.push(ch),
+    }
+}
+
+fn escape_property_key(key: &str) -> String {
+    let mut result = String::new();
+    for ch in key.chars() {
+        push_escaped_key_char(&mut result, ch);
+    }
+    result
+}
+
+fn escape_property_value(value: &str) -> String {
+    let mut result = String::new();
+    for (idx, ch) in value.chars().enumerate() {
+        match ch {
+            '\\' => result.push_str("\\\\"),
+            '\n' => result.push_str("\\n"),
+            '\r' => result.push_str("\\r"),
+            '\t' => result.push_str("\\t"),
+            '\u{000c}' => result.push_str("\\f"),
+            ' ' if idx == 0 => result.push_str("\\ "),
+            _ if !ch.is_ascii() || u32::from(ch) < 0x20 || u32::from(ch) > 0x7e => {
+                push_unicode_escape(&mut result, ch);
+            }
+            _ => result.push(ch),
+        }
+    }
+    result
+}
+
+fn escape_property_comment(comment: &str) -> String {
+    let mut result = String::new();
+    for ch in comment.chars() {
+        match ch {
+            '\n' | '\r' => {}
+            _ if !ch.is_ascii() || u32::from(ch) < 0x20 || u32::from(ch) > 0x7e => {
+                push_unicode_escape(&mut result, ch);
+            }
+            _ => result.push(ch),
+        }
+    }
+    result
+}
+
+fn append_store_comment(out: &mut String, comment: &str) {
+    for line in split_properties_lines(comment) {
+        if line.is_empty() {
+            out.push_str("#\n");
+        } else {
+            out.push_str("# ");
+            out.push_str(&escape_property_comment(&line));
+            out.push('\n');
+        }
+    }
+}
+
+fn render_properties_store(heap: &duke_gc::Heap, props_ref: u64, comment: Option<&str>) -> Result<String> {
+    let mut output = String::new();
+    if let Some(comment_text) = comment {
+        append_store_comment(&mut output, comment_text);
+    }
+    output.push_str("# ");
+    output.push_str(PROPERTIES_STORE_TIMESTAMP);
+    output.push('\n');
+
+    for (key, value) in properties_local_string_entries(heap, props_ref)? {
+        output.push_str(&escape_property_key(&key));
+        output.push('=');
+        output.push_str(&escape_property_value(&value));
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+fn write_iso_8859_1_ascii(heap: &mut duke_gc::Heap, file_id: i32, text: &str) -> Result<()> {
+    for byte in text.bytes() {
+        heap.write_host_file_byte(file_id, i32::from(byte))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn native_properties_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    init_properties_with_defaults(heap, this_ref, Slot::Reference(None))?;
+    Ok(None)
+}
+
+pub(crate) fn native_properties_init_defaults(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let defaults = extract_slot_arg(args, 1);
+    init_properties_with_defaults(heap, this_ref, defaults)?;
+    Ok(None)
+}
+
+pub(crate) fn native_properties_set_property(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key_ref = extract_ref_arg(args, 1)?;
+    let value_ref = extract_ref_arg(args, 2)?;
+    let _key = string_value_from_ref(heap, key_ref)?;
+    let _value = string_value_from_ref(heap, value_ref)?;
+    let old = properties_put_slots(
+        heap,
+        this_ref,
+        Slot::Reference(Some(key_ref)),
+        Slot::Reference(Some(value_ref)),
+    )?;
+    Ok(Some(old))
+}
+
+pub(crate) fn native_properties_get_property(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key_ref = extract_ref_arg(args, 1)?;
+    let _key = string_value_from_ref(heap, key_ref)?;
+    Ok(Some(properties_get_property_slot(
+        heap,
+        this_ref,
+        Slot::Reference(Some(key_ref)),
+    )?))
+}
+
+pub(crate) fn native_properties_get_property_default(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key_ref = extract_ref_arg(args, 1)?;
+    let default = extract_slot_arg(args, 2);
+    let _key = string_value_from_ref(heap, key_ref)?;
+    let value = properties_get_property_slot(heap, this_ref, Slot::Reference(Some(key_ref)))?;
+    if matches!(value, Slot::Reference(None)) {
+        Ok(Some(default))
+    } else {
+        Ok(Some(value))
+    }
+}
+
+pub(crate) fn native_properties_load(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let file_id = properties_stream_id_from_slot(extract_slot_arg(args, 1), heap)?;
+    let mut bytes = Vec::new();
+    loop {
+        let next = heap.read_host_file_byte(file_id)?;
+        if next < 0 {
+            break;
+        }
+        let byte = u8::try_from(next).map_err(|_| properties_io_exception())?;
+        bytes.push(byte);
+    }
+
+    for (key, value) in parse_properties_bytes(&bytes)? {
+        properties_put_string_pair(heap, this_ref, key, value)?;
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_properties_store(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let file_id = properties_stream_id_from_slot(extract_slot_arg(args, 1), heap)?;
+    let comment_slot = extract_slot_arg(args, 2);
+    let comment = match comment_slot {
+        Slot::Reference(Some(comment_ref)) => Some(string_value_from_ref(heap, comment_ref)?),
+        Slot::Reference(None) => None,
+        _ => return Err(Error::TypeMismatch { expected: "Reference", got: "other" }),
+    };
+    let rendered = render_properties_store(heap, this_ref, comment.as_deref())?;
+    write_iso_8859_1_ascii(heap, file_id, &rendered)?;
+    Ok(None)
+}
+
+pub(crate) fn native_properties_property_names(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let mut names = Vec::new();
+    properties_collect_name_slots(heap, this_ref, &mut names)?;
+    let enum_ref = heap.allocate(
+        "duke/util/PropertiesEnumeration".to_string(),
+        PROPERTIES_ENUM_NAMES_START + names.len(),
+    );
+    heap.write_field(enum_ref, PROPERTIES_ENUM_INDEX_FIELD, Slot::Int(0))?;
+    heap.write_field(
+        enum_ref,
+        PROPERTIES_ENUM_COUNT_FIELD,
+        Slot::Int(i32::try_from(names.len()).unwrap_or(i32::MAX)),
+    )?;
+    for (idx, name) in names.iter().copied().enumerate() {
+        heap.write_field(enum_ref, PROPERTIES_ENUM_NAMES_START + idx, name)?;
+    }
+    Ok(Some(Slot::Reference(Some(enum_ref))))
+}
+
+pub(crate) fn native_properties_string_property_names(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let mut names = Vec::new();
+    properties_collect_name_slots(heap, this_ref, &mut names)?;
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+    for name in names {
+        native_hashset_add(&[Slot::Reference(Some(set_ref)), name], heap, out, control)?;
+    }
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+pub(crate) fn native_properties_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let size = match heap.get(this_ref)?.fields.get(PROPERTIES_SIZE_FIELD) {
+        Some(Slot::Int(size)) => *size,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(size)))
+}
+
+pub(crate) fn native_properties_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let is_empty = matches!(
+        heap.get(this_ref)?.fields.get(PROPERTIES_SIZE_FIELD),
+        Some(Slot::Int(0)) | None
+    );
+    Ok(Some(Slot::Int(i32::from(is_empty))))
+}
+
+pub(crate) fn native_properties_contains_key(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let fields = &heap.get(this_ref)?.fields;
+    Ok(Some(Slot::Int(i32::from(
+        properties_entry_index(fields, &key, heap).is_some(),
+    ))))
+}
+
+pub(crate) fn native_properties_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    ensure_properties_layout(heap, this_ref)?;
+    let props = heap.get_mut(this_ref)?;
+    props.fields[PROPERTIES_SIZE_FIELD] = Slot::Int(0);
+    props.fields.truncate(PROPERTIES_ENTRIES_START);
+    Ok(None)
+}
+
+pub(crate) fn native_properties_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let idx_opt = {
+        let fields = &heap.get(this_ref)?.fields;
+        properties_entry_index(fields, &key, heap)
+    };
+
+    if let Some(idx) = idx_opt {
+        let old = heap.get(this_ref)?.fields[idx + 1];
+        let props = heap.get_mut(this_ref)?;
+        let last_value_idx = props.fields.len() - 1;
+        let last_key_idx = props.fields.len() - 2;
+        props.fields.swap(idx + 1, last_value_idx);
+        props.fields.swap(idx, last_key_idx);
+        props.fields.truncate(props.fields.len() - 2);
+        if let Some(Slot::Int(size)) = props.fields.get_mut(PROPERTIES_SIZE_FIELD) {
+            *size -= 1;
+        }
+        Ok(Some(old))
+    } else {
+        Ok(Some(Slot::Reference(None)))
+    }
+}
+
+pub(crate) fn native_properties_key_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+    for (key, _) in properties_local_entries(heap, this_ref)? {
+        native_hashset_add(&[Slot::Reference(Some(set_ref)), key], heap, out, control)?;
+    }
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+pub(crate) fn native_properties_values(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    native_arraylist_init(&[Slot::Reference(Some(list_ref))], heap, out, control)?;
+    for (_, value) in properties_local_entries(heap, this_ref)? {
+        native_arraylist_add(&[Slot::Reference(Some(list_ref)), value], heap, out, control)?;
+    }
+    Ok(Some(Slot::Reference(Some(list_ref))))
+}
+
+pub(crate) fn native_properties_entry_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+    for (key, value) in properties_local_entries(heap, this_ref)? {
+        let entry_ref = heap.allocate("java/util/Map$Entry".to_string(), 2);
+        {
+            let entry = heap.get_mut(entry_ref)?;
+            entry.fields[0] = key;
+            entry.fields[1] = value;
+        }
+        native_hashset_add(
+            &[
+                Slot::Reference(Some(set_ref)),
+                Slot::Reference(Some(entry_ref)),
+            ],
+            heap,
+            out,
+            control,
+        )?;
+    }
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+pub(crate) fn native_properties_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let mut rendered = String::from("{");
+    let mut first = true;
+    for (key, value) in properties_local_entries(heap, this_ref)? {
+        if first {
+            first = false;
+        } else {
+            rendered.push_str(", ");
+        }
+        rendered.push_str(&slot_to_string(key, heap));
+        rendered.push('=');
+        rendered.push_str(&slot_to_string(value, heap));
+    }
+    rendered.push('}');
+    let string_ref = heap.allocate_string(rendered);
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_properties_enum_has_more_elements(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = &heap.get(this_ref)?.fields;
+    let index = match fields.get(PROPERTIES_ENUM_INDEX_FIELD) {
+        Some(Slot::Int(index)) => *index,
+        _ => 0,
+    };
+    let count = match fields.get(PROPERTIES_ENUM_COUNT_FIELD) {
+        Some(Slot::Int(count)) => *count,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(index < count))))
+}
+
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_properties_enum_next_element(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (index, count) = {
+        let fields = &heap.get(this_ref)?.fields;
+        let index = match fields.get(PROPERTIES_ENUM_INDEX_FIELD) {
+            Some(Slot::Int(index)) => *index,
+            _ => 0,
+        };
+        let count = match fields.get(PROPERTIES_ENUM_COUNT_FIELD) {
+            Some(Slot::Int(count)) => *count,
+            _ => 0,
+        };
+        (index, count)
+    };
+    if index < 0 || index >= count {
+        return Err(Error::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    let slot_idx = PROPERTIES_ENUM_NAMES_START + index as usize;
+    let value = heap
+        .get(this_ref)?
+        .fields
+        .get(slot_idx)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
+    heap.get_mut(this_ref)?.fields[PROPERTIES_ENUM_INDEX_FIELD] = Slot::Int(index + 1);
+    Ok(Some(value))
+}
+
+// ---------------------------------------------------------------------------
 // ConcurrentHashMap natives
 // ---------------------------------------------------------------------------
 
@@ -22303,7 +29401,15 @@ fn concurrent_hashmap_lock(
             duke_gc::AtomicPayload::Int(_)
             | duke_gc::AtomicPayload::Long(_)
             | duke_gc::AtomicPayload::Bool(_)
-            | duke_gc::AtomicPayload::Reference(_) => Err(Error::TypeMismatch {
+            | duke_gc::AtomicPayload::Reference(_)
+            | duke_gc::AtomicPayload::ReentrantLock(_)
+            | duke_gc::AtomicPayload::Condition(_)
+            | duke_gc::AtomicPayload::ReadWriteLock(_)
+            | duke_gc::AtomicPayload::ReadWriteLockView { .. }
+            | duke_gc::AtomicPayload::Executor(_)
+            | duke_gc::AtomicPayload::CountDownLatch(_)
+            | duke_gc::AtomicPayload::Semaphore(_)
+            | duke_gc::AtomicPayload::CyclicBarrier(_) => Err(Error::TypeMismatch {
                 expected: "concurrent map lock",
                 got: "other",
             }),

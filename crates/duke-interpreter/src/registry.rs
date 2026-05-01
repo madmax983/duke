@@ -96,12 +96,40 @@ pub enum NativeThreadAction {
         /// The native thread ID of the thread to wait for.
         thread_id: i32,
     },
+    /// Yield the VM lock and retry the same native invocation.
+    Retry,
+    /// Enqueue a task on a synthetic `ExecutorService`.
+    ExecutorSubmit {
+        /// Heap reference to the executor service object.
+        executor_ref: u64,
+        /// Heap reference to the future tracking this task.
+        future_ref: u64,
+        /// Heap reference to the submitted runnable/callable.
+        task_ref: u64,
+        /// Invocation shape for the task.
+        kind: duke_gc::ExecutorTaskKind,
+    },
+}
+
+/// One Java-frame snapshot made available to native handlers that need to
+/// materialize stack traces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeStackFrame {
+    /// Internal JVM class name, e.g. `com/example/Main`.
+    pub class_name: String,
+    /// JVM method name, e.g. `main` or `lambda$run$0`.
+    pub method_name: String,
+    /// Optional source file from the class-level `SourceFile` attribute.
+    pub file_name: Option<String>,
+    /// Java source line, `-1` when unknown and `-2` for native methods.
+    pub line_number: i32,
 }
 
 /// Per-invocation control state for native handlers.
 #[derive(Debug, Default)]
 pub struct NativeControl {
     pending_thread_action: Option<NativeThreadAction>,
+    stack_trace: Vec<NativeStackFrame>,
 }
 
 impl NativeControl {
@@ -113,6 +141,17 @@ impl NativeControl {
     /// Take the pending thread-related action, if any.
     pub const fn take(&mut self) -> Option<NativeThreadAction> {
         self.pending_thread_action.take()
+    }
+
+    /// Attach a stack snapshot to this native invocation.
+    pub fn set_stack_trace(&mut self, stack_trace: Vec<NativeStackFrame>) {
+        self.stack_trace = stack_trace;
+    }
+
+    /// Read the stack snapshot for this native invocation.
+    #[must_use]
+    pub fn stack_trace(&self) -> &[NativeStackFrame] {
+        &self.stack_trace
     }
 }
 

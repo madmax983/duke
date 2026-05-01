@@ -13,9 +13,9 @@
 //! [`Heap::get`] and [`Heap::get_mut`] are generation-agnostic; callers never
 //! need to know which gen an object lives in.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use duke_runtime::{Error, Result, Slot};
 
@@ -32,6 +32,296 @@ const DEFAULT_YOUNG_CAPACITY: usize = 512;
 /// Default number of minor-GC survivals before an object is promoted to old gen.
 const DEFAULT_PROMOTION_AGE: u8 = 4;
 
+/// Host-side state for synthetic `ReentrantLock` objects.
+#[derive(Debug)]
+pub struct ReentrantLockState {
+    /// Whether the Java constructor requested a fair lock. Duke currently
+    /// records the bit for observability but schedules with the VM runtime.
+    pub fair: bool,
+    /// Host thread that owns the lock, if any.
+    pub owner: Option<std::thread::ThreadId>,
+    /// Reentrant hold count for the owner.
+    pub hold_count: i32,
+}
+
+impl ReentrantLockState {
+    /// Create an unlocked `ReentrantLock` state.
+    #[must_use]
+    pub const fn new(fair: bool) -> Self {
+        Self {
+            fair,
+            owner: None,
+            hold_count: 0,
+        }
+    }
+}
+
+/// One Duke Java thread waiting on a synthetic `Condition`.
+#[derive(Debug)]
+pub struct ConditionWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Number of `ReentrantLock` holds to restore before `await` returns.
+    pub released_hold_count: i32,
+    /// True after `signal`, `signalAll`, or timeout.
+    pub signaled: bool,
+    /// Optional absolute timeout for `awaitNanos`.
+    pub deadline: Option<std::time::Instant>,
+    /// True when the wake-up came from timeout rather than signal.
+    pub timed_out: bool,
+}
+
+/// Host-side state for a synthetic `Condition`.
+#[derive(Debug)]
+pub struct ConditionState {
+    /// The `ReentrantLock` this condition is bound to.
+    pub lock: Arc<Mutex<ReentrantLockState>>,
+    /// Threads currently parked on this condition.
+    pub waiters: Vec<ConditionWaiter>,
+}
+
+impl ConditionState {
+    /// Create condition state bound to a `ReentrantLock`.
+    #[must_use]
+    pub const fn new(lock: Arc<Mutex<ReentrantLockState>>) -> Self {
+        Self {
+            lock,
+            waiters: Vec::new(),
+        }
+    }
+}
+
+/// Which synthetic `ReentrantReadWriteLock` view a heap object represents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadWriteLockViewKind {
+    /// The read-lock view.
+    Read,
+    /// The write-lock view.
+    Write,
+}
+
+/// Host-side state for synthetic `ReentrantReadWriteLock` objects.
+#[derive(Debug, Default)]
+pub struct ReadWriteLockState {
+    /// Current writer, if any.
+    pub writer: Option<std::thread::ThreadId>,
+    /// Reentrant write holds for `writer`.
+    pub write_hold_count: i32,
+    /// Per-thread read hold counts.
+    pub readers: HashMap<std::thread::ThreadId, i32>,
+}
+
+/// Callable shape for a synthetic executor task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutorTaskKind {
+    /// Invoke `Runnable.run()V`.
+    Runnable,
+    /// Invoke `Callable.call()Object`.
+    Callable,
+}
+
+/// One queued synthetic executor task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutorTask {
+    /// Heap reference to the `Future` object that receives task state.
+    pub future_ref: u64,
+    /// Heap reference to the submitted `Runnable` or `Callable`.
+    pub task_ref: u64,
+    /// Invocation shape.
+    pub kind: ExecutorTaskKind,
+}
+
+/// Host-side state for synthetic `ExecutorService` instances.
+#[derive(Debug)]
+pub struct ExecutorState {
+    /// Maximum number of worker threads this pool may create.
+    pub max_workers: usize,
+    /// Tasks not yet claimed by a worker.
+    pub queue: VecDeque<ExecutorTask>,
+    /// `shutdown()` has been called.
+    pub shutdown: bool,
+    /// Tasks currently executing.
+    pub active: usize,
+    /// Live host worker threads owned by this executor.
+    pub workers: usize,
+    /// Pool reached the JDK termination condition.
+    pub terminated: bool,
+}
+
+impl ExecutorState {
+    /// Create an empty executor state with at least one worker slot.
+    #[must_use]
+    pub fn new(max_workers: usize) -> Self {
+        Self {
+            max_workers: max_workers.max(1),
+            queue: VecDeque::new(),
+            shutdown: false,
+            active: 0,
+            workers: 0,
+            terminated: false,
+        }
+    }
+
+    /// Recompute termination after a queue, worker, or shutdown transition.
+    pub fn refresh_terminated(&mut self) {
+        self.terminated =
+            self.shutdown && self.queue.is_empty() && self.active == 0 && self.workers == 0;
+    }
+}
+
+/// Mutex/condvar pair for a synthetic executor.
+#[derive(Debug)]
+pub struct ExecutorShared {
+    /// Mutable executor state.
+    pub state: Mutex<ExecutorState>,
+    /// Worker wake-up signal for new tasks or shutdown.
+    pub available: Condvar,
+}
+
+impl ExecutorShared {
+    /// Create shared executor state.
+    #[must_use]
+    pub fn new(max_workers: usize) -> Self {
+        Self {
+            state: Mutex::new(ExecutorState::new(max_workers)),
+            available: Condvar::new(),
+        }
+    }
+}
+
+/// One Duke Java thread waiting for a synthetic `CountDownLatch`.
+#[derive(Debug)]
+pub struct CountDownLatchWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Optional absolute timeout for timed await.
+    pub deadline: Option<std::time::Instant>,
+}
+
+/// Host-side state for synthetic `CountDownLatch` instances.
+#[derive(Debug)]
+pub struct CountDownLatchState {
+    /// Remaining count before the latch trips.
+    pub count: i32,
+    /// Threads currently waiting for the count to reach zero.
+    pub waiters: Vec<CountDownLatchWaiter>,
+}
+
+impl CountDownLatchState {
+    /// Create a latch with a non-negative initial count.
+    #[must_use]
+    pub const fn new(count: i32) -> Self {
+        Self {
+            count,
+            waiters: Vec::new(),
+        }
+    }
+}
+
+/// One Duke Java thread waiting for synthetic `Semaphore` permits.
+#[derive(Debug)]
+pub struct SemaphoreWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Number of permits requested.
+    pub permits: i32,
+    /// Optional absolute timeout for timed acquire.
+    pub deadline: Option<std::time::Instant>,
+}
+
+/// Host-side state for synthetic `Semaphore` instances.
+#[derive(Debug)]
+pub struct SemaphoreState {
+    /// Currently available permits. Java permits can grow without bound after
+    /// unmatched release calls, so this is intentionally not tied to ownership.
+    pub permits: i32,
+    /// Whether constructor requested FIFO acquisition.
+    pub fair: bool,
+    /// FIFO queue used when fairness is enabled; also tracks retrying waiters.
+    pub waiters: VecDeque<SemaphoreWaiter>,
+}
+
+impl SemaphoreState {
+    /// Create a semaphore with the given permit count and fairness bit.
+    #[must_use]
+    pub const fn new(permits: i32, fair: bool) -> Self {
+        Self {
+            permits,
+            fair,
+            waiters: VecDeque::new(),
+        }
+    }
+}
+
+/// One Duke Java thread waiting at a synthetic `CyclicBarrier`.
+#[derive(Debug)]
+pub struct CyclicBarrierWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Generation this waiter entered.
+    pub generation: i32,
+    /// Arrival index returned when the generation trips.
+    pub arrival_index: i32,
+    /// Optional absolute timeout for timed await.
+    pub deadline: Option<std::time::Instant>,
+    /// True once the waiter should receive `BrokenBarrierException`.
+    pub broken: bool,
+}
+
+/// Host-side state for synthetic `CyclicBarrier` instances.
+#[derive(Debug)]
+pub struct CyclicBarrierState {
+    /// Required parties per generation.
+    pub parties: i32,
+    /// Parties still needed in the current generation.
+    pub count: i32,
+    /// Monotonic generation number.
+    pub generation: i32,
+    /// True when the current generation is broken.
+    pub broken: bool,
+    /// Threads waiting in the current or just-tripped generation.
+    pub waiters: Vec<CyclicBarrierWaiter>,
+}
+
+impl CyclicBarrierState {
+    /// Create an unbroken barrier with all parties outstanding.
+    #[must_use]
+    pub const fn new(parties: i32) -> Self {
+        Self {
+            parties,
+            count: parties,
+            generation: 0,
+            broken: false,
+            waiters: Vec::new(),
+        }
+    }
+
+    /// Start a fresh generation after a normal trip.
+    pub const fn trip_generation(&mut self) {
+        self.generation = self.generation.saturating_add(1);
+        self.count = self.parties;
+        self.broken = false;
+    }
+
+    /// Break the current generation and wake all current waiters.
+    pub fn break_generation(&mut self) {
+        for waiter in &mut self.waiters {
+            if waiter.generation == self.generation {
+                waiter.broken = true;
+            }
+        }
+        self.generation = self.generation.saturating_add(1);
+        self.count = self.parties;
+        self.broken = true;
+    }
+
+    /// Reset to a new, unbroken generation.
+    pub fn reset(&mut self) {
+        self.break_generation();
+        self.broken = false;
+    }
+}
+
 /// Host-side payload backing synthetic `java.util.concurrent` objects.
 #[derive(Debug)]
 pub enum AtomicPayload {
@@ -45,6 +335,27 @@ pub enum AtomicPayload {
     Reference(Arc<Mutex<Slot>>),
     /// Coarse monitor for synthetic `ConcurrentHashMap` instances.
     ConcurrentMapLock(Arc<Mutex<()>>),
+    /// Backing state for synthetic `ReentrantLock` instances.
+    ReentrantLock(Arc<Mutex<ReentrantLockState>>),
+    /// Backing state for synthetic `Condition` instances.
+    Condition(Arc<Mutex<ConditionState>>),
+    /// Shared state for a synthetic `ReentrantReadWriteLock` parent object.
+    ReadWriteLock(Arc<Mutex<ReadWriteLockState>>),
+    /// Read or write view object for a synthetic `ReentrantReadWriteLock`.
+    ReadWriteLockView {
+        /// Shared parent lock state.
+        state: Arc<Mutex<ReadWriteLockState>>,
+        /// View represented by the heap object.
+        kind: ReadWriteLockViewKind,
+    },
+    /// Shared state for a synthetic `ExecutorService`.
+    Executor(Arc<ExecutorShared>),
+    /// Shared state for a synthetic `CountDownLatch`.
+    CountDownLatch(Arc<Mutex<CountDownLatchState>>),
+    /// Shared state for a synthetic `Semaphore`.
+    Semaphore(Arc<Mutex<SemaphoreState>>),
+    /// Shared state for a synthetic `CyclicBarrier`.
+    CyclicBarrier(Arc<Mutex<CyclicBarrierState>>),
 }
 
 impl Clone for AtomicPayload {
@@ -60,6 +371,17 @@ impl Clone for AtomicPayload {
                 Self::Reference(Arc::new(Mutex::new(slot)))
             }
             Self::ConcurrentMapLock(lock) => Self::ConcurrentMapLock(Arc::clone(lock)),
+            Self::ReentrantLock(state) => Self::ReentrantLock(Arc::clone(state)),
+            Self::Condition(state) => Self::Condition(Arc::clone(state)),
+            Self::ReadWriteLock(state) => Self::ReadWriteLock(Arc::clone(state)),
+            Self::ReadWriteLockView { state, kind } => Self::ReadWriteLockView {
+                state: Arc::clone(state),
+                kind: *kind,
+            },
+            Self::Executor(state) => Self::Executor(Arc::clone(state)),
+            Self::CountDownLatch(state) => Self::CountDownLatch(Arc::clone(state)),
+            Self::Semaphore(state) => Self::Semaphore(Arc::clone(state)),
+            Self::CyclicBarrier(state) => Self::CyclicBarrier(Arc::clone(state)),
         }
     }
 }
@@ -95,6 +417,57 @@ impl AtomicPayload {
         Self::ConcurrentMapLock(Arc::new(Mutex::new(())))
     }
 
+    /// Create host-side state for a synthetic `ReentrantLock`.
+    #[must_use]
+    pub fn reentrant_lock(fair: bool) -> Self {
+        Self::ReentrantLock(Arc::new(Mutex::new(ReentrantLockState::new(fair))))
+    }
+
+    /// Create host-side state for a synthetic `Condition`.
+    #[must_use]
+    pub fn condition(lock: Arc<Mutex<ReentrantLockState>>) -> Self {
+        Self::Condition(Arc::new(Mutex::new(ConditionState::new(lock))))
+    }
+
+    /// Create shared host-side state for a synthetic `ReentrantReadWriteLock`.
+    #[must_use]
+    pub fn read_write_lock() -> Self {
+        Self::ReadWriteLock(Arc::new(Mutex::new(ReadWriteLockState::default())))
+    }
+
+    /// Create a read/write view into shared `ReentrantReadWriteLock` state.
+    #[must_use]
+    pub const fn read_write_lock_view(
+        state: Arc<Mutex<ReadWriteLockState>>,
+        kind: ReadWriteLockViewKind,
+    ) -> Self {
+        Self::ReadWriteLockView { state, kind }
+    }
+
+    /// Create host-side state for a synthetic `ExecutorService`.
+    #[must_use]
+    pub fn executor(max_workers: usize) -> Self {
+        Self::Executor(Arc::new(ExecutorShared::new(max_workers)))
+    }
+
+    /// Create host-side state for a synthetic `CountDownLatch`.
+    #[must_use]
+    pub fn count_down_latch(count: i32) -> Self {
+        Self::CountDownLatch(Arc::new(Mutex::new(CountDownLatchState::new(count))))
+    }
+
+    /// Create host-side state for a synthetic `Semaphore`.
+    #[must_use]
+    pub fn semaphore(permits: i32, fair: bool) -> Self {
+        Self::Semaphore(Arc::new(Mutex::new(SemaphoreState::new(permits, fair))))
+    }
+
+    /// Create host-side state for a synthetic `CyclicBarrier`.
+    #[must_use]
+    pub fn cyclic_barrier(parties: i32) -> Self {
+        Self::CyclicBarrier(Arc::new(Mutex::new(CyclicBarrierState::new(parties))))
+    }
+
     fn reference_slot(&self) -> Option<Slot> {
         match self {
             Self::Reference(cell) => Some(
@@ -102,7 +475,18 @@ impl AtomicPayload {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner),
             ),
-            Self::Int(_) | Self::Long(_) | Self::Bool(_) | Self::ConcurrentMapLock(_) => None,
+            Self::Int(_)
+            | Self::Long(_)
+            | Self::Bool(_)
+            | Self::ConcurrentMapLock(_)
+            | Self::ReentrantLock(_)
+            | Self::Condition(_)
+            | Self::ReadWriteLock(_)
+            | Self::ReadWriteLockView { .. }
+            | Self::Executor(_)
+            | Self::CountDownLatch(_)
+            | Self::Semaphore(_)
+            | Self::CyclicBarrier(_) => None,
         }
     }
 
@@ -411,14 +795,18 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
+    fn young_index_from_ref(r: u64) -> Result<usize> {
+        usize::try_from(r).map_err(|_| Error::InvalidRef { address: r })
+    }
+
+    fn old_index_from_ref(r: u64) -> Result<usize> {
+        usize::try_from(r & !OLD_BIT).map_err(|_| Error::InvalidRef { address: r })
+    }
+
     /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`Error::InvalidRef`] if `r` is out of bounds or the slot is `None`.
-    ///
-    /// # Panics
-    /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
-    /// cannot happen on 64-bit targets since heap indices are always small.
     ///
     /// # Examples
     ///
@@ -431,7 +819,7 @@ impl Heap {
     /// ```
     pub fn get(&self, r: u64) -> Result<&HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = Self::old_index_from_ref(r)?;
             if idx >= self.old.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -440,7 +828,7 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            let idx = Self::young_index_from_ref(r)?;
             if idx >= self.young.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -456,10 +844,6 @@ impl Heap {
     /// # Errors
     /// Returns [`Error::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     ///
-    /// # Panics
-    /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
-    /// cannot happen on 64-bit targets since heap indices are always small.
-    ///
     /// # Examples
     ///
     /// ```
@@ -472,7 +856,7 @@ impl Heap {
     /// ```
     pub fn get_mut(&mut self, r: u64) -> Result<&mut HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = Self::old_index_from_ref(r)?;
             if idx >= self.old.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -481,7 +865,7 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            let idx = Self::young_index_from_ref(r)?;
             if idx >= self.young.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -567,8 +951,11 @@ impl Heap {
 
     /// Records a reference write into non-field object storage, such as an atomic reference payload.
     pub fn remember_reference_write(&mut self, obj_ref: u64, value: Slot) {
-        if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
-            self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
+        if obj_ref & OLD_BIT != 0
+            && value.as_reference().is_some_and(|r| r & OLD_BIT == 0)
+            && let Ok(idx) = Self::old_index_from_ref(obj_ref)
+        {
+            self.remembered_set.insert(idx);
         }
     }
 
@@ -580,6 +967,7 @@ impl Heap {
     ///
     /// # Errors
     /// Returns [`Error::InvalidRef`] if `obj_ref` is invalid.
+    /// Returns [`Error::FieldOutOfBounds`] if `field_idx` is not a valid field.
     ///
     /// # Examples
     ///
@@ -592,19 +980,30 @@ impl Heap {
     /// heap.write_field(obj_ref, 0, Slot::Int(42)).unwrap();
     /// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
     /// ```
-    #[allow(clippy::missing_panics_doc)]
     pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> Result<()> {
-        let obj = self.get(obj_ref)?;
-        if field_idx >= obj.fields.len() {
-            return Err(Error::FieldOutOfBounds {
-                index: field_idx,
-                length: obj.fields.len(),
-            });
+        let remember_old_idx =
+            if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
+                Some(Self::old_index_from_ref(obj_ref)?)
+            } else {
+                None
+            };
+
+        {
+            let obj = self.get_mut(obj_ref)?;
+            let length = obj.fields.len();
+            let field = obj
+                .fields
+                .get_mut(field_idx)
+                .ok_or(Error::FieldOutOfBounds {
+                    index: field_idx,
+                    length,
+                })?;
+            *field = value;
         }
-        if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
-            self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
+
+        if let Some(idx) = remember_old_idx {
+            self.remembered_set.insert(idx);
         }
-        self.get_mut(obj_ref).unwrap().fields[field_idx] = value;
         Ok(())
     }
 
@@ -810,7 +1209,9 @@ impl Heap {
             .collect();
 
         while let Some(r) = worklist.pop() {
-            let idx = (r & !OLD_BIT) as usize;
+            let Ok(idx) = Self::old_index_from_ref(r) else {
+                continue;
+            };
             let Some(Some(obj)) = self.old.get_mut(idx) else {
                 continue;
             };
@@ -1315,6 +1716,55 @@ mod tests {
         assert!(
             heap.remembered_set.is_empty(),
             "old→old store must NOT populate remembered_set"
+        );
+    }
+
+    #[test]
+    fn write_field_out_of_bounds_returns_error_without_side_effects() {
+        let mut heap = Heap::new();
+        let old_ref = make_old_obj(&mut heap);
+        let young_ref = heap.allocate("Young".to_string(), 0);
+
+        let err = heap
+            .write_field(old_ref, 1, Slot::Reference(Some(young_ref)))
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            Error::FieldOutOfBounds {
+                index: 1,
+                length: 1
+            }
+        );
+        assert_eq!(heap.get(old_ref).unwrap().fields[0], Slot::Int(0));
+        assert!(
+            heap.remembered_set.is_empty(),
+            "failed writes must not populate remembered_set"
+        );
+    }
+
+    #[test]
+    fn write_field_implementation_does_not_unwrap_after_validation() {
+        let code = std::fs::read_to_string("src/lib.rs").unwrap();
+        let start = code.find("pub fn write_field").unwrap();
+        let end = code[start..].find("pub fn minor_collect_prepare").unwrap();
+        let function_body = &code[start..start + end];
+
+        assert!(
+            !function_body.contains("unwrap().fields"),
+            "write_field should propagate accessor errors instead of unwrapping"
+        );
+    }
+
+    #[test]
+    fn heap_implementation_uses_checked_old_ref_conversion() {
+        let code = std::fs::read_to_string("src/lib.rs").unwrap();
+        let end = code.find("mod tests").unwrap();
+        let implementation = &code[..end];
+
+        assert!(
+            !implementation.contains("& !OLD_BIT) as usize"),
+            "old-gen reference decoding must not truncate through `as usize`"
         );
     }
 

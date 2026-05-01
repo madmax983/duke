@@ -19,21 +19,28 @@ use duke_classfile::CpIndex;
 /// assert_eq!(ArrayType::from_u8(99), None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(missing_docs)]
 pub enum ArrayType {
+    /// Boolean array
     Boolean = 4,
+    /// Char array
     Char = 5,
+    /// Float array
     Float = 6,
+    /// Double array
     Double = 7,
+    /// Byte array
     Byte = 8,
+    /// Short array
     Short = 9,
+    /// Int array
     Int = 10,
+    /// Long array
     Long = 11,
 }
 
 impl ArrayType {
+    /// Returns the array type from a raw byte value.
     #[must_use]
-    #[allow(missing_docs)]
     pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
             4 => Self::Boolean,
@@ -66,6 +73,19 @@ impl ArrayType {
 /// if let Instruction::Iload(index) = load {
 ///     assert_eq!(index, 5);
 /// }
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::Instruction;
+/// use duke_classfile::CpIndex;
+///
+/// let i_load = Instruction::Iload(4);
+/// assert_eq!(i_load.mnemonic(), "iload");
+///
+/// let get_field = Instruction::Getfield(CpIndex(42));
+/// assert_eq!(get_field.mnemonic(), "getfield");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(missing_docs)]
@@ -563,11 +583,13 @@ impl Instruction {
         clippy::needless_else
     )]
     #[must_use]
+    /// Optimization: Pre-allocate capacity of 2 since branch targets and fallthroughs max out at two.
+    /// Reduces dynamic reallocation overhead during CFG construction.
     pub fn control_flow_targets(&self, current_pc: usize, next_pc: Option<usize>) -> Vec<usize> {
-        let mut targets = Vec::new();
         if self.is_return() {
-            return targets;
+            return Vec::new();
         }
+        let mut targets = Vec::with_capacity(2);
         if let Some(offset) = self.unconditional_jump_target() {
             targets.push((current_pc as isize + offset) as usize);
             if self.is_subroutine_call() {
@@ -602,15 +624,17 @@ impl Instruction {
         clippy::collapsible_if,
         clippy::collapsible_else_if
     )]
+    /// Optimization: Pre-allocate capacity of 2 since branch targets and fallthroughs max out at two.
+    /// Reduces dynamic reallocation overhead during CFG construction.
     pub fn control_flow_edges(
         &self,
         current_pc: usize,
         next_pc: Option<usize>,
     ) -> Vec<(usize, Option<String>)> {
-        let mut edges = Vec::new();
         if self.is_return() {
-            return edges;
+            return Vec::new();
         }
+        let mut edges = Vec::with_capacity(2);
         if let Some(offset) = self.unconditional_jump_target() {
             edges.push(((current_pc as isize + offset) as usize, None));
             if self.is_subroutine_call() {

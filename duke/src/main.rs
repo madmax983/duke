@@ -7,6 +7,8 @@ use std::process;
 
 mod analyze;
 #[cfg(feature = "nova")]
+mod audit;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -303,6 +305,8 @@ fn main() {
         eprintln!("       duke html-jar <file.jar> <output_dir>");
         #[cfg(feature = "nova")]
         eprintln!("       duke cycle-detect <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke audit <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
         #[cfg(feature = "nova")]
         eprintln!("       duke purity <classfile.class>");
@@ -368,6 +372,23 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-search'");
+            std::process::exit(1);
+        }
+    }
+
+    if args.len() > 1 && args[1] == "audit" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke audit <file.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            audit::dump_jar_audit(&args[2]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'audit'");
             std::process::exit(1);
         }
     }

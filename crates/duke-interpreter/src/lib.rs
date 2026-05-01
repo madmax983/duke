@@ -1,26 +1,18 @@
-//! Switch-dispatch JVM bytecode interpreter for Duke Phase 4.
+//! `duke-interpreter` — The execution engine of the JVM.
 //!
-//! JVM Native method implementations and JNI bridging.
+//! This crate orchestrates the flow of the application by interpreting decoded
+//! bytecode instructions, managing threads (`threading`), handling class
+//! hierarchies (`registry`), and bridging to native JNI-like functions.
 //!
-//! This module contains implementations for the `native` methods of standard
-//! library classes (e.g., `java/util/zip/ZipFile`, `java/lang/System`) and handles
-//! the boundary transitions between interpreted JVM bytecode and native Rust code.
+//! # Example
 //!
-//! When `invoke_virtual` or `invoke_static` encounters a method marked `ACC_NATIVE`,
-//! control flow routes to the handlers registered here rather than decoding bytecode.
+//! ```
+//! use duke_interpreter::{ClassRegistry, ThreadRuntime};
 //!
-//! JVM Native method implementations and JNI bridging.
-//!
-//! This module contains implementations for the `native` methods of standard
-//! library classes (e.g., `java/util/zip/ZipFile`, `java/lang/System`) and handles
-//! the boundary transitions between interpreted JVM bytecode and native Rust code.
-//!
-//! When `invoke_virtual` or `invoke_static` encounters a method marked `ACC_NATIVE`,
-//! control flow routes to the handlers registered here rather than decoding bytecode.
-//!
-//! Executes decoded instruction streams for methods containing integer, long,
-//! float, and double arithmetic, control flow, and local variables.  Heap
-//! allocation, field access, and method invocation are not yet implemented.
+//! let mut registry = ClassRegistry::new();
+//! let mut threads = ThreadRuntime::new();
+//! // Note: execution requires loaded classes and bytecode
+//! ```
 // proptest! macro expands to a large runner struct with no source span —
 // suppress for test builds only so CI doesn't error on an un-attributable lint.
 #![cfg_attr(test, allow(clippy::large_stack_arrays))]
