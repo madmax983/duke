@@ -59,7 +59,8 @@ fn resolve_method_ref(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<(S
         CpEntry::Methodref {
             class_index,
             name_and_type_index,
-        } | CpEntry::InterfaceMethodref {
+        }
+        | CpEntry::InterfaceMethodref {
             class_index,
             name_and_type_index,
         } => (*class_index, *name_and_type_index),
