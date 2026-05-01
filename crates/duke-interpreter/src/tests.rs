@@ -5933,6 +5933,118 @@ fn condition_operations_require_lock_ownership() {
 }
 
 #[test]
+fn count_down_latch_basic_fixture_exercises_core_surface() {
+    assert_eq!(
+        run_bootstrap_int_completion("CountDownLatchBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn count_down_latch_contended_fixture_releases_all_waiters() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "CountDownLatchContendedTest.class",
+            "fiveWorkersCompleteTwentyFiveTrials",
+            "()I",
+        ),
+        125
+    );
+}
+
+#[test]
+fn semaphore_basic_fixture_exercises_permits_and_timeout() {
+    assert_eq!(
+        run_bootstrap_int_completion("SemaphoreBasicTest.class", "basicOperations", "()I"),
+        1
+    );
+}
+
+#[test]
+fn semaphore_contended_fixture_bounds_parallelism() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SemaphoreContendedTest.class",
+            "boundedCriticalSectionTenTrials",
+            "()I",
+        ),
+        3
+    );
+}
+
+#[test]
+fn cyclic_barrier_basic_fixture_reuses_generations() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "CyclicBarrierBasicTest.class",
+            "twoCyclesReturnAllArrivalIndexes",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn cyclic_barrier_action_fixture_runs_once_per_generation() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "CyclicBarrierActionTest.class",
+            "actionRunsOncePerGeneration",
+            "()I",
+        ),
+        4
+    );
+}
+
+#[test]
+fn sync_primitive_interop_fixture_composes_all_three() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInteropTest.class",
+            "primitivesCoordinateTogether",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn sync_primitive_interrupt_fixture_latch_raises_interrupted_exception() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInterruptTest.class",
+            "latchAwaitInterruptRaises",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn sync_primitive_interrupt_fixture_uninterruptible_acquire_preserves_flag() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInterruptTest.class",
+            "semaphoreUninterruptiblePreservesFlag",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn sync_primitive_interrupt_fixture_barrier_breaks_generation() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "SyncPrimitiveInterruptTest.class",
+            "barrierInterruptBreaksGeneration",
+            "()I",
+        ),
+        110
+    );
+}
+
+#[test]
 fn read_write_lock_allows_overlapping_readers() {
     assert_eq!(
         run_bootstrap_int_completion("ReadWriteLockTest.class", "twoReadersMayOverlap", "()I"),

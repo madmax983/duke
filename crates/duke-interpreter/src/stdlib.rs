@@ -1551,6 +1551,163 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
     }
 }
 
+/// Registers synthetic `java.util.concurrent` synchronization primitives.
+///
+/// These are leaf implementations backed by host-side payload state rather than
+/// a public guest-visible `AbstractQueuedSynchronizer` surface. Java permits may
+/// grow through unmatched `Semaphore.release` calls, matching the JDK contract.
+#[allow(clippy::too_many_lines)]
+fn register_sync_primitives_stdlib(registry: &mut ClassRegistry) {
+    registry.register(empty_synthetic_context(
+        "java/util/concurrent/CountDownLatch",
+        "java/lang/Object",
+    ));
+    registry.register(empty_synthetic_context(
+        "java/util/concurrent/Semaphore",
+        "java/lang/Object",
+    ));
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/CyclicBarrier".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![synthetic_field(
+            "barrierAction",
+            "Ljava/lang/Runnable;",
+            false,
+        )],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "(I)V",
+            native_count_down_latch_init as NativeHandler,
+        ),
+        ("await", "()V", native_count_down_latch_await),
+        (
+            "await",
+            "(JLjava/util/concurrent/TimeUnit;)Z",
+            native_count_down_latch_await_timeout,
+        ),
+        ("countDown", "()V", native_count_down_latch_count_down),
+        ("getCount", "()J", native_count_down_latch_get_count),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_count_down_latch_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/CountDownLatch",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("<init>", "(I)V", native_semaphore_init as NativeHandler),
+        ("<init>", "(IZ)V", native_semaphore_init_fair),
+        ("acquire", "()V", native_semaphore_acquire),
+        ("acquire", "(I)V", native_semaphore_acquire_many),
+        (
+            "acquireUninterruptibly",
+            "()V",
+            native_semaphore_acquire_uninterruptibly,
+        ),
+        (
+            "acquireUninterruptibly",
+            "(I)V",
+            native_semaphore_acquire_uninterruptibly_many,
+        ),
+        ("tryAcquire", "()Z", native_semaphore_try_acquire),
+        ("tryAcquire", "(I)Z", native_semaphore_try_acquire_many),
+        (
+            "tryAcquire",
+            "(JLjava/util/concurrent/TimeUnit;)Z",
+            native_semaphore_try_acquire_timeout,
+        ),
+        ("release", "()V", native_semaphore_release),
+        ("release", "(I)V", native_semaphore_release_many),
+        (
+            "availablePermits",
+            "()I",
+            native_semaphore_available_permits,
+        ),
+        ("drainPermits", "()I", native_semaphore_drain_permits),
+        (
+            "hasQueuedThreads",
+            "()Z",
+            native_semaphore_has_queued_threads,
+        ),
+        ("getQueueLength", "()I", native_semaphore_get_queue_length),
+        ("isFair", "()Z", native_semaphore_is_fair),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_semaphore_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/Semaphore",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "(I)V",
+            native_cyclic_barrier_init as NativeHandler,
+        ),
+        (
+            "<init>",
+            "(ILjava/lang/Runnable;)V",
+            native_cyclic_barrier_init_action,
+        ),
+        ("getParties", "()I", native_cyclic_barrier_get_parties),
+        (
+            "getNumberWaiting",
+            "()I",
+            native_cyclic_barrier_get_number_waiting,
+        ),
+        ("isBroken", "()Z", native_cyclic_barrier_is_broken),
+        ("reset", "()V", native_cyclic_barrier_reset),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_cyclic_barrier_to_string,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/CyclicBarrier",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/CyclicBarrier",
+        "await",
+        "()I",
+        native_cyclic_barrier_await,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/CyclicBarrier",
+        "await",
+        "(JLjava/util/concurrent/TimeUnit;)I",
+        native_cyclic_barrier_await_timeout,
+    );
+}
+
 fn allocate_time_unit(heap: &mut duke_gc::Heap, name: &str, ordinal: i32, nanos: i64) -> Slot {
     let unit_ref = heap.allocate("java/util/concurrent/TimeUnit".to_string(), 3);
     let name_ref = heap.allocate_string(name.to_string());
@@ -1782,6 +1939,10 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         ),
         (
             "java/util/concurrent/TimeoutException",
+            "java/lang/Exception",
+        ),
+        (
+            "java/util/concurrent/BrokenBarrierException",
             "java/lang/Exception",
         ),
         (
@@ -2949,6 +3110,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
     register_locks_stdlib(registry);
+    register_sync_primitives_stdlib(registry);
     register_executor_stdlib(registry, heap);
     register_jul_stdlib(registry, heap);
 
@@ -3839,9 +4001,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "I".to_string(),
                 is_static: false,
             },
+            FieldEntry {
+                name: "interrupted".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "hostKey".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
-        instance_field_count: 2,
+        instance_field_count: 4,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -3871,6 +4043,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Thread", "sleep", "(J)V", native_thread_sleep);
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "interrupt",
+        "()V",
+        native_thread_interrupt,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "isInterrupted",
+        "()Z",
+        native_thread_is_interrupted,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "interrupted",
+        "()Z",
+        native_thread_interrupted,
+    );
     registry.natives_mut().register(
         "java/lang/Thread",
         "setContextClassLoader",
@@ -4090,6 +4280,31 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)V",
         native_throwable_init_string,
     );
+
+    {
+        let name = "java/lang/InterruptedException";
+        registry.register(ClassContext {
+            class_name: name.to_string(),
+            super_class: Some("java/lang/Exception".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+        registry
+            .natives_mut()
+            .register(name, "<init>", "()V", native_throwable_init);
+        registry.natives_mut().register(
+            name,
+            "<init>",
+            "(Ljava/lang/String;)V",
+            native_throwable_init_string,
+        );
+    }
 
     // java/lang/RuntimeException extends Exception
     let rte_ctx = ClassContext {

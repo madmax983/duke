@@ -189,6 +189,139 @@ impl ExecutorShared {
     }
 }
 
+/// One Duke Java thread waiting for a synthetic `CountDownLatch`.
+#[derive(Debug)]
+pub struct CountDownLatchWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Optional absolute timeout for timed await.
+    pub deadline: Option<std::time::Instant>,
+}
+
+/// Host-side state for synthetic `CountDownLatch` instances.
+#[derive(Debug)]
+pub struct CountDownLatchState {
+    /// Remaining count before the latch trips.
+    pub count: i32,
+    /// Threads currently waiting for the count to reach zero.
+    pub waiters: Vec<CountDownLatchWaiter>,
+}
+
+impl CountDownLatchState {
+    /// Create a latch with a non-negative initial count.
+    #[must_use]
+    pub const fn new(count: i32) -> Self {
+        Self {
+            count,
+            waiters: Vec::new(),
+        }
+    }
+}
+
+/// One Duke Java thread waiting for synthetic `Semaphore` permits.
+#[derive(Debug)]
+pub struct SemaphoreWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Number of permits requested.
+    pub permits: i32,
+    /// Optional absolute timeout for timed acquire.
+    pub deadline: Option<std::time::Instant>,
+}
+
+/// Host-side state for synthetic `Semaphore` instances.
+#[derive(Debug)]
+pub struct SemaphoreState {
+    /// Currently available permits. Java permits can grow without bound after
+    /// unmatched release calls, so this is intentionally not tied to ownership.
+    pub permits: i32,
+    /// Whether constructor requested FIFO acquisition.
+    pub fair: bool,
+    /// FIFO queue used when fairness is enabled; also tracks retrying waiters.
+    pub waiters: VecDeque<SemaphoreWaiter>,
+}
+
+impl SemaphoreState {
+    /// Create a semaphore with the given permit count and fairness bit.
+    #[must_use]
+    pub const fn new(permits: i32, fair: bool) -> Self {
+        Self {
+            permits,
+            fair,
+            waiters: VecDeque::new(),
+        }
+    }
+}
+
+/// One Duke Java thread waiting at a synthetic `CyclicBarrier`.
+#[derive(Debug)]
+pub struct CyclicBarrierWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Generation this waiter entered.
+    pub generation: i32,
+    /// Arrival index returned when the generation trips.
+    pub arrival_index: i32,
+    /// Optional absolute timeout for timed await.
+    pub deadline: Option<std::time::Instant>,
+    /// True once the waiter should receive `BrokenBarrierException`.
+    pub broken: bool,
+}
+
+/// Host-side state for synthetic `CyclicBarrier` instances.
+#[derive(Debug)]
+pub struct CyclicBarrierState {
+    /// Required parties per generation.
+    pub parties: i32,
+    /// Parties still needed in the current generation.
+    pub count: i32,
+    /// Monotonic generation number.
+    pub generation: i32,
+    /// True when the current generation is broken.
+    pub broken: bool,
+    /// Threads waiting in the current or just-tripped generation.
+    pub waiters: Vec<CyclicBarrierWaiter>,
+}
+
+impl CyclicBarrierState {
+    /// Create an unbroken barrier with all parties outstanding.
+    #[must_use]
+    pub const fn new(parties: i32) -> Self {
+        Self {
+            parties,
+            count: parties,
+            generation: 0,
+            broken: false,
+            waiters: Vec::new(),
+        }
+    }
+
+    /// Start a fresh generation after a normal trip.
+    pub const fn trip_generation(&mut self) {
+        self.generation = self.generation.saturating_add(1);
+        self.count = self.parties;
+        self.broken = false;
+    }
+
+    /// Break the current generation and wake all current waiters.
+    pub fn break_generation(&mut self) {
+        for waiter in &mut self.waiters {
+            if waiter.generation == self.generation {
+                waiter.broken = true;
+            }
+        }
+        self.generation = self.generation.saturating_add(1);
+        self.count = self.parties;
+        self.broken = true;
+    }
+
+    /// Reset to a new, unbroken generation.
+    pub fn reset(&mut self) {
+        self.break_generation();
+        self.broken = false;
+    }
+}
+
 /// Host-side payload backing synthetic `java.util.concurrent` objects.
 #[derive(Debug)]
 pub enum AtomicPayload {
@@ -217,6 +350,12 @@ pub enum AtomicPayload {
     },
     /// Shared state for a synthetic `ExecutorService`.
     Executor(Arc<ExecutorShared>),
+    /// Shared state for a synthetic `CountDownLatch`.
+    CountDownLatch(Arc<Mutex<CountDownLatchState>>),
+    /// Shared state for a synthetic `Semaphore`.
+    Semaphore(Arc<Mutex<SemaphoreState>>),
+    /// Shared state for a synthetic `CyclicBarrier`.
+    CyclicBarrier(Arc<Mutex<CyclicBarrierState>>),
 }
 
 impl Clone for AtomicPayload {
@@ -240,6 +379,9 @@ impl Clone for AtomicPayload {
                 kind: *kind,
             },
             Self::Executor(state) => Self::Executor(Arc::clone(state)),
+            Self::CountDownLatch(state) => Self::CountDownLatch(Arc::clone(state)),
+            Self::Semaphore(state) => Self::Semaphore(Arc::clone(state)),
+            Self::CyclicBarrier(state) => Self::CyclicBarrier(Arc::clone(state)),
         }
     }
 }
@@ -308,6 +450,24 @@ impl AtomicPayload {
         Self::Executor(Arc::new(ExecutorShared::new(max_workers)))
     }
 
+    /// Create host-side state for a synthetic `CountDownLatch`.
+    #[must_use]
+    pub fn count_down_latch(count: i32) -> Self {
+        Self::CountDownLatch(Arc::new(Mutex::new(CountDownLatchState::new(count))))
+    }
+
+    /// Create host-side state for a synthetic `Semaphore`.
+    #[must_use]
+    pub fn semaphore(permits: i32, fair: bool) -> Self {
+        Self::Semaphore(Arc::new(Mutex::new(SemaphoreState::new(permits, fair))))
+    }
+
+    /// Create host-side state for a synthetic `CyclicBarrier`.
+    #[must_use]
+    pub fn cyclic_barrier(parties: i32) -> Self {
+        Self::CyclicBarrier(Arc::new(Mutex::new(CyclicBarrierState::new(parties))))
+    }
+
     fn reference_slot(&self) -> Option<Slot> {
         match self {
             Self::Reference(cell) => Some(
@@ -323,7 +483,10 @@ impl AtomicPayload {
             | Self::Condition(_)
             | Self::ReadWriteLock(_)
             | Self::ReadWriteLockView { .. }
-            | Self::Executor(_) => None,
+            | Self::Executor(_)
+            | Self::CountDownLatch(_)
+            | Self::Semaphore(_)
+            | Self::CyclicBarrier(_) => None,
         }
     }
 
