@@ -9413,6 +9413,106 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_random_next_boolean,
     );
 
+    // java/util/UUID — immutable 128-bit value type
+    // fields[0] = most significant bits, fields[1] = least significant bits
+    let uuid_ctx = ClassContext {
+        class_name: "java/util/UUID".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "mostSigBits".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "leastSigBits".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec![
+            "java/io/Serializable".to_string(),
+            "java/lang/Comparable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(uuid_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "(JJ)V", native_uuid_init as NativeHandler),
+        (
+            "randomUUID",
+            "()Ljava/util/UUID;",
+            native_uuid_random_uuid as NativeHandler,
+        ),
+        (
+            "nameUUIDFromBytes",
+            "([B)Ljava/util/UUID;",
+            native_uuid_name_uuid_from_bytes as NativeHandler,
+        ),
+        (
+            "fromString",
+            "(Ljava/lang/String;)Ljava/util/UUID;",
+            native_uuid_from_string as NativeHandler,
+        ),
+        (
+            "getMostSignificantBits",
+            "()J",
+            native_uuid_get_most_significant_bits as NativeHandler,
+        ),
+        (
+            "getLeastSignificantBits",
+            "()J",
+            native_uuid_get_least_significant_bits as NativeHandler,
+        ),
+        ("version", "()I", native_uuid_version as NativeHandler),
+        ("variant", "()I", native_uuid_variant as NativeHandler),
+        (
+            "toString",
+            "()Ljava/lang/String;",
+            native_uuid_to_string as NativeHandler,
+        ),
+        (
+            "equals",
+            "(Ljava/lang/Object;)Z",
+            native_uuid_equals as NativeHandler,
+        ),
+        ("hashCode", "()I", native_uuid_hash_code as NativeHandler),
+        (
+            "compareTo",
+            "(Ljava/util/UUID;)I",
+            native_uuid_compare_to as NativeHandler,
+        ),
+        (
+            "compareTo",
+            "(Ljava/lang/Object;)I",
+            native_uuid_compare_to as NativeHandler,
+        ),
+        (
+            "timestamp",
+            "()J",
+            native_uuid_unsupported_version1_accessor as NativeHandler,
+        ),
+        (
+            "clockSequence",
+            "()I",
+            native_uuid_unsupported_version1_accessor as NativeHandler,
+        ),
+        (
+            "node",
+            "()J",
+            native_uuid_unsupported_version1_accessor as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/UUID", method, descriptor, handler);
+    }
+
     let no_such_algorithm_ctx = ClassContext {
         class_name: "java/security/NoSuchAlgorithmException".to_string(),
         super_class: Some("java/lang/Exception".to_string()),
