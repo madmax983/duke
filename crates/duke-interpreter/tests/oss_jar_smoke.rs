@@ -1,0 +1,236 @@
+use std::path::{Path, PathBuf};
+
+use duke_gc::Heap;
+use duke_interpreter::{
+    ClassLoadSource, ClassRegistry, bootstrap_stdlib, execute_class_to_completion,
+};
+use duke_loader::{BootstrapLoader, ClassLoader, ClasspathEntry, DirectoryLoader, ZipLoader};
+use duke_runtime::{Error, Slot};
+
+struct ChainLoader(Vec<ClasspathEntry>);
+
+impl ClassLoader for ChainLoader {
+    fn find_class(&self, name: &str) -> duke_loader::Result<Vec<u8>> {
+        for entry in &self.0 {
+            if let Ok(bytes) = entry.find_class(name) {
+                return Ok(bytes);
+            }
+        }
+        Err(duke_loader::Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resource(&self, name: &str) -> duke_loader::Result<Vec<u8>> {
+        for entry in &self.0 {
+            match entry.find_resource(name) {
+                Err(duke_loader::Error::NotFound { .. }) => {}
+                result => return result,
+            }
+        }
+        Err(duke_loader::Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resources(&self, name: &str) -> duke_loader::Result<Vec<Vec<u8>>> {
+        let mut resources = Vec::new();
+        for entry in &self.0 {
+            resources.extend(entry.find_resources(name)?);
+        }
+        Ok(resources)
+    }
+}
+
+enum OssSmokeLoader {
+    Bootstrap(BootstrapLoader),
+    Chain(ChainLoader),
+}
+
+impl ClassLoader for OssSmokeLoader {
+    fn find_class(&self, name: &str) -> duke_loader::Result<Vec<u8>> {
+        match self {
+            Self::Bootstrap(loader) => loader.find_class(name),
+            Self::Chain(loader) => loader.find_class(name),
+        }
+    }
+
+    fn find_resource(&self, name: &str) -> duke_loader::Result<Vec<u8>> {
+        match self {
+            Self::Bootstrap(loader) => loader.find_resource(name),
+            Self::Chain(loader) => loader.find_resource(name),
+        }
+    }
+
+    fn find_resources(&self, name: &str) -> duke_loader::Result<Vec<Vec<u8>>> {
+        match self {
+            Self::Bootstrap(loader) => loader.find_resources(name),
+            Self::Chain(loader) => loader.find_resources(name),
+        }
+    }
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("canonical workspace root")
+}
+
+fn fixtures_dir() -> PathBuf {
+    repo_root().join("tests/fixtures")
+}
+
+fn oss_jars_dir() -> PathBuf {
+    fixtures_dir().join("oss-jars")
+}
+
+fn oss_classpath() -> Vec<PathBuf> {
+    vec![
+        fixtures_dir(),
+        oss_jars_dir().join("slf4j-api-2.0.13.jar"),
+        oss_jars_dir().join("slf4j-simple-2.0.13.jar"),
+    ]
+}
+
+fn jdk_modules_path() -> Option<PathBuf> {
+    let from_java_home = std::env::var_os("JAVA_HOME")
+        .map(PathBuf::from)
+        .map(|path| path.join("lib/modules"));
+    let fallbacks = [
+        PathBuf::from("/usr/lib/jvm/java-21-openjdk-amd64/lib/modules"),
+        PathBuf::from("/usr/lib/jvm/default-java/lib/modules"),
+        PathBuf::from("C:/Program Files/Java/jdk-21/lib/modules"),
+    ];
+    from_java_home
+        .into_iter()
+        .chain(fallbacks)
+        .find(|path| path.exists())
+}
+
+fn classpath_entry(path: &Path) -> ClasspathEntry {
+    let is_archive = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("jar") || ext.eq_ignore_ascii_case("zip"));
+    if is_archive {
+        ClasspathEntry::Zip(ZipLoader::open(path).expect("open vendored jar"))
+    } else {
+        ClasspathEntry::Directory(DirectoryLoader::new(path))
+    }
+}
+
+fn oss_smoke_loader() -> OssSmokeLoader {
+    let classpath = oss_classpath();
+    if let Some(modules_path) = jdk_modules_path()
+        && let Ok(loader) = BootstrapLoader::new(&modules_path, classpath.clone())
+    {
+        return OssSmokeLoader::Bootstrap(loader);
+    }
+
+    let entries = classpath
+        .iter()
+        .map(|path| classpath_entry(path))
+        .collect::<Vec<_>>();
+    OssSmokeLoader::Chain(ChainLoader(entries))
+}
+
+struct SmokeRun {
+    result: Result<Option<Slot>, Error>,
+    output: String,
+    registry: ClassRegistry,
+}
+
+fn render_smoke_error(err: &Error) -> String {
+    match err {
+        Error::MethodNotFound { name, descriptor } => {
+            format!("Unsupported native: {name}{descriptor}")
+        }
+        Error::Unimplemented { mnemonic } => format!("Unimplemented opcode: {mnemonic}"),
+        other => format!("{other:?}"),
+    }
+}
+
+fn run_slf4j_simple_smoke() -> SmokeRun {
+    let loader = oss_smoke_loader();
+    let mut registry = ClassRegistry::new();
+    let mut heap = Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    assert!(
+        registry
+            .ensure_loaded("Slf4jSimpleSmoke", &loader)
+            .expect("load Slf4jSimpleSmoke"),
+        "Slf4jSimpleSmoke should load from the fixture classpath"
+    );
+
+    let args_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+    let main_args = [Slot::Reference(Some(args_ref))];
+    let mut output = Vec::new();
+    let result = execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut output,
+        "Slf4jSimpleSmoke",
+        "main",
+        "([Ljava/lang/String;)V",
+        &main_args,
+    );
+
+    SmokeRun {
+        result,
+        output: String::from_utf8(output).expect("captured output is utf8"),
+        registry,
+    }
+}
+
+#[test]
+fn slf4j_simple_smoke_surfaces_first_missing_native_explicitly() {
+    let smoke = run_slf4j_simple_smoke();
+    let err = smoke
+        .result
+        .expect_err("slf4j smoke should still hit the first unsupported native");
+    let rendered = render_smoke_error(&err);
+
+    assert!(
+        rendered.contains(
+            "Unsupported native: java/lang/System.getSecurityManager()Ljava/lang/SecurityManager;"
+        ),
+        "expected explicit missing-native diagnostic, got: {rendered}"
+    );
+}
+
+#[test]
+#[ignore = "Blocked on java/lang/System.getSecurityManager()Ljava/lang/SecurityManager; see issue #687."]
+fn slf4j_simple_smoke_runs_real_jar_bytecode() {
+    let smoke = run_slf4j_simple_smoke();
+
+    assert!(
+        smoke.result.is_ok(),
+        "Slf4jSimpleSmoke.main should execute end-to-end, got {}\nCaptured output:\n{}",
+        smoke
+            .result
+            .as_ref()
+            .err()
+            .map_or_else(|| "no error".to_string(), render_smoke_error),
+        smoke.output
+    );
+
+    assert!(
+        smoke.output.contains("INFO duke-smoke - hello world"),
+        "expected slf4j-simple log line in captured output, got: {}",
+        smoke.output
+    );
+
+    let simple_logger = smoke
+        .registry
+        .get("org/slf4j/simple/SimpleLogger")
+        .expect("SimpleLogger should be loaded");
+    assert_eq!(simple_logger.load_source, ClassLoadSource::Classfile);
+
+    let provider = smoke
+        .registry
+        .get("org/slf4j/simple/SimpleServiceProvider")
+        .expect("SimpleServiceProvider should be loaded");
+    assert_eq!(provider.load_source, ClassLoadSource::Classfile);
+}
