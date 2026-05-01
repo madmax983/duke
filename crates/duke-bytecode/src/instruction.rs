@@ -563,11 +563,13 @@ impl Instruction {
         clippy::needless_else
     )]
     #[must_use]
+    /// Optimization: Pre-allocate capacity of 2 since branch targets and fallthroughs max out at two.
+    /// Reduces dynamic reallocation overhead during CFG construction.
     pub fn control_flow_targets(&self, current_pc: usize, next_pc: Option<usize>) -> Vec<usize> {
-        let mut targets = Vec::new();
         if self.is_return() {
-            return targets;
+            return Vec::new();
         }
+        let mut targets = Vec::with_capacity(2);
         if let Some(offset) = self.unconditional_jump_target() {
             targets.push((current_pc as isize + offset) as usize);
             if self.is_subroutine_call() {
@@ -602,15 +604,17 @@ impl Instruction {
         clippy::collapsible_if,
         clippy::collapsible_else_if
     )]
+    /// Optimization: Pre-allocate capacity of 2 since branch targets and fallthroughs max out at two.
+    /// Reduces dynamic reallocation overhead during CFG construction.
     pub fn control_flow_edges(
         &self,
         current_pc: usize,
         next_pc: Option<usize>,
     ) -> Vec<(usize, Option<String>)> {
-        let mut edges = Vec::new();
         if self.is_return() {
-            return edges;
+            return Vec::new();
         }
+        let mut edges = Vec::with_capacity(2);
         if let Some(offset) = self.unconditional_jump_target() {
             edges.push(((current_pc as isize + offset) as usize, None));
             if self.is_subroutine_call() {
