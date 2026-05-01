@@ -27,3 +27,11 @@ Duke is structured as a Cargo Workspace containing several specialized crates. T
 1. **Modularity**: Strict crate boundaries ensure that the classfile parser has no dependency on the execution engine or garbage collector.
 2. **Safety**: Written in Rust, it leverages the borrow checker to avoid memory leaks and data races common in C/C++ JVM implementations.
 3. **Correctness**: Every module is tested rigorously against edge cases, with a focus on graceful error handling (e.g., returning `Err` rather than panicking on malformed input).
+
+## Real-world JAR compatibility
+
+Duke now vendors a hermetic OSS smoke harness under `tests/fixtures/oss-jars/` so third-party bytecode can run through CI instead of only duke-authored fixtures.
+
+| JAR | Version(s) | Status | Last-tested phase | Notes |
+| --- | --- | --- | --- | --- |
+| `slf4j-simple` | `slf4j-simple-2.0.13` + `slf4j-api-2.0.13` | Blocked (`oss_jar_smoke` future-canary is `#[ignore]`) | `Phase 117` | First discovered gap: `java/lang/System.getSecurityManager()Ljava/lang/SecurityManager;` tracked in [#687](https://github.com/madmax983/duke/issues/687) |
