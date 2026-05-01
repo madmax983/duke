@@ -385,7 +385,10 @@ impl ClassLoader for ZipLoader {
             result => return result,
         }
 
-        let boot_inf_name = format!("BOOT-INF/classes/{name}");
+        // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
+        let mut boot_inf_name = String::with_capacity(name.len() + 17);
+        boot_inf_name.push_str("BOOT-INF/classes/");
+        boot_inf_name.push_str(name);
         match self.reader.read_entry(&boot_inf_name) {
             Err(Error::NotFound { .. }) => {}
             result => return result,
@@ -410,7 +413,10 @@ impl ClassLoader for ZipLoader {
             Err(err) => return Err(err),
         }
 
-        let boot_inf_name = format!("BOOT-INF/classes/{name}");
+        // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
+        let mut boot_inf_name = String::with_capacity(name.len() + 17);
+        boot_inf_name.push_str("BOOT-INF/classes/");
+        boot_inf_name.push_str(name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => resources.push(bytes),
             Err(Error::NotFound { .. }) => {}
