@@ -417,6 +417,18 @@ mod tests {
 
     #[test]
     #[cfg(feature = "telemetry")]
+    fn test_print_report_empty() {
+        let store = TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("=== Duke VM Telemetry Report ==="));
+        assert!(s.contains("No class initialization events recorded."));
+        assert!(s.contains("No exception flow events recorded."));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
     fn should_correctly_format_print_report_with_populated_data() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);

@@ -1303,6 +1303,77 @@ mod tests {
     }
 
     #[test]
+    fn test_cd_entry_filename_truncated() {
+        let mut zip_data = Vec::new();
+        let central_dir_offset = 0;
+        let cd_signature: u32 = 0x0201_4b50;
+        zip_data.extend_from_slice(&cd_signature.to_le_bytes()); // CD signature
+        zip_data.extend_from_slice(&[0; 24]);
+        let name = b"abcde";
+        zip_data.extend_from_slice(&(10_u16).to_le_bytes()); // filename len
+        zip_data.extend_from_slice(&0_u16.to_le_bytes()); // extra len
+        zip_data.extend_from_slice(&0_u16.to_le_bytes()); // comment len
+        zip_data.extend_from_slice(&[0; 8]);
+        zip_data.extend_from_slice(&0_u32.to_le_bytes()); // local header offset
+        zip_data.extend_from_slice(name); // filename (truncated)
+
+        let central_dir_size = (zip_data.len() as u32) - central_dir_offset;
+        let eocd_signature: u32 = 0x0605_4b50;
+        zip_data.extend_from_slice(&eocd_signature.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 4]);
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        zip_data.extend_from_slice(&central_dir_size.to_le_bytes());
+        zip_data.extend_from_slice(&central_dir_offset.to_le_bytes());
+        zip_data.extend_from_slice(&0_u16.to_le_bytes());
+
+        let err = ZipReader::from_bytes(zip_data).unwrap_err();
+        assert!(
+            matches!(err, Error::ZipFormat { ref msg } if msg == "central directory entry filename truncated")
+        );
+    }
+
+    #[test]
+    fn test_cd_entry_truncated() {
+        let mut zip_data = Vec::new();
+        let central_dir_offset = 0;
+        let cd_signature: u32 = 0x0201_4b50;
+        zip_data.extend_from_slice(&cd_signature.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 10]); // Truncated CD entry
+        let central_dir_size = (zip_data.len() as u32) - central_dir_offset;
+
+        let eocd_signature: u32 = 0x0605_4b50;
+        zip_data.extend_from_slice(&eocd_signature.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 4]);
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        zip_data.extend_from_slice(&central_dir_size.to_le_bytes());
+        zip_data.extend_from_slice(&central_dir_offset.to_le_bytes());
+        zip_data.extend_from_slice(&0_u16.to_le_bytes());
+
+        let err = ZipReader::from_bytes(zip_data).unwrap_err();
+        assert!(
+            matches!(err, Error::ZipFormat { ref msg } if msg == "central directory entry truncated")
+        );
+    }
+
+    #[test]
+    fn test_zip_uncompressed_limit_exceeded() {
+        // Build a minimal zip and corrupt the uncompressed size.
+        let zip = build_deflated_zip("huge.txt", b"small data");
+        let reader = ZipReader::from_bytes(zip).expect("should parse");
+
+        let info = reader.get_entry("huge.txt").unwrap();
+        let mut corrupted_info = info.clone();
+
+        // Corrupt uncompressed size to be greater than 256MB
+        corrupted_info.uncompressed_size = (1024 * 1024 * 257) as u64;
+
+        let err = reader.read_entry_info(&corrupted_info).unwrap_err();
+        assert!(matches!(err, Error::ZipFormat { ref msg } if msg.contains("exceeds limit")));
+    }
+
+    #[test]
     fn test_zip_loader_try_nested_read_entry_error() {
         let mut nested_jar = build_stored_zip("Bad.class", b"data");
         nested_jar[0] ^= 0xFF;
