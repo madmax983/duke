@@ -96,6 +96,8 @@ pub enum NativeThreadAction {
         /// The native thread ID of the thread to wait for.
         thread_id: i32,
     },
+    /// Yield the VM lock and retry the same native invocation.
+    Retry,
 }
 
 /// One Java-frame snapshot made available to native handlers that need to

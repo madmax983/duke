@@ -537,9 +537,13 @@ pub fn run_execution(
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
                                 };
-                                if let Some(outcome) =
-                                    finish_native_call(&mut native_control, frame, idx, result)?
-                                {
+                                if let Some(outcome) = finish_native_call(
+                                    &mut native_control,
+                                    frame,
+                                    idx,
+                                    result,
+                                    &native_args,
+                                )? {
                                     return Ok(outcome);
                                 }
                                 continue;
@@ -618,9 +622,13 @@ pub fn run_execution(
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
                                 };
-                                if let Some(outcome) =
-                                    finish_native_call(&mut native_control, frame, idx, result)?
-                                {
+                                if let Some(outcome) = finish_native_call(
+                                    &mut native_control,
+                                    frame,
+                                    idx,
+                                    result,
+                                    &native_args,
+                                )? {
                                     return Ok(outcome);
                                 }
                                 continue;
@@ -901,8 +909,10 @@ pub fn run_execution(
                 frame.pop()?;
             }
             Instruction::Pop2 => {
-                frame.pop()?;
-                frame.pop()?;
+                let value = frame.pop()?;
+                if !matches!(value, Slot::Long(_) | Slot::Double(_)) {
+                    frame.pop()?;
+                }
             }
             Instruction::Dup => {
                 let v = frame.pop()?;
@@ -1915,9 +1925,13 @@ pub fn run_execution(
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
                                 };
-                                if let Some(outcome) =
-                                    finish_native_call(&mut native_control, frame, idx, result)?
-                                {
+                                if let Some(outcome) = finish_native_call(
+                                    &mut native_control,
+                                    frame,
+                                    idx,
+                                    result,
+                                    &native_args,
+                                )? {
                                     return Ok(outcome);
                                 }
                                 continue;
@@ -2008,9 +2022,13 @@ pub fn run_execution(
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
                                 };
-                                if let Some(outcome) =
-                                    finish_native_call(&mut native_control, frame, idx, result)?
-                                {
+                                if let Some(outcome) = finish_native_call(
+                                    &mut native_control,
+                                    frame,
+                                    idx,
+                                    result,
+                                    &native_args,
+                                )? {
                                     return Ok(outcome);
                                 }
                                 continue;
@@ -2885,9 +2903,13 @@ pub fn run_execution(
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
                                 };
-                                if let Some(outcome) =
-                                    finish_native_call(&mut native_control, frame, idx, result)?
-                                {
+                                if let Some(outcome) = finish_native_call(
+                                    &mut native_control,
+                                    frame,
+                                    idx,
+                                    result,
+                                    &callee_args,
+                                )? {
                                     return Ok(outcome);
                                 }
                                 continue;
@@ -2975,9 +2997,13 @@ pub fn run_execution(
                                         propagate_java_exception!(class_name, exception_ref, pc);
                                     }
                                 };
-                                if let Some(outcome) =
-                                    finish_native_call(&mut native_control, frame, idx, result)?
-                                {
+                                if let Some(outcome) = finish_native_call(
+                                    &mut native_control,
+                                    frame,
+                                    idx,
+                                    result,
+                                    &callee_args,
+                                )? {
                                     return Ok(outcome);
                                 }
                                 continue;
@@ -3240,6 +3266,7 @@ pub fn run_execution(
                                             frame,
                                             idx,
                                             result,
+                                            &impl_args,
                                         )? {
                                             return Ok(outcome);
                                         }
@@ -3334,6 +3361,7 @@ pub fn run_execution(
                                             frame,
                                             idx,
                                             result,
+                                            &impl_args,
                                         )? {
                                             return Ok(outcome);
                                         }

@@ -1299,6 +1299,258 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
     );
 }
 
+fn lock_interface_context(name: &str) -> ClassContext {
+    ClassContext {
+        class_name: name.to_string(),
+        super_class: None,
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    }
+}
+
+/// Registers synthetic `java.util.concurrent.locks` classes.
+///
+/// The actual lock state lives in host payloads attached to the heap objects;
+/// these synthetic contexts provide the Java type names and native dispatch
+/// surface required by javac-compiled fixtures.
+#[allow(clippy::too_many_lines)]
+fn register_locks_stdlib(registry: &mut ClassRegistry) {
+    for interface_name in [
+        "java/util/concurrent/locks/Lock",
+        "java/util/concurrent/locks/Condition",
+        "java/util/concurrent/locks/ReadWriteLock",
+    ] {
+        registry.register(lock_interface_context(interface_name));
+    }
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "duke/util/concurrent/ConditionObject".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Condition".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantReadWriteLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field(
+                "readerLock",
+                "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+                false,
+            ),
+            synthetic_field(
+                "writerLock",
+                "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+                false,
+            ),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/concurrent/locks/ReadWriteLock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.register(ClassContext {
+        class_name: "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_reentrant_lock_init as NativeHandler),
+        ("<init>", "(Z)V", native_reentrant_lock_init_fair),
+        ("lock", "()V", native_reentrant_lock_lock),
+        ("lockInterruptibly", "()V", native_reentrant_lock_lock),
+        ("tryLock", "()Z", native_reentrant_lock_try_lock),
+        ("unlock", "()V", native_reentrant_lock_unlock),
+        (
+            "newCondition",
+            "()Ljava/util/concurrent/locks/Condition;",
+            native_reentrant_lock_new_condition,
+        ),
+        ("getHoldCount", "()I", native_reentrant_lock_get_hold_count),
+        (
+            "isHeldByCurrentThread",
+            "()Z",
+            native_reentrant_lock_is_held_by_current_thread,
+        ),
+        ("isLocked", "()Z", native_reentrant_lock_is_locked),
+        ("isFair", "()Z", native_reentrant_lock_is_fair),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantLock",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (method, descriptor, handler) in [
+        ("await", "()V", native_condition_await as NativeHandler),
+        ("awaitUninterruptibly", "()V", native_condition_await),
+        ("awaitNanos", "(J)J", native_condition_await_nanos),
+        ("signal", "()V", native_condition_signal),
+        ("signalAll", "()V", native_condition_signal_all),
+    ] {
+        registry.natives_mut().register(
+            "duke/util/concurrent/ConditionObject",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for desc in ["()V", "(Z)V"] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            "<init>",
+            desc,
+            native_reentrant_read_write_lock_init,
+        );
+    }
+    for desc in [
+        "()Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+        "()Ljava/util/concurrent/locks/Lock;",
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            "readLock",
+            desc,
+            native_reentrant_read_write_lock_read_lock,
+        );
+    }
+    for desc in [
+        "()Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+        "()Ljava/util/concurrent/locks/Lock;",
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            "writeLock",
+            desc,
+            native_reentrant_read_write_lock_write_lock,
+        );
+    }
+    for (method, descriptor, handler) in [
+        (
+            "isWriteLocked",
+            "()Z",
+            native_reentrant_read_write_lock_is_write_locked as NativeHandler,
+        ),
+        (
+            "isWriteLockedByCurrentThread",
+            "()Z",
+            native_reentrant_read_write_lock_is_write_locked_by_current_thread,
+        ),
+        (
+            "getWriteHoldCount",
+            "()I",
+            native_reentrant_read_write_lock_get_write_hold_count,
+        ),
+        (
+            "getReadHoldCount",
+            "()I",
+            native_reentrant_read_write_lock_get_read_hold_count,
+        ),
+        (
+            "getReadLockCount",
+            "()I",
+            native_reentrant_read_write_lock_get_read_lock_count,
+        ),
+    ] {
+        registry.natives_mut().register(
+            "java/util/concurrent/locks/ReentrantReadWriteLock",
+            method,
+            descriptor,
+            handler,
+        );
+    }
+
+    for (class_name, lock_handler, try_handler, unlock_handler, condition_handler) in [
+        (
+            "java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock",
+            native_read_lock_lock as NativeHandler,
+            native_read_lock_try_lock as NativeHandler,
+            native_read_lock_unlock as NativeHandler,
+            native_read_lock_new_condition as NativeHandler,
+        ),
+        (
+            "java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock",
+            native_write_lock_lock as NativeHandler,
+            native_write_lock_try_lock as NativeHandler,
+            native_write_lock_unlock as NativeHandler,
+            native_write_lock_new_condition as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register(class_name, "lock", "()V", lock_handler);
+        registry
+            .natives_mut()
+            .register(class_name, "lockInterruptibly", "()V", lock_handler);
+        registry
+            .natives_mut()
+            .register(class_name, "tryLock", "()Z", try_handler);
+        registry
+            .natives_mut()
+            .register(class_name, "unlock", "()V", unlock_handler);
+        registry.natives_mut().register(
+            class_name,
+            "newCondition",
+            "()Ljava/util/concurrent/locks/Condition;",
+            condition_handler,
+        );
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 /// Bootstraps the minimal JDK standard library classes needed for native method support.
 ///
@@ -2418,6 +2670,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     register_base64_stdlib(registry);
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
+    register_locks_stdlib(registry);
     register_jul_stdlib(registry, heap);
 
     // java/lang/Class — lightweight stub for class literals
@@ -3762,6 +4015,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ),
         (
             "java/lang/UnsupportedOperationException",
+            "java/lang/RuntimeException",
+        ),
+        (
+            "java/lang/IllegalMonitorStateException",
             "java/lang/RuntimeException",
         ),
         (

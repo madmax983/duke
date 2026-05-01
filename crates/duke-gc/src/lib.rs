@@ -32,6 +32,85 @@ const DEFAULT_YOUNG_CAPACITY: usize = 512;
 /// Default number of minor-GC survivals before an object is promoted to old gen.
 const DEFAULT_PROMOTION_AGE: u8 = 4;
 
+/// Host-side state for synthetic `ReentrantLock` objects.
+#[derive(Debug)]
+pub struct ReentrantLockState {
+    /// Whether the Java constructor requested a fair lock. Duke currently
+    /// records the bit for observability but schedules with the VM runtime.
+    pub fair: bool,
+    /// Host thread that owns the lock, if any.
+    pub owner: Option<std::thread::ThreadId>,
+    /// Reentrant hold count for the owner.
+    pub hold_count: i32,
+}
+
+impl ReentrantLockState {
+    /// Create an unlocked `ReentrantLock` state.
+    #[must_use]
+    pub const fn new(fair: bool) -> Self {
+        Self {
+            fair,
+            owner: None,
+            hold_count: 0,
+        }
+    }
+}
+
+/// One Duke Java thread waiting on a synthetic `Condition`.
+#[derive(Debug)]
+pub struct ConditionWaiter {
+    /// Waiting host thread.
+    pub thread_id: std::thread::ThreadId,
+    /// Number of `ReentrantLock` holds to restore before `await` returns.
+    pub released_hold_count: i32,
+    /// True after `signal`, `signalAll`, or timeout.
+    pub signaled: bool,
+    /// Optional absolute timeout for `awaitNanos`.
+    pub deadline: Option<std::time::Instant>,
+    /// True when the wake-up came from timeout rather than signal.
+    pub timed_out: bool,
+}
+
+/// Host-side state for a synthetic `Condition`.
+#[derive(Debug)]
+pub struct ConditionState {
+    /// The `ReentrantLock` this condition is bound to.
+    pub lock: Arc<Mutex<ReentrantLockState>>,
+    /// Threads currently parked on this condition.
+    pub waiters: Vec<ConditionWaiter>,
+}
+
+impl ConditionState {
+    /// Create condition state bound to a `ReentrantLock`.
+    #[must_use]
+    pub const fn new(lock: Arc<Mutex<ReentrantLockState>>) -> Self {
+        Self {
+            lock,
+            waiters: Vec::new(),
+        }
+    }
+}
+
+/// Which synthetic `ReentrantReadWriteLock` view a heap object represents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadWriteLockViewKind {
+    /// The read-lock view.
+    Read,
+    /// The write-lock view.
+    Write,
+}
+
+/// Host-side state for synthetic `ReentrantReadWriteLock` objects.
+#[derive(Debug, Default)]
+pub struct ReadWriteLockState {
+    /// Current writer, if any.
+    pub writer: Option<std::thread::ThreadId>,
+    /// Reentrant write holds for `writer`.
+    pub write_hold_count: i32,
+    /// Per-thread read hold counts.
+    pub readers: HashMap<std::thread::ThreadId, i32>,
+}
+
 /// Host-side payload backing synthetic `java.util.concurrent` objects.
 #[derive(Debug)]
 pub enum AtomicPayload {
@@ -45,6 +124,19 @@ pub enum AtomicPayload {
     Reference(Arc<Mutex<Slot>>),
     /// Coarse monitor for synthetic `ConcurrentHashMap` instances.
     ConcurrentMapLock(Arc<Mutex<()>>),
+    /// Backing state for synthetic `ReentrantLock` instances.
+    ReentrantLock(Arc<Mutex<ReentrantLockState>>),
+    /// Backing state for synthetic `Condition` instances.
+    Condition(Arc<Mutex<ConditionState>>),
+    /// Shared state for a synthetic `ReentrantReadWriteLock` parent object.
+    ReadWriteLock(Arc<Mutex<ReadWriteLockState>>),
+    /// Read or write view object for a synthetic `ReentrantReadWriteLock`.
+    ReadWriteLockView {
+        /// Shared parent lock state.
+        state: Arc<Mutex<ReadWriteLockState>>,
+        /// View represented by the heap object.
+        kind: ReadWriteLockViewKind,
+    },
 }
 
 impl Clone for AtomicPayload {
@@ -60,6 +152,13 @@ impl Clone for AtomicPayload {
                 Self::Reference(Arc::new(Mutex::new(slot)))
             }
             Self::ConcurrentMapLock(lock) => Self::ConcurrentMapLock(Arc::clone(lock)),
+            Self::ReentrantLock(state) => Self::ReentrantLock(Arc::clone(state)),
+            Self::Condition(state) => Self::Condition(Arc::clone(state)),
+            Self::ReadWriteLock(state) => Self::ReadWriteLock(Arc::clone(state)),
+            Self::ReadWriteLockView { state, kind } => Self::ReadWriteLockView {
+                state: Arc::clone(state),
+                kind: *kind,
+            },
         }
     }
 }
@@ -95,6 +194,33 @@ impl AtomicPayload {
         Self::ConcurrentMapLock(Arc::new(Mutex::new(())))
     }
 
+    /// Create host-side state for a synthetic `ReentrantLock`.
+    #[must_use]
+    pub fn reentrant_lock(fair: bool) -> Self {
+        Self::ReentrantLock(Arc::new(Mutex::new(ReentrantLockState::new(fair))))
+    }
+
+    /// Create host-side state for a synthetic `Condition`.
+    #[must_use]
+    pub fn condition(lock: Arc<Mutex<ReentrantLockState>>) -> Self {
+        Self::Condition(Arc::new(Mutex::new(ConditionState::new(lock))))
+    }
+
+    /// Create shared host-side state for a synthetic `ReentrantReadWriteLock`.
+    #[must_use]
+    pub fn read_write_lock() -> Self {
+        Self::ReadWriteLock(Arc::new(Mutex::new(ReadWriteLockState::default())))
+    }
+
+    /// Create a read/write view into shared `ReentrantReadWriteLock` state.
+    #[must_use]
+    pub const fn read_write_lock_view(
+        state: Arc<Mutex<ReadWriteLockState>>,
+        kind: ReadWriteLockViewKind,
+    ) -> Self {
+        Self::ReadWriteLockView { state, kind }
+    }
+
     fn reference_slot(&self) -> Option<Slot> {
         match self {
             Self::Reference(cell) => Some(
@@ -102,7 +228,14 @@ impl AtomicPayload {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner),
             ),
-            Self::Int(_) | Self::Long(_) | Self::Bool(_) | Self::ConcurrentMapLock(_) => None,
+            Self::Int(_)
+            | Self::Long(_)
+            | Self::Bool(_)
+            | Self::ConcurrentMapLock(_)
+            | Self::ReentrantLock(_)
+            | Self::Condition(_)
+            | Self::ReadWriteLock(_)
+            | Self::ReadWriteLockView { .. } => None,
         }
     }
 

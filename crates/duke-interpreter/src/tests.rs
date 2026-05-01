@@ -5729,6 +5729,146 @@ fn atomic_contended_fixture_is_linearizable_under_threading_runtime() {
 }
 
 #[test]
+fn reentrant_lock_reports_hold_count_and_owner_status() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReentrantLockBasicTest.class",
+            "reentrantHoldCountAndStatus",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn reentrant_lock_try_lock_fails_while_other_thread_holds_lock() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReentrantLockBasicTest.class",
+            "tryLockFailsWhileAnotherThreadHolds",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn reentrant_lock_unlock_by_non_owner_throws() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReentrantLockBasicTest.class",
+            "unlockByNonOwnerThrows",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn condition_producer_consumer_preserves_sequence() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ConditionProducerConsumerTest.class",
+            "producerConsumerSequence",
+            "()I",
+        ),
+        12345
+    );
+}
+
+#[test]
+fn condition_await_reacquires_lock_after_signal() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ConditionProducerConsumerTest.class",
+            "awaitReacquiresLockAfterSignal",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn condition_operations_require_lock_ownership() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ConditionProducerConsumerTest.class",
+            "conditionCallsRequireLockOwnership",
+            "()I",
+        ),
+        1111
+    );
+}
+
+#[test]
+fn read_write_lock_allows_overlapping_readers() {
+    assert_eq!(
+        run_bootstrap_int_completion("ReadWriteLockTest.class", "twoReadersMayOverlap", "()I"),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_write_lock_excludes_readers_until_unlock() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "writeLockExcludesReadersUntilUnlock",
+            "()I",
+        ),
+        3
+    );
+}
+
+#[test]
+fn read_write_lock_read_lock_excludes_writer_try_lock() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "readLockExcludesWriterTryLock",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_supports_write_reentrancy_and_downgrade() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "writeReentrantAndDowngrade",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_read_lock_new_condition_is_unsupported() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "readLockNewConditionUnsupported",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
+fn read_write_lock_write_unlock_by_non_owner_throws() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "ReadWriteLockTest.class",
+            "writeUnlockByNonOwnerThrows",
+            "()I",
+        ),
+        1
+    );
+}
+
+#[test]
 fn atomic_service_loader_interop_fixture_allows_atomic_clinit() {
     assert_eq!(
         run_service_loader_jar_int(
