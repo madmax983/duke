@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use crate::{ClassLoader, DirectoryLoader, Error, JImageReader, Result, ZipLoader};
+use crate::{
+    ClassLoader, DirectoryLoader, Error, JImageReader, LocatedResource, Result, ZipLoader,
+};
 
 /// A single classpath entry — either a directory or a ZIP/JAR archive.
 ///
@@ -41,6 +43,20 @@ impl ClassLoader for ClasspathEntry {
         match self {
             Self::Directory(d) => d.find_resources(name),
             Self::Zip(z) => z.find_resources(name),
+        }
+    }
+
+    fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        match self {
+            Self::Directory(d) => d.find_resource_entry(name),
+            Self::Zip(z) => z.find_resource_entry(name),
+        }
+    }
+
+    fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        match self {
+            Self::Directory(d) => d.find_resource_entries(name),
+            Self::Zip(z) => z.find_resource_entries(name),
         }
     }
 }
@@ -143,6 +159,26 @@ impl ClassLoader for BootstrapLoader {
         let mut resources = Vec::new();
         for entry in &self.classpath {
             resources.extend(entry.find_resources(name)?);
+        }
+        Ok(resources)
+    }
+
+    fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        for entry in &self.classpath {
+            match entry.find_resource_entry(name) {
+                Err(Error::NotFound { .. }) => {}
+                result => return result,
+            }
+        }
+        Err(Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        let mut resources = Vec::new();
+        for entry in &self.classpath {
+            resources.extend(entry.find_resource_entries(name)?);
         }
         Ok(resources)
     }
@@ -317,5 +353,42 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
 
         assert_eq!(resources, vec![b"first\n".to_vec(), b"second\n".to_vec()]);
+    }
+
+    #[test]
+    fn test_bootstrap_loader_find_resource_entries_preserve_url_order() {
+        let base = std::env::temp_dir().join("duke_test_resource_urls");
+        let first = base.join("first");
+        let second = base.join("second");
+        if base.exists() {
+            fs::remove_dir_all(&base).unwrap();
+        }
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        fs::write(first.join("sample.txt"), b"first").unwrap();
+        fs::write(second.join("sample.txt"), b"second").unwrap();
+
+        let loader = BootstrapLoader::new_for_test(vec![
+            classpath_entry_for(&first).unwrap(),
+            classpath_entry_for(&second).unwrap(),
+        ]);
+        let resources = loader
+            .find_resource_entries("sample.txt")
+            .expect("resource entries should read");
+
+        drop(loader);
+        fs::remove_dir_all(&base).unwrap();
+
+        assert_eq!(resources.len(), 2);
+        assert_eq!(resources[0].bytes, b"first");
+        assert_eq!(resources[1].bytes, b"second");
+        assert!(
+            resources[0].url.ends_with("/first/sample.txt")
+                || resources[0].url.ends_with("\\first\\sample.txt")
+        );
+        assert!(
+            resources[1].url.ends_with("/second/sample.txt")
+                || resources[1].url.ends_with("\\second\\sample.txt")
+        );
     }
 }

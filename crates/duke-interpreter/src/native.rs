@@ -8654,6 +8654,161 @@ pub(crate) fn native_class_get_class_loader(
     )))
 }
 
+fn allocate_resource_url(heap: &mut duke_gc::Heap, url: String) -> Result<u64> {
+    allocate_string_backed_object(heap, "java/net/URL", url)
+}
+
+fn allocate_resource_enumeration(
+    heap: &mut duke_gc::Heap,
+    resources: Vec<duke_loader::LocatedResource>,
+) -> Result<u64> {
+    let enum_ref = heap.allocate(
+        "duke/util/ResourceEnumeration".to_string(),
+        RESOURCE_ENUM_VALUES_START + resources.len(),
+    );
+    heap.write_field(enum_ref, RESOURCE_ENUM_INDEX_FIELD, Slot::Int(0))?;
+    heap.write_field(
+        enum_ref,
+        RESOURCE_ENUM_COUNT_FIELD,
+        Slot::Int(i32::try_from(resources.len()).unwrap_or(i32::MAX)),
+    )?;
+    for (idx, resource) in resources.into_iter().enumerate() {
+        let url_ref = allocate_resource_url(heap, resource.url)?;
+        heap.write_field(
+            enum_ref,
+            RESOURCE_ENUM_VALUES_START + idx,
+            Slot::Reference(Some(url_ref)),
+        )?;
+    }
+    Ok(enum_ref)
+}
+
+fn lookup_class_resource(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+) -> Result<(String, String, String, Option<duke_loader::LocatedResource>)> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let class_internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let loader_ref = ops.runtime_loader_for_class(&class_key)?;
+    let requested_name = string_arg(args, 1, heap)?;
+    let base = class_resource_base(&class_internal_name);
+    let classpath = classpath_debug_label(loader_ref);
+    let Some(resolved_name) = resolve_class_resource_name(&class_internal_name, &requested_name) else {
+        log_resource_lookup_miss(&requested_name, &base, &classpath);
+        return Ok((requested_name, base, classpath, None));
+    };
+    let resource = ops.find_resource_entry(heap, loader_ref, &resolved_name)?;
+    if resource.is_none() {
+        log_resource_lookup_miss(&resolved_name, &base, &classpath);
+    }
+    Ok((resolved_name, base, classpath, resource))
+}
+
+fn lookup_class_loader_resource(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+) -> Result<(String, String, String, Option<duke_loader::LocatedResource>)> {
+    let loader_ref = extract_ref_arg(args, 0)?;
+    let requested_name = string_arg(args, 1, heap)?;
+    let base = "<class-loader>".to_string();
+    let classpath = classpath_debug_label(Some(loader_ref));
+    let Some(resolved_name) = normalize_resource_name(&requested_name) else {
+        log_resource_lookup_miss(&requested_name, &base, &classpath);
+        return Ok((requested_name, base, classpath, None));
+    };
+    let resource = ops.find_resource_entry(heap, Some(loader_ref), &resolved_name)?;
+    if resource.is_none() {
+        log_resource_lookup_miss(&resolved_name, &base, &classpath);
+    }
+    Ok((resolved_name, base, classpath, resource))
+}
+
+pub(crate) fn native_class_get_resource_as_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let (_, _, _, resource) = lookup_class_resource(args, heap, ops)?;
+    let Some(resource) = resource else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let stream_ref = allocate_resource_input_stream(heap, resource.bytes)?;
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+pub(crate) fn native_class_loader_get_resource_as_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let (_, _, _, resource) = lookup_class_loader_resource(args, heap, ops)?;
+    let Some(resource) = resource else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let stream_ref = allocate_resource_input_stream(heap, resource.bytes)?;
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+pub(crate) fn native_class_get_resource(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let (_, _, _, resource) = lookup_class_resource(args, heap, ops)?;
+    let Some(resource) = resource else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let url_ref = allocate_resource_url(heap, resource.url)?;
+    Ok(Some(Slot::Reference(Some(url_ref))))
+}
+
+pub(crate) fn native_class_loader_get_resource(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let (_, _, _, resource) = lookup_class_loader_resource(args, heap, ops)?;
+    let Some(resource) = resource else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let url_ref = allocate_resource_url(heap, resource.url)?;
+    Ok(Some(Slot::Reference(Some(url_ref))))
+}
+
+pub(crate) fn native_class_loader_get_resources(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let loader_ref = extract_ref_arg(args, 0)?;
+    let requested_name = string_arg(args, 1, heap)?;
+    let classpath = classpath_debug_label(Some(loader_ref));
+    let Some(resolved_name) = normalize_resource_name(&requested_name) else {
+        log_resource_lookup_miss(&requested_name, "<class-loader>", &classpath);
+        let enum_ref = allocate_resource_enumeration(heap, Vec::new())?;
+        return Ok(Some(Slot::Reference(Some(enum_ref))));
+    };
+    let resources = ops.find_resource_entries(heap, Some(loader_ref), &resolved_name)?;
+    if resources.is_empty() {
+        log_resource_lookup_miss(&resolved_name, "<class-loader>", &classpath);
+    }
+    let enum_ref = allocate_resource_enumeration(heap, resources)?;
+    Ok(Some(Slot::Reference(Some(enum_ref))))
+}
+
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_class_loader_register_as_parallel_capable(
     _args: &[Slot],
@@ -8749,6 +8904,208 @@ fn file_url_to_path(url: &str) -> Result<std::path::PathBuf> {
     }
 }
 
+const RESOURCE_STREAM_BYTES_FIELD: usize = 0;
+const RESOURCE_STREAM_CURSOR_FIELD: usize = 1;
+const RESOURCE_STREAM_CLOSED_FIELD: usize = 2;
+
+const RESOURCE_ENUM_INDEX_FIELD: usize = 0;
+const RESOURCE_ENUM_COUNT_FIELD: usize = 1;
+const RESOURCE_ENUM_VALUES_START: usize = 2;
+
+fn resource_lookup_trace_enabled() -> bool {
+    std::env::var("RUST_LOG").is_ok_and(|value| {
+        let lower = value.to_ascii_lowercase();
+        lower.contains("debug") || lower.contains("trace")
+    })
+}
+
+fn log_resource_lookup_miss(resolved_name: &str, base: &str, classpath: &str) {
+    if resource_lookup_trace_enabled() {
+        eprintln!(
+            "resource lookup miss: name={resolved_name} base={base} classpath={classpath}"
+        );
+    }
+}
+
+fn normalize_resource_name(name: &str) -> Option<String> {
+    if name.is_empty()
+        || name.starts_with('/')
+        || name.starts_with('\\')
+        || name.contains(':')
+    {
+        return None;
+    }
+    let mut normalized = String::with_capacity(name.len());
+    for (idx, component) in name.split(['/', '\\']).enumerate() {
+        if component.is_empty() || component == "." || component == ".." {
+            return None;
+        }
+        if idx > 0 {
+            normalized.push('/');
+        }
+        normalized.push_str(component);
+    }
+    Some(normalized)
+}
+
+fn resolve_class_resource_name(class_internal_name: &str, name: &str) -> Option<String> {
+    if let Some(absolute) = name.strip_prefix('/') {
+        return normalize_resource_name(absolute);
+    }
+
+    let mut resolved = String::new();
+    if let Some((package, _)) = class_internal_name.rsplit_once('/') {
+        resolved.push_str(package);
+        resolved.push('/');
+    }
+    resolved.push_str(name);
+    normalize_resource_name(&resolved)
+}
+
+fn class_resource_base(class_internal_name: &str) -> String {
+    class_internal_name
+        .rsplit_once('/')
+        .map_or_else(|| "<default-package>".to_string(), |(package, _)| package.to_string())
+}
+
+fn classpath_debug_label(loader_ref: Option<u64>) -> String {
+    loader_ref.map_or_else(|| "bootstrap".to_string(), |loader| format!("loader:{loader}"))
+}
+
+fn string_arg(args: &[Slot], idx: usize, heap: &duke_gc::Heap) -> Result<String> {
+    let string_ref = extract_ref_arg(args, idx)?;
+    string_value_from_ref(heap, string_ref)
+}
+
+fn allocate_resource_input_stream(heap: &mut duke_gc::Heap, bytes: Vec<u8>) -> Result<u64> {
+    let byte_array_ref = heap.allocate("[B".to_string(), bytes.len());
+    {
+        let array = heap.get_mut(byte_array_ref)?;
+        for (idx, byte) in bytes.into_iter().enumerate() {
+            array.fields[idx] = Slot::Int(i32::from(byte));
+        }
+    }
+    let stream_ref = heap.allocate("duke/io/ResourceInputStream".to_string(), 3);
+    let stream = heap.get_mut(stream_ref)?;
+    stream.fields[RESOURCE_STREAM_BYTES_FIELD] = Slot::Reference(Some(byte_array_ref));
+    stream.fields[RESOURCE_STREAM_CURSOR_FIELD] = Slot::Int(0);
+    stream.fields[RESOURCE_STREAM_CLOSED_FIELD] = Slot::Int(0);
+    Ok(stream_ref)
+}
+
+fn resource_stream_array_ref(heap: &duke_gc::Heap, stream_ref: u64) -> Result<u64> {
+    match heap.get(stream_ref)?.fields.get(RESOURCE_STREAM_BYTES_FIELD) {
+        Some(Slot::Reference(Some(array_ref))) => Ok(*array_ref),
+        _ => Err(Error::InvalidRef { address: stream_ref }),
+    }
+}
+
+fn resource_stream_is_closed(heap: &duke_gc::Heap, stream_ref: u64) -> Result<bool> {
+    Ok(matches!(
+        heap.get(stream_ref)?.fields.get(RESOURCE_STREAM_CLOSED_FIELD),
+        Some(Slot::Int(value)) if *value != 0
+    ))
+}
+
+fn resource_stream_ensure_open(heap: &duke_gc::Heap, stream_ref: u64) -> Result<()> {
+    if resource_stream_is_closed(heap, stream_ref)? {
+        push_pending_java_exception_message("java/io/IOException", "Stream closed".to_string());
+        return Err(Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn resource_stream_cursor(heap: &duke_gc::Heap, stream_ref: u64) -> Result<usize> {
+    match heap.get(stream_ref)?.fields.get(RESOURCE_STREAM_CURSOR_FIELD) {
+        Some(Slot::Int(value)) if *value >= 0 => Ok(usize::try_from(*value).unwrap_or(usize::MAX)),
+        _ => Ok(0),
+    }
+}
+
+fn resource_stream_set_cursor(heap: &mut duke_gc::Heap, stream_ref: u64, cursor: usize) -> Result<()> {
+    heap.write_field(
+        stream_ref,
+        RESOURCE_STREAM_CURSOR_FIELD,
+        Slot::Int(i32::try_from(cursor).unwrap_or(i32::MAX)),
+    )
+}
+
+fn resource_stream_available_bytes(heap: &duke_gc::Heap, stream_ref: u64) -> Result<usize> {
+    let array_ref = resource_stream_array_ref(heap, stream_ref)?;
+    let len = heap.get(array_ref)?.fields.len();
+    Ok(len.saturating_sub(resource_stream_cursor(heap, stream_ref)?))
+}
+
+fn read_resource_bytes_from_jar_spec(spec: &str) -> Result<Vec<u8>> {
+    let Some((container, entry_name)) = spec.rsplit_once("!/") else {
+        return Err(Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        });
+    };
+
+    if container.starts_with("file://") && container.contains("!/") {
+        let Some((outer_url, nested_entry_name)) = container.rsplit_once("!/") else {
+            return Err(Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        };
+        let outer_path = file_url_to_path(outer_url)?;
+        let nested_bytes = duke_loader::ZipReader::open(&outer_path)
+            .map_err(|_| Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            })?
+            .read_entry(nested_entry_name)
+            .map_err(|_| Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            })?;
+        return duke_loader::ZipReader::from_bytes(nested_bytes)
+            .map_err(|_| Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            })?
+            .read_entry(entry_name)
+            .map_err(|_| Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+    }
+
+    let jar_path = file_url_to_path(container)?;
+    duke_loader::ZipReader::open(&jar_path)
+        .map_err(|_| Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        })?
+        .read_entry(entry_name)
+        .map_err(|_| Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        })
+}
+
+fn read_resource_bytes_from_url_spec(spec: &str) -> Result<Vec<u8>> {
+    if let Some(jar_spec) = spec.strip_prefix("jar:") {
+        return read_resource_bytes_from_jar_spec(jar_spec);
+    }
+    if spec.starts_with("file://") {
+        let path = file_url_to_path(spec)?;
+        return std::fs::read(path).map_err(|_| Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        });
+    }
+    Err(Error::JavaException {
+        class_name: "java/io/IOException".to_string(),
+    })
+}
+
+fn url_path_string(spec: &str) -> String {
+    if let Some(path) = spec.strip_prefix("jar:") {
+        return path.to_string();
+    }
+    if let Some(path) = spec.strip_prefix("file://") {
+        return percent_decode(path);
+    }
+    spec.to_string()
+}
+
 pub(crate) fn native_class_get_protection_domain(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8839,6 +9196,15 @@ pub(crate) fn native_url_to_string(
     }
 }
 
+pub(crate) fn native_url_to_external_form(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_url_to_string(args, heap, out, control)
+}
+
 pub(crate) fn native_url_to_uri(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -8849,6 +9215,219 @@ pub(crate) fn native_url_to_uri(
     let spec = string_backed_object_value(heap, this_ref)?;
     let uri_ref = allocate_string_backed_object(heap, "java/net/URI", spec)?;
     Ok(Some(Slot::Reference(Some(uri_ref))))
+}
+
+pub(crate) fn native_url_get_path(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let spec = string_backed_object_value(heap, this_ref)?;
+    let path_ref = heap.allocate_string(url_path_string(&spec));
+    Ok(Some(Slot::Reference(Some(path_ref))))
+}
+
+pub(crate) fn native_url_open_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let spec = string_backed_object_value(heap, this_ref)?;
+    let bytes = read_resource_bytes_from_url_spec(&spec)?;
+    let stream_ref = allocate_resource_input_stream(heap, bytes)?;
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
+pub(crate) fn native_resource_input_stream_read(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    resource_stream_ensure_open(heap, this_ref)?;
+    let array_ref = resource_stream_array_ref(heap, this_ref)?;
+    let cursor = resource_stream_cursor(heap, this_ref)?;
+    let bytes = &heap.get(array_ref)?.fields;
+    if cursor >= bytes.len() {
+        return Ok(Some(Slot::Int(-1)));
+    }
+    let next = match bytes.get(cursor) {
+        Some(Slot::Int(value)) => *value,
+        _ => 0,
+    };
+    resource_stream_set_cursor(heap, this_ref, cursor + 1)?;
+    Ok(Some(Slot::Int(next)))
+}
+
+pub(crate) fn native_resource_input_stream_read_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let array_ref = extract_ref_arg(args, 1)?;
+    let len = heap.get(array_ref)?.fields.len();
+    let len_i32 = i32::try_from(len).unwrap_or(i32::MAX);
+    native_resource_input_stream_read_bytes_slice(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(array_ref)),
+            Slot::Int(0),
+            Slot::Int(len_i32),
+        ],
+        heap,
+        &mut Vec::new(),
+        &mut NativeControl::default(),
+    )
+}
+
+pub(crate) fn native_resource_input_stream_read_bytes_slice(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let len = extract_int_arg(args, 3)?;
+    resource_stream_ensure_open(heap, this_ref)?;
+
+    let target_len = heap.get(target_ref)?.fields.len();
+    if offset < 0 || len < 0 {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+    let len = usize::try_from(len).unwrap_or(usize::MAX);
+    if offset > target_len || len > target_len.saturating_sub(offset) {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    if len == 0 {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    let source_ref = resource_stream_array_ref(heap, this_ref)?;
+    let cursor = resource_stream_cursor(heap, this_ref)?;
+    let source = heap.get(source_ref)?.fields.clone();
+    if cursor >= source.len() {
+        return Ok(Some(Slot::Int(-1)));
+    }
+    let available = source.len() - cursor;
+    let read_len = available.min(len);
+    {
+        let target = heap.get_mut(target_ref)?;
+        target.fields[offset..offset + read_len].copy_from_slice(&source[cursor..cursor + read_len]);
+    }
+    resource_stream_set_cursor(heap, this_ref, cursor + read_len)?;
+    Ok(Some(Slot::Int(i32::try_from(read_len).unwrap_or(i32::MAX))))
+}
+
+pub(crate) fn native_resource_input_stream_available(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    resource_stream_ensure_open(heap, this_ref)?;
+    let available = resource_stream_available_bytes(heap, this_ref)?;
+    Ok(Some(Slot::Int(i32::try_from(available).unwrap_or(i32::MAX))))
+}
+
+pub(crate) fn native_resource_input_stream_skip(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let requested = extract_long_arg(args, 1)?;
+    resource_stream_ensure_open(heap, this_ref)?;
+    if requested <= 0 {
+        return Ok(Some(Slot::Long(0)));
+    }
+    let available = resource_stream_available_bytes(heap, this_ref)?;
+    let skipped = available.min(usize::try_from(requested).unwrap_or(usize::MAX));
+    let cursor = resource_stream_cursor(heap, this_ref)?;
+    resource_stream_set_cursor(heap, this_ref, cursor + skipped)?;
+    Ok(Some(Slot::Long(i64::try_from(skipped).unwrap_or(i64::MAX))))
+}
+
+pub(crate) fn native_resource_input_stream_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.write_field(this_ref, RESOURCE_STREAM_CLOSED_FIELD, Slot::Int(1))?;
+    Ok(None)
+}
+
+pub(crate) fn native_resource_enumeration_has_more_elements(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = &heap.get(this_ref)?.fields;
+    let index = match fields.get(RESOURCE_ENUM_INDEX_FIELD) {
+        Some(Slot::Int(value)) if *value > 0 => usize::try_from(*value).unwrap_or(0),
+        _ => 0,
+    };
+    let count = match fields.get(RESOURCE_ENUM_COUNT_FIELD) {
+        Some(Slot::Int(value)) if *value > 0 => usize::try_from(*value).unwrap_or(0),
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(index < count))))
+}
+
+pub(crate) fn native_resource_enumeration_next_element(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (index, count, slot) = {
+        let enumeration = heap.get(this_ref)?;
+        let index = match enumeration.fields.get(RESOURCE_ENUM_INDEX_FIELD) {
+            Some(Slot::Int(value)) if *value > 0 => usize::try_from(*value).unwrap_or(0),
+            _ => 0,
+        };
+        let count = match enumeration.fields.get(RESOURCE_ENUM_COUNT_FIELD) {
+            Some(Slot::Int(value)) if *value > 0 => usize::try_from(*value).unwrap_or(0),
+            _ => 0,
+        };
+        let slot = enumeration
+            .fields
+            .get(RESOURCE_ENUM_VALUES_START + index)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        (index, count, slot)
+    };
+    if index >= count {
+        return Err(Error::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    heap.write_field(
+        this_ref,
+        RESOURCE_ENUM_INDEX_FIELD,
+        Slot::Int(i32::try_from(index + 1).unwrap_or(i32::MAX)),
+    )?;
+    Ok(Some(slot))
 }
 
 pub(crate) fn native_url_class_loader_init(
@@ -19292,6 +19871,40 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
             })
     }
 
+    fn find_resource_entry(
+        &mut self,
+        heap: &duke_gc::Heap,
+        loader_ref: Option<u64>,
+        name: &str,
+    ) -> Result<Option<duke_loader::LocatedResource>> {
+        if let Some(loader_ref) = loader_ref {
+            let paths = runtime_loader_paths(self.registry, heap, loader_ref)?;
+            return self.registry.find_resource_entry_for_paths(&paths, name);
+        }
+        match self.loader.find_resource_entry(name) {
+            Ok(resource) => Ok(Some(resource)),
+            Err(duke_loader::Error::NotFound { .. }) => Ok(None),
+            Err(_) => Err(Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            }),
+        }
+    }
+
+    fn find_resource_entries(
+        &mut self,
+        heap: &duke_gc::Heap,
+        loader_ref: Option<u64>,
+        name: &str,
+    ) -> Result<Vec<duke_loader::LocatedResource>> {
+        if let Some(loader_ref) = loader_ref {
+            let paths = runtime_loader_paths(self.registry, heap, loader_ref)?;
+            return self.registry.find_resource_entries_for_paths(&paths, name);
+        }
+        self.loader.find_resource_entries(name).map_err(|_| Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        })
+    }
+
     fn class_key_for_loaded_class(&mut self, class: &str) -> Result<String> {
         self.registry.resolve_loaded_class_key(class)
     }
@@ -24036,6 +24649,71 @@ const SERVICE_ITER_INDEX_FIELD: usize = 2;
 const SERVICE_ITER_COUNT_FIELD: usize = 3;
 const SERVICE_ITER_PROVIDERS_START: usize = 4;
 
+fn read_resource_enumeration_bytes(
+    enum_ref: u64,
+    heap: &mut duke_gc::Heap,
+) -> Result<Vec<Vec<u8>>> {
+    let mut files = Vec::new();
+    loop {
+        let has_more = match native_resource_enumeration_has_more_elements(
+            &[Slot::Reference(Some(enum_ref))],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )? {
+            Some(Slot::Int(value)) => value != 0,
+            _ => false,
+        };
+        if !has_more {
+            break;
+        }
+        let url_slot = native_resource_enumeration_next_element(
+            &[Slot::Reference(Some(enum_ref))],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )?
+        .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(url_ref)) = url_slot else {
+            return Err(Error::NullPointerException);
+        };
+        let spec = string_backed_object_value(heap, url_ref)?;
+        files.push(read_resource_bytes_from_url_spec(&spec)?);
+    }
+    Ok(files)
+}
+
+fn service_configuration_files_via_resources(
+    heap: &mut duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+    loader_ref: Option<u64>,
+    service_binary_name: &str,
+) -> Result<Vec<Vec<u8>>> {
+    let resource_name = format!("META-INF/services/{service_binary_name}");
+    let enum_ref = if let Some(loader_ref) = loader_ref {
+        let resource_name_ref = heap.allocate_string(resource_name);
+        let enum_slot = native_class_loader_get_resources(
+            &[
+                Slot::Reference(Some(loader_ref)),
+                Slot::Reference(Some(resource_name_ref)),
+            ],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+            ops,
+        )?
+        .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(enum_ref)) = enum_slot else {
+            return Ok(Vec::new());
+        };
+        enum_ref
+    } else {
+        let resources = ops.find_resource_entries(heap, None, &resource_name)?;
+        allocate_resource_enumeration(heap, resources)?
+    };
+    read_resource_enumeration_bytes(enum_ref, heap)
+}
+
 fn parse_service_provider_names(files: Vec<Vec<u8>>) -> Result<Vec<String>> {
     let mut names = Vec::new();
     for bytes in files {
@@ -24099,7 +24777,7 @@ fn allocate_service_loader(
             got: "other",
         });
     };
-    let files = ops.service_configuration_files(heap, loader_ref, &service_binary_name)?;
+    let files = service_configuration_files_via_resources(heap, ops, loader_ref, &service_binary_name)?;
     let provider_names = parse_service_provider_names(files)?;
     let loader_ref = heap.allocate(
         "java/util/ServiceLoader".to_string(),

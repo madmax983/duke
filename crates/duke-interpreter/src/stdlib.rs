@@ -254,6 +254,21 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
     });
+    registry.register(ClassContext {
+        class_name: "duke/util/ResourceEnumeration".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            synthetic_field("index", "I", false),
+            synthetic_field("count", "I", false),
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Enumeration".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
 
     let root_handler = jul_allocate_console_handler(heap, all_level);
     let root_logger = jul_allocate_logger(
@@ -662,6 +677,18 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
             native_jul_logger_names_next_element,
         );
     }
+    registry.natives_mut().register(
+        "duke/util/ResourceEnumeration",
+        "hasMoreElements",
+        "()Z",
+        native_resource_enumeration_has_more_elements,
+    );
+    registry.natives_mut().register(
+        "duke/util/ResourceEnumeration",
+        "nextElement",
+        "()Ljava/lang/Object;",
+        native_resource_enumeration_next_element,
+    );
 }
 
 fn register_charset_classes(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
@@ -2205,6 +2232,71 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(input_stream_ctx);
+    let resource_input_stream_ctx = ClassContext {
+        class_name: "duke/io/ResourceInputStream".to_string(),
+        super_class: Some("java/io/InputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "bytes".to_string(),
+                descriptor: "[B".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "cursor".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "closed".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: vec!["java/lang/AutoCloseable".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(resource_input_stream_ctx);
+    for (method, descriptor, handler) in [
+        (
+            "read",
+            "()I",
+            native_resource_input_stream_read as NativeHandler,
+        ),
+        (
+            "read",
+            "([B)I",
+            native_resource_input_stream_read_bytes as NativeHandler,
+        ),
+        (
+            "read",
+            "([BII)I",
+            native_resource_input_stream_read_bytes_slice as NativeHandler,
+        ),
+        (
+            "available",
+            "()I",
+            native_resource_input_stream_available as NativeHandler,
+        ),
+        (
+            "skip",
+            "(J)J",
+            native_resource_input_stream_skip as NativeHandler,
+        ),
+        (
+            "close",
+            "()V",
+            native_resource_input_stream_close as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("duke/io/ResourceInputStream", method, descriptor, handler);
+    }
 
     let output_stream_ctx = ClassContext {
         class_name: "java/io/OutputStream".to_string(),
@@ -3266,6 +3358,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/ClassLoader;",
         native_class_get_class_loader,
     );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getResourceAsStream",
+        "(Ljava/lang/String;)Ljava/io/InputStream;",
+        native_class_get_resource_as_stream,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getResource",
+        "(Ljava/lang/String;)Ljava/net/URL;",
+        native_class_get_resource,
+    );
     registry.natives_mut().register(
         "jdk/internal/misc/CDS",
         "isDumpingClassList0",
@@ -3385,6 +3489,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "toString",
         "()Ljava/lang/String;",
         native_url_to_string,
+    );
+    registry.natives_mut().register(
+        "java/net/URL",
+        "toExternalForm",
+        "()Ljava/lang/String;",
+        native_url_to_external_form,
+    );
+    registry.natives_mut().register(
+        "java/net/URL",
+        "getPath",
+        "()Ljava/lang/String;",
+        native_url_get_path,
+    );
+    registry.natives_mut().register(
+        "java/net/URL",
+        "openStream",
+        "()Ljava/io/InputStream;",
+        native_url_open_stream,
     );
     registry.natives_mut().register(
         "java/net/URL",
@@ -3983,6 +4105,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "registerAsParallelCapable",
         "()Z",
         native_class_loader_register_as_parallel_capable,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getResourceAsStream",
+        "(Ljava/lang/String;)Ljava/io/InputStream;",
+        native_class_loader_get_resource_as_stream,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getResource",
+        "(Ljava/lang/String;)Ljava/net/URL;",
+        native_class_loader_get_resource,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getResources",
+        "(Ljava/lang/String;)Ljava/util/Enumeration;",
+        native_class_loader_get_resources,
     );
 
     let thread_ctx = ClassContext {

@@ -40,6 +40,29 @@ impl ClassLoader for ChainLoader {
         }
         Ok(resources)
     }
+
+    fn find_resource_entry(&self, name: &str) -> duke_loader::Result<duke_loader::LocatedResource> {
+        for entry in &self.0 {
+            match entry.find_resource_entry(name) {
+                Err(duke_loader::Error::NotFound { .. }) => {}
+                result => return result,
+            }
+        }
+        Err(duke_loader::Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resource_entries(
+        &self,
+        name: &str,
+    ) -> duke_loader::Result<Vec<duke_loader::LocatedResource>> {
+        let mut resources = Vec::new();
+        for entry in &self.0 {
+            resources.extend(entry.find_resource_entries(name)?);
+        }
+        Ok(resources)
+    }
 }
 
 enum OssSmokeLoader {
@@ -66,6 +89,23 @@ impl ClassLoader for OssSmokeLoader {
         match self {
             Self::Bootstrap(loader) => loader.find_resources(name),
             Self::Chain(loader) => loader.find_resources(name),
+        }
+    }
+
+    fn find_resource_entry(&self, name: &str) -> duke_loader::Result<duke_loader::LocatedResource> {
+        match self {
+            Self::Bootstrap(loader) => loader.find_resource_entry(name),
+            Self::Chain(loader) => loader.find_resource_entry(name),
+        }
+    }
+
+    fn find_resource_entries(
+        &self,
+        name: &str,
+    ) -> duke_loader::Result<Vec<duke_loader::LocatedResource>> {
+        match self {
+            Self::Bootstrap(loader) => loader.find_resource_entries(name),
+            Self::Chain(loader) => loader.find_resource_entries(name),
         }
     }
 }
@@ -150,7 +190,7 @@ fn render_smoke_error(err: &Error) -> String {
     }
 }
 
-fn run_slf4j_simple_smoke() -> SmokeRun {
+fn run_slf4j_simple_method(method_name: &str, descriptor: &str) -> SmokeRun {
     let loader = oss_smoke_loader();
     let mut registry = ClassRegistry::new();
     let mut heap = Heap::new();
@@ -172,9 +212,13 @@ fn run_slf4j_simple_smoke() -> SmokeRun {
         &mut heap,
         &mut output,
         "Slf4jSimpleSmoke",
-        "main",
-        "([Ljava/lang/String;)V",
-        &main_args,
+        method_name,
+        descriptor,
+        if descriptor == "([Ljava/lang/String;)V" {
+            &main_args
+        } else {
+            &[]
+        },
     );
 
     SmokeRun {
@@ -182,6 +226,10 @@ fn run_slf4j_simple_smoke() -> SmokeRun {
         output: String::from_utf8(output).expect("captured output is utf8"),
         registry,
     }
+}
+
+fn run_slf4j_simple_smoke() -> SmokeRun {
+    run_slf4j_simple_method("main", "([Ljava/lang/String;)V")
 }
 
 #[test]
@@ -233,4 +281,23 @@ fn slf4j_simple_smoke_runs_real_jar_bytecode() {
         .get("org/slf4j/simple/SimpleServiceProvider")
         .expect("SimpleServiceProvider should be loaded");
     assert_eq!(provider.load_source, ClassLoadSource::Classfile);
+}
+
+#[test]
+#[ignore = "Probe for issue #663; keep ignored until the broader slf4j smoke moves forward."]
+fn slf4j_simple_properties_lookup_returns_null_cleanly() {
+    let probe = run_slf4j_simple_method("simpleLoggerPropertiesStreamIsNull", "()I");
+
+    assert!(
+        probe.result.is_ok(),
+        "simplelogger.properties probe should execute without unsupported natives, got {}\nCaptured output:\n{}",
+        probe
+            .result
+            .as_ref()
+            .err()
+            .map_or_else(|| "no error".to_string(), render_smoke_error),
+        probe.output
+    );
+
+    assert_eq!(probe.result.expect("probe result"), Some(Slot::Int(1)));
 }
