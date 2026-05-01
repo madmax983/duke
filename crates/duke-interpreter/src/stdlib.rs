@@ -4308,6 +4308,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/NumberFormatException",
             "java/lang/IllegalArgumentException",
         ),
+        (
+            "java/util/regex/PatternSyntaxException",
+            "java/lang/IllegalArgumentException",
+        ),
     ] {
         let ctx = ClassContext {
             class_name: name.to_string(),
@@ -8867,14 +8871,34 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     // java/util/regex/Pattern — compiled regex pattern, string_value = regex string
+    let pattern_flag_fields = [
+        ("UNIX_LINES", 1),
+        ("CASE_INSENSITIVE", 2),
+        ("COMMENTS", 4),
+        ("MULTILINE", 8),
+        ("LITERAL", 16),
+        ("DOTALL", 32),
+        ("UNICODE_CASE", 64),
+        ("CANON_EQ", 128),
+        ("UNICODE_CHARACTER_CLASS", 256),
+    ];
+    let mut pattern_fields: Vec<FieldEntry> = pattern_flag_fields
+        .iter()
+        .map(|(name, _)| synthetic_field(name, "I", true))
+        .collect();
+    pattern_fields.push(synthetic_field("flags", "I", false));
+    let pattern_static_fields: Vec<Slot> = pattern_flag_fields
+        .iter()
+        .map(|(_, value)| Slot::Int(*value))
+        .collect();
     let pattern_ctx = ClassContext {
         class_name: "java/util/regex/Pattern".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
-        instance_field_count: 0,
+        fields: pattern_fields,
+        static_fields: pattern_static_fields,
+        instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -8888,6 +8912,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/regex/Pattern",
+        "compile",
+        "(Ljava/lang/String;I)Ljava/util/regex/Pattern;",
+        native_pattern_compile_flags,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Pattern",
         "matcher",
         "(Ljava/lang/CharSequence;)Ljava/util/regex/Matcher;",
         native_pattern_matcher,
@@ -8898,9 +8928,22 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;Ljava/lang/CharSequence;)Z",
         native_pattern_matches_static,
     );
+    registry.natives_mut().register(
+        "java/util/regex/Pattern",
+        "split",
+        "(Ljava/lang/CharSequence;)[Ljava/lang/String;",
+        native_pattern_split,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Pattern",
+        "split",
+        "(Ljava/lang/CharSequence;I)[Ljava/lang/String;",
+        native_pattern_split_limit,
+    );
 
     // java/util/regex/Matcher — stateful matcher
-    // fields[0]=Pattern, [1]=input, [2]=pos, [3]=match_start, [4]=match_end
+    // fields[0]=Pattern, [1]=input, [2]=pos, [3]=match_start, [4]=match_end,
+    // [5]=append_pos
     let matcher_ctx = ClassContext {
         class_name: "java/util/regex/Matcher".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -8932,9 +8975,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "I".to_string(),
                 is_static: false,
             },
+            FieldEntry {
+                name: "appendPos".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
-        instance_field_count: 5,
+        instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -8966,13 +9014,61 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/regex/Matcher",
+        "group",
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        native_matcher_group_name,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "groupCount",
+        "()I",
+        native_matcher_group_count,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
         "start",
         "()I",
         native_matcher_start,
     );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "start",
+        "(Ljava/lang/String;)I",
+        native_matcher_start_name,
+    );
     registry
         .natives_mut()
         .register("java/util/regex/Matcher", "end", "()I", native_matcher_end);
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "end",
+        "(Ljava/lang/String;)I",
+        native_matcher_end_name,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "reset",
+        "()Ljava/util/regex/Matcher;",
+        native_matcher_reset,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "reset",
+        "(Ljava/lang/CharSequence;)Ljava/util/regex/Matcher;",
+        native_matcher_reset_input,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "appendReplacement",
+        "(Ljava/lang/StringBuilder;Ljava/lang/String;)Ljava/util/regex/Matcher;",
+        native_matcher_append_replacement_sb,
+    );
+    registry.natives_mut().register(
+        "java/util/regex/Matcher",
+        "appendTail",
+        "(Ljava/lang/StringBuilder;)Ljava/lang/StringBuilder;",
+        native_matcher_append_tail_sb,
+    );
     registry.natives_mut().register(
         "java/util/regex/Matcher",
         "replaceAll",
