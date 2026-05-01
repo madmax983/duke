@@ -364,6 +364,138 @@ fn crypto_spec_provider_registration_is_visible_to_standard_apis() {
 }
 
 #[test]
+fn uuid_from_string_round_trips_canonical_text() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testFromStringRoundTrip", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_from_string_rejects_invalid_text_with_illegal_argument_exception() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testInvalidFromStringThrowsIllegalArgumentException",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_constructor_preserves_most_significant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testConstructorPreservesMostSignificantBits",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_constructor_preserves_least_significant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testConstructorPreservesLeastSignificantBits",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_random_uuid_sets_version_and_variant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testRandomUuidVersionAndVariant", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_name_uuid_from_bytes_matches_hotspot_reference() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testNameUuidMatchesHotSpotReference",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_name_uuid_from_bytes_sets_version_and_variant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testNameUuidVersionAndVariant", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_equals_uses_128_bit_value() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testEqualsUses128BitValue", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_hash_code_uses_128_bit_value() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "testHashCodeUses128BitValue", "()I"),
+        1
+    );
+}
+
+#[test]
+fn uuid_hashmap_key_lookup_uses_uuid_equality() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testHashMapKeyLookupUsesUuidEquality",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_hashset_membership_uses_uuid_equality() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testHashSetMembershipUsesUuidEquality",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_compare_to_orders_by_most_then_least_significant_bits() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UuidTest.class",
+            "testCompareToOrdersByMostThenLeastSignificantBits",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn uuid_fixture_runs_all_acceptance_criteria() {
+    assert_eq!(
+        run_bootstrap_int_completion("UuidTest.class", "runAll", "()I"),
+        1
+    );
+}
+
+#[test]
 fn base64_fixture_runs() {
     assert_eq!(run_bootstrap_int("Base64Test.class", "runAll", "()I"), 1);
 }
