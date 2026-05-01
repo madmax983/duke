@@ -25538,12 +25538,218 @@ pub(crate) fn native_secure_random_generate_seed(
 //          string_value = last matched text.
 // ---------------------------------------------------------------------------
 
+const PATTERN_UNIX_LINES: i32 = 1;
+const PATTERN_CASE_INSENSITIVE: i32 = 2;
+const PATTERN_COMMENTS: i32 = 4;
+const PATTERN_MULTILINE: i32 = 8;
+const PATTERN_LITERAL: i32 = 16;
+const PATTERN_DOTALL: i32 = 32;
+const PATTERN_UNICODE_CASE: i32 = 64;
+const PATTERN_CANON_EQ: i32 = 128;
+const PATTERN_UNICODE_CHARACTER_CLASS: i32 = 256;
+const PATTERN_SUPPORTED_FLAGS: i32 = PATTERN_UNIX_LINES
+    | PATTERN_CASE_INSENSITIVE
+    | PATTERN_COMMENTS
+    | PATTERN_MULTILINE
+    | PATTERN_LITERAL
+    | PATTERN_DOTALL
+    | PATTERN_UNICODE_CASE
+    | PATTERN_CANON_EQ
+    | PATTERN_UNICODE_CHARACTER_CLASS;
+
+const PATTERN_FLAGS_FIELD: usize = 0;
+
+const MATCHER_PATTERN_FIELD: usize = 0;
+const MATCHER_INPUT_FIELD: usize = 1;
+const MATCHER_POS_FIELD: usize = 2;
+const MATCHER_MATCH_START_FIELD: usize = 3;
+const MATCHER_MATCH_END_FIELD: usize = 4;
+const MATCHER_APPEND_POS_FIELD: usize = 5;
+const MATCHER_FIELD_COUNT: usize = 6;
+
+#[derive(Clone, Copy)]
+enum MatcherGroup<'a> {
+    Index(usize),
+    Name(&'a str),
+}
+
+fn regex_java_exception(class_name: &str, message: impl Into<String>) -> Error {
+    push_pending_java_exception_message(class_name, message.into());
+    Error::JavaException {
+        class_name: class_name.to_string(),
+    }
+}
+
+fn regex_pattern_syntax_error(message: impl Into<String>) -> Error {
+    regex_java_exception("java/util/regex/PatternSyntaxException", message)
+}
+
+fn regex_illegal_argument(message: impl Into<String>) -> Error {
+    regex_java_exception("java/lang/IllegalArgumentException", message)
+}
+
+fn regex_illegal_state(message: impl Into<String>) -> Error {
+    regex_java_exception("java/lang/IllegalStateException", message)
+}
+
+fn regex_index_out_of_bounds(message: impl Into<String>) -> Error {
+    regex_java_exception("java/lang/IndexOutOfBoundsException", message)
+}
+
+fn validate_pattern_flags(flags: i32) -> Result<()> {
+    if flags & !PATTERN_SUPPORTED_FLAGS != 0 {
+        return Err(regex_illegal_argument(format!("Unknown regex flags: {flags}")));
+    }
+    if flags & PATTERN_CANON_EQ != 0 {
+        return Err(regex_pattern_syntax_error(
+            "CANON_EQ is not supported by Duke's regex engine",
+        ));
+    }
+    Ok(())
+}
+
+fn translate_java_named_groups(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '(' {
+            let mut probe = chars.clone();
+            if probe.next() == Some('?') && probe.next() == Some('<') {
+                match probe.next() {
+                    Some('=' | '!') | None => out.push(ch),
+                    Some(_) => {
+                        out.push_str("(?P<");
+                        chars.next();
+                        chars.next();
+                    }
+                }
+            } else {
+                out.push(ch);
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn copy_group_name(chars: &[char], start: usize, out: &mut String) -> Option<usize> {
+    let mut idx = start;
+    while idx < chars.len() {
+        let ch = chars[idx];
+        out.push(ch);
+        idx += 1;
+        if ch == '>' {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+fn expand_ascii_case_insensitive(pattern: &str) -> String {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = String::with_capacity(pattern.len());
+    let mut idx = 0;
+    let mut escaped = false;
+    let mut in_class = false;
+    while idx < chars.len() {
+        let ch = chars[idx];
+        if escaped {
+            out.push(ch);
+            escaped = false;
+            idx += 1;
+            continue;
+        }
+        if ch == '\\' {
+            out.push(ch);
+            escaped = true;
+            idx += 1;
+            continue;
+        }
+        if !in_class && ch == '(' && chars.get(idx + 1) == Some(&'?') {
+            if chars.get(idx + 2) == Some(&'P') && chars.get(idx + 3) == Some(&'<') {
+                out.push_str("(?P<");
+                if let Some(next_idx) = copy_group_name(&chars, idx + 4, &mut out) {
+                    idx = next_idx;
+                    continue;
+                }
+            } else if chars.get(idx + 2) == Some(&'<')
+                && !matches!(chars.get(idx + 3), Some('=' | '!') | None)
+            {
+                out.push_str("(?<");
+                if let Some(next_idx) = copy_group_name(&chars, idx + 3, &mut out) {
+                    idx = next_idx;
+                    continue;
+                }
+            }
+        }
+        match ch {
+            '[' => {
+                in_class = true;
+                out.push(ch);
+            }
+            ']' if in_class => {
+                in_class = false;
+                out.push(ch);
+            }
+            _ if !in_class && ch.is_ascii_alphabetic() => {
+                out.push('[');
+                out.push(ch.to_ascii_lowercase());
+                out.push(ch.to_ascii_uppercase());
+                out.push(']');
+            }
+            _ => out.push(ch),
+        }
+        idx += 1;
+    }
+    out
+}
+
 /// Helper: compile a regex from a pattern string.
 /// Returns `Err` with `JavaException` on bad pattern.
 fn compile_java_regex(pattern: &str) -> Result<regex::Regex> {
-    regex::Regex::new(pattern).map_err(|e| duke_runtime::Error::JavaException {
-        class_name: format!("java/util/regex/PatternSyntaxException: {e}"),
-    })
+    compile_java_regex_with_flags(pattern, 0)
+}
+
+fn compile_java_regex_with_flags(pattern: &str, flags: i32) -> Result<regex::Regex> {
+    validate_pattern_flags(flags)?;
+    let mut source = if flags & PATTERN_LITERAL != 0 {
+        regex::escape(pattern)
+    } else {
+        translate_java_named_groups(pattern)
+    };
+    let ascii_case_insensitive =
+        flags & PATTERN_CASE_INSENSITIVE != 0 && flags & PATTERN_UNICODE_CASE == 0;
+    if ascii_case_insensitive {
+        source = expand_ascii_case_insensitive(&source);
+    }
+
+    let mut builder = regex::RegexBuilder::new(&source);
+    builder
+        .case_insensitive(flags & PATTERN_CASE_INSENSITIVE != 0 && !ascii_case_insensitive)
+        .multi_line(flags & PATTERN_MULTILINE != 0)
+        .dot_matches_new_line(flags & PATTERN_DOTALL != 0)
+        .ignore_whitespace(flags & PATTERN_COMMENTS != 0)
+        .unicode(true);
+    builder.build().map_err(|e| regex_pattern_syntax_error(e.to_string()))
+}
+
+fn pattern_text_and_flags(heap: &duke_gc::Heap, pat_ref: u64) -> Result<(String, i32)> {
+    let pat = heap.get(pat_ref)?;
+    let pattern_str = pat.string_value.clone().unwrap_or_default();
+    let flags = match pat.fields.get(PATTERN_FLAGS_FIELD).copied() {
+        Some(Slot::Int(flags)) => flags,
+        _ => 0,
+    };
+    Ok((pattern_str, flags))
+}
+
+fn allocate_pattern(heap: &mut duke_gc::Heap, pattern_str: String, flags: i32) -> Result<u64> {
+    let pat_ref = heap.allocate("java/util/regex/Pattern".to_string(), 1);
+    let pat = heap.get_mut(pat_ref)?;
+    pat.fields[PATTERN_FLAGS_FIELD] = Slot::Int(flags);
+    pat.string_value = Some(pattern_str);
+    Ok(pat_ref)
 }
 
 /// Native: `Pattern.compile(String)Pattern` — static factory.
@@ -25561,8 +25767,26 @@ pub(crate) fn native_pattern_compile(
         .unwrap_or_default();
     // Validate the regex eagerly so we fail here not at match time.
     compile_java_regex(&pattern_str)?;
-    let pat_ref = heap.allocate("java/util/regex/Pattern".to_string(), 0);
-    heap.get_mut(pat_ref)?.string_value = Some(pattern_str);
+    let pat_ref = allocate_pattern(heap, pattern_str, 0)?;
+    Ok(Some(Slot::Reference(Some(pat_ref))))
+}
+
+/// Native: `Pattern.compile(String,int)Pattern` — static factory with flags.
+pub(crate) fn native_pattern_compile_flags(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let pat_str_ref = extract_ref_arg(args, 0)?;
+    let flags = extract_int_arg(args, 1)?;
+    let pattern_str = heap
+        .get(pat_str_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    compile_java_regex_with_flags(&pattern_str, flags)?;
+    let pat_ref = allocate_pattern(heap, pattern_str, flags)?;
     Ok(Some(Slot::Reference(Some(pat_ref))))
 }
 
@@ -25575,13 +25799,11 @@ pub(crate) fn native_pattern_matcher(
 ) -> Result<Option<Slot>> {
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_slot = extract_slot_arg(args, 1);
-    // fields: [0]=pattern_ref, [1]=input_ref, [2]=pos, [3]=match_start, [4]=match_end
-    let m_ref = heap.allocate("java/util/regex/Matcher".to_string(), 5);
-    heap.get_mut(m_ref)?.fields[0] = Slot::Reference(Some(pat_ref));
-    heap.get_mut(m_ref)?.fields[1] = input_slot;
-    heap.get_mut(m_ref)?.fields[2] = Slot::Int(0);
-    heap.get_mut(m_ref)?.fields[3] = Slot::Int(-1);
-    heap.get_mut(m_ref)?.fields[4] = Slot::Int(0);
+    // fields: pattern, input, next find position, last match start/end, append position
+    let m_ref = heap.allocate("java/util/regex/Matcher".to_string(), MATCHER_FIELD_COUNT);
+    heap.get_mut(m_ref)?.fields[MATCHER_PATTERN_FIELD] = Slot::Reference(Some(pat_ref));
+    heap.get_mut(m_ref)?.fields[MATCHER_INPUT_FIELD] = input_slot;
+    reset_matcher_fields(heap, m_ref)?;
     Ok(Some(Slot::Reference(Some(m_ref))))
 }
 
@@ -25607,6 +25829,207 @@ pub(crate) fn native_pattern_matches_static(
     Ok(Some(Slot::Int(i32::from(result))))
 }
 
+fn regex_split_parts(re: &regex::Regex, input: &str, limit: i32) -> Vec<String> {
+    if limit > 0 {
+        return re
+            .splitn(input, usize::try_from(limit).unwrap_or(usize::MAX))
+            .map(str::to_string)
+            .collect();
+    }
+    let mut parts: Vec<String> = re.split(input).map(str::to_string).collect();
+    if limit == 0 {
+        while parts.last().is_some_and(String::is_empty) {
+            parts.pop();
+        }
+    }
+    parts
+}
+
+fn alloc_string_array_from_parts(heap: &mut duke_gc::Heap, parts: &[String]) -> Result<u64> {
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
+    for (idx, part) in parts.iter().enumerate() {
+        let str_ref = heap.allocate_string(part.clone());
+        heap.get_mut(arr_ref)?.fields[idx] = Slot::Reference(Some(str_ref));
+    }
+    Ok(arr_ref)
+}
+
+fn pattern_split_impl(args: &[Slot], heap: &mut duke_gc::Heap, limit: i32) -> Result<Option<Slot>> {
+    let pat_ref = extract_ref_arg(args, 0)?;
+    let input_ref = extract_ref_arg(args, 1)?;
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
+    let input = heap
+        .get(input_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let parts = regex_split_parts(&re, &input, limit);
+    let arr_ref = alloc_string_array_from_parts(heap, &parts)?;
+    Ok(Some(Slot::Reference(Some(arr_ref))))
+}
+
+/// Native: `Pattern.split(CharSequence)String[]`.
+pub(crate) fn native_pattern_split(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    pattern_split_impl(args, heap, 0)
+}
+
+/// Native: `Pattern.split(CharSequence,int)String[]`.
+pub(crate) fn native_pattern_split_limit(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    pattern_split_impl(args, heap, extract_int_arg(args, 2)?)
+}
+
+fn matcher_pattern_input(heap: &duke_gc::Heap, m_ref: u64) -> Result<Option<(u64, u64)>> {
+    let fields = heap.get(m_ref)?.fields.clone();
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
+        return Ok(None);
+    };
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
+        return Ok(None);
+    };
+    Ok(Some((pat_ref, input_ref)))
+}
+
+fn matcher_pattern_input_text(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+) -> Result<Option<(String, i32, String)>> {
+    let Some((pat_ref, input_ref)) = matcher_pattern_input(heap, m_ref)? else {
+        return Ok(None);
+    };
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
+    let input = heap
+        .get(input_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    Ok(Some((pattern_str, flags, input)))
+}
+
+fn matcher_field_int(heap: &duke_gc::Heap, m_ref: u64, field: usize, default: i32) -> Result<i32> {
+    Ok(match heap.get(m_ref)?.fields.get(field).copied() {
+        Some(Slot::Int(value)) => value,
+        _ => default,
+    })
+}
+
+fn set_matcher_no_match(heap: &mut duke_gc::Heap, m_ref: u64) -> Result<()> {
+    let matcher = heap.get_mut(m_ref)?;
+    matcher.fields[MATCHER_MATCH_START_FIELD] = Slot::Int(-1);
+    matcher.fields[MATCHER_MATCH_END_FIELD] = Slot::Int(0);
+    matcher.string_value = None;
+    Ok(())
+}
+
+fn reset_matcher_fields(heap: &mut duke_gc::Heap, m_ref: u64) -> Result<()> {
+    let matcher = heap.get_mut(m_ref)?;
+    matcher.fields[MATCHER_POS_FIELD] = Slot::Int(0);
+    matcher.fields[MATCHER_MATCH_START_FIELD] = Slot::Int(-1);
+    matcher.fields[MATCHER_MATCH_END_FIELD] = Slot::Int(0);
+    matcher.fields[MATCHER_APPEND_POS_FIELD] = Slot::Int(0);
+    matcher.string_value = None;
+    Ok(())
+}
+
+fn next_find_pos(input: &str, start: usize, end: usize) -> usize {
+    if start != end || end >= input.len() {
+        return end;
+    }
+    input[end..]
+        .chars()
+        .next()
+        .map_or(end, |ch| end + ch.len_utf8())
+}
+
+fn store_matcher_match(
+    heap: &mut duke_gc::Heap,
+    m_ref: u64,
+    input: &str,
+    start: usize,
+    end: usize,
+) -> Result<()> {
+    let next_pos = next_find_pos(input, start, end);
+    let start_i32 = i32::try_from(start).unwrap_or(i32::MAX);
+    let end_i32 = i32::try_from(end).unwrap_or(i32::MAX);
+    let next_i32 = i32::try_from(next_pos).unwrap_or(i32::MAX);
+    let matcher = heap.get_mut(m_ref)?;
+    matcher.fields[MATCHER_POS_FIELD] = Slot::Int(next_i32);
+    matcher.fields[MATCHER_MATCH_START_FIELD] = Slot::Int(start_i32);
+    matcher.fields[MATCHER_MATCH_END_FIELD] = Slot::Int(end_i32);
+    matcher.string_value = Some(input[start..end].to_string());
+    Ok(())
+}
+
+fn last_match_bounds(heap: &duke_gc::Heap, m_ref: u64) -> Result<(usize, usize)> {
+    let start = matcher_field_int(heap, m_ref, MATCHER_MATCH_START_FIELD, -1)?;
+    let end = matcher_field_int(heap, m_ref, MATCHER_MATCH_END_FIELD, 0)?;
+    if start < 0 {
+        return Err(regex_illegal_state("No match available"));
+    }
+    Ok((
+        usize::try_from(start).unwrap_or(0),
+        usize::try_from(end.max(0)).unwrap_or(0),
+    ))
+}
+
+fn matcher_group_bounds(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+    group: MatcherGroup<'_>,
+) -> Result<Option<(usize, usize)>> {
+    let (match_start, match_end) = last_match_bounds(heap, m_ref)?;
+    let Some((pattern_str, flags, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let Some(caps) = re.captures_at(&input, match_start) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let Some(whole) = caps.get(0) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    if whole.start() != match_start || whole.end() != match_end {
+        return Err(regex_illegal_state("No match available"));
+    }
+    match group {
+        MatcherGroup::Index(index) => {
+            if index >= caps.len() {
+                return Err(regex_index_out_of_bounds(format!("No group {index}")));
+            }
+            Ok(caps.get(index).map(|m| (m.start(), m.end())))
+        }
+        MatcherGroup::Name(name) => {
+            if !re.capture_names().flatten().any(|candidate| candidate == name) {
+                return Err(regex_illegal_argument(format!(
+                    "No group with name <{name}>"
+                )));
+            }
+            Ok(caps.name(name).map(|m| (m.start(), m.end())))
+        }
+    }
+}
+
+fn matcher_group_text(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+    group: MatcherGroup<'_>,
+) -> Result<Option<String>> {
+    let Some((_, _, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    Ok(matcher_group_bounds(heap, m_ref, group)?.map(|(start, end)| input[start..end].to_string()))
+}
+
 /// Native: `Matcher.find()Z` — finds next match; advances position.
 pub(crate) fn native_matcher_find(
     args: &[Slot],
@@ -25616,35 +26039,32 @@ pub(crate) fn native_matcher_find(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
-    let input_slot = fields.get(1).copied().unwrap_or(Slot::Reference(None));
+    let input_slot = fields
+        .get(MATCHER_INPUT_FIELD)
+        .copied()
+        .unwrap_or(Slot::Reference(None));
     let Slot::Reference(Some(input_ref)) = input_slot else {
         return Ok(Some(Slot::Int(0)));
     };
-    let pos = match fields.get(2).copied() {
+    let pos = match fields.get(MATCHER_POS_FIELD).copied() {
         Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
         _ => 0,
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
-    if let Some(m) = re.find_at(&input, pos) {
-        let start = i32::try_from(m.start()).unwrap_or(0);
-        let end = i32::try_from(m.end()).unwrap_or(0);
-        let matched = m.as_str().to_string();
-        heap.get_mut(m_ref)?.fields[2] = Slot::Int(end); // advance past match
-        heap.get_mut(m_ref)?.fields[3] = Slot::Int(start);
-        heap.get_mut(m_ref)?.fields[4] = Slot::Int(end);
-        heap.get_mut(m_ref)?.string_value = Some(matched);
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    if let Some(m) = re.find_at(&input, pos.min(input.len())) {
+        store_matcher_match(heap, m_ref, &input, m.start(), m.end())?;
         Ok(Some(Slot::Int(1)))
     } else {
-        heap.get_mut(m_ref)?.fields[3] = Slot::Int(-1);
+        set_matcher_no_match(heap, m_ref)?;
         Ok(Some(Slot::Int(0)))
     }
 }
@@ -25658,29 +26078,28 @@ pub(crate) fn native_matcher_matches(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
-    let result = re
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let matched = re
         .find(&input)
-        .is_some_and(|m| m.start() == 0 && m.end() == input.len());
-    if result {
-        let end = i32::try_from(input.len()).unwrap_or(0);
-        heap.get_mut(m_ref)?.fields[3] = Slot::Int(0);
-        heap.get_mut(m_ref)?.fields[4] = Slot::Int(end);
-        heap.get_mut(m_ref)?.string_value = Some(input);
+        .filter(|m| m.start() == 0 && m.end() == input.len());
+    if let Some(m) = matched {
+        store_matcher_match(heap, m_ref, &input, m.start(), m.end())?;
+    } else {
+        set_matcher_no_match(heap, m_ref)?;
     }
-    Ok(Some(Slot::Int(i32::from(result))))
+    Ok(Some(Slot::Int(i32::from(matched.is_some()))))
 }
 
 /// Native: `Matcher.group()String` — returns text of last match.
@@ -25691,7 +26110,9 @@ pub(crate) fn native_matcher_group(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let matched = heap.get(m_ref)?.string_value.clone().unwrap_or_default();
+    let Some(matched) = matcher_group_text(heap, m_ref, MatcherGroup::Index(0))? else {
+        return Ok(Some(Slot::Reference(None)));
+    };
     let r = heap.allocate_string(matched);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -25705,38 +26126,56 @@ pub(crate) fn native_matcher_group_n(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let n = match args.get(1).copied() {
-        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+        Some(Slot::Int(n)) if n >= 0 => usize::try_from(n).unwrap_or(0),
+        Some(Slot::Int(n)) => return Err(regex_index_out_of_bounds(format!("No group {n}"))),
         _ => 0,
     };
     if n == 0 {
         // group(0) == group() — full match
         return native_matcher_group(args, heap, out, control);
     }
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(group) = matcher_group_text(heap, m_ref, MatcherGroup::Index(n))? else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
-        return Ok(Some(Slot::Reference(None)));
-    };
-    let start = match fields.get(3).copied() {
-        Some(Slot::Int(s)) if s >= 0 => usize::try_from(s).unwrap_or(0),
-        _ => return Ok(Some(Slot::Reference(None))),
-    };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
-    let input = heap
-        .get(input_ref)?
+    let s = heap.allocate_string(group);
+    Ok(Some(Slot::Reference(Some(s))))
+}
+
+/// Native: `Matcher.group(String)String` — returns a named capture group.
+pub(crate) fn native_matcher_group_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let name = heap
+        .get(name_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
-    if let Some(caps) = re.captures_at(&input, start)
-        && let Some(g) = caps.get(n)
-    {
-        let s = heap.allocate_string(g.as_str().to_string());
-        return Ok(Some(Slot::Reference(Some(s))));
-    }
-    Ok(Some(Slot::Reference(None)))
+    let Some(group) = matcher_group_text(heap, m_ref, MatcherGroup::Name(&name))? else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let s = heap.allocate_string(group);
+    Ok(Some(Slot::Reference(Some(s))))
+}
+
+/// Native: `Matcher.groupCount()I` — number of capturing groups, excluding group 0.
+pub(crate) fn native_matcher_group_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let Some((pattern_str, flags, _)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let count = re.captures_len().saturating_sub(1);
+    Ok(Some(Slot::Int(i32::try_from(count).unwrap_or(i32::MAX))))
 }
 
 /// Native: `Matcher.start()I` — start index of last match.
@@ -25747,10 +26186,27 @@ pub(crate) fn native_matcher_start(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let start = match heap.get(m_ref)?.fields.get(3).copied() {
-        Some(Slot::Int(n)) => n,
-        _ => -1,
-    };
+    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+        .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(start)))
+}
+
+/// Native: `Matcher.start(String)I` — start index of a named capture group.
+pub(crate) fn native_matcher_start_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+        .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(start)))
 }
 
@@ -25762,11 +26218,135 @@ pub(crate) fn native_matcher_end(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let end = match heap.get(m_ref)?.fields.get(4).copied() {
-        Some(Slot::Int(n)) => n,
-        _ => 0,
-    };
+    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+        .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(end)))
+}
+
+/// Native: `Matcher.end(String)I` — exclusive end index of a named capture group.
+pub(crate) fn native_matcher_end_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let name_ref = extract_ref_arg(args, 1)?;
+    let name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+        .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Int(end)))
+}
+
+/// Native: `Matcher.reset()Matcher` — reset state against the current input.
+pub(crate) fn native_matcher_reset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    reset_matcher_fields(heap, m_ref)?;
+    Ok(Some(Slot::Reference(Some(m_ref))))
+}
+
+/// Native: `Matcher.reset(CharSequence)Matcher` — reset state against new input.
+pub(crate) fn native_matcher_reset_input(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let input_slot = extract_slot_arg(args, 1);
+    heap.get_mut(m_ref)?.fields[MATCHER_INPUT_FIELD] = input_slot;
+    reset_matcher_fields(heap, m_ref)?;
+    Ok(Some(Slot::Reference(Some(m_ref))))
+}
+
+fn append_to_string_builder(heap: &mut duke_gc::Heap, builder_ref: u64, text: &str) -> Result<()> {
+    let builder = heap.get_mut(builder_ref)?;
+    builder
+        .string_value
+        .get_or_insert_with(String::new)
+        .push_str(text);
+    Ok(())
+}
+
+/// Native: `Matcher.appendReplacement(StringBuilder,String)Matcher`.
+pub(crate) fn native_matcher_append_replacement_sb(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let builder_ref = extract_ref_arg(args, 1)?;
+    let replacement_ref = extract_ref_arg(args, 2)?;
+    let replacement = heap
+        .get(replacement_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let (match_start, match_end) = last_match_bounds(heap, m_ref)?;
+    let append_pos = usize::try_from(matcher_field_int(
+        heap,
+        m_ref,
+        MATCHER_APPEND_POS_FIELD,
+        0,
+    )?)
+    .unwrap_or(0);
+    let Some((pattern_str, flags, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
+    let Some(caps) = re.captures_at(&input, match_start) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    let Some(whole) = caps.get(0) else {
+        return Err(regex_illegal_state("No match available"));
+    };
+    if whole.start() != match_start || whole.end() != match_end {
+        return Err(regex_illegal_state("No match available"));
+    }
+    let mut expanded = String::new();
+    caps.expand(&replacement, &mut expanded);
+    let safe_append_pos = append_pos.min(match_start);
+    append_to_string_builder(heap, builder_ref, &input[safe_append_pos..match_start])?;
+    append_to_string_builder(heap, builder_ref, &expanded)?;
+    heap.get_mut(m_ref)?.fields[MATCHER_APPEND_POS_FIELD] =
+        Slot::Int(i32::try_from(match_end).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Reference(Some(m_ref))))
+}
+
+/// Native: `Matcher.appendTail(StringBuilder)StringBuilder`.
+pub(crate) fn native_matcher_append_tail_sb(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let m_ref = extract_ref_arg(args, 0)?;
+    let builder_ref = extract_ref_arg(args, 1)?;
+    let append_pos = usize::try_from(matcher_field_int(
+        heap,
+        m_ref,
+        MATCHER_APPEND_POS_FIELD,
+        0,
+    )?)
+    .unwrap_or(0);
+    let Some((_, _, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Ok(Some(Slot::Reference(Some(builder_ref))));
+    };
+    let safe_append_pos = append_pos.min(input.len());
+    append_to_string_builder(heap, builder_ref, &input[safe_append_pos..])?;
+    heap.get_mut(m_ref)?.fields[MATCHER_APPEND_POS_FIELD] =
+        Slot::Int(i32::try_from(input.len()).unwrap_or(i32::MAX));
+    Ok(Some(Slot::Reference(Some(builder_ref))))
 }
 
 /// Native: `Matcher.replaceAll(String)String` — replace all matches.
@@ -25779,20 +26359,20 @@ pub(crate) fn native_matcher_replace_all(
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
     let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace_all(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
@@ -25808,20 +26388,20 @@ pub(crate) fn native_matcher_replace_first(
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
     let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.first().copied() else {
+    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(1).copied() else {
+    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
         .string_value
         .clone()
         .unwrap_or_default();
     let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
-    let re = compile_java_regex(&pattern_str)?;
+    let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))

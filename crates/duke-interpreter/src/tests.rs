@@ -24366,6 +24366,62 @@ fn matcher_replace_first() {
 }
 
 #[test]
+fn regex_flags_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexFlagsTest.class", "runAll", "()I"),
+        6
+    );
+}
+
+#[test]
+fn regex_split_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexSplitTest.class", "runAll", "()I"),
+        4
+    );
+}
+
+#[test]
+fn regex_group_count_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexGroupCountTest.class", "runAll", "()I"),
+        3,
+    );
+}
+
+#[test]
+fn regex_named_groups_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexNamedGroupsTest.class", "runAll", "()I"),
+        4,
+    );
+}
+
+#[test]
+fn regex_reset_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexResetTest.class", "runAll", "()I"),
+        2
+    );
+}
+
+#[test]
+fn regex_append_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexAppendTest.class", "runAll", "()I"),
+        1
+    );
+}
+
+#[test]
+fn regex_backref_fixture() {
+    assert_eq!(
+        run_bootstrap_int("RegexBackrefTest.class", "runAll", "()I"),
+        2
+    );
+}
+
+#[test]
 fn string_matches_regex() {
     assert_eq!(
         run_bootstrap_int("Phase39Test.class", "testStringMatches", "()I"),
