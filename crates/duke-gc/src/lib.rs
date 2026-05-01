@@ -544,14 +544,18 @@ impl Heap {
 
     // ── Object access ────────────────────────────────────────────────────────
 
+    fn young_index_from_ref(r: u64) -> Result<usize> {
+        usize::try_from(r).map_err(|_| Error::InvalidRef { address: r })
+    }
+
+    fn old_index_from_ref(r: u64) -> Result<usize> {
+        usize::try_from(r & !OLD_BIT).map_err(|_| Error::InvalidRef { address: r })
+    }
+
     /// Returns a reference to the object at `r`, dispatching on `OLD_BIT`.
     ///
     /// # Errors
     /// Returns [`Error::InvalidRef`] if `r` is out of bounds or the slot is `None`.
-    ///
-    /// # Panics
-    /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
-    /// cannot happen on 64-bit targets since heap indices are always small.
     ///
     /// # Examples
     ///
@@ -564,7 +568,7 @@ impl Heap {
     /// ```
     pub fn get(&self, r: u64) -> Result<&HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = Self::old_index_from_ref(r)?;
             if idx >= self.old.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -573,7 +577,7 @@ impl Heap {
                 .and_then(|s| s.as_ref())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            let idx = Self::young_index_from_ref(r)?;
             if idx >= self.young.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -589,10 +593,6 @@ impl Heap {
     /// # Errors
     /// Returns [`Error::InvalidRef`] if `r` is out of bounds or the slot is `None`.
     ///
-    /// # Panics
-    /// Panics if `r` (with `OLD_BIT` clear) cannot be converted to `usize`, which
-    /// cannot happen on 64-bit targets since heap indices are always small.
-    ///
     /// # Examples
     ///
     /// ```
@@ -605,7 +605,7 @@ impl Heap {
     /// ```
     pub fn get_mut(&mut self, r: u64) -> Result<&mut HeapObject> {
         if r & OLD_BIT != 0 {
-            let idx = (r & !OLD_BIT) as usize;
+            let idx = Self::old_index_from_ref(r)?;
             if idx >= self.old.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -614,7 +614,7 @@ impl Heap {
                 .and_then(|s| s.as_mut())
                 .ok_or(Error::InvalidRef { address: r })
         } else {
-            let idx = usize::try_from(r).unwrap_or(usize::MAX);
+            let idx = Self::young_index_from_ref(r)?;
             if idx >= self.young.len() {
                 return Err(Error::InvalidRef { address: r });
             }
@@ -700,8 +700,11 @@ impl Heap {
 
     /// Records a reference write into non-field object storage, such as an atomic reference payload.
     pub fn remember_reference_write(&mut self, obj_ref: u64, value: Slot) {
-        if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
-            self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
+        if obj_ref & OLD_BIT != 0
+            && value.as_reference().is_some_and(|r| r & OLD_BIT == 0)
+            && let Ok(idx) = Self::old_index_from_ref(obj_ref)
+        {
+            self.remembered_set.insert(idx);
         }
     }
 
@@ -713,6 +716,7 @@ impl Heap {
     ///
     /// # Errors
     /// Returns [`Error::InvalidRef`] if `obj_ref` is invalid.
+    /// Returns [`Error::FieldOutOfBounds`] if `field_idx` is not a valid field.
     ///
     /// # Examples
     ///
@@ -725,19 +729,30 @@ impl Heap {
     /// heap.write_field(obj_ref, 0, Slot::Int(42)).unwrap();
     /// assert_eq!(heap.get(obj_ref).unwrap().fields[0], Slot::Int(42));
     /// ```
-    #[allow(clippy::missing_panics_doc)]
     pub fn write_field(&mut self, obj_ref: u64, field_idx: usize, value: Slot) -> Result<()> {
-        let obj = self.get(obj_ref)?;
-        if field_idx >= obj.fields.len() {
-            return Err(Error::FieldOutOfBounds {
-                index: field_idx,
-                length: obj.fields.len(),
-            });
+        let remember_old_idx =
+            if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
+                Some(Self::old_index_from_ref(obj_ref)?)
+            } else {
+                None
+            };
+
+        {
+            let obj = self.get_mut(obj_ref)?;
+            let length = obj.fields.len();
+            let field = obj
+                .fields
+                .get_mut(field_idx)
+                .ok_or(Error::FieldOutOfBounds {
+                    index: field_idx,
+                    length,
+                })?;
+            *field = value;
         }
-        if obj_ref & OLD_BIT != 0 && value.as_reference().is_some_and(|r| r & OLD_BIT == 0) {
-            self.remembered_set.insert((obj_ref & !OLD_BIT) as usize);
+
+        if let Some(idx) = remember_old_idx {
+            self.remembered_set.insert(idx);
         }
-        self.get_mut(obj_ref).unwrap().fields[field_idx] = value;
         Ok(())
     }
 
@@ -943,7 +958,9 @@ impl Heap {
             .collect();
 
         while let Some(r) = worklist.pop() {
-            let idx = (r & !OLD_BIT) as usize;
+            let Ok(idx) = Self::old_index_from_ref(r) else {
+                continue;
+            };
             let Some(Some(obj)) = self.old.get_mut(idx) else {
                 continue;
             };
@@ -1448,6 +1465,55 @@ mod tests {
         assert!(
             heap.remembered_set.is_empty(),
             "old→old store must NOT populate remembered_set"
+        );
+    }
+
+    #[test]
+    fn write_field_out_of_bounds_returns_error_without_side_effects() {
+        let mut heap = Heap::new();
+        let old_ref = make_old_obj(&mut heap);
+        let young_ref = heap.allocate("Young".to_string(), 0);
+
+        let err = heap
+            .write_field(old_ref, 1, Slot::Reference(Some(young_ref)))
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            Error::FieldOutOfBounds {
+                index: 1,
+                length: 1
+            }
+        );
+        assert_eq!(heap.get(old_ref).unwrap().fields[0], Slot::Int(0));
+        assert!(
+            heap.remembered_set.is_empty(),
+            "failed writes must not populate remembered_set"
+        );
+    }
+
+    #[test]
+    fn write_field_implementation_does_not_unwrap_after_validation() {
+        let code = std::fs::read_to_string("src/lib.rs").unwrap();
+        let start = code.find("pub fn write_field").unwrap();
+        let end = code[start..].find("pub fn minor_collect_prepare").unwrap();
+        let function_body = &code[start..start + end];
+
+        assert!(
+            !function_body.contains("unwrap().fields"),
+            "write_field should propagate accessor errors instead of unwrapping"
+        );
+    }
+
+    #[test]
+    fn heap_implementation_uses_checked_old_ref_conversion() {
+        let code = std::fs::read_to_string("src/lib.rs").unwrap();
+        let end = code.find("mod tests").unwrap();
+        let implementation = &code[..end];
+
+        assert!(
+            !implementation.contains("& !OLD_BIT) as usize"),
+            "old-gen reference decoding must not truncate through `as usize`"
         );
     }
 
