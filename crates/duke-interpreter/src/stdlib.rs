@@ -1324,8 +1324,8 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
 /// ```
 pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     // Allocate PrintStream objects for System.out and System.err.
-    let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
-    let ps_err_ref = heap.allocate("java/io/PrintStream".to_string(), 0);
+    let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 1);
+    let ps_err_ref = heap.allocate("java/io/PrintStream".to_string(), 1);
 
     // Create java/lang/System ClassContext with static fields `out`, `err`, `lineSeparator`.
     let system_ctx = ClassContext {
@@ -1362,9 +1362,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "out".to_string(),
+            descriptor: "Ljava/io/OutputStream;".to_string(),
+            is_static: false,
+        }],
         static_fields: Vec::new(),
-        instance_field_count: 0,
+        instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -1384,6 +1388,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/io/PrintStream", "println", "()V", native_println_void);
+    registry.natives_mut().register(
+        "java/io/PrintStream",
+        "<init>",
+        "(Ljava/io/OutputStream;)V",
+        native_printstream_init_output_stream,
+    );
 
     let file_ctx = ClassContext {
         class_name: "java/io/File".to_string(),
@@ -1518,6 +1528,32 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(output_stream_ctx);
+
+    let byte_array_output_stream_ctx = ClassContext {
+        class_name: "java/io/ByteArrayOutputStream".to_string(),
+        super_class: Some("java/io/OutputStream".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(byte_array_output_stream_ctx);
+    registry.natives_mut().register(
+        "java/io/ByteArrayOutputStream",
+        "<init>",
+        "()V",
+        native_byte_array_output_stream_init,
+    );
+    registry.natives_mut().register(
+        "java/io/ByteArrayOutputStream",
+        "toString",
+        "()Ljava/lang/String;",
+        native_byte_array_output_stream_to_string,
+    );
 
     let process_ctx = ClassContext {
         class_name: "java/lang/Process".to_string(),
@@ -3310,19 +3346,108 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_void_noop,
     );
 
+    let stack_trace_element_ctx = ClassContext {
+        class_name: "java/lang/StackTraceElement".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "declaringClass".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "methodName".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "fileName".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "lineNumber".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(stack_trace_element_ctx);
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I)V",
+        native_stack_trace_element_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getClassName",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_get_class_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getMethodName",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_get_method_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getFileName",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_get_file_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "getLineNumber",
+        "()I",
+        native_stack_trace_element_get_line_number,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "isNativeMethod",
+        "()Z",
+        native_stack_trace_element_is_native_method,
+    );
+    registry.natives_mut().register(
+        "java/lang/StackTraceElement",
+        "toString",
+        "()Ljava/lang/String;",
+        native_stack_trace_element_to_string,
+    );
+
     // java/lang/Throwable extends Object
     let throwable_ctx = ClassContext {
         class_name: "java/lang/Throwable".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "cause".to_string(),
-            descriptor: "Ljava/lang/Throwable;".to_string(),
-            is_static: false,
-        }],
+        fields: vec![
+            FieldEntry {
+                name: "cause".to_string(),
+                descriptor: "Ljava/lang/Throwable;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "stackTrace".to_string(),
+                descriptor: "[Ljava/lang/StackTraceElement;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "suppressedExceptions".to_string(),
+                descriptor: "[Ljava/lang/Throwable;".to_string(),
+                is_static: false,
+            },
+        ],
         static_fields: Vec::new(),
-        instance_field_count: 1,
+        instance_field_count: 3,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -3334,9 +3459,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Throwable;)V",
         native_throwable_add_suppressed,
     );
-    registry
-        .natives_mut()
-        .register("java/lang/Throwable", "<init>", "()V", native_object_init);
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "<init>",
+        "()V",
+        native_throwable_init,
+    );
     registry.natives_mut().register(
         "java/lang/Throwable",
         "<init>",
@@ -3351,6 +3479,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Throwable",
+        "getLocalizedMessage",
+        "()Ljava/lang/String;",
+        native_throwable_get_message,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
         "getCause",
         "()Ljava/lang/Throwable;",
         native_throwable_get_cause,
@@ -3360,6 +3494,42 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "toString",
         "()Ljava/lang/String;",
         native_throwable_tostring,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "fillInStackTrace",
+        "()Ljava/lang/Throwable;",
+        native_throwable_fill_in_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "getStackTrace",
+        "()[Ljava/lang/StackTraceElement;",
+        native_throwable_get_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "setStackTrace",
+        "([Ljava/lang/StackTraceElement;)V",
+        native_throwable_set_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "getSuppressed",
+        "()[Ljava/lang/Throwable;",
+        native_throwable_get_suppressed,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "printStackTrace",
+        "()V",
+        native_throwable_print_stack_trace,
+    );
+    registry.natives_mut().register(
+        "java/lang/Throwable",
+        "printStackTrace",
+        "(Ljava/io/PrintStream;)V",
+        native_throwable_print_stack_trace_print_stream,
     );
 
     // java/lang/Exception extends Throwable
@@ -3376,9 +3546,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(exception_ctx);
-    registry
-        .natives_mut()
-        .register("java/lang/Exception", "<init>", "()V", native_object_init);
+    registry.natives_mut().register(
+        "java/lang/Exception",
+        "<init>",
+        "()V",
+        native_throwable_init,
+    );
     registry.natives_mut().register(
         "java/lang/Exception",
         "<init>",
@@ -3404,7 +3577,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/RuntimeException",
         "<init>",
         "()V",
-        native_object_init,
+        native_throwable_init,
     );
     registry.natives_mut().register(
         "java/lang/RuntimeException",
@@ -3436,7 +3609,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/IllegalArgumentException",
         "<init>",
         "()V",
-        native_object_init,
+        native_throwable_init,
     );
     registry.natives_mut().register(
         "java/lang/IllegalArgumentException",
@@ -3448,7 +3621,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/lang/IllegalArgumentException",
         "<init>",
         "(Ljava/lang/String;Ljava/lang/Throwable;)V",
-        native_throwable_init_string,
+        native_throwable_init_string_cause,
     );
 
     let illegal_thread_state_ctx = ClassContext {
@@ -3615,7 +3788,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         registry.register(ctx);
         registry
             .natives_mut()
-            .register(name, "<init>", "()V", native_object_init);
+            .register(name, "<init>", "()V", native_throwable_init);
         registry.natives_mut().register(
             name,
             "<init>",
@@ -3660,7 +3833,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         registry.register(ctx);
         registry
             .natives_mut()
-            .register(name, "<init>", "()V", native_object_init);
+            .register(name, "<init>", "()V", native_throwable_init);
         registry.natives_mut().register(
             name,
             "<init>",

@@ -927,6 +927,8 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "TestInvokevirtualMissing".to_string(),
@@ -1011,6 +1013,8 @@ fn object_constructor_dispatches_via_invokespecial() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let target_ctx = ClassContext {
         class_name: "CtorTarget".to_string(),
@@ -1091,6 +1095,8 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "InvokevirtualCaller".to_string(),
@@ -1130,6 +1136,8 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let child_ctx = ClassContext {
         class_name: "ConcreteChild".to_string(),
@@ -1220,6 +1228,8 @@ fn registered_native_overrides_loaded_bytecode_method() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "NativeOverrideCaller".to_string(),
@@ -1247,6 +1257,8 @@ fn registered_native_overrides_loaded_bytecode_method() {
         max_locals: 1,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let target_ctx = ClassContext {
         class_name: "NativeOverrideTarget".to_string(),
@@ -1339,6 +1351,8 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         max_locals: 0,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (3, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "NativeOverrideStaticCaller".to_string(),
@@ -1366,6 +1380,8 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         max_locals: 0,
         exception_table: Vec::new(),
         pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let target_ctx = ClassContext {
         class_name: "NativeOverrideStaticTarget".to_string(),
@@ -1682,6 +1698,8 @@ fn hashset_iterator_supports_invokeinterface_iteration() {
             (27, 11),
             (28, 12),
         ])),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "HashSetIterCaller".to_string(),
@@ -7805,6 +7823,101 @@ fn throwable_catch_get_message() {
 }
 
 #[test]
+fn throwable_stack_trace_basic_frames() {
+    let frames = run_bootstrap_int("StackTraceBasicTest.class", "testBasicFrames", "()I");
+    assert!(
+        frames >= 3,
+        "expected at least three real frames, got fixture code {frames}"
+    );
+}
+
+#[test]
+fn throwable_stack_trace_defensive_copy_and_setter() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceBasicTest.class",
+            "testDefensiveCopyAndSetStackTrace",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_localized_message_still_falls_back_to_message() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceBasicTest.class",
+            "testLocalizedMessageStillFallsBack",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_print_stack_trace_includes_cause_chain() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceCausedByTest.class",
+            "testPrintStackTraceCause",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_suppressed_exceptions_are_retained() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceSuppressedTest.class",
+            "testSuppressedIsRetained",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_lambda_trace_keeps_user_frame() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceLambdaTest.class",
+            "testLambdaTraceIncludesUserCaller",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn throwable_print_stack_trace_format_matches_golden_shape() {
+    assert_eq!(
+        run_bootstrap_int(
+            "StackTraceFormatGoldenTest.class",
+            "testPrintStackTraceFormat",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn stack_trace_line_lookup_uses_deepest_preceding_bci() {
+    let table = vec![(0, 10), (4, 12), (12, 30)];
+    assert_eq!(line_number_for_bci(&table, 0), 10);
+    assert_eq!(line_number_for_bci(&table, 7), 12);
+    assert_eq!(line_number_for_bci(&table, 99), 30);
+}
+
+#[test]
+fn stack_trace_line_lookup_returns_unknown_for_empty_or_before_first_entry() {
+    assert_eq!(line_number_for_bci(&[], 7), -1);
+    assert_eq!(line_number_for_bci(&[(10, 40)], 7), -1);
+}
+
+#[test]
 fn list_of_zero() {
     assert_eq!(
         run_bootstrap_int("ListOfTest.class", "testListOfZero", "()I"),
@@ -13262,6 +13375,8 @@ fn execute_class_synthetic(
         max_locals,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -17153,6 +17268,8 @@ fn ec_multianewarray_negative_dim_errors() {
         max_locals: 1,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let cp = vec![
         None,
@@ -17227,6 +17344,8 @@ fn ec_multianewarray_zero_dim_succeeds() {
         max_locals: 1,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let cp = vec![
         None,
@@ -17571,6 +17690,8 @@ fn ec_ldcw_string_pushes_nonnull_ref() {
         max_locals: 0,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -17642,6 +17763,8 @@ fn ec_ldcw_class_constant_pushes_nonnull_ref() {
         max_locals: 0,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -17749,6 +17872,8 @@ fn ec_new_initialises_reference_field_to_null() {
         max_locals: 0,
         exception_table: vec![],
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let caller_ctx = ClassContext {
         class_name: "SynTest".to_string(),
@@ -19893,6 +20018,8 @@ fn install_loader_keyed_hello_world_probe(
         max_locals: 1,
         exception_table,
         pc_to_idx: Arc::new(pc_to_idx),
+        line_number_table: Vec::new(),
+        source_file: None,
     };
     let ctx = registry
         .get_mut(class_key)

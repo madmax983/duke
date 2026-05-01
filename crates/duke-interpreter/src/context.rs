@@ -32,6 +32,8 @@ use duke_runtime::Slot;
 ///     max_locals: 2,
 ///     exception_table: vec![],
 ///     pc_to_idx: Arc::new(HashMap::new()),
+///     line_number_table: vec![],
+///     source_file: None,
 /// };
 /// assert_eq!(method.max_stack, 2);
 /// ```
@@ -66,6 +68,13 @@ pub struct MethodEntry {
     /// Precomputed PC → instruction-index map, shared cheaply via Arc to ensure
     /// `GOTO` and branch instructions resolve in O(1) time.
     pub pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    /// Debug line entries copied from the Code attribute's `LineNumberTable`.
+    ///
+    /// Each tuple is `(start_pc, line_number)`. The interpreter uses the deepest
+    /// entry whose `start_pc <= bci` when materializing Throwable stack frames.
+    pub line_number_table: Vec<(u16, u16)>,
+    /// Source file name copied from the class-level `SourceFile` attribute.
+    pub source_file: Option<String>,
 }
 
 /// A field declaration extracted from a parsed class.
