@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{ClassLoader, Error, Result};
+use crate::{ClassLoader, Error, LocatedResource, Result, path_to_file_url};
 
 /// Loads `.class` files from a filesystem directory.
 ///
@@ -92,6 +92,17 @@ impl ClassLoader for DirectoryLoader {
             name: name.to_string(),
         })
     }
+
+    fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        let path = self.resolve_child_path(name)?;
+        let bytes = std::fs::read(&path).map_err(|_| Error::NotFound {
+            name: name.to_string(),
+        })?;
+        Ok(LocatedResource {
+            bytes,
+            url: path_to_file_url(&path),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +169,30 @@ mod tests {
         let loader = DirectoryLoader::new(std::env::temp_dir());
         let result = loader.find_resource("../META-INF/services/evil");
         assert!(matches!(result, Err(Error::NotFound { .. })));
+    }
+
+    #[test]
+    fn directory_loader_resource_entry_reports_file_url() {
+        let root = std::env::temp_dir().join("duke_loader_resource_url");
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("sample.txt"), b"hello").unwrap();
+
+        let loader = DirectoryLoader::new(&root);
+        let resource = loader
+            .find_resource_entry("sample.txt")
+            .expect("resource entry should resolve");
+
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(resource.bytes, b"hello");
+        assert!(
+            resource.url.starts_with("file://"),
+            "expected file URL, got {}",
+            resource.url
+        );
+        assert!(resource.url.ends_with("sample.txt"));
     }
 }

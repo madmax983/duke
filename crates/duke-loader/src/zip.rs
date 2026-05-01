@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
-use crate::{ClassLoader, Error, Result};
+use crate::{ClassLoader, Error, LocatedResource, Result, path_to_file_url};
 
 // ───────────────────────────────────────────────────────────────────────────
 // ZIP format constants
@@ -296,6 +296,7 @@ impl ZipReader {
 /// ```
 pub struct ZipLoader {
     reader: ZipReader,
+    container_spec: String,
     nested_libs: Vec<Self>,
 }
 
@@ -312,7 +313,8 @@ impl ZipLoader {
     /// * The file is not a structurally valid ZIP archive (missing End of Central Directory).
     /// * The archive uses unsupported features (like ZIP64 or encryption).
     pub fn open(path: &Path) -> Result<Self> {
-        Self::from_reader(ZipReader::open(path)?)
+        let container_spec = path_to_file_url(path);
+        Self::from_reader(ZipReader::open(path)?, container_spec)
     }
 
     /// Access the underlying reader.
@@ -335,12 +337,17 @@ impl ZipLoader {
         &self.reader
     }
 
-    fn from_reader(reader: ZipReader) -> Result<Self> {
-        let nested_libs = nested_boot_inf_lib_loaders(&reader)?;
+    fn from_reader(reader: ZipReader, container_spec: String) -> Result<Self> {
+        let nested_libs = nested_boot_inf_lib_loaders(&reader, &container_spec)?;
         Ok(Self {
             reader,
+            container_spec,
             nested_libs,
         })
+    }
+
+    fn resource_url(&self, entry_name: &str) -> String {
+        format!("jar:{}!/{entry_name}", self.container_spec)
     }
 }
 
@@ -428,9 +435,77 @@ impl ClassLoader for ZipLoader {
         }
         Ok(resources)
     }
+
+    fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        match self.reader.read_entry(name) {
+            Ok(bytes) => {
+                return Ok(LocatedResource {
+                    bytes,
+                    url: self.resource_url(name),
+                });
+            }
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        let mut boot_inf_name = String::with_capacity(name.len() + 17);
+        boot_inf_name.push_str("BOOT-INF/classes/");
+        boot_inf_name.push_str(name);
+        match self.reader.read_entry(&boot_inf_name) {
+            Ok(bytes) => {
+                return Ok(LocatedResource {
+                    bytes,
+                    url: self.resource_url(&boot_inf_name),
+                });
+            }
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        for nested_lib in &self.nested_libs {
+            match nested_lib.find_resource_entry(name) {
+                Err(Error::NotFound { .. }) => {}
+                result => return result,
+            }
+        }
+
+        Err(Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        let mut resources = Vec::new();
+        match self.reader.read_entry(name) {
+            Ok(bytes) => resources.push(LocatedResource {
+                bytes,
+                url: self.resource_url(name),
+            }),
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        let mut boot_inf_name = String::with_capacity(name.len() + 17);
+        boot_inf_name.push_str("BOOT-INF/classes/");
+        boot_inf_name.push_str(name);
+        match self.reader.read_entry(&boot_inf_name) {
+            Ok(bytes) => resources.push(LocatedResource {
+                bytes,
+                url: self.resource_url(&boot_inf_name),
+            }),
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        for nested_lib in &self.nested_libs {
+            resources.extend(nested_lib.find_resource_entries(name)?);
+        }
+
+        Ok(resources)
+    }
 }
 
-fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> Result<Vec<ZipLoader>> {
+fn nested_boot_inf_lib_loaders(reader: &ZipReader, container_spec: &str) -> Result<Vec<ZipLoader>> {
     let mut nested_entry_names: Vec<&str> = reader
         .entry_names()
         .filter(|name| is_nested_boot_inf_lib_archive(name))
@@ -440,9 +515,10 @@ fn nested_boot_inf_lib_loaders(reader: &ZipReader) -> Result<Vec<ZipLoader>> {
     let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
     for entry_name in nested_entry_names {
         let nested_bytes = reader.read_entry(entry_name)?;
-        nested_libs.push(ZipLoader::from_reader(ZipReader::from_bytes(
-            nested_bytes,
-        )?)?);
+        nested_libs.push(ZipLoader::from_reader(
+            ZipReader::from_bytes(nested_bytes)?,
+            format!("{container_spec}!/{entry_name}"),
+        )?);
     }
     Ok(nested_libs)
 }
@@ -640,9 +716,27 @@ mod tests {
     fn test_zip_loader_reader() {
         let zip_bytes = build_stored_zip("test.txt", b"hello world");
         let reader = ZipReader::from_bytes(zip_bytes).expect("valid zip");
-        let loader = ZipLoader::from_reader(reader).expect("valid zip");
+        let loader = ZipLoader::from_reader(reader, "file://memory/test.zip".to_string())
+            .expect("valid zip");
         let r = loader.reader();
         assert_eq!(r.data.len(), 125);
+    }
+
+    #[test]
+    fn zip_loader_resource_entry_reports_jar_url() {
+        let zip_bytes = build_stored_zip("META-INF/messages.txt", b"hello");
+        let reader = ZipReader::from_bytes(zip_bytes).expect("valid zip");
+        let loader = ZipLoader::from_reader(reader, "file://memory/test.zip".to_string())
+            .expect("valid zip");
+        let resource = loader
+            .find_resource_entry("META-INF/messages.txt")
+            .expect("resource entry should resolve");
+
+        assert_eq!(resource.bytes, b"hello");
+        assert_eq!(
+            resource.url,
+            "jar:file://memory/test.zip!/META-INF/messages.txt"
+        );
     }
 
     // ── Helpers: build minimal valid ZIPs in memory ──────────────────────

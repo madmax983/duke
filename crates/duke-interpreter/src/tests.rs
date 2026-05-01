@@ -5438,6 +5438,38 @@ fn run_bootstrap_int_completion(class_name: &str, method_name: &str, descriptor:
     }
 }
 
+fn run_jar_fixture_int(
+    entry_class: &str,
+    jar_name: &str,
+    method_name: &str,
+    descriptor: &str,
+) -> i32 {
+    let jar_path = fixtures_dir().join(jar_name);
+    let loader = duke_loader::ZipLoader::open(&jar_path).expect("open jar fixture");
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry
+        .ensure_loaded(entry_class, &loader)
+        .expect("load jar fixture entry class");
+    let mut out: Vec<u8> = Vec::new();
+    let result = execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut out,
+        entry_class,
+        method_name,
+        descriptor,
+        &[],
+    )
+    .expect("jar fixture should execute");
+    match result {
+        Some(Slot::Int(value)) => value,
+        other => panic!("expected int result, got {other:?}"),
+    }
+}
+
 fn run_bootstrap_with_string_args(
     class_name: &str,
     method_name: &str,
@@ -6707,6 +6739,35 @@ fn service_loader_load_with_url_class_loader_reads_service_resources() {
     assert!(
         provider_class.starts_with("com/example/Hello\0loader:"),
         "expected provider from explicit URLClassLoader, got {provider_class:?}"
+    );
+}
+
+#[test]
+fn resource_loading_fixture_runs_directory_cases() {
+    assert_eq!(
+        run_bootstrap_int_completion("ResourceLoadingTest.class", "runAll", "()I"),
+        1
+    );
+}
+
+#[test]
+fn resource_loading_meta_inf_fixture_runs_from_directory_loader() {
+    assert_eq!(
+        run_bootstrap_int_completion("ResourceLoadingJarTest.class", "readMetaInfMessage", "()I",),
+        0
+    );
+}
+
+#[test]
+fn resource_loading_meta_inf_fixture_runs_from_jar_loader() {
+    assert_eq!(
+        run_jar_fixture_int(
+            "ResourceLoadingJarTest",
+            "resource-loading.jar",
+            "runAll",
+            "()I"
+        ),
+        1
     );
 }
 

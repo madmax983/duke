@@ -9,6 +9,8 @@
 //! - `manifest` — MANIFEST.MF parser for JAR files.
 //! - `zip` — Read-only ZIP/JAR archive support.
 
+use std::path::{Path, PathBuf};
+
 pub(crate) mod bootstrap;
 pub(crate) mod directory;
 pub(crate) mod error;
@@ -22,6 +24,31 @@ pub use error::{Error, Result};
 pub use jimage::{JImageReader, ResourceInfo};
 pub use manifest::parse_main_class;
 pub use zip::{ZipEntryInfo, ZipLoader, ZipReader};
+
+/// Resolved classpath resource bytes plus a stable synthetic URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocatedResource {
+    /// The resource payload.
+    pub bytes: Vec<u8>,
+    /// Synthetic `file:` or `jar:file:` URL representing the resource location.
+    pub url: String,
+}
+
+pub(crate) fn path_to_file_url(path: &Path) -> String {
+    let canonical = path.canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+    let mut normalized = canonical.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        if let Some(stripped) = normalized.strip_prefix("//?/UNC/") {
+            normalized = format!("//{stripped}");
+        } else if let Some(stripped) = normalized.strip_prefix("//?/") {
+            normalized = stripped.to_string();
+        }
+    }
+    if cfg!(windows) && !normalized.starts_with('/') {
+        normalized.insert(0, '/');
+    }
+    format!("file://{normalized}")
+}
 
 /// Abstraction over class file loading sources.
 ///
@@ -52,6 +79,21 @@ pub trait ClassLoader {
         })
     }
 
+    /// Load a non-class resource together with a stable synthetic URL.
+    ///
+    /// By default loaders report the resource as not found until they opt into
+    /// the richer metadata surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`] if the resource is not present, or another
+    /// [`Error`] when the backing archive or filesystem entry cannot be read.
+    fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        Err(Error::NotFound {
+            name: name.to_string(),
+        })
+    }
+
     /// Return every matching resource in deterministic classpath order.
     ///
     /// Classpath scanners such as `java.util.ServiceLoader` need all
@@ -65,6 +107,19 @@ pub trait ClassLoader {
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
         match self.find_resource(name) {
             Ok(bytes) => Ok(vec![bytes]),
+            Err(Error::NotFound { .. }) => Ok(Vec::new()),
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Return every matching resource with stable synthetic URLs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a matching resource exists but cannot be read.
+    fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        match self.find_resource_entry(name) {
+            Ok(resource) => Ok(vec![resource]),
             Err(Error::NotFound { .. }) => Ok(Vec::new()),
             Err(err) => Err(err),
         }

@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use duke_loader::ClassLoader;
+use duke_loader::{ClassLoader, LocatedResource};
 use duke_runtime::{Error, Result, Slot};
 
 use crate::context::ClassContext;
@@ -582,6 +582,49 @@ impl ClassRegistry {
         Ok(files)
     }
 
+    pub(crate) fn find_resource_entry_for_paths(
+        &mut self,
+        paths: &[String],
+        name: &str,
+    ) -> Result<Option<LocatedResource>> {
+        for path in paths {
+            let Some(loader) = self.path_loader_for_path(path) else {
+                continue;
+            };
+            match loader.find_resource_entry(name) {
+                Ok(resource) => return Ok(Some(resource)),
+                Err(duke_loader::Error::NotFound { .. }) => {}
+                Err(_) => {
+                    return Err(Error::JavaException {
+                        class_name: "java/io/IOException".to_string(),
+                    });
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn find_resource_entries_for_paths(
+        &mut self,
+        paths: &[String],
+        name: &str,
+    ) -> Result<Vec<LocatedResource>> {
+        let mut resources = Vec::new();
+        for path in paths {
+            let Some(loader) = self.path_loader_for_path(path) else {
+                continue;
+            };
+            let mut path_resources =
+                loader
+                    .find_resource_entries(name)
+                    .map_err(|_| Error::JavaException {
+                        class_name: "java/io/IOException".to_string(),
+                    })?;
+            resources.append(&mut path_resources);
+        }
+        Ok(resources)
+    }
+
     /// Access the native method registry.
     ///
     /// # Examples
@@ -1021,6 +1064,32 @@ pub trait CallbackOps {
         _loader_ref: Option<u64>,
         _service_binary_name: &str,
     ) -> Result<Vec<Vec<u8>>> {
+        Ok(Vec::new())
+    }
+
+    /// Return the first classpath resource visible to the given runtime loader.
+    ///
+    /// # Errors
+    /// Returns an error if resource lookup fails.
+    fn find_resource_entry(
+        &mut self,
+        _heap: &duke_gc::Heap,
+        _loader_ref: Option<u64>,
+        _name: &str,
+    ) -> Result<Option<duke_loader::LocatedResource>> {
+        Ok(None)
+    }
+
+    /// Return every matching classpath resource visible to the given runtime loader.
+    ///
+    /// # Errors
+    /// Returns an error if resource enumeration fails.
+    fn find_resource_entries(
+        &mut self,
+        _heap: &duke_gc::Heap,
+        _loader_ref: Option<u64>,
+        _name: &str,
+    ) -> Result<Vec<duke_loader::LocatedResource>> {
         Ok(Vec::new())
     }
 
