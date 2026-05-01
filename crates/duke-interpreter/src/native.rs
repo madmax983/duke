@@ -10965,6 +10965,82 @@ pub(crate) fn native_system_nano_time(
 
 const THREAD_TARGET_SLOT: usize = 0;
 const THREAD_ID_SLOT: usize = 1;
+const THREAD_INTERRUPTED_SLOT: usize = 2;
+const THREAD_HOST_KEY_SLOT: usize = 3;
+
+static NEXT_THREAD_HOST_KEY: AtomicI32 = AtomicI32::new(1);
+
+fn next_thread_host_key() -> i32 {
+    NEXT_THREAD_HOST_KEY.fetch_add(1, Ordering::Relaxed)
+}
+
+fn java_thread_hosts() -> &'static RwLock<HashMap<i32, std::thread::ThreadId>> {
+    static HOSTS: OnceLock<RwLock<HashMap<i32, std::thread::ThreadId>>> = OnceLock::new();
+    HOSTS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn interrupted_host_threads() -> &'static RwLock<HashSet<std::thread::ThreadId>> {
+    static INTERRUPTED: OnceLock<RwLock<HashSet<std::thread::ThreadId>>> = OnceLock::new();
+    INTERRUPTED.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+fn register_java_host_thread(host_key: i32, host_thread_id: std::thread::ThreadId) {
+    java_thread_hosts()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(host_key, host_thread_id);
+}
+
+fn unregister_java_host_thread(host_key: i32) {
+    let removed_host_thread = java_thread_hosts()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&host_key);
+    if let Some(host_thread_id) = removed_host_thread {
+        interrupted_host_threads()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&host_thread_id);
+    }
+}
+
+fn host_thread_for_java_thread(host_key: i32) -> Option<std::thread::ThreadId> {
+    java_thread_hosts()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&host_key)
+        .copied()
+}
+
+fn java_host_key_for_current_host() -> Option<i32> {
+    let host_thread_id = current_host_thread_id();
+    java_thread_hosts()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find_map(|(host_key, mapped_host)| (*mapped_host == host_thread_id).then_some(*host_key))
+}
+
+fn interrupt_host_thread(host_thread_id: std::thread::ThreadId) {
+    interrupted_host_threads()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(host_thread_id);
+}
+
+fn current_host_thread_is_interrupted() -> bool {
+    interrupted_host_threads()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains(&current_host_thread_id())
+}
+
+fn take_current_host_thread_interrupted() -> bool {
+    interrupted_host_threads()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&current_host_thread_id())
+}
 
 pub(crate) fn native_thread_current_thread(
     _args: &[Slot],
@@ -10972,10 +11048,12 @@ pub(crate) fn native_thread_current_thread(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 2);
+    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 4);
     let thread = heap.get_mut(thread_ref)?;
     thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
     thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    thread.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(i32::from(current_host_thread_is_interrupted()));
+    thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(java_host_key_for_current_host().unwrap_or(-1));
     Ok(Some(Slot::Reference(Some(thread_ref))))
 }
 
@@ -10989,6 +11067,8 @@ pub(crate) fn native_thread_init(
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
+    this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
     Ok(None)
 }
 
@@ -11003,6 +11083,8 @@ pub(crate) fn native_thread_init_runnable(
     let this = heap.get_mut(this_ref)?;
     this.fields[THREAD_TARGET_SLOT] = target;
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
+    this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
     Ok(None)
 }
 
@@ -12150,6 +12232,30 @@ fn unsupported_operation_error() -> Error {
     }
 }
 
+fn illegal_argument_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/IllegalArgumentException".to_string(),
+    }
+}
+
+fn interrupted_exception_error() -> Error {
+    Error::JavaException {
+        class_name: "java/lang/InterruptedException".to_string(),
+    }
+}
+
+fn broken_barrier_exception_error() -> Error {
+    Error::JavaException {
+        class_name: "java/util/concurrent/BrokenBarrierException".to_string(),
+    }
+}
+
+fn timeout_exception_error() -> Error {
+    Error::JavaException {
+        class_name: "java/util/concurrent/TimeoutException".to_string(),
+    }
+}
+
 const fn request_native_retry(control: &mut NativeControl) {
     control.request(NativeThreadAction::Retry);
 }
@@ -12181,6 +12287,43 @@ fn condition_state(
         Some(duke_gc::AtomicPayload::Condition(state)) => Ok(std::sync::Arc::clone(state)),
         _ => Err(atomic_payload_error(this_ref)),
     }
+}
+
+fn count_down_latch_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::CountDownLatchState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::CountDownLatch(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn semaphore_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::SemaphoreState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::Semaphore(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn cyclic_barrier_state(
+    heap: &duke_gc::Heap,
+    this_ref: u64,
+) -> Result<std::sync::Arc<std::sync::Mutex<duke_gc::CyclicBarrierState>>> {
+    match heap.get(this_ref)?.atomic_payload.as_ref() {
+        Some(duke_gc::AtomicPayload::CyclicBarrier(state)) => Ok(std::sync::Arc::clone(state)),
+        _ => Err(atomic_payload_error(this_ref)),
+    }
+}
+
+fn deadline_from_now(nanos: i64) -> Option<std::time::Instant> {
+    let now = std::time::Instant::now();
+    u64::try_from(nanos)
+        .ok()
+        .and_then(|nanos| now.checked_add(std::time::Duration::from_nanos(nanos)))
 }
 
 fn read_write_lock_state(
@@ -12583,6 +12726,821 @@ pub(crate) fn native_condition_signal_all(
     }
     drop(condition_guard);
     Ok(None)
+}
+
+pub(crate) fn native_thread_interrupt(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let thread_ref = extract_ref_arg(args, 0)?;
+    let host_key = match heap.get(thread_ref)?.fields.get(THREAD_HOST_KEY_SLOT) {
+        Some(Slot::Int(host_key)) => *host_key,
+        _ => -1,
+    };
+    heap.write_field(thread_ref, THREAD_INTERRUPTED_SLOT, Slot::Int(1))?;
+    if let Some(host_thread_id) = host_thread_for_java_thread(host_key) {
+        interrupt_host_thread(host_thread_id);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_thread_is_interrupted(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let thread_ref = extract_ref_arg(args, 0)?;
+    let field_interrupted = matches!(
+        heap.get(thread_ref)?.fields.get(THREAD_INTERRUPTED_SLOT),
+        Some(Slot::Int(value)) if *value != 0
+    );
+    let host_key = match heap.get(thread_ref)?.fields.get(THREAD_HOST_KEY_SLOT) {
+        Some(Slot::Int(host_key)) => *host_key,
+        _ => -1,
+    };
+    let host_interrupted = host_thread_for_java_thread(host_key)
+        .is_some_and(|host_thread_id| {
+            interrupted_host_threads()
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&host_thread_id)
+        });
+    Ok(Some(Slot::Int(i32::from(
+        field_interrupted || host_interrupted,
+    ))))
+}
+
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_thread_interrupted(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Int(i32::from(
+        take_current_host_thread_interrupted(),
+    ))))
+}
+
+pub(crate) fn native_count_down_latch_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let count = extract_int_arg(args, 1)?;
+    if count < 0 {
+        return Err(illegal_argument_error());
+    }
+    heap.get_mut(this_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::count_down_latch(count));
+    Ok(None)
+}
+
+fn count_down_latch_await_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    control: &mut NativeControl,
+    timeout_nanos: Option<i64>,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let interrupted = take_current_host_thread_interrupted();
+    let mut guard = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if interrupted {
+        guard.waiters.retain(|waiter| waiter.thread_id != thread_id);
+        return Err(interrupted_exception_error());
+    }
+
+    if guard.count <= 0 {
+        guard.waiters.retain(|waiter| waiter.thread_id != thread_id);
+        return Ok(timeout_nanos.map(|_| Slot::Int(1)));
+    }
+    if timeout_nanos.is_some_and(|nanos| nanos <= 0) {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    if let Some(waiter_idx) = guard
+        .waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        if guard.waiters[waiter_idx]
+            .deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            guard.waiters.remove(waiter_idx);
+            return Ok(Some(Slot::Int(0)));
+        }
+    } else {
+        guard.waiters.push(duke_gc::CountDownLatchWaiter {
+            thread_id,
+            deadline: timeout_nanos.and_then(deadline_from_now),
+        });
+    }
+    drop(guard);
+    request_native_retry(control);
+    Ok(None)
+}
+
+pub(crate) fn native_count_down_latch_await(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    count_down_latch_await_common(args, heap, control, None)
+}
+
+pub(crate) fn native_count_down_latch_await_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    count_down_latch_await_common(args, heap, control, Some(nanos))
+}
+
+pub(crate) fn native_count_down_latch_count_down(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let mut guard = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.count > 0 {
+        guard.count -= 1;
+        if guard.count == 0 {
+            guard.waiters.clear();
+        }
+    }
+    drop(guard);
+    Ok(None)
+}
+
+pub(crate) fn native_count_down_latch_get_count(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let count = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .count;
+    Ok(Some(Slot::Long(i64::from(count.max(0)))))
+}
+
+pub(crate) fn native_count_down_latch_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let latch = count_down_latch_state(heap, this_ref)?;
+    let count = latch
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .count
+        .max(0);
+    let string_ref = heap.allocate_string(format!(
+        "java.util.concurrent.CountDownLatch[Count = {count}]"
+    ));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_semaphore_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let permits = extract_int_arg(args, 1)?;
+    heap.get_mut(this_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::semaphore(permits, false));
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_init_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let permits = extract_int_arg(args, 1)?;
+    let fair = atomic_bool_arg(args, 2)?;
+    heap.get_mut(this_ref)?.atomic_payload =
+        Some(duke_gc::AtomicPayload::semaphore(permits, fair));
+    Ok(None)
+}
+
+fn semaphore_validate_permits(permits: i32) -> Result<()> {
+    if permits < 0 {
+        return Err(illegal_argument_error());
+    }
+    Ok(())
+}
+
+fn semaphore_remove_waiter(
+    waiters: &mut VecDeque<duke_gc::SemaphoreWaiter>,
+    thread_id: std::thread::ThreadId,
+) {
+    if let Some(idx) = waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        waiters.remove(idx);
+    }
+}
+
+fn semaphore_can_acquire(
+    state: &duke_gc::SemaphoreState,
+    thread_id: std::thread::ThreadId,
+    permits: i32,
+) -> bool {
+    if state.permits < permits {
+        return false;
+    }
+    if !state.fair {
+        return true;
+    }
+    state
+        .waiters
+        .front()
+        .is_none_or(|waiter| waiter.thread_id == thread_id)
+}
+
+fn semaphore_try_acquire_immediate(
+    state: &mut duke_gc::SemaphoreState,
+    thread_id: std::thread::ThreadId,
+    permits: i32,
+    honor_fairness: bool,
+) -> bool {
+    if permits == 0 {
+        return true;
+    }
+    let can_acquire = if honor_fairness {
+        semaphore_can_acquire(state, thread_id, permits)
+    } else {
+        state.permits >= permits
+    };
+    if !can_acquire {
+        return false;
+    }
+    state.permits -= permits;
+    semaphore_remove_waiter(&mut state.waiters, thread_id);
+    true
+}
+
+fn semaphore_acquire_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    control: &mut NativeControl,
+    permits: i32,
+    timeout_nanos: Option<i64>,
+    returns_bool: bool,
+    interruptible: bool,
+) -> Result<Option<Slot>> {
+    semaphore_validate_permits(permits)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let interrupted = interruptible && take_current_host_thread_interrupted();
+    let mut guard = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if interrupted {
+        semaphore_remove_waiter(&mut guard.waiters, thread_id);
+        return Err(interrupted_exception_error());
+    }
+
+    if semaphore_try_acquire_immediate(&mut guard, thread_id, permits, true) {
+        return Ok(returns_bool.then_some(Slot::Int(1)));
+    }
+    if timeout_nanos.is_some_and(|nanos| nanos <= 0) {
+        return Ok(Some(Slot::Int(0)));
+    }
+
+    if let Some(waiter_idx) = guard
+        .waiters
+        .iter()
+        .position(|waiter| waiter.thread_id == thread_id)
+    {
+        if guard.waiters[waiter_idx]
+            .deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            guard.waiters.remove(waiter_idx);
+            return Ok(Some(Slot::Int(0)));
+        }
+    } else {
+        guard.waiters.push_back(duke_gc::SemaphoreWaiter {
+            thread_id,
+            permits,
+            deadline: timeout_nanos.and_then(deadline_from_now),
+        });
+    }
+    drop(guard);
+    request_native_retry(control);
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_acquire(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_acquire_common(args, heap, control, 1, None, false, true)
+}
+
+pub(crate) fn native_semaphore_acquire_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_acquire_common(args, heap, control, permits, None, false, true)
+}
+
+pub(crate) fn native_semaphore_acquire_uninterruptibly(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_acquire_common(args, heap, control, 1, None, false, false)
+}
+
+pub(crate) fn native_semaphore_acquire_uninterruptibly_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_acquire_common(args, heap, control, permits, None, false, false)
+}
+
+fn semaphore_try_acquire_common(
+    args: &[Slot],
+    heap: &duke_gc::Heap,
+    permits: i32,
+) -> Result<Option<Slot>> {
+    semaphore_validate_permits(permits)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let acquired = semaphore_try_acquire_immediate(
+        &mut semaphore
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        thread_id,
+        permits,
+        false,
+    );
+    Ok(Some(Slot::Int(i32::from(acquired))))
+}
+
+pub(crate) fn native_semaphore_try_acquire(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_try_acquire_common(args, heap, 1)
+}
+
+pub(crate) fn native_semaphore_try_acquire_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_try_acquire_common(args, heap, permits)
+}
+
+pub(crate) fn native_semaphore_try_acquire_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    semaphore_acquire_common(args, heap, control, 1, Some(nanos), true, true)
+}
+
+fn semaphore_release_common(args: &[Slot], heap: &duke_gc::Heap, permits: i32) -> Result<()> {
+    semaphore_validate_permits(permits)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let mut guard = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.permits = guard.permits.saturating_add(permits);
+    drop(guard);
+    Ok(())
+}
+
+pub(crate) fn native_semaphore_release(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    semaphore_release_common(args, heap, 1)?;
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_release_many(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let permits = extract_int_arg(args, 1)?;
+    semaphore_release_common(args, heap, permits)?;
+    Ok(None)
+}
+
+pub(crate) fn native_semaphore_available_permits(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let permits = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .permits;
+    Ok(Some(Slot::Int(permits)))
+}
+
+pub(crate) fn native_semaphore_drain_permits(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let mut guard = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let drained = guard.permits;
+    guard.permits = 0;
+    drop(guard);
+    Ok(Some(Slot::Int(drained)))
+}
+
+pub(crate) fn native_semaphore_has_queued_threads(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let has_waiters = !semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .waiters
+        .is_empty();
+    Ok(Some(Slot::Int(i32::from(has_waiters))))
+}
+
+pub(crate) fn native_semaphore_get_queue_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let len = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .waiters
+        .len();
+    Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(i32::MAX))))
+}
+
+pub(crate) fn native_semaphore_is_fair(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let fair = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .fair;
+    Ok(Some(Slot::Int(i32::from(fair))))
+}
+
+pub(crate) fn native_semaphore_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let semaphore = semaphore_state(heap, this_ref)?;
+    let permits = semaphore
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .permits;
+    let string_ref =
+        heap.allocate_string(format!("java.util.concurrent.Semaphore[Permits = {permits}]"));
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_cyclic_barrier_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let parties = extract_int_arg(args, 1)?;
+    if parties <= 0 {
+        return Err(illegal_argument_error());
+    }
+    let this = heap.get_mut(this_ref)?;
+    this.atomic_payload = Some(duke_gc::AtomicPayload::cyclic_barrier(parties));
+    if !this.fields.is_empty() {
+        this.fields[0] = Slot::Reference(None);
+    }
+    Ok(None)
+}
+
+pub(crate) fn native_cyclic_barrier_init_action(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_cyclic_barrier_init(args, heap, out, control)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let action = extract_slot_arg(args, 2);
+    if !heap.get(this_ref)?.fields.is_empty() {
+        heap.write_field(this_ref, 0, action)?;
+        heap.remember_reference_write(this_ref, action);
+    }
+    Ok(None)
+}
+
+fn cyclic_barrier_break_current(
+    barrier: &std::sync::Arc<std::sync::Mutex<duke_gc::CyclicBarrierState>>,
+) {
+    barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .break_generation();
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cyclic_barrier_await_common(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+    timeout_nanos: Option<i64>,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let action = extract_field_arg(heap, this_ref, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let thread_id = current_host_thread_id();
+    let now = std::time::Instant::now();
+    let interrupted = take_current_host_thread_interrupted();
+    let run_action = {
+        let mut guard = barrier
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(waiter_idx) = guard
+            .waiters
+            .iter()
+            .position(|waiter| waiter.thread_id == thread_id)
+        {
+            if interrupted {
+                guard.break_generation();
+                guard.waiters.remove(waiter_idx);
+                return Err(interrupted_exception_error());
+            }
+            if guard.waiters[waiter_idx].broken {
+                guard.waiters.remove(waiter_idx);
+                return Err(broken_barrier_exception_error());
+            }
+            if guard.waiters[waiter_idx].generation != guard.generation {
+                let arrival_index = guard.waiters[waiter_idx].arrival_index;
+                guard.waiters.remove(waiter_idx);
+                return Ok(Some(Slot::Int(arrival_index)));
+            }
+            if guard.waiters[waiter_idx]
+                .deadline
+                .is_some_and(|deadline| now >= deadline)
+            {
+                guard.break_generation();
+                guard.waiters.remove(waiter_idx);
+                return Err(timeout_exception_error());
+            }
+            drop(guard);
+            request_native_retry(control);
+            return Ok(None);
+        }
+
+        if guard.broken {
+            return Err(broken_barrier_exception_error());
+        }
+        if interrupted {
+            guard.break_generation();
+            return Err(interrupted_exception_error());
+        }
+        if timeout_nanos.is_some_and(|nanos| nanos <= 0) {
+            guard.break_generation();
+            return Err(timeout_exception_error());
+        }
+
+        let arrival_index = guard.count.saturating_sub(1);
+        guard.count = arrival_index;
+        if arrival_index == 0 {
+            action.as_reference()
+        } else {
+            let generation = guard.generation;
+            guard.waiters.push(duke_gc::CyclicBarrierWaiter {
+                thread_id,
+                generation,
+                arrival_index,
+                deadline: timeout_nanos.and_then(deadline_from_now),
+                broken: false,
+            });
+            drop(guard);
+            request_native_retry(control);
+            return Ok(None);
+        }
+    };
+
+    if let Some(action_ref) = run_action {
+        let action_class = heap.get(action_ref)?.class_name.clone();
+        let action_result = ops.invoke(
+            heap,
+            out,
+            &action_class,
+            "run",
+            "()V",
+            vec![Slot::Reference(Some(action_ref))],
+        );
+        if action_result.is_err() {
+            cyclic_barrier_break_current(&barrier);
+            return Err(broken_barrier_exception_error());
+        }
+    }
+    barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .trip_generation();
+    Ok(Some(Slot::Int(0)))
+}
+
+pub(crate) fn native_cyclic_barrier_await(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    cyclic_barrier_await_common(args, heap, out, control, ops, None)
+}
+
+pub(crate) fn native_cyclic_barrier_await_timeout(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let timeout = extract_long_arg(args, 1)?;
+    let unit_ref = extract_ref_arg(args, 2)?;
+    let nanos = timeout_nanos(timeout, unit_ref, heap)?;
+    cyclic_barrier_await_common(args, heap, out, control, ops, Some(nanos))
+}
+
+pub(crate) fn native_cyclic_barrier_get_parties(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let parties = barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .parties;
+    Ok(Some(Slot::Int(parties)))
+}
+
+pub(crate) fn native_cyclic_barrier_get_number_waiting(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let waiting = {
+        let guard = barrier
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard
+            .waiters
+            .iter()
+            .filter(|waiter| waiter.generation == guard.generation && !waiter.broken)
+            .count()
+    };
+    Ok(Some(Slot::Int(i32::try_from(waiting).unwrap_or(i32::MAX))))
+}
+
+pub(crate) fn native_cyclic_barrier_is_broken(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let broken = barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .broken;
+    Ok(Some(Slot::Int(i32::from(broken))))
+}
+
+pub(crate) fn native_cyclic_barrier_reset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    barrier
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .reset();
+    Ok(None)
+}
+
+pub(crate) fn native_cyclic_barrier_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let barrier = cyclic_barrier_state(heap, this_ref)?;
+    let (parties, count) = {
+        let guard = barrier
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (guard.parties, guard.count)
+    };
+    let string_ref = heap.allocate_string(format!(
+        "java.util.concurrent.CyclicBarrier[Parties = {parties}, Count = {count}]"
+    ));
+    Ok(Some(Slot::Reference(Some(string_ref))))
 }
 
 fn allocate_read_write_view(
@@ -19513,6 +20471,7 @@ fn spawn_java_thread(
         }
     }
 
+    let host_key = next_thread_host_key();
     let thread_id = {
         let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let thread_id = runtime.threads.allocate_thread_id();
@@ -19527,6 +20486,7 @@ fn spawn_java_thread(
         {
             let thread = shared_guard.heap.get_mut(thread_ref)?;
             thread.fields[THREAD_ID_SLOT] = Slot::Int(thread_id);
+            thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(host_key);
         }
         let CompletionVm {
             registry,
@@ -19555,6 +20515,25 @@ fn spawn_java_thread(
     let runtime_clone = std::sync::Arc::clone(runtime);
     let loader_clone = std::sync::Arc::clone(loader);
     let handle = std::thread::spawn(move || {
+        let host_thread_id = std::thread::current().id();
+        register_java_host_thread(host_key, host_thread_id);
+        let interrupted_before_start = {
+            let shared = shared_clone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            matches!(
+                shared
+                    .heap
+                    .get(thread_ref)
+                    .ok()
+                    .and_then(|thread| thread.fields.get(THREAD_INTERRUPTED_SLOT))
+                    .copied(),
+                Some(Slot::Int(value)) if value != 0
+            )
+        };
+        if interrupted_before_start {
+            interrupt_host_thread(host_thread_id);
+        }
         let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
         {
             let mut shared = shared_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -19565,6 +20544,7 @@ fn spawn_java_thread(
             .unwrap()
             .threads
             .mark_finished_by_java_ref(thread_ref);
+        unregister_java_host_thread(host_key);
         result
     });
     runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner).handles.insert(thread_id, handle);
@@ -28426,7 +29406,10 @@ fn concurrent_hashmap_lock(
             | duke_gc::AtomicPayload::Condition(_)
             | duke_gc::AtomicPayload::ReadWriteLock(_)
             | duke_gc::AtomicPayload::ReadWriteLockView { .. }
-            | duke_gc::AtomicPayload::Executor(_) => Err(Error::TypeMismatch {
+            | duke_gc::AtomicPayload::Executor(_)
+            | duke_gc::AtomicPayload::CountDownLatch(_)
+            | duke_gc::AtomicPayload::Semaphore(_)
+            | duke_gc::AtomicPayload::CyclicBarrier(_) => Err(Error::TypeMismatch {
                 expected: "concurrent map lock",
                 got: "other",
             }),
