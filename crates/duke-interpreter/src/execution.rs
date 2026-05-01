@@ -483,7 +483,16 @@ pub fn run_execution(
 
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut native_control = NativeControl::default();
+                                let mut native_control = native_control_for_call(
+                                    registry,
+                                    current_class,
+                                    *method_idx,
+                                    pc,
+                                    call_stack,
+                                    &callee_class_key,
+                                    &callee_name,
+                                    &callee_desc,
+                                );
                                 let result =
                                     handler(&native_args, heap, stdout, &mut native_control);
                                 #[cfg(feature = "telemetry")]
@@ -546,7 +555,16 @@ pub fn run_execution(
                                 }
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut native_control = NativeControl::default();
+                                let mut native_control = native_control_for_call(
+                                    registry,
+                                    current_class,
+                                    *method_idx,
+                                    pc,
+                                    call_stack,
+                                    &callee_class_key,
+                                    &callee_name,
+                                    &callee_desc,
+                                );
                                 let result = {
                                     let mut callback_ops =
                                         InterpreterCallbackOps { registry, loader };
@@ -1831,7 +1849,16 @@ pub fn run_execution(
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut native_control = NativeControl::default();
+                                let mut native_control = native_control_for_call(
+                                    registry,
+                                    current_class,
+                                    *method_idx,
+                                    pc,
+                                    call_stack,
+                                    &callee_class_key,
+                                    &callee_name,
+                                    &callee_desc,
+                                );
                                 let result =
                                     handler(&native_args, heap, stdout, &mut native_control);
                                 #[cfg(feature = "telemetry")]
@@ -1908,7 +1935,16 @@ pub fn run_execution(
                                 native_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut native_control = NativeControl::default();
+                                let mut native_control = native_control_for_call(
+                                    registry,
+                                    current_class,
+                                    *method_idx,
+                                    pc,
+                                    call_stack,
+                                    &callee_class_key,
+                                    &callee_name,
+                                    &callee_desc,
+                                );
                                 let result = {
                                     let mut callback_ops =
                                         InterpreterCallbackOps { registry, loader };
@@ -2785,7 +2821,16 @@ pub fn run_execution(
                                 callee_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut native_control = NativeControl::default();
+                                let mut native_control = native_control_for_call(
+                                    registry,
+                                    current_class,
+                                    *method_idx,
+                                    pc,
+                                    call_stack,
+                                    &callee_class_key,
+                                    &callee_name,
+                                    &callee_desc,
+                                );
                                 let result =
                                     handler(&callee_args, heap, stdout, &mut native_control);
                                 #[cfg(feature = "telemetry")]
@@ -2859,7 +2904,16 @@ pub fn run_execution(
                                 callee_args.insert(0, this_slot);
                                 #[cfg(feature = "telemetry")]
                                 let _native_start = std::time::Instant::now();
-                                let mut native_control = NativeControl::default();
+                                let mut native_control = native_control_for_call(
+                                    registry,
+                                    current_class,
+                                    *method_idx,
+                                    pc,
+                                    call_stack,
+                                    &callee_class_key,
+                                    &callee_name,
+                                    &callee_desc,
+                                );
                                 let result = {
                                     let mut callback_ops =
                                         InterpreterCallbackOps { registry, loader };
@@ -3109,7 +3163,16 @@ pub fn run_execution(
                                     Some(HandlerKind::Simple(handler)) => {
                                         #[cfg(feature = "telemetry")]
                                         let _native_start = std::time::Instant::now();
-                                        let mut native_control = NativeControl::default();
+                                        let mut native_control = native_control_for_call(
+                                            registry,
+                                            current_class,
+                                            *method_idx,
+                                            pc,
+                                            call_stack,
+                                            &impl_class_key,
+                                            &lambda_info.impl_method,
+                                            &lambda_info.impl_desc,
+                                        );
                                         let result =
                                             handler(&impl_args, heap, stdout, &mut native_control);
                                         #[cfg(feature = "telemetry")]
@@ -3185,7 +3248,16 @@ pub fn run_execution(
                                     Some(HandlerKind::Callback(handler)) => {
                                         #[cfg(feature = "telemetry")]
                                         let _native_start = std::time::Instant::now();
-                                        let mut native_control = NativeControl::default();
+                                        let mut native_control = native_control_for_call(
+                                            registry,
+                                            current_class,
+                                            *method_idx,
+                                            pc,
+                                            call_stack,
+                                            &impl_class_key,
+                                            &lambda_info.impl_method,
+                                            &lambda_info.impl_desc,
+                                        );
                                         let result = {
                                             let mut callback_ops =
                                                 InterpreterCallbackOps { registry, loader };

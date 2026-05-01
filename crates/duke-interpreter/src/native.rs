@@ -3492,29 +3492,298 @@ pub(crate) fn native_object_clone(
     Ok(Some(Slot::Reference(Some(new_ref))))
 }
 
+const THROWABLE_CAUSE_FIELD: usize = 0;
+const THROWABLE_STACK_TRACE_FIELD: usize = 1;
+const THROWABLE_SUPPRESSED_FIELD: usize = 2;
+const STACK_TRACE_ELEMENT_CLASS: &str = "java/lang/StackTraceElement";
+const STACK_TRACE_ARRAY_CLASS: &str = "[Ljava/lang/StackTraceElement;";
+const THROWABLE_ARRAY_CLASS: &str = "[Ljava/lang/Throwable;";
+
+fn set_object_field(heap: &mut duke_gc::Heap, obj_ref: u64, index: usize, value: Slot) -> Result<()> {
+    let obj = heap.get_mut(obj_ref)?;
+    if obj.fields.len() <= index {
+        obj.fields.resize(index + 1, Slot::Reference(None));
+    }
+    obj.fields[index] = value;
+    Ok(())
+}
+
+fn allocate_slot_array(heap: &mut duke_gc::Heap, class_name: &str, elements: &[Slot]) -> Result<u64> {
+    let array_ref = heap.allocate(class_name.to_string(), elements.len());
+    heap.get_mut(array_ref)?.fields.clone_from_slice(elements);
+    Ok(array_ref)
+}
+
+fn allocate_empty_reference_array(heap: &mut duke_gc::Heap, class_name: &str) -> Result<u64> {
+    allocate_slot_array(heap, class_name, &[])
+}
+
+fn string_slot(heap: &mut duke_gc::Heap, value: &str) -> Slot {
+    Slot::Reference(Some(heap.allocate_string(value.to_string())))
+}
+
+fn optional_string_slot(heap: &mut duke_gc::Heap, value: Option<&str>) -> Slot {
+    value.map_or(Slot::Reference(None), |s| string_slot(heap, s))
+}
+
+fn slot_string(heap: &duke_gc::Heap, slot: Slot) -> Result<Option<String>> {
+    match slot {
+        Slot::Reference(Some(r)) => Ok(heap.get(r)?.string_value.clone()),
+        _ => Ok(None),
+    }
+}
+
+fn allocate_stack_trace_element(
+    heap: &mut duke_gc::Heap,
+    class_name: &str,
+    method_name: &str,
+    file_name: Option<&str>,
+    line_number: i32,
+) -> Result<u64> {
+    let element_ref = heap.allocate(STACK_TRACE_ELEMENT_CLASS.to_string(), 4);
+    let declaring_class = class_name.replace('/', ".");
+    let class_slot = string_slot(heap, &declaring_class);
+    let method_slot = string_slot(heap, method_name);
+    let file_slot = optional_string_slot(heap, file_name);
+    let obj = heap.get_mut(element_ref)?;
+    obj.fields[0] = class_slot;
+    obj.fields[1] = method_slot;
+    obj.fields[2] = file_slot;
+    obj.fields[3] = Slot::Int(line_number);
+    Ok(element_ref)
+}
+
+fn store_throwable_stack_trace_from_frames(
+    heap: &mut duke_gc::Heap,
+    throwable_ref: u64,
+    frames: &[NativeStackFrame],
+) -> Result<()> {
+    let mut elements = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let element_ref = allocate_stack_trace_element(
+            heap,
+            &frame.class_name,
+            &frame.method_name,
+            frame.file_name.as_deref(),
+            frame.line_number,
+        )?;
+        elements.push(Slot::Reference(Some(element_ref)));
+    }
+    let array_ref = allocate_slot_array(heap, STACK_TRACE_ARRAY_CLASS, &elements)?;
+    set_object_field(
+        heap,
+        throwable_ref,
+        THROWABLE_STACK_TRACE_FIELD,
+        Slot::Reference(Some(array_ref)),
+    )
+}
+
+fn clone_reference_array(
+    heap: &mut duke_gc::Heap,
+    slot: Slot,
+    default_class_name: &str,
+) -> Result<Slot> {
+    let Some(array_ref) = slot.as_reference() else {
+        let empty_ref = allocate_empty_reference_array(heap, default_class_name)?;
+        return Ok(Slot::Reference(Some(empty_ref)));
+    };
+    let (class_name, elements) = {
+        let obj = heap.get(array_ref)?;
+        (obj.class_name.clone(), obj.fields.clone())
+    };
+    let cloned_ref = allocate_slot_array(heap, &class_name, &elements)?;
+    Ok(Slot::Reference(Some(cloned_ref)))
+}
+
+fn throwable_field_slot(heap: &duke_gc::Heap, throwable_ref: u64, index: usize) -> Result<Slot> {
+    Ok(heap
+        .get(throwable_ref)?
+        .fields
+        .get(index)
+        .copied()
+        .unwrap_or(Slot::Reference(None)))
+}
+
+fn throwable_header(heap: &duke_gc::Heap, throwable_ref: u64) -> Result<String> {
+    let obj = heap.get(throwable_ref)?;
+    let class_name = obj.class_name.replace('/', ".");
+    Ok(match &obj.string_value {
+        Some(msg) => format!("{class_name}: {msg}"),
+        None => class_name,
+    })
+}
+
+fn stack_trace_element_text(heap: &duke_gc::Heap, element_ref: u64) -> Result<String> {
+    let fields = heap.get(element_ref)?.fields.clone();
+    let class_name = slot_string(heap, fields.first().copied().unwrap_or(Slot::Reference(None)))?
+        .unwrap_or_default();
+    let method_name = slot_string(heap, fields.get(1).copied().unwrap_or(Slot::Reference(None)))?
+        .unwrap_or_default();
+    let file_name = slot_string(heap, fields.get(2).copied().unwrap_or(Slot::Reference(None)))?;
+    let line_number = match fields.get(3) {
+        Some(Slot::Int(line)) => *line,
+        _ => -1,
+    };
+    let location = match (file_name, line_number) {
+        (_, -2) => "Native Method".to_string(),
+        (Some(file), line) if line >= 0 => format!("{file}:{line}"),
+        (Some(file), _) => file,
+        (None, _) => "Unknown Source".to_string(),
+    };
+    Ok(format!("{class_name}.{method_name}({location})"))
+}
+
+fn append_throwable_trace(
+    heap: &duke_gc::Heap,
+    throwable_ref: u64,
+    caption: &str,
+    frame_indent: &str,
+    out: &mut String,
+    visited: &mut std::collections::HashSet<u64>,
+) -> Result<()> {
+    if !visited.insert(throwable_ref) {
+        out.push_str(caption);
+        out.push_str("[CIRCULAR REFERENCE: ");
+        out.push_str(&throwable_header(heap, throwable_ref)?);
+        out.push_str("]\n");
+        return Ok(());
+    }
+
+    out.push_str(caption);
+    out.push_str(&throwable_header(heap, throwable_ref)?);
+    out.push('\n');
+
+    let stack_slot = throwable_field_slot(heap, throwable_ref, THROWABLE_STACK_TRACE_FIELD)?;
+    if let Some(stack_ref) = stack_slot.as_reference() {
+        for frame_slot in &heap.get(stack_ref)?.fields {
+            if let Slot::Reference(Some(element_ref)) = frame_slot {
+                out.push_str(frame_indent);
+                out.push_str("\tat ");
+                out.push_str(&stack_trace_element_text(heap, *element_ref)?);
+                out.push('\n');
+            }
+        }
+    }
+
+    let suppressed_slot = throwable_field_slot(heap, throwable_ref, THROWABLE_SUPPRESSED_FIELD)?;
+    if let Some(suppressed_ref) = suppressed_slot.as_reference() {
+        for suppressed in &heap.get(suppressed_ref)?.fields {
+            if let Slot::Reference(Some(suppressed_ref)) = suppressed {
+                let mut suppressed_caption = String::from(frame_indent);
+                suppressed_caption.push_str("\tSuppressed: ");
+                let mut suppressed_indent = String::from(frame_indent);
+                suppressed_indent.push('\t');
+                append_throwable_trace(
+                    heap,
+                    *suppressed_ref,
+                    &suppressed_caption,
+                    &suppressed_indent,
+                    out,
+                    visited,
+                )?;
+            }
+        }
+    }
+
+    let cause_slot = throwable_field_slot(heap, throwable_ref, THROWABLE_CAUSE_FIELD)?;
+    if let Some(cause_ref) = cause_slot.as_reference()
+        && cause_ref != throwable_ref
+    {
+        append_throwable_trace(heap, cause_ref, "Caused by: ", frame_indent, out, visited)?;
+    }
+    Ok(())
+}
+
+fn throwable_trace_string(heap: &duke_gc::Heap, throwable_ref: u64) -> Result<String> {
+    let mut out = String::new();
+    let mut visited = std::collections::HashSet::new();
+    append_throwable_trace(heap, throwable_ref, "", "", &mut out, &mut visited)?;
+    Ok(out)
+}
+
+fn write_to_print_stream_or_output(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    text: &str,
+) -> Result<()> {
+    let print_stream_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    if let Some(print_stream_ref) = print_stream_slot.as_reference() {
+        let target_slot = heap
+            .get(print_stream_ref)?
+            .fields
+            .first()
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        if let Some(target_ref) = target_slot.as_reference()
+            && heap.get(target_ref)?.class_name == "java/io/ByteArrayOutputStream"
+        {
+            let target = heap.get_mut(target_ref)?;
+            target.string_value.get_or_insert_with(String::new).push_str(text);
+            return Ok(());
+        }
+    }
+    write!(out, "{text}").ok();
+    Ok(())
+}
+
+fn fill_throwable_stack_trace_from_control(
+    heap: &mut duke_gc::Heap,
+    throwable_ref: u64,
+    control: &NativeControl,
+) -> Result<()> {
+    store_throwable_stack_trace_from_frames(heap, throwable_ref, control.stack_trace())
+}
+
 /// `Throwable.addSuppressed(Throwable suppressed)V`
 ///
-/// No-op stub. Control flow is handled entirely by the bytecode desugaring —
-/// `addSuppressed` only affects what `getSuppressed()` returns, which is not
-/// yet implemented. Suppressed exception is silently dropped.
-///
 /// Signature: `args[0]` = this (Throwable), `args[1]` = suppressed (Throwable)
-#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_throwable_add_suppressed(
-    _args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
     _stdout: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let suppressed = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    if suppressed.as_reference().is_none() {
+        return Ok(None);
+    }
+    let existing = throwable_field_slot(heap, this_ref, THROWABLE_SUPPRESSED_FIELD)?;
+    let mut elements = existing.as_reference().map_or_else(Vec::new, |array_ref| {
+        heap.get(array_ref)
+            .map(|obj| obj.fields.clone())
+            .unwrap_or_default()
+    });
+    elements.push(suppressed);
+    let array_ref = allocate_slot_array(heap, THROWABLE_ARRAY_CLASS, &elements)?;
+    set_object_field(
+        heap,
+        this_ref,
+        THROWABLE_SUPPRESSED_FIELD,
+        Slot::Reference(Some(array_ref)),
+    )?;
     Ok(None)
 }
 
 /// Native: `Throwable.<init>(String)V` — stores detail message in `string_value`.
+/// Native: `Throwable.<init>()V` - captures the construction stack trace.
+pub(crate) fn native_throwable_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
+    Ok(None)
+}
+
 pub(crate) fn native_throwable_init_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let msg = match args.get(1) {
@@ -3522,6 +3791,7 @@ pub(crate) fn native_throwable_init_string(
         _ => None,
     };
     heap.get_mut(this_ref)?.string_value = msg;
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
 }
 
@@ -3530,7 +3800,7 @@ pub(crate) fn native_throwable_init_string_cause(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let msg = match args.get(1) {
@@ -3543,13 +3813,26 @@ pub(crate) fn native_throwable_init_string_cause(
         && let Ok(obj) = heap.get_mut(this_ref)
         && !obj.fields.is_empty()
     {
-        obj.fields[0] = cause_slot;
+        obj.fields[THROWABLE_CAUSE_FIELD] = cause_slot;
     }
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
 }
 
 /// Native: `Throwable.getCause()Throwable` — returns the stored cause.
 #[allow(clippy::unnecessary_wraps)]
+/// Native: `Throwable.fillInStackTrace()Throwable`.
+pub(crate) fn native_throwable_fill_in_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
 pub(crate) fn native_throwable_get_cause(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3558,7 +3841,7 @@ pub(crate) fn native_throwable_get_cause(
 ) -> Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let cause = extract_first_field_arg(heap, *r)?;
+            let cause = throwable_field_slot(heap, *r, THROWABLE_CAUSE_FIELD)?;
             Ok(Some(cause))
         }
         _ => Ok(Some(Slot::Reference(None))),
@@ -3593,15 +3876,213 @@ pub(crate) fn native_throwable_tostring(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let obj = heap.get(this_ref)?;
-    let class_name = obj.class_name.replace('/', ".");
-    let s = match &obj.string_value {
-        Some(msg) => format!("{class_name}: {msg}"),
-        None => class_name,
-    };
-    let _ = obj;
+    let s = throwable_header(heap, this_ref)?;
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Throwable.getStackTrace()StackTraceElement[]`.
+pub(crate) fn native_throwable_get_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = throwable_field_slot(heap, this_ref, THROWABLE_STACK_TRACE_FIELD)?;
+    Ok(Some(clone_reference_array(
+        heap,
+        slot,
+        STACK_TRACE_ARRAY_CLASS,
+    )?))
+}
+
+/// Native: `Throwable.setStackTrace(StackTraceElement[])V`.
+pub(crate) fn native_throwable_set_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let new_trace = clone_reference_array(
+        heap,
+        args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        STACK_TRACE_ARRAY_CLASS,
+    )?;
+    set_object_field(heap, this_ref, THROWABLE_STACK_TRACE_FIELD, new_trace)?;
+    Ok(None)
+}
+
+/// Native: `Throwable.getSuppressed()Throwable[]`.
+pub(crate) fn native_throwable_get_suppressed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let slot = throwable_field_slot(heap, this_ref, THROWABLE_SUPPRESSED_FIELD)?;
+    Ok(Some(clone_reference_array(heap, slot, THROWABLE_ARRAY_CLASS)?))
+}
+
+/// Native: `Throwable.printStackTrace()V`.
+pub(crate) fn native_throwable_print_stack_trace(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = throwable_trace_string(heap, this_ref)?;
+    write!(out, "{text}").ok();
+    Ok(None)
+}
+
+/// Native: `Throwable.printStackTrace(PrintStream)V`.
+pub(crate) fn native_throwable_print_stack_trace_print_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = throwable_trace_string(heap, this_ref)?;
+    write_to_print_stream_or_output(args, heap, out, &text)?;
+    Ok(None)
+}
+
+/// Native: `StackTraceElement.<init>(String,String,String,int)V`.
+pub(crate) fn native_stack_trace_element_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let class_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let method_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let file_slot = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let line_slot = args.get(4).copied().unwrap_or(Slot::Int(-1));
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.len() < 4 {
+        obj.fields.resize(4, Slot::Reference(None));
+    }
+    obj.fields[0] = class_slot;
+    obj.fields[1] = method_slot;
+    obj.fields[2] = file_slot;
+    obj.fields[3] = line_slot;
+    Ok(None)
+}
+
+fn stack_trace_element_field(args: &[Slot], heap: &duke_gc::Heap, index: usize) -> Result<Slot> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(heap
+        .get(this_ref)?
+        .fields
+        .get(index)
+        .copied()
+        .unwrap_or(Slot::Reference(None)))
+}
+
+pub(crate) fn native_stack_trace_element_get_class_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(stack_trace_element_field(args, heap, 0)?))
+}
+
+pub(crate) fn native_stack_trace_element_get_method_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(stack_trace_element_field(args, heap, 1)?))
+}
+
+pub(crate) fn native_stack_trace_element_get_file_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(stack_trace_element_field(args, heap, 2)?))
+}
+
+pub(crate) fn native_stack_trace_element_get_line_number(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    match stack_trace_element_field(args, heap, 3)? {
+        Slot::Int(line) => Ok(Some(Slot::Int(line))),
+        _ => Ok(Some(Slot::Int(-1))),
+    }
+}
+
+pub(crate) fn native_stack_trace_element_is_native_method(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let is_native = matches!(stack_trace_element_field(args, heap, 3)?, Slot::Int(-2));
+    Ok(Some(Slot::Int(i32::from(is_native))))
+}
+
+pub(crate) fn native_stack_trace_element_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = stack_trace_element_text(heap, this_ref)?;
+    let string_ref = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(string_ref))))
+}
+
+pub(crate) fn native_printstream_init_output_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    set_object_field(heap, this_ref, 0, target)?;
+    Ok(None)
+}
+
+pub(crate) fn native_byte_array_output_stream_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.string_value = Some(String::new());
+    Ok(None)
+}
+
+pub(crate) fn native_byte_array_output_stream_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let text = heap
+        .get(this_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default();
+    let string_ref = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(string_ref))))
 }
 
 // ---- List.of / Set.of / Map.of factory methods ----
@@ -17486,6 +17967,117 @@ struct CallFrame {
     class_name: String,
 }
 
+fn line_number_for_bci(line_number_table: &[(u16, u16)], bci: usize) -> i32 {
+    line_number_table
+        .iter()
+        .filter(|(start_pc, _)| usize::from(*start_pc) <= bci)
+        .max_by_key(|(start_pc, _)| *start_pc)
+        .map_or(-1, |(_, line)| i32::from(*line))
+}
+
+fn stack_frame_for_method(
+    registry: &ClassRegistry,
+    class_name: &str,
+    method_idx: usize,
+    bci: usize,
+) -> Option<NativeStackFrame> {
+    let method = registry.get(class_name).ok()?.methods.get(method_idx)?;
+    let line_number = if method.is_native {
+        -2
+    } else {
+        line_number_for_bci(&method.line_number_table, bci)
+    };
+    Some(NativeStackFrame {
+        class_name: class_name.to_string(),
+        method_name: method.name.clone(),
+        file_name: method.source_file.clone(),
+        line_number,
+    })
+}
+
+fn capture_stack_trace_snapshot(
+    registry: &ClassRegistry,
+    current_class: &str,
+    method_idx: usize,
+    bci: usize,
+    call_stack: &[CallFrame],
+) -> Vec<NativeStackFrame> {
+    let mut frames = Vec::with_capacity(call_stack.len() + 1);
+    if let Some(frame) = stack_frame_for_method(registry, current_class, method_idx, bci) {
+        frames.push(frame);
+    }
+    for caller in call_stack.iter().rev() {
+        let caller_bci = registry
+            .get(&caller.class_name)
+            .ok()
+            .and_then(|ctx| ctx.methods.get(caller.method_idx))
+            .and_then(|method| {
+                caller
+                    .resume_idx
+                    .checked_sub(1)
+                    .and_then(|idx| method.instructions.get(idx))
+                    .map(|(pc, _)| *pc)
+            })
+            .unwrap_or(0);
+        if let Some(frame) =
+            stack_frame_for_method(registry, &caller.class_name, caller.method_idx, caller_bci)
+        {
+            frames.push(frame);
+        }
+    }
+    frames
+}
+
+fn is_throwable_class(registry: &ClassRegistry, class_name: &str) -> bool {
+    let mut current = Some(class_name.to_string());
+    while let Some(name) = current {
+        if name == "java/lang/Throwable" {
+            return true;
+        }
+        current = registry.get(&name).ok().and_then(|ctx| ctx.super_class.clone());
+    }
+    false
+}
+
+fn native_needs_stack_snapshot(
+    registry: &ClassRegistry,
+    native_class: &str,
+    native_method: &str,
+    native_desc: &str,
+) -> bool {
+    (native_method == "fillInStackTrace" && native_desc == "()Ljava/lang/Throwable;")
+        || (native_method == "<init>"
+            && matches!(
+                native_desc,
+                "()V" | "(Ljava/lang/String;)V" | "(Ljava/lang/String;Ljava/lang/Throwable;)V"
+            )
+            && is_throwable_class(registry, native_class))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn native_control_for_call(
+    registry: &ClassRegistry,
+    current_class: &str,
+    method_idx: usize,
+    bci: usize,
+    call_stack: &[CallFrame],
+    native_class: &str,
+    native_method: &str,
+    native_desc: &str,
+) -> NativeControl {
+    let mut control = NativeControl::default();
+    if native_needs_stack_snapshot(registry, native_class, native_method, native_desc) {
+        control.set_stack_trace(capture_stack_trace_snapshot(
+            registry,
+            current_class,
+            method_idx,
+            bci,
+            call_stack,
+        ));
+    }
+    control
+}
+
 /// Build a [`ClassContext`] from a parsed [`duke_classfile::ClassFile`].
 ///
 /// Decodes all methods with a Code attribute and extracts field metadata.
@@ -17496,6 +18088,17 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
     use duke_classfile::MethodAccessFlags;
     use duke_classfile::types::{AttributeData, CpEntry};
+
+    let source_file = cf.attributes.iter().find_map(|a| {
+        if let AttributeData::SourceFile { sourcefile_index } = &a.data {
+            match cf.constant_pool.get(sourcefile_index.0 as usize) {
+                Some(Some(CpEntry::Utf8(s))) => Some(s.clone()),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
 
     cf
         .methods
@@ -17536,10 +18139,28 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
                         max_locals: 0,
                         exception_table: vec![],
                         pc_to_idx: std::sync::Arc::new(std::collections::HashMap::new()),
+                        line_number_table: Vec::new(),
+                        source_file: source_file.clone(),
                     });
                 }
                 return None; // no Code and not native/abstract — malformed, skip
             };
+            let line_number_table = code
+                .attributes
+                .iter()
+                .find_map(|attr| {
+                    if let AttributeData::LineNumberTable(entries) = &attr.data {
+                        Some(
+                            entries
+                                .iter()
+                                .map(|entry| (entry.start_pc, entry.line_number))
+                                .collect::<Vec<_>>(),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default();
             let instructions = decode(&code.code).ok()?;
             let exception_table: Vec<ExceptionEntry> = code
                 .exception_table
@@ -17591,6 +18212,8 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
                 max_locals: code.max_locals,
                 exception_table,
                 pc_to_idx: std::sync::Arc::new(pc_to_idx_map),
+                line_number_table,
+                source_file: source_file.clone(),
             })
         })
         .collect()
