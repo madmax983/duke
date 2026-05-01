@@ -24,3 +24,6 @@
 **Pre-allocate HashMap with `HashMap::with_capacity` when size is known**
 **Learning:** `HashMap::new()` requires constant reallocation when inserting elements, which is extremely expensive, especially in critical paths like parsing large class files or JAR headers where the size is easily knowable beforehand.
 **Action:** Always prefer `HashMap::with_capacity` instead of `HashMap::new` when the capacity of the map is known up front to eliminate unnecessary intermediate memory allocations and resizing.
+**Pre-allocate String capacity instead of format! macro**
+**Learning:** Using `format!("prefix{value}")` inside loops or hot paths creates unnecessary intermediate heap allocations and string operations that slow down the application.
+**Action:** When creating strings from known prefixes/suffixes, calculate the exact length with `String::with_capacity(prefix.len() + value.len())` and use `push_str()` directly to achieve zero-cost abstraction.
