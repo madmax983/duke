@@ -27,3 +27,6 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2026-05-02 - Testing JDWP Command Dispatching
+**Learning:** The Java Debug Wire Protocol (JDWP) command dispatcher in `duke/src/jdwp.rs` involves complex state tracking with atomic variables to manage the debugged VM's state (suspended or running).
+**Action:** Created isolated unit tests utilizing mock atomics to accurately verify the suspend/resume dispatch logic, string parsing, and binary payload formatting responses without requiring full network socket integration tests.
