@@ -19,6 +19,8 @@ mod html;
 mod html_jar;
 mod jar_analyze;
 #[cfg(feature = "nova")]
+mod jar_diff;
+#[cfg(feature = "nova")]
 mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
@@ -356,6 +358,19 @@ fn main() {
             eprintln!("duke: unknown subcommand 'jar-dead-code'");
             std::process::exit(1);
         }
+    }
+
+    // Dispatch `jar-diff`
+    if args.len() > 1 && args[1] == "jar-diff" {
+        if args.len() < 4 {
+            eprintln!("Usage: duke jar-diff <file1.jar> <file2.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        jar_diff::dump_jar_diff(&args[2], &args[3]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'jar-diff' command requires the 'nova' feature flag.");
+        return;
     }
 
     // Dispatch `jar-search`
