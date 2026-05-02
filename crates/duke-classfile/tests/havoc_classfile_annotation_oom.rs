@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 #![allow(clippy::cast_possible_truncation)]
-use duke_classfile::{parse, Error};
+use duke_classfile::{Error, parse};
 
 #[test]
 fn test_annotation_bombs_infinite_recursion() {
@@ -10,9 +10,11 @@ fn test_annotation_bombs_infinite_recursion() {
         0x00, 0x05, // cp count (8) - size is 5, meaning indexes 1, 2, 3, 4 are valid
         // cp #1 Utf8 "RuntimeVisibleAnnotations" (10)
         0x01, 0x00, 0x19, // (10)
-        b'R',b'u',b'n',b't',b'i',b'm',b'e',b'V',b'i',b's',b'i',b'b',b'l',b'e',b'A',b'n',b'n',b'o',b't',b'a',b't',b'i',b'o',b'n',b's', // (13)
+        b'R', b'u', b'n', b't', b'i', b'm', b'e', b'V', b'i', b's', b'i', b'b', b'l', b'e', b'A',
+        b'n', b'n', b'o', b't', b'a', b't', b'i', b'o', b'n', b's', // (13)
         // cp #2 Utf8 "Lcom/example/Annotation;" (38)
-        0x01, 0x00, 0x18, b'L',b'c',b'o',b'm',b'/',b'e',b'x',b'a',b'm',b'p',b'l',b'e',b'/',b'A',b'n',b'n',b'o',b't',b'a',b't',b'i',b'o',b'n',b';', // (38)
+        0x01, 0x00, 0x18, b'L', b'c', b'o', b'm', b'/', b'e', b'x', b'a', b'm', b'p', b'l', b'e',
+        b'/', b'A', b'n', b'n', b'o', b't', b'a', b't', b'i', b'o', b'n', b';', // (38)
         // cp #3 Utf8 "Foo" (65)
         0x01, 0x00, 0x03, b'F', b'o', b'o', // (65)
         // cp #4 Class (71)
@@ -25,8 +27,9 @@ fn test_annotation_bombs_infinite_recursion() {
         0x00, 0x00, // methods (84)
         0x00, 0x01, // attrs count (86)
         0x00, 0x01, // name_idx = "RuntimeVisibleAnnotations" (88)
-        0x00, 0x00, 0x00, 0x00, // length (90) - offsets 90,91,92,93 - we will overwrite this
-        // annotation data (94)
+        0x00, 0x00, 0x00,
+        0x00, // length (90) - offsets 90,91,92,93 - we will overwrite this
+              // annotation data (94)
     ];
 
     let mut nested_payload = vec![
@@ -34,22 +37,22 @@ fn test_annotation_bombs_infinite_recursion() {
         0x00, 0x02, // type_index (96)
         0x00, 0x01, // num_pairs = 1 (98)
         0x00, 0x03, // element_name_index (100) - "Foo"
-        b'@',       // value = nested annotation (102)
+        b'@', // value = nested annotation (102)
         0x00, 0x02, // type_index (103)
         0x00, 0x01, // num_pairs (105)
     ];
     for _ in 0..100 {
         nested_payload.extend_from_slice(&[
             0x00, 0x03, // element_name_index
-            b'@',       // value = nested annotation
+            b'@', // value = nested annotation
             0x00, 0x02, // type_index
             0x00, 0x01, // num_pairs
         ]);
     }
     nested_payload.extend_from_slice(&[
-            0x00, 0x03, // element_name_index
-            b's',       // string
-            0x00, 0x03, // const string value index (Foo)
+        0x00, 0x03, // element_name_index
+        b's', // string
+        0x00, 0x03, // const string value index (Foo)
     ]);
 
     // Patch length
@@ -62,5 +65,8 @@ fn test_annotation_bombs_infinite_recursion() {
     data.extend(nested_payload);
 
     let err = parse(&data).unwrap_err();
-    assert!(matches!(err, Error::RecursionLimitExceeded { .. }), "Expected RecursionLimitExceeded, got: {err:?}");
+    assert!(
+        matches!(err, Error::RecursionLimitExceeded { .. }),
+        "Expected RecursionLimitExceeded, got: {err:?}"
+    );
 }
