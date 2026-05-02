@@ -1,6 +1,24 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+Title: 👺 Havoc: Chaos Engineering Sweep
+
+### 🧨 The Trigger
+I targeted several potential points of fragility across the JVM implementation:
+1. `duke-interpreter` threading deadlocks (unregistering a thread vs interrupting it concurrently).
+2. `duke-loader` ZIP parsing (infinite recursion zip bombs in BOOT-INF/lib/).
+3. `duke-bytecode` edge cases (calculating `control_flow_targets` with arbitrary tableswitch configurations).
+
+### 📉 The Stack Trace
+I actually failed to trigger any panics! The system is surprisingly resilient:
+- The Loom test (`havoc_thread_loom.rs`) exhaustively tested the `java_thread_hosts()` vs `interrupted_host_threads()` RwLock interleaving and found zero deadlocks or TOCTOU races.
+- The Zip Bomb test (`havoc_zip_bomb.rs`) constructed a highly nested dummy zip file to test the `ZipLoader` limits. The loader handled it without stack overflows.
+- The `duke-bytecode` instruction fuzzer (`havoc_bytecode_fuzz_instruction.rs`) generated completely random `Tableswitch` instructions and tested the bounds math during `control_flow_targets` parsing, completely bypassing OOMs.
+
+### 🧪 Reproduction
+Run the added test files:
+```bash
+cargo test -p duke-interpreter --test havoc_thread_loom
+cargo test -p duke-loader --test havoc_zip_bomb
+cargo test -p duke-bytecode --test havoc_bytecode_fuzz_instruction
+```
+
+### 😈 Comment
+My assumptions about the thread unregistration and zip archive recursion were wrong. The system handles fuzzed inputs and concurrency gracefully. I've left my test harnesses behind so that this resilience is preserved against future code changes.
