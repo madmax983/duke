@@ -1,3 +1,6 @@
+## 2024-05-24 - Testing Format and Serialization Output Gaps
+**Learning:** Functions that generate user-facing outputs or interact with deep serialization layers like `serde` might fail testing because error flows only occur when standard types wrap custom objects specifically built to fail during serialization. Additionally, testing format outputs (like empty reports vs populated reports) requires full mock states or testing for length boundaries inside iterator consumers like `take(10)`.
+**Action:** When filling telemetry or reporting coverage gaps, use custom struct mock objects (e.g. `FailingSerializer`) or explicitly trigger less-than bounds logic (e.g. 1 item for a `take(10)`) to get 100% path coverage for outputs.
 ## 2026-04-16 - Increased code coverage for duke-telemetry
 **Learning:** Using tools like `cargo tarpaulin` allowed finding untested behavior in `duke-telemetry`. Many `assert!` clauses were checking for string content that relied upon default settings. I added several targeted tests for `duke-bytecode` and `duke-telemetry`.
 **Action:** Adding new tests to handle explicit empty states and different JSON outputs helps prevent regressions in formatting logic.
