@@ -430,10 +430,12 @@ fn decode_known_attribute(name: &str, raw: &[u8], depth: usize) -> Result<Attrib
             exception_index_table: decode_exceptions(&mut c)?,
         },
         "BootstrapMethods" => AttributeData::BootstrapMethods(decode_bootstrap_methods(&mut c)?),
-        "RuntimeVisibleAnnotations" => {
-            AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c, depth)?)
+        "RuntimeVisibleAnnotations" => AttributeData::RuntimeVisibleAnnotations(
+            decode_runtime_visible_annotations(&mut c, depth)?,
+        ),
+        "AnnotationDefault" => {
+            AttributeData::AnnotationDefault(decode_element_value(&mut c, depth)?)
         }
-        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c, depth)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
@@ -543,7 +545,10 @@ fn decode_element_value(c: &mut Cursor<'_>, depth: usize) -> Result<ElementValue
             const_name_index: c.read_cp_index()?,
         }),
         b'c' => Ok(ElementValue::ClassInfoIndex(c.read_cp_index()?)),
-        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(c, depth + 1)?)),
+        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(
+            c,
+            depth + 1,
+        )?)),
         b'[' => {
             let num_values = c.read_u16()? as usize;
             let mut values = Vec::with_capacity(num_values.min(c.remaining() / 3));
