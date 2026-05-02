@@ -36,8 +36,7 @@ use duke_bytecode::{
     generate_mermaid_cfg,
 };
 use duke_classfile::{
-    ClassFile, MethodAccessFlags, parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    ClassFile, MethodAccessFlags, parse, {AttributeData, CpEntry, CpIndex},
 };
 use duke_gc::Heap;
 use duke_interpreter::{
@@ -1540,8 +1539,7 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code_empty() {
         use duke_classfile::{
-            ClassAccessFlags,
-            types::{ClassFile, CpEntry, CpIndex},
+            ClassAccessFlags, {ClassFile, CpEntry, CpIndex},
         };
 
         let cf = ClassFile {
@@ -1570,8 +1568,7 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code() {
         use duke_classfile::{
-            ClassAccessFlags, MethodAccessFlags,
-            types::{ClassFile, CpEntry, CpIndex, MethodInfo},
+            ClassAccessFlags, MethodAccessFlags, {ClassFile, CpEntry, CpIndex, MethodInfo},
         };
 
         let cf = ClassFile {
