@@ -27,3 +27,6 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
+**Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
+**Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.

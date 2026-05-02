@@ -14134,6 +14134,8 @@ fn allocate_read_write_view(
     Ok(Slot::Reference(Some(view_ref)))
 }
 
+/// Native: `ReentrantReadWriteLock.init()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -14174,6 +14176,8 @@ pub(crate) fn native_reentrant_read_write_lock_init(
     Ok(None)
 }
 
+/// Native: `ReentrantReadWriteLock.readLock()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_read_lock(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -14207,6 +14211,8 @@ pub(crate) fn native_reentrant_read_write_lock_read_lock(
     Ok(Some(slot))
 }
 
+/// Native: `ReentrantReadWriteLock.writeLock()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_write_lock(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -37919,4 +37925,112 @@ mod native_helper_tests {
         let res = extract_slot_arg(&args, 0);
         assert_eq!(res, Slot::Reference(None));
     }
+
+    #[test]
+    fn should_init_reentrant_read_write_lock() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_init(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, None);
+        let lock_obj = heap.get(lock_ref).unwrap();
+        assert!(matches!(lock_obj.atomic_payload, Some(duke_gc::AtomicPayload::ReadWriteLock(_))));
+        assert!(matches!(lock_obj.fields[0], Slot::Reference(Some(_))));
+        assert!(matches!(lock_obj.fields[1], Slot::Reference(Some(_))));
+    }
+
+    #[test]
+    fn should_return_existing_read_lock_if_present() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let read_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock".to_string(), 0);
+        heap.get_mut(lock_ref).unwrap().fields[0] = Slot::Reference(Some(read_ref));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_read_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(Some(read_ref))));
+    }
+
+    #[test]
+    fn should_create_new_read_lock_if_missing() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 1);
+        let state = std::sync::Arc::new(std::sync::Mutex::new(duke_gc::ReadWriteLockState::default()));
+        heap.get_mut(lock_ref).unwrap().atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_read_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert!(matches!(res, Some(Slot::Reference(Some(_)))));
+    }
+
+    #[test]
+    fn should_return_existing_write_lock_if_present() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let write_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock".to_string(), 0);
+        heap.get_mut(lock_ref).unwrap().fields[1] = Slot::Reference(Some(write_ref));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_write_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(Some(write_ref))));
+    }
+
+    #[test]
+    fn should_create_new_write_lock_if_missing() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let state = std::sync::Arc::new(std::sync::Mutex::new(duke_gc::ReadWriteLockState::default()));
+        heap.get_mut(lock_ref).unwrap().atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_write_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert!(matches!(res, Some(Slot::Reference(Some(_)))));
+    }
+
+
+    #[test]
+    fn should_return_none_when_priorityqueue_peek_size_zero() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(0);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(None)));
+    }
+
+    #[test]
+    fn should_return_none_when_priorityqueue_peek_no_fields() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 0);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(None)));
+    }
+
+    #[test]
+    fn should_return_element_when_priorityqueue_peek_size_not_zero() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 2);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(1);
+        heap.get_mut(obj_ref).unwrap().fields[1] = Slot::Int(42);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Int(42)));
+    }
+
 }
