@@ -407,12 +407,12 @@ pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>])
             AttributeData::Raw(b) => std::mem::take(b),
             _ => continue, // already resolved
         };
-        attr.data = decode_known_attribute(name, &raw)?;
+        attr.data = decode_known_attribute(name, &raw, 0)?;
     }
     Ok(())
 }
 
-fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
+fn decode_known_attribute(name: &str, raw: &[u8], depth: usize) -> Result<AttributeData> {
     let mut c = Cursor::new(raw);
     let data = match name {
         "ConstantValue" => AttributeData::ConstantValue {
@@ -431,9 +431,9 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
         },
         "BootstrapMethods" => AttributeData::BootstrapMethods(decode_bootstrap_methods(&mut c)?),
         "RuntimeVisibleAnnotations" => {
-            AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c)?)
+            AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c, depth)?)
         }
-        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c)?),
+        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c, depth)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
@@ -501,23 +501,26 @@ fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> Result<Vec<BootstrapMethodEnt
     Ok(entries)
 }
 
-fn decode_runtime_visible_annotations(c: &mut Cursor<'_>) -> Result<Vec<Annotation>> {
+fn decode_runtime_visible_annotations(c: &mut Cursor<'_>, depth: usize) -> Result<Vec<Annotation>> {
     let num_annotations = c.read_u16()? as usize;
     let mut annotations = Vec::with_capacity(num_annotations.min(c.remaining() / 4));
     for _ in 0..num_annotations {
-        annotations.push(decode_annotation(c)?);
+        annotations.push(decode_annotation(c, depth + 1)?);
     }
     Ok(annotations)
 }
 
-fn decode_annotation(c: &mut Cursor<'_>) -> Result<Annotation> {
+fn decode_annotation(c: &mut Cursor<'_>, depth: usize) -> Result<Annotation> {
+    if depth >= 16 {
+        return Err(Error::RecursionLimitExceeded { depth });
+    }
     let type_index = c.read_cp_index()?;
     let num_pairs = c.read_u16()? as usize;
     let mut element_value_pairs = Vec::with_capacity(num_pairs.min(c.remaining() / 3));
     for _ in 0..num_pairs {
         element_value_pairs.push(ElementValuePair {
             element_name_index: c.read_cp_index()?,
-            value: decode_element_value(c)?,
+            value: decode_element_value(c, depth + 1)?,
         });
     }
     Ok(Annotation {
@@ -526,7 +529,10 @@ fn decode_annotation(c: &mut Cursor<'_>) -> Result<Annotation> {
     })
 }
 
-fn decode_element_value(c: &mut Cursor<'_>) -> Result<ElementValue> {
+fn decode_element_value(c: &mut Cursor<'_>, depth: usize) -> Result<ElementValue> {
+    if depth >= 16 {
+        return Err(Error::RecursionLimitExceeded { depth });
+    }
     let tag = c.read_u8()?;
     match tag {
         b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b's' => {
@@ -537,12 +543,12 @@ fn decode_element_value(c: &mut Cursor<'_>) -> Result<ElementValue> {
             const_name_index: c.read_cp_index()?,
         }),
         b'c' => Ok(ElementValue::ClassInfoIndex(c.read_cp_index()?)),
-        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(c)?)),
+        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(c, depth + 1)?)),
         b'[' => {
             let num_values = c.read_u16()? as usize;
             let mut values = Vec::with_capacity(num_values.min(c.remaining() / 3));
             for _ in 0..num_values {
-                values.push(decode_element_value(c)?);
+                values.push(decode_element_value(c, depth + 1)?);
             }
             Ok(ElementValue::ArrayValue(values))
         }
@@ -682,7 +688,7 @@ mod tests {
             b'e', 0x00, 0x0A, 0x00, 0x0B, // enum const
         ];
 
-        let decoded = decode_known_attribute("RuntimeVisibleAnnotations", &raw).unwrap();
+        let decoded = decode_known_attribute("RuntimeVisibleAnnotations", &raw, 0).unwrap();
         let AttributeData::RuntimeVisibleAnnotations(annotations) = decoded else {
             panic!("expected RuntimeVisibleAnnotations");
         };
@@ -699,7 +705,7 @@ mod tests {
             b's', 0x00, 0x02, // string const
         ];
 
-        let decoded = decode_known_attribute("AnnotationDefault", &raw).unwrap();
+        let decoded = decode_known_attribute("AnnotationDefault", &raw, 0).unwrap();
         let AttributeData::AnnotationDefault(ElementValue::ArrayValue(values)) = decoded else {
             panic!("expected AnnotationDefault array value");
         };

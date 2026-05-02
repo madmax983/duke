@@ -129,6 +129,13 @@ pub enum Error {
         /// Raw tag byte.
         tag: u8,
     },
+
+    /// The recursion depth exceeded the maximum allowed limit.
+    #[error("recursion limit exceeded at depth {depth}")]
+    RecursionLimitExceeded {
+        /// The depth at which the limit was exceeded.
+        depth: usize,
+    },
 }
 
 /// Convenience alias.
