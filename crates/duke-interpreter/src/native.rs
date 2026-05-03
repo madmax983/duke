@@ -23599,8 +23599,8 @@ fn materialize_java_exception_object(
     Ok(exc_ref)
 }
 
-type PendingExceptionMessages = std::sync::Mutex<HashMap<String, VecDeque<String>>>;
-type PendingExceptionCauses = std::sync::Mutex<HashMap<String, VecDeque<Slot>>>;
+type PendingExceptionMessages = std::sync::Mutex<HashMap<(std::thread::ThreadId, String), VecDeque<String>>>;
+type PendingExceptionCauses = std::sync::Mutex<HashMap<(std::thread::ThreadId, String), VecDeque<Slot>>>;
 type UncaughtExceptionRefs = std::sync::Mutex<HashMap<std::thread::ThreadId, VecDeque<(String, u64)>>>;
 
 fn pending_java_exception_messages() -> &'static PendingExceptionMessages {
@@ -23613,7 +23613,7 @@ fn push_pending_java_exception_message(class_name: &str, message: String) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     messages
-        .entry(class_name.to_string())
+        .entry((std::thread::current().id(), class_name.to_string()))
         .or_default()
         .push_back(message);
 }
@@ -23622,10 +23622,11 @@ fn pop_pending_java_exception_message(class_name: &str) -> Option<String> {
     let mut messages = pending_java_exception_messages()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let queue = messages.get_mut(class_name)?;
+    let key = (std::thread::current().id(), class_name.to_string());
+    let queue = messages.get_mut(&key)?;
     let message = queue.pop_front();
     if queue.is_empty() {
-        messages.remove(class_name);
+        messages.remove(&key);
     }
     message
 }
@@ -23640,7 +23641,7 @@ fn push_pending_java_exception_cause(class_name: &str, cause: Slot) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     causes
-        .entry(class_name.to_string())
+        .entry((std::thread::current().id(), class_name.to_string()))
         .or_default()
         .push_back(cause);
 }
@@ -23649,10 +23650,11 @@ fn pop_pending_java_exception_cause(class_name: &str) -> Option<Slot> {
     let mut causes = pending_java_exception_causes()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let queue = causes.get_mut(class_name)?;
+    let key = (std::thread::current().id(), class_name.to_string());
+    let queue = causes.get_mut(&key)?;
     let cause = queue.pop_front();
     if queue.is_empty() {
-        causes.remove(class_name);
+        causes.remove(&key);
     }
     cause
 }
