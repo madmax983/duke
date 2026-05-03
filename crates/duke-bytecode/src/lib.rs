@@ -9,6 +9,8 @@
 //! - `error` — [`DecodeError`] and [`VerifyError`]
 
 #[cfg(feature = "nova")]
+pub(crate) mod assembler;
+#[cfg(feature = "nova")]
 pub(crate) mod basic_block;
 pub(crate) mod call_graph;
 pub(crate) mod cfg;
@@ -20,6 +22,8 @@ pub(crate) mod opcodes;
 pub(crate) mod reachability;
 pub(crate) mod verifier;
 
+#[cfg(feature = "nova")]
+pub use assembler::Assembler;
 #[cfg(feature = "nova")]
 pub use basic_block::{BasicBlock, build_basic_blocks};
 pub use call_graph::generate_mermaid_call_graph;

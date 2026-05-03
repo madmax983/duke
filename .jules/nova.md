@@ -1,4 +1,4 @@
-## 2024-05-24 - JAR Security Audit
-**The Spark:** "I noticed we calculate complexities and basic graph analysis, but what if we can identify problematic usages in terms of security or stability? For instance, what if we want to find potentially dangerous API calls like `System.exit()`, `Runtime.exec()`, or Reflection APIs?"
-**The Feature:** Implemented `audit.rs` and the `duke audit` command to scan a JAR file for invocations of dangerous JVM methods.
-**The Potential:** Could be used as a pre-commit hook or CI check to prevent the introduction of arbitrary code execution vectors or abrupt JVM shutdown calls.
+💡 The Spark: "I noticed we decode bytecode into strongly-typed enums but lack the ability to easily generate it dynamically. Can we build a simple Assembler?"
+🚀 The Feature: "Implemented a basic `Assembler` struct under `nova` feature that translates `Instruction` enums back into raw byte streams."
+🔭 The Potential: "Unlocks dynamic code generation, synthetic tests without compiling `.class` files, and future instrumentation tools (e.g., AOP decorators)."
+⚠️ Risk: "Low. Additive feature behind a feature flag, safely isolated from core parsing and verification."
