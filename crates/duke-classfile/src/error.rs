@@ -129,6 +129,13 @@ pub enum Error {
         /// Raw tag byte.
         tag: u8,
     },
+
+    /// A nested structure (e.g. annotations) exceeded the maximum recursion depth limit.
+    #[error("maximum recursion depth exceeded at offset {offset}")]
+    RecursionLimitExceeded {
+        /// Offset where the recursion limit was exceeded.
+        offset: usize,
+    },
 }
 
 /// Convenience alias.
