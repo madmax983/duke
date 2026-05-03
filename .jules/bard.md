@@ -25,3 +25,11 @@
 ## 2024-05-23 - [Test Files Missing Docs]
 **Confusion:** Proptest and loom test binaries generated missing documentation warnings, which shouldn't require full crate documentation blocks.
 **Clarification:** Suppressed warnings in `havoc_jimage_proptest.rs`, `havoc_zip_proptest.rs`, and `havoc_zip_files_loom.rs` using `#![allow(missing_docs)]`. Added `//!` crate documentation to `duke-interpreter` to clarify its core orchestration role.
+
+## 2024-05-24 - [Instruction Enum Documentation]
+**Confusion:** The massive `Instruction` enum in `duke-bytecode` and related types like `ArrayType` were entirely undocumented, causing the `missing_docs` clippy lint to be explicitly suppressed via `#[allow(missing_docs)]`.
+**Clarification:** Added comprehensive short doc comments for every single `Instruction` variant based on its functionality and removed the `#[allow(missing_docs)]` suppression.
+
+## 2024-05-24 - [Instruction Enum Documentation]
+**Confusion:** The massive `Instruction` enum in `duke-bytecode` and related types like `ArrayType` were entirely undocumented, causing the `missing_docs` clippy lint to be explicitly suppressed via `#[allow(missing_docs)]`.
+**Clarification:** Added comprehensive short doc comments for every single `Instruction` variant based on its functionality and removed the `#[allow(missing_docs)]` suppression.
