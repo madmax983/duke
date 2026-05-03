@@ -423,8 +423,8 @@ mod tests {
         store.print_report(&mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("=== Duke VM Telemetry Report ==="));
-        assert!(s.contains("No class initialization events recorded."));
-        assert!(s.contains("No exception flow events recorded."));
+        assert!(s.contains("0 clinit events"));
+        assert!(s.contains("0 throw events"));
     }
 
     #[test]

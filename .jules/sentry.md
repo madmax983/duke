@@ -27,3 +27,6 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2026-05-03 - Tested Default Implementations of CallbackOps
+**Learning:** Default implementations for traits (like `Instruction::control_flow_targets`) can have logic that is easy to miss during coverage testing.
+**Action:** Adding explicit tests for each arm and condition of CFG targets logic increases coverage directly.

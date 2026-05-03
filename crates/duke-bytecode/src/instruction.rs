@@ -1160,6 +1160,101 @@ mod tests {
         }
     }
 
+    #[cfg(test)]
+    mod control_flow_targets_tests {
+        use super::*;
+
+        #[test]
+        fn test_control_flow_targets_return() {
+            let instr = Instruction::Ireturn;
+            let targets = instr.control_flow_targets(10, Some(11));
+            assert!(
+                targets.is_empty(),
+                "Return instructions should have no targets"
+            );
+        }
+
+        #[test]
+        fn test_control_flow_targets_unconditional_jump() {
+            let instr = Instruction::Goto(5);
+            let targets = instr.control_flow_targets(10, Some(13));
+            assert_eq!(
+                targets,
+                vec![15],
+                "Goto should have exactly one target (current_pc + offset)"
+            );
+        }
+
+        #[test]
+        fn test_control_flow_targets_subroutine_call() {
+            let instr = Instruction::Jsr(5);
+            let targets = instr.control_flow_targets(10, Some(13));
+            assert_eq!(targets, vec![15, 13], "Jsr should push target and next_pc");
+        }
+
+        #[test]
+        fn test_control_flow_targets_conditional_branch() {
+            let instr = Instruction::Ifeq(5);
+            let targets = instr.control_flow_targets(10, Some(13));
+            assert_eq!(
+                targets,
+                vec![15, 13],
+                "Conditional branch should push target and next_pc"
+            );
+        }
+
+        #[test]
+        fn test_control_flow_targets_tableswitch() {
+            let instr = Instruction::Tableswitch {
+                default: 10,
+                low: 1,
+                high: 2,
+                offsets: vec![20, 30],
+            };
+            let targets = instr.control_flow_targets(100, Some(110));
+            assert_eq!(
+                targets,
+                vec![110, 120, 130],
+                "Tableswitch should return default and all offsets"
+            );
+        }
+
+        #[test]
+        fn test_control_flow_targets_lookupswitch() {
+            let instr = Instruction::Lookupswitch {
+                default: 10,
+                pairs: vec![(1, 20), (2, 30)],
+            };
+            let targets = instr.control_flow_targets(100, Some(110));
+            assert_eq!(
+                targets,
+                vec![110, 120, 130],
+                "Lookupswitch should return default and all offset pairs"
+            );
+        }
+
+        #[test]
+        fn test_control_flow_targets_fallthrough() {
+            let instr = Instruction::Nop;
+            let targets = instr.control_flow_targets(10, Some(11));
+            assert_eq!(
+                targets,
+                vec![11],
+                "Regular instruction should return next_pc"
+            );
+        }
+
+        #[test]
+        fn test_control_flow_targets_fallthrough_no_next() {
+            let instr = Instruction::Nop;
+            let targets = instr.control_flow_targets(10, None);
+            assert!(
+                targets.is_empty(),
+                "If next_pc is None, fallthrough should have no targets"
+            );
+        }
+    }
+
     #[test]
     fn test_is_conditional_branch() {
         assert!(Instruction::Ifeq(5).is_conditional_branch());
