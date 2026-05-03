@@ -1219,13 +1219,12 @@ impl Heap {
                 continue;
             }
             obj.marked = true;
-            let children: Vec<u64> = obj
-                .fields
-                .iter()
-                .filter_map(Slot::as_reference)
-                .filter(|c| c & OLD_BIT != 0)
-                .collect();
-            worklist.extend(children);
+            worklist.extend(
+                obj.fields
+                    .iter()
+                    .filter_map(Slot::as_reference)
+                    .filter(|c| c & OLD_BIT != 0),
+            );
             if let Some(child) = obj
                 .atomic_payload
                 .as_ref()
