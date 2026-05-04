@@ -27,3 +27,6 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2024-05-24 - Testing Interpreter Native Helpers
+**Learning:** Found uncovered helper functions like `with_atomic_i32`, `format_arg` boolean matching, and `native_reentrant_read_write_lock_init` inside `crates/duke-interpreter/src/native.rs` which were not hit by high-level byte code or bootstrap tests. Extracting the lock state initialization out required setting up multi-field dummy classes directly in the `duke_gc::Heap`.
+**Action:** When adding missing native coverage, construct the expected object configurations manually using `heap.allocate` and direct `heap.get_mut` assignment to precisely control inputs to these low-level native helpers and test various `%b` string formatting modes and payload errors.

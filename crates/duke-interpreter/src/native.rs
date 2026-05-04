@@ -37920,3 +37920,113 @@ mod native_helper_tests {
         assert_eq!(res, Slot::Reference(None));
     }
 }
+
+#[cfg(test)]
+mod sentry_native_tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicI32, AtomicI64, AtomicBool, Ordering};
+
+    #[test]
+    fn test_atomic_helpers() {
+        let mut heap = duke_gc::Heap::new();
+        let rf = heap.allocate("java/util/concurrent/atomic/AtomicInteger".to_string(), 0);
+
+        let err = with_atomic_i32(&heap, rf, |_| {});
+        assert!(matches!(err, Err(Error::InvalidRef { address }) if address == rf));
+
+        {
+            let obj = heap.get_mut(rf).unwrap();
+            obj.atomic_payload = Some(duke_gc::AtomicPayload::Int(Arc::new(AtomicI32::new(42))));
+        }
+
+        let val = with_atomic_i32(&heap, rf, |cell| cell.load(Ordering::SeqCst)).unwrap();
+        assert_eq!(val, 42);
+
+        let err_i64 = with_atomic_i64(&heap, rf, |_| {});
+        assert!(matches!(err_i64, Err(Error::InvalidRef { .. })));
+
+        {
+            let obj = heap.get_mut(rf).unwrap();
+            obj.atomic_payload = Some(duke_gc::AtomicPayload::Long(Arc::new(AtomicI64::new(100))));
+        }
+        let val = with_atomic_i64(&heap, rf, |cell| cell.load(Ordering::SeqCst)).unwrap();
+        assert_eq!(val, 100);
+
+        {
+            let obj = heap.get_mut(rf).unwrap();
+            obj.atomic_payload = Some(duke_gc::AtomicPayload::Bool(Arc::new(AtomicBool::new(true))));
+        }
+        let val = with_atomic_bool(&heap, rf, |cell| cell.load(Ordering::SeqCst)).unwrap();
+        assert!(val);
+
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let args = [Slot::Reference(Some(rf))];
+        // Test priority queue peek with 0 elements
+        let _ = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control);
+    }
+
+    #[test]
+    fn test_reentrant_read_write_lock_init() {
+        let mut heap = duke_gc::Heap::new();
+        let rf = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let args = [Slot::Reference(Some(rf))];
+
+        let res = native_reentrant_read_write_lock_init(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, None);
+
+        let field0;
+        let field1;
+        {
+            let this = heap.get(rf).unwrap();
+            assert!(matches!(this.atomic_payload, Some(duke_gc::AtomicPayload::ReadWriteLock(_))));
+            assert!(matches!(this.fields[0], Slot::Reference(Some(_))));
+            assert!(matches!(this.fields[1], Slot::Reference(Some(_))));
+            field0 = this.fields[0];
+            field1 = this.fields[1];
+        }
+
+        // Try read_lock native
+        let res_read = native_reentrant_read_write_lock_read_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res_read, Some(field0));
+
+        // Try write_lock native
+        let res_write = native_reentrant_read_write_lock_write_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res_write, Some(field1));
+    }
+
+    #[test]
+    fn test_format_b_spec_null_or_boolean() {
+        let mut heap = duke_gc::Heap::new();
+        let flags = String::new();
+        let res_null = format_arg('b', &flags, None, None, &Slot::Reference(None), &heap).unwrap();
+        assert_eq!(res_null, "false");
+
+        let res_null_s = format_arg('s', &flags, None, None, &Slot::Reference(None), &heap).unwrap();
+        assert_eq!(res_null_s, "null");
+
+        let bool_rf = heap.allocate("java/lang/Boolean".to_string(), 1);
+
+        {
+            let obj = heap.get_mut(bool_rf).unwrap();
+            obj.fields[0] = Slot::Int(1);
+        }
+        let res_true = format_arg('b', &flags, None, None, &Slot::Reference(Some(bool_rf)), &heap).unwrap();
+        assert_eq!(res_true, "true");
+
+        {
+            let obj = heap.get_mut(bool_rf).unwrap();
+            obj.fields[0] = Slot::Int(0);
+        }
+        let res_false = format_arg('b', &flags, None, None, &Slot::Reference(Some(bool_rf)), &heap).unwrap();
+        assert_eq!(res_false, "false");
+
+        let other_rf = heap.allocate("java/lang/Object".to_string(), 0);
+        let res_other = format_arg('b', &flags, None, None, &Slot::Reference(Some(other_rf)), &heap).unwrap();
+        assert_eq!(res_other, "true");
+    }
+}

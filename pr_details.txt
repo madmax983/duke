@@ -1,6 +1,4 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+🎯 Target: `crates/duke-interpreter/src/native.rs`
+💣 Risk: Untested edge cases in `format_arg` with null objects, error extraction in atomic payload functions, and missing coverage on read/write lock native initialization can silently fail or yield bad strings/null.
+🧪 Strategy: Added specific unit tests to exercise `AtomicPayload` invalid states, boolean formatting under different `%b` specs (including objects returning `true` and null returning `false`), and reentrant lock native state initialization tests.
+🔬 Verification: Run `cargo test --package duke-interpreter --lib sentry_native_tests`
