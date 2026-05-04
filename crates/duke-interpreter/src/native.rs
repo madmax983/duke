@@ -10252,23 +10252,24 @@ pub(crate) fn native_class_get_declared_methods(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let method_refs = reflected
+    let methods: Vec<_> = reflected
         .methods
         .into_iter()
         .filter(|method| method.name != "<init>" && method.name != "<clinit>")
-        .map(|method| {
-            allocate_reflection_member_object(
-                heap,
-                "java/lang/reflect/Method",
-                &class_key,
-                &method.name,
-                &method.descriptor,
-                method.is_public,
-                method.is_static,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
+        .collect();
+    let array_ref = allocate_empty_reference_array_with_len(heap, "[Ljava/lang/reflect/Method;", methods.len())?;
+    for (idx, method) in methods.into_iter().enumerate() {
+        let method_ref = allocate_reflection_member_object(
+            heap,
+            "java/lang/reflect/Method",
+            &class_key,
+            &method.name,
+            &method.descriptor,
+            method.is_public,
+            method.is_static,
+        )?;
+        heap.write_field(array_ref, idx, Slot::Reference(Some(method_ref)))?;
+    }
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -10282,22 +10283,20 @@ pub(crate) fn native_class_get_declared_constructors(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let constructor_refs = reflected_constructors(reflected, false)
-        .into_iter()
-        .map(|constructor| {
-            allocate_reflection_member_object(
-                heap,
-                "java/lang/reflect/Constructor",
-                &class_key,
-                &constructor.name,
-                &constructor.descriptor,
-                constructor.is_public,
-                constructor.is_static,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let array_ref =
-        allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
+    let constructors = reflected_constructors(reflected, false);
+    let array_ref = allocate_empty_reference_array_with_len(heap, "[Ljava/lang/reflect/Constructor;", constructors.len())?;
+    for (idx, constructor) in constructors.into_iter().enumerate() {
+        let constructor_ref = allocate_reflection_member_object(
+            heap,
+            "java/lang/reflect/Constructor",
+            &class_key,
+            &constructor.name,
+            &constructor.descriptor,
+            constructor.is_public,
+            constructor.is_static,
+        )?;
+        heap.write_field(array_ref, idx, Slot::Reference(Some(constructor_ref)))?;
+    }
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -10310,21 +10309,20 @@ pub(crate) fn native_class_get_methods(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let method_refs = collect_public_reflected_methods(ops, &class_key)?
-        .into_iter()
-        .map(|(declaring_class, method)| {
-            allocate_reflection_member_object(
-                heap,
-                "java/lang/reflect/Method",
-                &declaring_class,
-                &method.name,
-                &method.descriptor,
-                method.is_public,
-                method.is_static,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Method;", &method_refs)?;
+    let methods = collect_public_reflected_methods(ops, &class_key)?;
+    let array_ref = allocate_empty_reference_array_with_len(heap, "[Ljava/lang/reflect/Method;", methods.len())?;
+    for (idx, (declaring_class, method)) in methods.into_iter().enumerate() {
+        let method_ref = allocate_reflection_member_object(
+            heap,
+            "java/lang/reflect/Method",
+            &declaring_class,
+            &method.name,
+            &method.descriptor,
+            method.is_public,
+            method.is_static,
+        )?;
+        heap.write_field(array_ref, idx, Slot::Reference(Some(method_ref)))?;
+    }
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -10338,22 +10336,20 @@ pub(crate) fn native_class_get_constructors(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let constructor_refs = reflected_constructors(reflected, true)
-        .into_iter()
-        .map(|constructor| {
-            allocate_reflection_member_object(
-                heap,
-                "java/lang/reflect/Constructor",
-                &class_key,
-                &constructor.name,
-                &constructor.descriptor,
-                constructor.is_public,
-                constructor.is_static,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let array_ref =
-        allocate_reference_array(heap, "[Ljava/lang/reflect/Constructor;", &constructor_refs)?;
+    let constructors = reflected_constructors(reflected, true);
+    let array_ref = allocate_empty_reference_array_with_len(heap, "[Ljava/lang/reflect/Constructor;", constructors.len())?;
+    for (idx, constructor) in constructors.into_iter().enumerate() {
+        let constructor_ref = allocate_reflection_member_object(
+            heap,
+            "java/lang/reflect/Constructor",
+            &class_key,
+            &constructor.name,
+            &constructor.descriptor,
+            constructor.is_public,
+            constructor.is_static,
+        )?;
+        heap.write_field(array_ref, idx, Slot::Reference(Some(constructor_ref)))?;
+    }
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -10367,22 +10363,20 @@ pub(crate) fn native_class_get_declared_fields(
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
-    let field_refs = reflected
-        .fields
-        .into_iter()
-        .map(|field| {
-            allocate_reflection_member_object(
-                heap,
-                "java/lang/reflect/Field",
-                &class_key,
-                &field.name,
-                &field.descriptor,
-                field.is_public,
-                field.is_static,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
+    let fields = reflected.fields;
+    let array_ref = allocate_empty_reference_array_with_len(heap, "[Ljava/lang/reflect/Field;", fields.len())?;
+    for (idx, field) in fields.into_iter().enumerate() {
+        let field_ref = allocate_reflection_member_object(
+            heap,
+            "java/lang/reflect/Field",
+            &class_key,
+            &field.name,
+            &field.descriptor,
+            field.is_public,
+            field.is_static,
+        )?;
+        heap.write_field(array_ref, idx, Slot::Reference(Some(field_ref)))?;
+    }
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -10395,21 +10389,20 @@ pub(crate) fn native_class_get_fields(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let field_refs = collect_public_reflected_fields(ops, &class_key)?
-        .into_iter()
-        .map(|(declaring_class, field)| {
-            allocate_reflection_member_object(
-                heap,
-                "java/lang/reflect/Field",
-                &declaring_class,
-                &field.name,
-                &field.descriptor,
-                field.is_public,
-                field.is_static,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Field;", &field_refs)?;
+    let fields = collect_public_reflected_fields(ops, &class_key)?;
+    let array_ref = allocate_empty_reference_array_with_len(heap, "[Ljava/lang/reflect/Field;", fields.len())?;
+    for (idx, (declaring_class, field)) in fields.into_iter().enumerate() {
+        let field_ref = allocate_reflection_member_object(
+            heap,
+            "java/lang/reflect/Field",
+            &declaring_class,
+            &field.name,
+            &field.descriptor,
+            field.is_public,
+            field.is_static,
+        )?;
+        heap.write_field(array_ref, idx, Slot::Reference(Some(field_ref)))?;
+    }
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -10515,13 +10508,11 @@ fn materialize_annotation_value(
         }
         ReflectedAnnotationValue::Array(values) => {
             let element_descriptor = array_element_descriptor(descriptor);
-            let slots = values
-                .iter()
-                .map(|value| {
-                    materialize_annotation_value(heap, output, ops, element_descriptor, value)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let array_ref = allocate_reference_array_from_slots(heap, descriptor, &slots)?;
+            let array_ref = allocate_empty_reference_array_with_len(heap, descriptor, values.len())?;
+            for (idx, value) in values.iter().enumerate() {
+                let slot = materialize_annotation_value(heap, output, ops, element_descriptor, value)?;
+                heap.write_field(array_ref, idx, slot)?;
+            }
             Ok(Slot::Reference(Some(array_ref)))
         }
     }
@@ -10562,12 +10553,11 @@ fn allocate_annotation_array(
     ops: &mut dyn CallbackOps,
     annotations: &[ReflectedAnnotation],
 ) -> Result<Option<Slot>> {
-    let annotation_refs = annotations
-        .iter()
-        .map(|annotation| allocate_annotation_proxy(heap, output, ops, annotation))
-        .collect::<Result<Vec<_>>>()?;
-    let array_ref =
-        allocate_reference_array(heap, "[Ljava/lang/annotation/Annotation;", &annotation_refs)?;
+    let array_ref = allocate_empty_reference_array_with_len(heap, "[Ljava/lang/annotation/Annotation;", annotations.len())?;
+    for (idx, annotation) in annotations.iter().enumerate() {
+        let annotation_ref = allocate_annotation_proxy(heap, output, ops, annotation)?;
+        heap.write_field(array_ref, idx, Slot::Reference(Some(annotation_ref)))?;
+    }
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -22124,18 +22114,25 @@ fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> Result<
     Ok(class_internal_name_from_key(&class_key_from_ref(heap, class_ref)?).to_string())
 }
 
+fn allocate_empty_reference_array_with_len(
+    heap: &mut duke_gc::Heap,
+    array_class_name: &str,
+    len: usize,
+) -> Result<u64> {
+    let array_ref = heap.allocate(array_class_name.to_string(), len);
+    let array_obj = heap.get_mut(array_ref)?;
+    for slot in &mut array_obj.fields {
+        *slot = Slot::Reference(None);
+    }
+    Ok(array_ref)
+}
+
 fn allocate_reference_array(
     heap: &mut duke_gc::Heap,
     array_class_name: &str,
     elements: &[u64],
 ) -> Result<u64> {
-    let array_ref = heap.allocate(array_class_name.to_string(), elements.len());
-    {
-        let array_obj = heap.get_mut(array_ref)?;
-        for slot in &mut array_obj.fields {
-            *slot = Slot::Reference(None);
-        }
-    }
+    let array_ref = allocate_empty_reference_array_with_len(heap, array_class_name, elements.len())?;
     for (idx, element_ref) in elements.iter().enumerate() {
         heap.write_field(array_ref, idx, Slot::Reference(Some(*element_ref)))?;
     }
