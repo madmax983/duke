@@ -1,0 +1,4 @@
+🎯 Target: Added test coverage for `with_atomic_i32`, `with_atomic_i64`, `with_atomic_bool`, `with_atomic_reference`, and `load_atomic_reference` helper functions inside `crates/duke-interpreter/src/native.rs`.
+💣 Risk: Uncovered potential panics when fetching specific atomic payloads where invalid/corrupt references occur.
+🧪 Strategy: Wrote exhaustive unit tests simulating both valid payloads (confirming expected closure execution) and invalid payloads (confirming expected `Error::InvalidRef` propagation) inside a dedicated `tests_sentry` module to avoid namespace collision.
+🔬 Verification: Run `cargo test -p duke-interpreter -- tests_sentry`.

@@ -27,3 +27,7 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+
+## 2024-05-04 - [Testing AtomicPayload with with_atomic_* helper functions]
+**Learning:** When testing `with_atomic_i32`, `with_atomic_i64`, `with_atomic_bool` or `with_atomic_reference` helper functions that match on `duke_gc::AtomicPayload` enum variants, it is critical to explicitly provide `Arc` around the atomic types (e.g. `Arc::new(AtomicI32::new(42))`), since the tuple variants for `AtomicPayload` wrap these in `Arc`s internally (e.g. `Int(Arc<AtomicI32>)`). Attempting to pass the atomic type directly causes `expected struct 'Arc<AtomicI32>', found struct 'AtomicI32'` mismatches during compilation. Additionally, the type `AtomicPayload` must be imported explicitly (`use duke_gc::AtomicPayload;`) or referred to by its full path (`duke_gc::AtomicPayload`) when constructing payloads in tests to avoid `use of undeclared type` errors.
+**Action:** When creating tests involving custom struct/enum types with wrapped inner properties like `Arc` or `Mutex`, strictly observe their definitions via `grep` or compiler errors and appropriately wrap test values. Always ensure types from other workspace crates are properly imported in test modules.

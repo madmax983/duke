@@ -1,7 +1,8 @@
-1. **Understand the problem:** The problem requires fixing missing documentation warnings that `cargo clippy --all-targets --all-features -- -W missing-docs` reports.
-2. **Current state:** We had missing docs for test binaries `crates/duke-loader/tests/havoc_jimage_proptest.rs`, `crates/duke-loader/tests/havoc_zip_proptest.rs`, `crates/duke-interpreter/tests/havoc_zip_files_loom.rs`.
-3. **Execution:** We already fixed this by adding `#![allow(missing_docs)]` to these test files, which makes sense for test binaries that don't need crate-level documentation to satisfy the warning.
-4. **Fixing other module:** We had an issue with `duke-interpreter` missing the crate documentation block. I updated `crates/duke-interpreter/src/lib.rs` to have a nice `//!` description that documents the crate-level module.
-5. **Validation:** `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` completes successfully, and `cargo clippy --all-targets --all-features -- -W missing_docs` doesn't produce missing_docs warnings, and tests pass.
-6. **Pre-commit step**: Execute tests and run pre commit step.
-7. **Submit**: Create PR.
+1. Add a `#[cfg(test)] mod tests` block testing the `with_atomic_*` and `load_atomic_reference` helper functions in `crates/duke-interpreter/src/native.rs`.
+   - The tests will cover valid payloads as well as invalid payloads that return `Error::InvalidRef`.
+2. Format the code with `cargo fmt --all`.
+3. Check code for lints with `cargo clippy --all-targets --all-features -- -D warnings`.
+4. Run `cargo test` to ensure tests pass.
+5. Create a `sentry.md` journal entry if applicable.
+6. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
+7. Submit the PR using `gh pr create` via bash command.

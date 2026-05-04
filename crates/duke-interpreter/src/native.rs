@@ -37920,3 +37920,120 @@ mod native_helper_tests {
         assert_eq!(res, Slot::Reference(None));
     }
 }
+
+#[cfg(test)]
+mod tests_sentry {
+    use super::*;
+    use std::sync::atomic::{AtomicI32, AtomicI64, AtomicBool, Ordering};
+    use duke_gc::AtomicPayload;
+
+    #[test]
+    fn should_return_error_when_atomic_i32_payload_invalid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_i32(&heap, obj_ref, |_| ());
+        match res {
+            Err(Error::InvalidRef { address }) => assert_eq!(address, obj_ref),
+            _ => panic!("Expected InvalidRef error"),
+        }
+    }
+
+    #[test]
+    fn should_execute_closure_when_atomic_i32_payload_valid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        {
+            let obj = heap.get_mut(obj_ref).unwrap();
+            obj.atomic_payload = Some(AtomicPayload::Int(std::sync::Arc::new(AtomicI32::new(42))));
+        }
+        let val = with_atomic_i32(&heap, obj_ref, |cell| cell.load(Ordering::SeqCst)).unwrap();
+        assert_eq!(val, 42);
+    }
+
+    #[test]
+    fn should_return_error_when_atomic_i64_payload_invalid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_i64(&heap, obj_ref, |_| ());
+        match res {
+            Err(Error::InvalidRef { address }) => assert_eq!(address, obj_ref),
+            _ => panic!("Expected InvalidRef error"),
+        }
+    }
+
+    #[test]
+    fn should_execute_closure_when_atomic_i64_payload_valid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        {
+            let obj = heap.get_mut(obj_ref).unwrap();
+            obj.atomic_payload = Some(AtomicPayload::Long(std::sync::Arc::new(AtomicI64::new(42))));
+        }
+        let val = with_atomic_i64(&heap, obj_ref, |cell| cell.load(Ordering::SeqCst)).unwrap();
+        assert_eq!(val, 42);
+    }
+
+    #[test]
+    fn should_return_error_when_atomic_bool_payload_invalid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_bool(&heap, obj_ref, |_| ());
+        match res {
+            Err(Error::InvalidRef { address }) => assert_eq!(address, obj_ref),
+            _ => panic!("Expected InvalidRef error"),
+        }
+    }
+
+    #[test]
+    fn should_execute_closure_when_atomic_bool_payload_valid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        {
+            let obj = heap.get_mut(obj_ref).unwrap();
+            obj.atomic_payload = Some(AtomicPayload::Bool(std::sync::Arc::new(AtomicBool::new(true))));
+        }
+        let val = with_atomic_bool(&heap, obj_ref, |cell| cell.load(Ordering::SeqCst)).unwrap();
+        assert!(val);
+    }
+
+    #[test]
+    fn should_return_error_when_atomic_reference_payload_invalid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_reference(&heap, obj_ref, |_| Ok(()));
+        match res {
+            Err(Error::InvalidRef { address }) => assert_eq!(address, obj_ref),
+            _ => panic!("Expected InvalidRef error"),
+        }
+    }
+
+    #[test]
+    fn should_execute_closure_when_atomic_reference_payload_valid() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        {
+            let obj = heap.get_mut(obj_ref).unwrap();
+            obj.atomic_payload = Some(duke_gc::AtomicPayload::Reference(std::sync::Arc::new(std::sync::Mutex::new(Slot::Int(42)))));
+        }
+        let val = with_atomic_reference(&heap, obj_ref, |cell| {
+            let guard = cell.lock().unwrap();
+            match *guard {
+                Slot::Int(i) => Ok(i),
+                _ => Err(Error::NullPointerException),
+            }
+        }).unwrap();
+        assert_eq!(val, 42);
+    }
+
+    #[test]
+    fn should_load_atomic_reference_correctly() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        {
+            let obj = heap.get_mut(obj_ref).unwrap();
+            obj.atomic_payload = Some(duke_gc::AtomicPayload::Reference(std::sync::Arc::new(std::sync::Mutex::new(Slot::Int(99)))));
+        }
+        let val = load_atomic_reference(&heap, obj_ref).unwrap();
+        assert_eq!(val, Slot::Int(99));
+    }
+}
