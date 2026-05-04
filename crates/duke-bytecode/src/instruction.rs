@@ -373,10 +373,7 @@ pub enum Instruction {
     /// The `lxor` instruction.
     Lxor,
     /// `iinc index const` — increment local by constant.
-    Iinc {
-        index: u8,
-        value: i8,
-    },
+    Iinc { index: u8, value: i8 },
 
     // -----------------------------------------------------------------------
     // Conversions
@@ -514,10 +511,7 @@ pub enum Instruction {
     /// The `invokestatic` instruction.
     Invokestatic(CpIndex),
     /// `invokeinterface index count` — `count` is the number of arguments.
-    Invokeinterface {
-        index: CpIndex,
-        count: u8,
-    },
+    Invokeinterface { index: CpIndex, count: u8 },
     /// The `invokedynamic` instruction.
     Invokedynamic(CpIndex),
 
@@ -547,10 +541,7 @@ pub enum Instruction {
     // Extended
     // -----------------------------------------------------------------------
     /// The `multianewarray` instruction.
-    Multianewarray {
-        index: CpIndex,
-        dimensions: u8,
-    },
+    Multianewarray { index: CpIndex, dimensions: u8 },
     /// The `ifnull` instruction.
     Ifnull(i16),
     /// The `ifnonnull` instruction.
@@ -586,10 +577,7 @@ pub enum Instruction {
     /// The `retw` instruction.
     RetW(u16),
     /// The `iincw` instruction.
-    IincW {
-        index: u16,
-        value: i16,
-    },
+    IincW { index: u16, value: i16 },
 }
 
 /// An iterator over the match values and offsets of a switch statement.
