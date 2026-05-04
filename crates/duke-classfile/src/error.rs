@@ -21,7 +21,7 @@ use thiserror::Error;
 ///
 /// We don't just return a generic "parse failed" message. We want you to know the exact
 /// offset of the truncation, the specific invalid magic number, or the out-of-bounds
-/// [`crate::constant_pool::CpIndex`]. Use these variants to log precise, helpful diagnostics.
+/// [`crate::types::CpIndex`]. Use these variants to log precise, helpful diagnostics.
 ///
 /// # Examples
 ///

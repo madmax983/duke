@@ -88,296 +88,523 @@ impl ArrayType {
 /// assert_eq!(get_field.mnemonic(), "getfield");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(missing_docs)]
+
 pub enum Instruction {
     // -----------------------------------------------------------------------
     // Constants
     // -----------------------------------------------------------------------
+    /// JVM `nop` instruction.
     Nop,
+    /// JVM `aconstnull` instruction.
     AconstNull,
+    /// JVM `iconstm1` instruction.
     IconstM1,
+    /// JVM `iconst0` instruction.
     Iconst0,
+    /// JVM `iconst1` instruction.
     Iconst1,
+    /// JVM `iconst2` instruction.
     Iconst2,
+    /// JVM `iconst3` instruction.
     Iconst3,
+    /// JVM `iconst4` instruction.
     Iconst4,
+    /// JVM `iconst5` instruction.
     Iconst5,
+    /// JVM `lconst0` instruction.
     Lconst0,
+    /// JVM `lconst1` instruction.
     Lconst1,
+    /// JVM `fconst0` instruction.
     Fconst0,
+    /// JVM `fconst1` instruction.
     Fconst1,
+    /// JVM `fconst2` instruction.
     Fconst2,
+    /// JVM `dconst0` instruction.
     Dconst0,
+    /// JVM `dconst1` instruction.
     Dconst1,
+    /// JVM `bipush` instruction.
     Bipush(i8),
+    /// JVM `sipush` instruction.
     Sipush(i16),
+    /// JVM `ldc` instruction.
     Ldc(u8),
+    /// JVM `ldcw` instruction.
     LdcW(CpIndex),
+    /// JVM `ldc2w` instruction.
     Ldc2W(CpIndex),
 
     // -----------------------------------------------------------------------
     // Loads
     // -----------------------------------------------------------------------
+    /// JVM `iload` instruction.
     Iload(u8),
+    /// JVM `lload` instruction.
     Lload(u8),
+    /// JVM `fload` instruction.
     Fload(u8),
+    /// JVM `dload` instruction.
     Dload(u8),
+    /// JVM `aload` instruction.
     Aload(u8),
+    /// JVM `iload0` instruction.
     Iload0,
+    /// JVM `iload1` instruction.
     Iload1,
+    /// JVM `iload2` instruction.
     Iload2,
+    /// JVM `iload3` instruction.
     Iload3,
+    /// JVM `lload0` instruction.
     Lload0,
+    /// JVM `lload1` instruction.
     Lload1,
+    /// JVM `lload2` instruction.
     Lload2,
+    /// JVM `lload3` instruction.
     Lload3,
+    /// JVM `fload0` instruction.
     Fload0,
+    /// JVM `fload1` instruction.
     Fload1,
+    /// JVM `fload2` instruction.
     Fload2,
+    /// JVM `fload3` instruction.
     Fload3,
+    /// JVM `dload0` instruction.
     Dload0,
+    /// JVM `dload1` instruction.
     Dload1,
+    /// JVM `dload2` instruction.
     Dload2,
+    /// JVM `dload3` instruction.
     Dload3,
+    /// JVM `aload0` instruction.
     Aload0,
+    /// JVM `aload1` instruction.
     Aload1,
+    /// JVM `aload2` instruction.
     Aload2,
+    /// JVM `aload3` instruction.
     Aload3,
+    /// JVM `iaload` instruction.
     Iaload,
+    /// JVM `laload` instruction.
     Laload,
+    /// JVM `faload` instruction.
     Faload,
+    /// JVM `daload` instruction.
     Daload,
+    /// JVM `aaload` instruction.
     Aaload,
+    /// JVM `baload` instruction.
     Baload,
+    /// JVM `caload` instruction.
     Caload,
+    /// JVM `saload` instruction.
     Saload,
 
     // -----------------------------------------------------------------------
     // Stores
     // -----------------------------------------------------------------------
+    /// JVM `istore` instruction.
     Istore(u8),
+    /// JVM `lstore` instruction.
     Lstore(u8),
+    /// JVM `fstore` instruction.
     Fstore(u8),
+    /// JVM `dstore` instruction.
     Dstore(u8),
+    /// JVM `astore` instruction.
     Astore(u8),
+    /// JVM `istore0` instruction.
     Istore0,
+    /// JVM `istore1` instruction.
     Istore1,
+    /// JVM `istore2` instruction.
     Istore2,
+    /// JVM `istore3` instruction.
     Istore3,
+    /// JVM `lstore0` instruction.
     Lstore0,
+    /// JVM `lstore1` instruction.
     Lstore1,
+    /// JVM `lstore2` instruction.
     Lstore2,
+    /// JVM `lstore3` instruction.
     Lstore3,
+    /// JVM `fstore0` instruction.
     Fstore0,
+    /// JVM `fstore1` instruction.
     Fstore1,
+    /// JVM `fstore2` instruction.
     Fstore2,
+    /// JVM `fstore3` instruction.
     Fstore3,
+    /// JVM `dstore0` instruction.
     Dstore0,
+    /// JVM `dstore1` instruction.
     Dstore1,
+    /// JVM `dstore2` instruction.
     Dstore2,
+    /// JVM `dstore3` instruction.
     Dstore3,
+    /// JVM `astore0` instruction.
     Astore0,
+    /// JVM `astore1` instruction.
     Astore1,
+    /// JVM `astore2` instruction.
     Astore2,
+    /// JVM `astore3` instruction.
     Astore3,
+    /// JVM `iastore` instruction.
     Iastore,
+    /// JVM `lastore` instruction.
     Lastore,
+    /// JVM `fastore` instruction.
     Fastore,
+    /// JVM `dastore` instruction.
     Dastore,
+    /// JVM `aastore` instruction.
     Aastore,
+    /// JVM `bastore` instruction.
     Bastore,
+    /// JVM `castore` instruction.
     Castore,
+    /// JVM `sastore` instruction.
     Sastore,
 
     // -----------------------------------------------------------------------
     // Stack
     // -----------------------------------------------------------------------
+    /// JVM `pop` instruction.
     Pop,
+    /// JVM `pop2` instruction.
     Pop2,
+    /// JVM `dup` instruction.
     Dup,
+    /// JVM `dupx1` instruction.
     DupX1,
+    /// JVM `dupx2` instruction.
     DupX2,
+    /// JVM `dup2` instruction.
     Dup2,
+    /// JVM `dup2x1` instruction.
     Dup2X1,
+    /// JVM `dup2x2` instruction.
     Dup2X2,
+    /// JVM `swap` instruction.
     Swap,
 
     // -----------------------------------------------------------------------
     // Arithmetic
     // -----------------------------------------------------------------------
+    /// JVM `iadd` instruction.
     Iadd,
+    /// JVM `ladd` instruction.
     Ladd,
+    /// JVM `fadd` instruction.
     Fadd,
+    /// JVM `dadd` instruction.
     Dadd,
+    /// JVM `isub` instruction.
     Isub,
+    /// JVM `lsub` instruction.
     Lsub,
+    /// JVM `fsub` instruction.
     Fsub,
+    /// JVM `dsub` instruction.
     Dsub,
+    /// JVM `imul` instruction.
     Imul,
+    /// JVM `lmul` instruction.
     Lmul,
+    /// JVM `fmul` instruction.
     Fmul,
+    /// JVM `dmul` instruction.
     Dmul,
+    /// JVM `idiv` instruction.
     Idiv,
+    /// JVM `ldiv` instruction.
     Ldiv,
+    /// JVM `fdiv` instruction.
     Fdiv,
+    /// JVM `ddiv` instruction.
     Ddiv,
+    /// JVM `irem` instruction.
     Irem,
+    /// JVM `lrem` instruction.
     Lrem,
+    /// JVM `frem` instruction.
     Frem,
+    /// JVM `drem` instruction.
     Drem,
+    /// JVM `ineg` instruction.
     Ineg,
+    /// JVM `lneg` instruction.
     Lneg,
+    /// JVM `fneg` instruction.
     Fneg,
+    /// JVM `dneg` instruction.
     Dneg,
+    /// JVM `ishl` instruction.
     Ishl,
+    /// JVM `lshl` instruction.
     Lshl,
+    /// JVM `ishr` instruction.
     Ishr,
+    /// JVM `lshr` instruction.
     Lshr,
+    /// JVM `iushr` instruction.
     Iushr,
+    /// JVM `lushr` instruction.
     Lushr,
+    /// JVM `iand` instruction.
     Iand,
+    /// JVM `land` instruction.
     Land,
+    /// JVM `ior` instruction.
     Ior,
+    /// JVM `lor` instruction.
     Lor,
+    /// JVM `ixor` instruction.
     Ixor,
+    /// JVM `lxor` instruction.
     Lxor,
     /// `iinc index const` — increment local by constant.
+    /// JVM `iinc` instruction.
     Iinc {
+        /// The `index` field.
         index: u8,
+        /// The `value` field.
         value: i8,
     },
 
     // -----------------------------------------------------------------------
     // Conversions
     // -----------------------------------------------------------------------
+    /// JVM `i2l` instruction.
     I2l,
+    /// JVM `i2f` instruction.
     I2f,
+    /// JVM `i2d` instruction.
     I2d,
+    /// JVM `l2i` instruction.
     L2i,
+    /// JVM `l2f` instruction.
     L2f,
+    /// JVM `l2d` instruction.
     L2d,
+    /// JVM `f2i` instruction.
     F2i,
+    /// JVM `f2l` instruction.
     F2l,
+    /// JVM `f2d` instruction.
     F2d,
+    /// JVM `d2i` instruction.
     D2i,
+    /// JVM `d2l` instruction.
     D2l,
+    /// JVM `d2f` instruction.
     D2f,
+    /// JVM `i2b` instruction.
     I2b,
+    /// JVM `i2c` instruction.
     I2c,
+    /// JVM `i2s` instruction.
     I2s,
 
     // -----------------------------------------------------------------------
     // Comparisons
     // -----------------------------------------------------------------------
+    /// JVM `lcmp` instruction.
     Lcmp,
+    /// JVM `fcmpl` instruction.
     Fcmpl,
+    /// JVM `fcmpg` instruction.
     Fcmpg,
+    /// JVM `dcmpl` instruction.
     Dcmpl,
+    /// JVM `dcmpg` instruction.
     Dcmpg,
 
     // -----------------------------------------------------------------------
     // Branches — offset is relative to the PC of this instruction
     // -----------------------------------------------------------------------
+    /// JVM `ifeq` instruction.
     Ifeq(i16),
+    /// JVM `ifne` instruction.
     Ifne(i16),
+    /// JVM `iflt` instruction.
     Iflt(i16),
+    /// JVM `ifge` instruction.
     Ifge(i16),
+    /// JVM `ifgt` instruction.
     Ifgt(i16),
+    /// JVM `ifle` instruction.
     Ifle(i16),
+    /// JVM `ificmpeq` instruction.
     IfIcmpeq(i16),
+    /// JVM `ificmpne` instruction.
     IfIcmpne(i16),
+    /// JVM `ificmplt` instruction.
     IfIcmplt(i16),
+    /// JVM `ificmpge` instruction.
     IfIcmpge(i16),
+    /// JVM `ificmpgt` instruction.
     IfIcmpgt(i16),
+    /// JVM `ificmple` instruction.
     IfIcmple(i16),
+    /// JVM `ifacmpeq` instruction.
     IfAcmpeq(i16),
+    /// JVM `ifacmpne` instruction.
     IfAcmpne(i16),
+    /// JVM `goto` instruction.
     Goto(i16),
+    /// JVM `jsr` instruction.
     Jsr(i16),
+    /// JVM `ret` instruction.
     Ret(u8),
+    /// JVM `tableswitch` instruction.
     Tableswitch {
+        /// The `default` field.
         default: i32,
+        /// The `low` field.
         low: i32,
+        /// The `high` field.
         high: i32,
+        /// The `offsets` field.
         offsets: Vec<i32>,
     },
+    /// JVM `lookupswitch` instruction.
     Lookupswitch {
+        /// The `default` field.
         default: i32,
+        /// The `pairs` field.
         pairs: Vec<(i32, i32)>, // (match_value, offset)
     },
 
     // -----------------------------------------------------------------------
     // Returns
     // -----------------------------------------------------------------------
+    /// JVM `ireturn` instruction.
     Ireturn,
+    /// JVM `lreturn` instruction.
     Lreturn,
+    /// JVM `freturn` instruction.
     Freturn,
+    /// JVM `dreturn` instruction.
     Dreturn,
+    /// JVM `areturn` instruction.
     Areturn,
+    /// JVM `return` instruction.
     Return,
 
     // -----------------------------------------------------------------------
     // Field access
     // -----------------------------------------------------------------------
+    /// JVM `getstatic` instruction.
     Getstatic(CpIndex),
+    /// JVM `putstatic` instruction.
     Putstatic(CpIndex),
+    /// JVM `getfield` instruction.
     Getfield(CpIndex),
+    /// JVM `putfield` instruction.
     Putfield(CpIndex),
 
     // -----------------------------------------------------------------------
     // Method invocation
     // -----------------------------------------------------------------------
+    /// JVM `invokevirtual` instruction.
     Invokevirtual(CpIndex),
+    /// JVM `invokespecial` instruction.
     Invokespecial(CpIndex),
+    /// JVM `invokestatic` instruction.
     Invokestatic(CpIndex),
     /// `invokeinterface index count` — `count` is the number of arguments.
+    /// JVM `invokeinterface` instruction.
     Invokeinterface {
+        /// The `index` field.
         index: CpIndex,
+        /// The `count` field.
         count: u8,
     },
+    /// JVM `invokedynamic` instruction.
     Invokedynamic(CpIndex),
 
     // -----------------------------------------------------------------------
     // Object / array
     // -----------------------------------------------------------------------
+    /// JVM `new` instruction.
     New(CpIndex),
+    /// JVM `newarray` instruction.
     Newarray(ArrayType),
+    /// JVM `anewarray` instruction.
     Anewarray(CpIndex),
+    /// JVM `arraylength` instruction.
     Arraylength,
+    /// JVM `athrow` instruction.
     Athrow,
+    /// JVM `checkcast` instruction.
     Checkcast(CpIndex),
+    /// JVM `instanceof` instruction.
     Instanceof(CpIndex),
+    /// JVM `monitorenter` instruction.
     Monitorenter,
+    /// JVM `monitorexit` instruction.
     Monitorexit,
 
     // -----------------------------------------------------------------------
     // Extended
     // -----------------------------------------------------------------------
+    /// JVM `multianewarray` instruction.
     Multianewarray {
+        /// The `index` field.
         index: CpIndex,
+        /// The `dimensions` field.
         dimensions: u8,
     },
+    /// JVM `ifnull` instruction.
     Ifnull(i16),
+    /// JVM `ifnonnull` instruction.
     Ifnonnull(i16),
+    /// JVM `gotow` instruction.
     GotoW(i32),
+    /// JVM `jsrw` instruction.
     JsrW(i32),
 
     // -----------------------------------------------------------------------
     // Wide-prefixed variants (u16 index instead of u8)
     // -----------------------------------------------------------------------
+    /// JVM `iloadw` instruction.
     IloadW(u16),
+    /// JVM `lloadw` instruction.
     LloadW(u16),
+    /// JVM `floadw` instruction.
     FloadW(u16),
+    /// JVM `dloadw` instruction.
     DloadW(u16),
+    /// JVM `aloadw` instruction.
     AloadW(u16),
+    /// JVM `istorew` instruction.
     IstoreW(u16),
+    /// JVM `lstorew` instruction.
     LstoreW(u16),
+    /// JVM `fstorew` instruction.
     FstoreW(u16),
+    /// JVM `dstorew` instruction.
     DstoreW(u16),
+    /// JVM `astorew` instruction.
     AstoreW(u16),
+    /// JVM `retw` instruction.
     RetW(u16),
+    /// JVM `iincw` instruction.
     IincW {
+        /// The `index` field.
         index: u16,
+        /// The `value` field.
         value: i16,
     },
 }
