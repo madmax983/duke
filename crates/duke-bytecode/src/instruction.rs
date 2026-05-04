@@ -88,158 +88,289 @@ impl ArrayType {
 /// assert_eq!(get_field.mnemonic(), "getfield");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(missing_docs)]
 pub enum Instruction {
     // -----------------------------------------------------------------------
     // Constants
     // -----------------------------------------------------------------------
+    /// Do nothing.
     Nop,
+    /// Push null.
     AconstNull,
+    /// The `iconst_m1` instruction.
     IconstM1,
+    /// The `iconst_0` instruction.
     Iconst0,
+    /// The `iconst_1` instruction.
     Iconst1,
+    /// The `iconst_2` instruction.
     Iconst2,
+    /// The `iconst_3` instruction.
     Iconst3,
+    /// The `iconst_4` instruction.
     Iconst4,
+    /// The `iconst_5` instruction.
     Iconst5,
+    /// The `lconst_0` instruction.
     Lconst0,
+    /// The `lconst_1` instruction.
     Lconst1,
+    /// The `fconst_0` instruction.
     Fconst0,
+    /// The `fconst_1` instruction.
     Fconst1,
+    /// The `fconst_2` instruction.
     Fconst2,
+    /// The `dconst_0` instruction.
     Dconst0,
+    /// The `dconst_1` instruction.
     Dconst1,
+    /// The `bipush` instruction.
     Bipush(i8),
+    /// The `sipush` instruction.
     Sipush(i16),
+    /// The `ldc` instruction.
     Ldc(u8),
+    /// The `ldc_w` instruction.
     LdcW(CpIndex),
+    /// The `ldc2_w` instruction.
     Ldc2W(CpIndex),
 
     // -----------------------------------------------------------------------
     // Loads
     // -----------------------------------------------------------------------
+    /// The `iload` instruction.
     Iload(u8),
+    /// The `lload` instruction.
     Lload(u8),
+    /// The `fload` instruction.
     Fload(u8),
+    /// The `dload` instruction.
     Dload(u8),
+    /// The `aload` instruction.
     Aload(u8),
+    /// The `iload_0` instruction.
     Iload0,
+    /// The `iload_1` instruction.
     Iload1,
+    /// The `iload_2` instruction.
     Iload2,
+    /// The `iload_3` instruction.
     Iload3,
+    /// The `lload_0` instruction.
     Lload0,
+    /// The `lload_1` instruction.
     Lload1,
+    /// The `lload_2` instruction.
     Lload2,
+    /// The `lload_3` instruction.
     Lload3,
+    /// The `fload_0` instruction.
     Fload0,
+    /// The `fload_1` instruction.
     Fload1,
+    /// The `fload_2` instruction.
     Fload2,
+    /// The `fload_3` instruction.
     Fload3,
+    /// The `dload_0` instruction.
     Dload0,
+    /// The `dload_1` instruction.
     Dload1,
+    /// The `dload_2` instruction.
     Dload2,
+    /// The `dload_3` instruction.
     Dload3,
+    /// The `aload_0` instruction.
     Aload0,
+    /// The `aload_1` instruction.
     Aload1,
+    /// The `aload_2` instruction.
     Aload2,
+    /// The `aload_3` instruction.
     Aload3,
+    /// The `iaload` instruction.
     Iaload,
+    /// The `laload` instruction.
     Laload,
+    /// The `faload` instruction.
     Faload,
+    /// The `daload` instruction.
     Daload,
+    /// The `aaload` instruction.
     Aaload,
+    /// The `baload` instruction.
     Baload,
+    /// The `caload` instruction.
     Caload,
+    /// The `saload` instruction.
     Saload,
 
     // -----------------------------------------------------------------------
     // Stores
     // -----------------------------------------------------------------------
+    /// The `istore` instruction.
     Istore(u8),
+    /// The `lstore` instruction.
     Lstore(u8),
+    /// The `fstore` instruction.
     Fstore(u8),
+    /// The `dstore` instruction.
     Dstore(u8),
+    /// The `astore` instruction.
     Astore(u8),
+    /// The `istore_0` instruction.
     Istore0,
+    /// The `istore_1` instruction.
     Istore1,
+    /// The `istore_2` instruction.
     Istore2,
+    /// The `istore_3` instruction.
     Istore3,
+    /// The `lstore_0` instruction.
     Lstore0,
+    /// The `lstore_1` instruction.
     Lstore1,
+    /// The `lstore_2` instruction.
     Lstore2,
+    /// The `lstore_3` instruction.
     Lstore3,
+    /// The `fstore_0` instruction.
     Fstore0,
+    /// The `fstore_1` instruction.
     Fstore1,
+    /// The `fstore_2` instruction.
     Fstore2,
+    /// The `fstore_3` instruction.
     Fstore3,
+    /// The `dstore_0` instruction.
     Dstore0,
+    /// The `dstore_1` instruction.
     Dstore1,
+    /// The `dstore_2` instruction.
     Dstore2,
+    /// The `dstore_3` instruction.
     Dstore3,
+    /// The `astore_0` instruction.
     Astore0,
+    /// The `astore_1` instruction.
     Astore1,
+    /// The `astore_2` instruction.
     Astore2,
+    /// The `astore_3` instruction.
     Astore3,
+    /// The `iastore` instruction.
     Iastore,
+    /// The `lastore` instruction.
     Lastore,
+    /// The `fastore` instruction.
     Fastore,
+    /// The `dastore` instruction.
     Dastore,
+    /// The `aastore` instruction.
     Aastore,
+    /// The `bastore` instruction.
     Bastore,
+    /// The `castore` instruction.
     Castore,
+    /// The `sastore` instruction.
     Sastore,
 
     // -----------------------------------------------------------------------
     // Stack
     // -----------------------------------------------------------------------
+    /// The `pop` instruction.
     Pop,
+    /// The `pop2` instruction.
     Pop2,
+    /// The `dup` instruction.
     Dup,
+    /// The `dup_x1` instruction.
     DupX1,
+    /// The `dup_x2` instruction.
     DupX2,
+    /// The `dup2` instruction.
     Dup2,
+    /// The `dup2_x1` instruction.
     Dup2X1,
+    /// The `dup2_x2` instruction.
     Dup2X2,
+    /// The `swap` instruction.
     Swap,
 
     // -----------------------------------------------------------------------
     // Arithmetic
     // -----------------------------------------------------------------------
+    /// The `iadd` instruction.
     Iadd,
+    /// The `ladd` instruction.
     Ladd,
+    /// The `fadd` instruction.
     Fadd,
+    /// The `dadd` instruction.
     Dadd,
+    /// The `isub` instruction.
     Isub,
+    /// The `lsub` instruction.
     Lsub,
+    /// The `fsub` instruction.
     Fsub,
+    /// The `dsub` instruction.
     Dsub,
+    /// The `imul` instruction.
     Imul,
+    /// The `lmul` instruction.
     Lmul,
+    /// The `fmul` instruction.
     Fmul,
+    /// The `dmul` instruction.
     Dmul,
+    /// The `idiv` instruction.
     Idiv,
+    /// The `ldiv` instruction.
     Ldiv,
+    /// The `fdiv` instruction.
     Fdiv,
+    /// The `ddiv` instruction.
     Ddiv,
+    /// The `irem` instruction.
     Irem,
+    /// The `lrem` instruction.
     Lrem,
+    /// The `frem` instruction.
     Frem,
+    /// The `drem` instruction.
     Drem,
+    /// The `ineg` instruction.
     Ineg,
+    /// The `lneg` instruction.
     Lneg,
+    /// The `fneg` instruction.
     Fneg,
+    /// The `dneg` instruction.
     Dneg,
+    /// The `ishl` instruction.
     Ishl,
+    /// The `lshl` instruction.
     Lshl,
+    /// The `ishr` instruction.
     Ishr,
+    /// The `lshr` instruction.
     Lshr,
+    /// The `iushr` instruction.
     Iushr,
+    /// The `lushr` instruction.
     Lushr,
+    /// The `iand` instruction.
     Iand,
+    /// The `land` instruction.
     Land,
+    /// The `ior` instruction.
     Ior,
+    /// The `lor` instruction.
     Lor,
+    /// The `ixor` instruction.
     Ixor,
+    /// The `lxor` instruction.
     Lxor,
     /// `iinc index const` — increment local by constant.
     Iinc {
@@ -250,57 +381,96 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Conversions
     // -----------------------------------------------------------------------
+    /// The `i2l` instruction.
     I2l,
+    /// The `i2f` instruction.
     I2f,
+    /// The `i2d` instruction.
     I2d,
+    /// The `l2i` instruction.
     L2i,
+    /// The `l2f` instruction.
     L2f,
+    /// The `l2d` instruction.
     L2d,
+    /// The `f2i` instruction.
     F2i,
+    /// The `f2l` instruction.
     F2l,
+    /// The `f2d` instruction.
     F2d,
+    /// The `d2i` instruction.
     D2i,
+    /// The `d2l` instruction.
     D2l,
+    /// The `d2f` instruction.
     D2f,
+    /// The `i2b` instruction.
     I2b,
+    /// The `i2c` instruction.
     I2c,
+    /// The `i2s` instruction.
     I2s,
 
     // -----------------------------------------------------------------------
     // Comparisons
     // -----------------------------------------------------------------------
+    /// The `lcmp` instruction.
     Lcmp,
+    /// The `fcmpl` instruction.
     Fcmpl,
+    /// The `fcmpg` instruction.
     Fcmpg,
+    /// The `dcmpl` instruction.
     Dcmpl,
+    /// The `dcmpg` instruction.
     Dcmpg,
 
     // -----------------------------------------------------------------------
     // Branches — offset is relative to the PC of this instruction
     // -----------------------------------------------------------------------
+    /// The `ifeq` instruction.
     Ifeq(i16),
+    /// The `ifne` instruction.
     Ifne(i16),
+    /// The `iflt` instruction.
     Iflt(i16),
+    /// The `ifge` instruction.
     Ifge(i16),
+    /// The `ifgt` instruction.
     Ifgt(i16),
+    /// The `ifle` instruction.
     Ifle(i16),
+    /// The `ificmpeq` instruction.
     IfIcmpeq(i16),
+    /// The `ificmpne` instruction.
     IfIcmpne(i16),
+    /// The `ificmplt` instruction.
     IfIcmplt(i16),
+    /// The `ificmpge` instruction.
     IfIcmpge(i16),
+    /// The `ificmpgt` instruction.
     IfIcmpgt(i16),
+    /// The `ificmple` instruction.
     IfIcmple(i16),
+    /// The `ifacmpeq` instruction.
     IfAcmpeq(i16),
+    /// The `ifacmpne` instruction.
     IfAcmpne(i16),
+    /// The `goto` instruction.
     Goto(i16),
+    /// The `jsr` instruction.
     Jsr(i16),
+    /// The `ret` instruction.
     Ret(u8),
+    /// The `tableswitch` instruction.
     Tableswitch {
         default: i32,
         low: i32,
         high: i32,
         offsets: Vec<i32>,
     },
+    /// The `lookupswitch` instruction.
     Lookupswitch {
         default: i32,
         pairs: Vec<(i32, i32)>, // (match_value, offset)
@@ -309,73 +479,113 @@ pub enum Instruction {
     // -----------------------------------------------------------------------
     // Returns
     // -----------------------------------------------------------------------
+    /// The `ireturn` instruction.
     Ireturn,
+    /// The `lreturn` instruction.
     Lreturn,
+    /// The `freturn` instruction.
     Freturn,
+    /// The `dreturn` instruction.
     Dreturn,
+    /// The `areturn` instruction.
     Areturn,
+    /// The `return` instruction.
     Return,
 
     // -----------------------------------------------------------------------
     // Field access
     // -----------------------------------------------------------------------
+    /// The `getstatic` instruction.
     Getstatic(CpIndex),
+    /// The `putstatic` instruction.
     Putstatic(CpIndex),
+    /// The `getfield` instruction.
     Getfield(CpIndex),
+    /// The `putfield` instruction.
     Putfield(CpIndex),
 
     // -----------------------------------------------------------------------
     // Method invocation
     // -----------------------------------------------------------------------
+    /// The `invokevirtual` instruction.
     Invokevirtual(CpIndex),
+    /// The `invokespecial` instruction.
     Invokespecial(CpIndex),
+    /// The `invokestatic` instruction.
     Invokestatic(CpIndex),
     /// `invokeinterface index count` — `count` is the number of arguments.
     Invokeinterface {
         index: CpIndex,
         count: u8,
     },
+    /// The `invokedynamic` instruction.
     Invokedynamic(CpIndex),
 
     // -----------------------------------------------------------------------
     // Object / array
     // -----------------------------------------------------------------------
+    /// The `new` instruction.
     New(CpIndex),
+    /// The `newarray` instruction.
     Newarray(ArrayType),
+    /// The `anewarray` instruction.
     Anewarray(CpIndex),
+    /// The `arraylength` instruction.
     Arraylength,
+    /// The `athrow` instruction.
     Athrow,
+    /// The `checkcast` instruction.
     Checkcast(CpIndex),
+    /// The `instanceof` instruction.
     Instanceof(CpIndex),
+    /// The `monitorenter` instruction.
     Monitorenter,
+    /// The `monitorexit` instruction.
     Monitorexit,
 
     // -----------------------------------------------------------------------
     // Extended
     // -----------------------------------------------------------------------
+    /// The `multianewarray` instruction.
     Multianewarray {
         index: CpIndex,
         dimensions: u8,
     },
+    /// The `ifnull` instruction.
     Ifnull(i16),
+    /// The `ifnonnull` instruction.
     Ifnonnull(i16),
+    /// The `gotow` instruction.
     GotoW(i32),
+    /// The `jsrw` instruction.
     JsrW(i32),
 
     // -----------------------------------------------------------------------
     // Wide-prefixed variants (u16 index instead of u8)
     // -----------------------------------------------------------------------
+    /// The `iloadw` instruction.
     IloadW(u16),
+    /// The `lloadw` instruction.
     LloadW(u16),
+    /// The `floadw` instruction.
     FloadW(u16),
+    /// The `dloadw` instruction.
     DloadW(u16),
+    /// The `aloadw` instruction.
     AloadW(u16),
+    /// The `istorew` instruction.
     IstoreW(u16),
+    /// The `lstorew` instruction.
     LstoreW(u16),
+    /// The `fstorew` instruction.
     FstoreW(u16),
+    /// The `dstorew` instruction.
     DstoreW(u16),
+    /// The `astorew` instruction.
     AstoreW(u16),
+    /// The `retw` instruction.
     RetW(u16),
+    /// The `iincw` instruction.
     IincW {
         index: u16,
         value: i16,
