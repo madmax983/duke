@@ -178,12 +178,16 @@ impl TelemetryStore {
             "\n-- class_init_dag ({} clinit events) --",
             self.class_init_dag.events.len()
         )?;
-        for ev in &self.class_init_dag.events {
-            writeln!(
-                w,
-                "  {} (triggered by: {}, {}ns)",
-                ev.class, ev.triggered_by, ev.duration_ns
-            )?;
+        if self.class_init_dag.events.is_empty() {
+            writeln!(w, "No class initialization events recorded.")?;
+        } else {
+            for ev in &self.class_init_dag.events {
+                writeln!(
+                    w,
+                    "  {} (triggered by: {}, {}ns)",
+                    ev.class, ev.triggered_by, ev.duration_ns
+                )?;
+            }
         }
         Ok(())
     }
@@ -194,16 +198,20 @@ impl TelemetryStore {
             "\n-- exception_flow ({} throw events) --",
             self.exception_flow.events.len()
         )?;
-        for ev in &self.exception_flow.events {
-            let catch = ev.catch_site.as_ref().map_or_else(
-                || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
-            );
-            writeln!(
-                w,
-                "  {} thrown at {:?} caught at {}",
-                ev.exception_class, ev.throw_site, catch
-            )?;
+        if self.exception_flow.events.is_empty() {
+            writeln!(w, "No exception flow events recorded.")?;
+        } else {
+            for ev in &self.exception_flow.events {
+                let catch = ev.catch_site.as_ref().map_or_else(
+                    || "uncaught".to_string(),
+                    |(c, m, pc)| format!("{c}::{m} @{pc}"),
+                );
+                writeln!(
+                    w,
+                    "  {} thrown at {:?} caught at {}",
+                    ev.exception_class, ev.throw_site, catch
+                )?;
+            }
         }
         Ok(())
     }
