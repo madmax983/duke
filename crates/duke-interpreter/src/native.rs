@@ -134,6 +134,24 @@ fn extract_first_field_arg(heap: &duke_gc::Heap, obj_ref: u64) -> Result<Slot> {
 }
 
 #[inline]
+fn extract_first_ref_field(heap: &duke_gc::Heap, obj_ref: u64) -> Result<u64> {
+    match heap.get(obj_ref)?.fields.first() {
+        Some(Slot::Reference(Some(r))) => Ok(*r),
+        _ => Err(Error::NullPointerException),
+    }
+}
+
+#[inline]
+const fn extract_ref_from_slot(slot: Option<&Slot>) -> Result<u64> {
+    match slot {
+        Some(Slot::Reference(Some(r))) => Ok(*r),
+        _ => Err(Error::NullPointerException),
+    }
+}
+
+
+
+#[inline]
 fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> Result<i32> {
     match heap.get(obj_ref)?.fields.first() {
         Some(Slot::Int(id)) => Ok(*id),
@@ -2468,10 +2486,7 @@ mod charset_codec_tests {
 }
 
 fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> Result<std::path::PathBuf> {
-    let path_ref = match heap.get(file_ref)?.fields.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(Error::NullPointerException),
-    };
+    let path_ref = extract_first_ref_field(heap, file_ref)?;
     Ok(std::path::PathBuf::from(string_value_from_ref(
         heap, path_ref,
     )?))
@@ -3246,10 +3261,7 @@ pub(crate) fn native_zip_file_get_input_stream(
     let entry_ref = extract_ref_arg(args, 1)?;
     let fd = extract_io_fd(heap, this_ref)?;
     // Get entry name from the ZipEntry object.
-    let name_slot_ref = match heap.get(entry_ref)?.fields.first() {
-        Some(Slot::Reference(Some(r))) => *r,
-        _ => return Err(Error::NullPointerException),
-    };
+    let name_slot_ref = extract_first_ref_field(heap, entry_ref)?;
     let entry_name = heap
         .get(name_slot_ref)?
         .string_value
@@ -24923,10 +24935,7 @@ fn instantiate_service_provider(
                 });
             }
         };
-        let provider_name_ref = match iter.fields.get(SERVICE_ITER_PROVIDERS_START + index) {
-            Some(Slot::Reference(Some(reference))) => *reference,
-            _ => return Err(Error::NullPointerException),
-        };
+        let provider_name_ref = extract_ref_from_slot(iter.fields.get(SERVICE_ITER_PROVIDERS_START + index))?;
         (loader_ref, provider_name_ref)
     };
     let provider_binary_name = string_value_from_ref(heap, provider_name_ref)?;
@@ -25105,10 +25114,7 @@ pub(crate) fn native_arraylist_iter_next(
     let this_ref = extract_ref_arg(args, 0)?;
     let (list_ref, cursor) = {
         let iter_obj = heap.get(this_ref)?;
-        let lr = match iter_obj.fields.first() {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(Error::NullPointerException),
-        };
+        let lr = extract_ref_from_slot(iter_obj.fields.first())?;
         let c = match iter_obj.fields.get(1) {
             Some(Slot::Int(i)) => *i,
             _ => 0,
@@ -25143,10 +25149,7 @@ pub(crate) fn native_arraylist_iter_remove(
     let this_ref = extract_ref_arg(args, 0)?;
     let (list_ref, last, cursor) = {
         let iter_obj = heap.get(this_ref)?;
-        let lr = match iter_obj.fields.first() {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(Error::NullPointerException),
-        };
+        let lr = extract_ref_from_slot(iter_obj.fields.first())?;
         let last = match iter_obj.fields.get(2) {
             Some(Slot::Int(i)) => *i,
             _ => -1,
@@ -30954,10 +30957,7 @@ pub(crate) fn native_hashset_iter_next(
     let this_ref = extract_ref_arg(args, 0)?;
     let (set_ref, cursor) = {
         let iter_obj = heap.get(this_ref)?;
-        let sr = match iter_obj.fields.first() {
-            Some(Slot::Reference(Some(r))) => *r,
-            _ => return Err(Error::NullPointerException),
-        };
+        let sr = extract_ref_from_slot(iter_obj.fields.first())?;
         let c = match iter_obj.fields.get(1) {
             Some(Slot::Int(i)) => *i,
             _ => 0,

@@ -68,3 +68,6 @@
 **Extract Control Flow Graph Edges**
 **Learning:** `generate_mermaid_cfg`, `generate_basic_block_cfg`, and `cyclomatic_complexity` in `crates/duke-bytecode/src/cfg.rs` shared complex, duplicated matching logic to determine the control flow edges of instructions (using `is_return()`, `unconditional_jump_target()`, `conditional_branch_target()`, `switch_targets()`).
 **Action:** Created `Instruction::control_flow_edges` to centralize this logic, returning a generic list of `(target_pc, Option<label>)` tuples. This massively simplified all three functions by replacing their redundant if-else chains with a simple loop over the extracted edges.
+**Extract Reference Boilerplate**
+**Learning:** `native.rs` had dozens of repetitions of `match obj.fields.first() { Some(Slot::Reference(Some(r))) => *r, _ => return Err(Error::NullPointerException) }`. This repeated inline pattern matching clutters logic and hides the simple intent of extracting an object reference field.
+**Action:** Created `extract_first_ref_field` and `extract_ref_from_slot` helper functions to compress the boilerplate into a single line with `?` error propagation.
