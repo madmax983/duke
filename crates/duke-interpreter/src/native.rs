@@ -124,6 +124,27 @@ fn extract_ref_arg(args: &[Slot], idx: usize) -> Result<u64> {
 }
 
 #[inline]
+fn extract_string_arg_opt(args: &[Slot], idx: usize, heap: &duke_gc::Heap) -> Result<Option<String>> {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => Ok(heap.get(*r)?.string_value.clone()),
+        _ => Ok(None),
+    }
+}
+
+#[inline]
+fn extract_string_arg_or_null(args: &[Slot], idx: usize, heap: &duke_gc::Heap) -> Result<String> {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => Ok(heap.get(*r)?.string_value.clone().unwrap_or_default()),
+        Some(Slot::Reference(None)) | None => Ok("null".to_string()),
+        _ => Err(Error::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        }),
+    }
+}
+
+
+#[inline]
 fn extract_field_arg(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> Result<Slot> {
     Ok(heap.get(obj_ref)?.fields.get(idx).copied().unwrap_or(Slot::Reference(None)))
 }
@@ -635,7 +656,7 @@ fn jul_logger_name_string(heap: &duke_gc::Heap, logger_ref: u64) -> Result<Optio
         Slot::Reference(Some(name_ref)) => Ok(Some(string_value_from_ref(heap, name_ref)?)),
         Slot::Reference(None) => Ok(None),
         _ => Err(Error::TypeMismatch {
-            expected: "String",
+            expected: "Reference",
             got: "other",
         }),
     }
@@ -770,7 +791,7 @@ fn jul_record_message(heap: &duke_gc::Heap, record_ref: u64) -> Result<String> {
         Slot::Reference(Some(message_ref)) => string_value_from_ref(heap, message_ref),
         Slot::Reference(None) => Ok(String::new()),
         _ => Err(Error::TypeMismatch {
-            expected: "String",
+            expected: "Reference",
             got: "other",
         }),
     }
@@ -3786,10 +3807,7 @@ pub(crate) fn native_throwable_init_string(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_string_arg_opt(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
@@ -3803,10 +3821,7 @@ pub(crate) fn native_throwable_init_string_cause(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_string_arg_opt(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     // Store cause in fields[0] (Throwable.cause field)
     if let Some(&cause_slot) = args.get(2)
@@ -7772,10 +7787,7 @@ pub(crate) fn native_string_init_copy(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let src_val = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let src_val = extract_string_arg_opt(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = src_val;
     Ok(None)
 }
@@ -23825,10 +23837,7 @@ pub(crate) fn native_sb_init_string(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let init_str = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        _ => String::new(),
-    };
+    let init_str = extract_string_arg_opt(args, 1, heap)?.unwrap_or_default();
     let obj = heap.get_mut(this_ref)?;
     obj.string_value = Some(init_str);
     Ok(None)
@@ -23979,16 +23988,7 @@ pub(crate) fn native_sb_insert_string(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let offset = extract_int_arg(args, 1)?;
-    let s = match args.get(2) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        Some(Slot::Reference(None)) | None => "null".to_string(),
-        _ => {
-            return Err(Error::TypeMismatch {
-                expected: "String",
-                got: "other",
-            });
-        }
-    };
+    let s = extract_string_arg_or_null(args, 2, heap)?;
     let buf = heap
         .get_mut(this_ref)?
         .string_value
@@ -28739,10 +28739,7 @@ pub(crate) fn native_stringbuffer_init_string(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = match args.get(1).copied() {
-        Some(Slot::Reference(Some(r))) => heap.get(r)?.string_value.clone().unwrap_or_default(),
-        _ => String::new(),
-    };
+    let s = extract_string_arg_opt(args, 1, heap)?.unwrap_or_default();
     heap.get_mut(this_ref)?.string_value = Some(s);
     Ok(None)
 }
