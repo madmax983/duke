@@ -178,12 +178,16 @@ impl TelemetryStore {
             "\n-- class_init_dag ({} clinit events) --",
             self.class_init_dag.events.len()
         )?;
-        for ev in &self.class_init_dag.events {
-            writeln!(
-                w,
-                "  {} (triggered by: {}, {}ns)",
-                ev.class, ev.triggered_by, ev.duration_ns
-            )?;
+        if self.class_init_dag.events.is_empty() {
+            writeln!(w, "  No class initialization events recorded.")?;
+        } else {
+            for ev in &self.class_init_dag.events {
+                writeln!(
+                    w,
+                    "  {} (triggered by: {}, {}ns)",
+                    ev.class, ev.triggered_by, ev.duration_ns
+                )?;
+            }
         }
         Ok(())
     }
@@ -194,16 +198,20 @@ impl TelemetryStore {
             "\n-- exception_flow ({} throw events) --",
             self.exception_flow.events.len()
         )?;
-        for ev in &self.exception_flow.events {
-            let catch = ev.catch_site.as_ref().map_or_else(
-                || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
-            );
-            writeln!(
-                w,
-                "  {} thrown at {:?} caught at {}",
-                ev.exception_class, ev.throw_site, catch
-            )?;
+        if self.exception_flow.events.is_empty() {
+            writeln!(w, "  No exception flow events recorded.")?;
+        } else {
+            for ev in &self.exception_flow.events {
+                let catch = ev.catch_site.as_ref().map_or_else(
+                    || "uncaught".to_string(),
+                    |(c, m, pc)| format!("{c}::{m} @{pc}"),
+                );
+                writeln!(
+                    w,
+                    "  {} thrown at {:?} caught at {}",
+                    ev.exception_class, ev.throw_site, catch
+                )?;
+            }
         }
         Ok(())
     }
@@ -323,20 +331,24 @@ impl TelemetryStore {
     fn markdown_exception_flow(&self, out: &mut String) {
         use std::fmt::Write;
         writeln!(out, "## Exception Flow\n").unwrap();
-        writeln!(out, "| Exception Class | Throw Site | Catch Site |").unwrap();
-        writeln!(out, "|-----------------|------------|------------|").unwrap();
-        for ev in &self.exception_flow.events {
-            let throw = format!(
-                "{}::{} @{}",
-                ev.throw_site.0, ev.throw_site.1, ev.throw_site.2
-            );
-            let catch = ev.catch_site.as_ref().map_or_else(
-                || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
-            );
-            writeln!(out, "| `{}` | `{throw}` | `{catch}` |", ev.exception_class).unwrap();
+        if self.exception_flow.events.is_empty() {
+            writeln!(out, "No exception flow events recorded.\n").unwrap();
+        } else {
+            writeln!(out, "| Exception Class | Throw Site | Catch Site |").unwrap();
+            writeln!(out, "|-----------------|------------|------------|").unwrap();
+            for ev in &self.exception_flow.events {
+                let throw = format!(
+                    "{}::{} @{}",
+                    ev.throw_site.0, ev.throw_site.1, ev.throw_site.2
+                );
+                let catch = ev.catch_site.as_ref().map_or_else(
+                    || "uncaught".to_string(),
+                    |(c, m, pc)| format!("{c}::{m} @{pc}"),
+                );
+                writeln!(out, "| `{}` | `{throw}` | `{catch}` |", ev.exception_class).unwrap();
+            }
+            writeln!(out).unwrap();
         }
-        writeln!(out).unwrap();
     }
 
     fn markdown_dispatch_resolution(&self, out: &mut String) {
@@ -413,6 +425,7 @@ mod tests {
         let empty_store = TelemetryStore::default();
         let empty_md = empty_store.to_markdown_report();
         assert!(empty_md.contains("No class initialization events recorded."));
+        assert!(empty_md.contains("No exception flow events recorded."));
     }
 
     #[test]
