@@ -17,6 +17,8 @@ mod histogram;
 mod html;
 #[cfg(feature = "nova")]
 mod html_jar;
+#[cfg(feature = "nova")]
+mod jar_complexity;
 mod jar_analyze;
 #[cfg(feature = "nova")]
 mod jar_search;
@@ -306,6 +308,8 @@ fn main() {
         #[cfg(feature = "nova")]
         eprintln!("       duke cycle-detect <file.jar>");
         #[cfg(feature = "nova")]
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-complexity <file.jar>");
         eprintln!("       duke audit <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
         #[cfg(feature = "nova")]
@@ -480,6 +484,12 @@ fn main() {
 
     if args.len() >= 3 && args[1] == "scan" {
         scan::dump_scan(&args[2]);
+        return;
+    }
+
+    #[cfg(feature = "nova")]
+    if args.len() >= 3 && args[1] == "jar-complexity" {
+        jar_complexity::dump_jar_complexity(&args[2]);
         return;
     }
 

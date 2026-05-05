@@ -1,0 +1,4 @@
+💡 **The Spark:** "Codebases can quickly become unmaintainable if methods grow too large. I noticed we have bytecode parsing and CFG generation in `duke-bytecode` and archive reading in `duke-loader`, but no way to quickly evaluate the complexity of an entire JAR file at a glance."
+🚀 **The Feature:** "Implemented a `jar-complexity` analysis tool that parses all `.class` files in a `.jar`, decodes their bytecode, calculates McCabe's Cyclomatic Complexity per method using our existing CFG logic, and outputs an overall average alongside a visual histogram of the top 10 most complex methods."
+🔮 **The Potential:** "Could be used in CI/CD pipelines to block PRs that introduce overly complex methods, or as an audit tool for investigating third-party library bloat before adopting them into the JVM."
+⚠️ **Risk:** "Low. Isolated to a new CLI subcommand in `duke/src/jar_complexity.rs` and safely guarded by the `#[cfg(feature = "nova")]` feature flag."
