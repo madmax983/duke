@@ -27,3 +27,7 @@
 **Pre-allocate String capacity instead of format! macro**
 **Learning:** Using `format!("prefix{value}")` inside loops or hot paths creates unnecessary intermediate heap allocations and string operations that slow down the application.
 **Action:** When creating strings from known prefixes/suffixes, calculate the exact length with `String::with_capacity(prefix.len() + value.len())` and use `push_str()` directly to achieve zero-cost abstraction.
+
+## 2024-05-05 - Remove format! overhead inside zip loader resolution
+**Learning:** Calling `format!("{container_spec}!/{entry_name}")` within an iteration loop to create a classloader scope creates hidden format macro overhead.
+**Action:** Replace `format!` in hot-loop path resolutions with manual `String::with_capacity` and `push_str` calls to eliminate dynamic text formatting dispatch.

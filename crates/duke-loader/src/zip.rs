@@ -515,9 +515,13 @@ fn nested_boot_inf_lib_loaders(reader: &ZipReader, container_spec: &str) -> Resu
     let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
     for entry_name in nested_entry_names {
         let nested_bytes = reader.read_entry(entry_name)?;
+        let mut nested_spec = String::with_capacity(container_spec.len() + 2 + entry_name.len());
+        nested_spec.push_str(container_spec);
+        nested_spec.push_str("!/");
+        nested_spec.push_str(entry_name);
         nested_libs.push(ZipLoader::from_reader(
             ZipReader::from_bytes(nested_bytes)?,
-            format!("{container_spec}!/{entry_name}"),
+            nested_spec,
         )?);
     }
     Ok(nested_libs)
