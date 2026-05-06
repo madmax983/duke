@@ -1,3 +1,5 @@
+//! OSS JAR Smoke tests.
+//!
 use std::path::{Path, PathBuf};
 
 use duke_gc::Heap;

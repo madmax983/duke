@@ -173,37 +173,45 @@ impl TelemetryStore {
     }
 
     fn print_class_init_dag(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
-        writeln!(
-            w,
-            "\n-- class_init_dag ({} clinit events) --",
-            self.class_init_dag.events.len()
-        )?;
-        for ev in &self.class_init_dag.events {
+        if self.class_init_dag.events.is_empty() {
+            writeln!(w, "\n-- class_init_dag --\n  No class initialization events recorded.")?;
+        } else {
             writeln!(
                 w,
-                "  {} (triggered by: {}, {}ns)",
-                ev.class, ev.triggered_by, ev.duration_ns
+                "\n-- class_init_dag ({} clinit events) --",
+                self.class_init_dag.events.len()
             )?;
+            for ev in &self.class_init_dag.events {
+                writeln!(
+                    w,
+                    "  {} (triggered by: {}, {}ns)",
+                    ev.class, ev.triggered_by, ev.duration_ns
+                )?;
+            }
         }
         Ok(())
     }
 
     fn print_exception_flow(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
-        writeln!(
-            w,
-            "\n-- exception_flow ({} throw events) --",
-            self.exception_flow.events.len()
-        )?;
-        for ev in &self.exception_flow.events {
-            let catch = ev.catch_site.as_ref().map_or_else(
-                || "uncaught".to_string(),
-                |(c, m, pc)| format!("{c}::{m} @{pc}"),
-            );
+        if self.exception_flow.events.is_empty() {
+            writeln!(w, "\n-- exception_flow --\n  No exception flow events recorded.")?;
+        } else {
             writeln!(
                 w,
-                "  {} thrown at {:?} caught at {}",
-                ev.exception_class, ev.throw_site, catch
+                "\n-- exception_flow ({} throw events) --",
+                self.exception_flow.events.len()
             )?;
+            for ev in &self.exception_flow.events {
+                let catch = ev.catch_site.as_ref().map_or_else(
+                    || "uncaught".to_string(),
+                    |(c, m, pc)| format!("{c}::{m} @{pc}"),
+                );
+                writeln!(
+                    w,
+                    "  {} thrown at {:?} caught at {}",
+                    ev.exception_class, ev.throw_site, catch
+                )?;
+            }
         }
         Ok(())
     }

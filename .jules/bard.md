@@ -25,3 +25,7 @@
 ## 2024-05-23 - [Test Files Missing Docs]
 **Confusion:** Proptest and loom test binaries generated missing documentation warnings, which shouldn't require full crate documentation blocks.
 **Clarification:** Suppressed warnings in `havoc_jimage_proptest.rs`, `havoc_zip_proptest.rs`, and `havoc_zip_files_loom.rs` using `#![allow(missing_docs)]`. Added `//!` crate documentation to `duke-interpreter` to clarify its core orchestration role.
+
+## 2024-05-06 - [Test Files Missing Documentation]
+**Confusion:** The integration test file for oss_jar_smoke triggered missing documentation warnings, which are explicitly mandated by strict linting rules.
+**Clarification:** Added module-level `//!` documentation to the `oss_jar_smoke.rs` integration test to address the warning.
