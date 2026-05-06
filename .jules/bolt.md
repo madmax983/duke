@@ -27,3 +27,7 @@
 **Pre-allocate String capacity instead of format! macro**
 **Learning:** Using `format!("prefix{value}")` inside loops or hot paths creates unnecessary intermediate heap allocations and string operations that slow down the application.
 **Action:** When creating strings from known prefixes/suffixes, calculate the exact length with `String::with_capacity(prefix.len() + value.len())` and use `push_str()` directly to achieve zero-cost abstraction.
+## 2024-05-14 - Iterator Collect vs Pre-allocation
+
+**Learning:** `.collect::<Vec<_>>()` on an `ExactSizeIterator` (like iterating over a slice) automatically uses Rust's `SpecExtend` to pre-allocate exact capacity. Manually replacing it with `Vec::with_capacity(n)` and a `for` loop is a 'snake-oil micro-optimization' that adds verbosity without any performance benefit, unless an intermediate operation like `.filter()` hides the size or you need to avoid borrow checker errors.
+**Action:** When looking for allocation optimizations, focus on explicitly `Vec::new()` calls in hot paths where the capacity is known ahead of time, instead of blindly unwinding `.collect()` chains.
