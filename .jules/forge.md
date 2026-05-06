@@ -68,3 +68,7 @@
 **Extract Control Flow Graph Edges**
 **Learning:** `generate_mermaid_cfg`, `generate_basic_block_cfg`, and `cyclomatic_complexity` in `crates/duke-bytecode/src/cfg.rs` shared complex, duplicated matching logic to determine the control flow edges of instructions (using `is_return()`, `unconditional_jump_target()`, `conditional_branch_target()`, `switch_targets()`).
 **Action:** Created `Instruction::control_flow_edges` to centralize this logic, returning a generic list of `(target_pc, Option<label>)` tuples. This massively simplified all three functions by replacing their redundant if-else chains with a simple loop over the extracted edges.
+
+**Extract Slot and Field Boilerplate**
+**Learning:** `native.rs` had dozens of repetitions of `args.get(1).copied().unwrap_or(Slot::Reference(None))` and `heap.get(obj)?.fields.get(idx).copied().unwrap_or(Slot::Reference(None))`. This is verbose boilerplate disguised as safe unwrap, creating unnecessary clutter and masking the underlying intent of extracting a value safely from the stack or object fields.
+**Action:** Created and used `extract_slot_arg(args, idx)` and `extract_field_arg(heap, obj_ref, idx)?` to compress long chaining lines into readable, concise calls that handle missing values dynamically.

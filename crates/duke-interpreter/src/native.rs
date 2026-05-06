@@ -595,12 +595,7 @@ fn jul_manager_insert_logger(
 
 fn jul_root_logger_slot(heap: &mut duke_gc::Heap) -> Result<Slot> {
     let manager_ref = jul_manager_ref(heap)?;
-    Ok(heap
-        .get(manager_ref)?
-        .fields
-        .get(JUL_MANAGER_ROOT_LOGGER_FIELD)
-        .copied()
-        .unwrap_or(Slot::Reference(None)))
+    extract_field_arg(heap, manager_ref, JUL_MANAGER_ROOT_LOGGER_FIELD)
 }
 
 fn jul_get_or_create_logger(heap: &mut duke_gc::Heap, name: &str) -> Result<u64> {
@@ -625,12 +620,7 @@ fn jul_get_or_create_logger(heap: &mut duke_gc::Heap, name: &str) -> Result<u64>
 }
 
 fn jul_logger_name_string(heap: &duke_gc::Heap, logger_ref: u64) -> Result<Option<String>> {
-    match heap
-        .get(logger_ref)?
-        .fields
-        .get(JUL_LOGGER_NAME_FIELD)
-        .copied()
-        .unwrap_or(Slot::Reference(None))
+    match extract_field_arg(heap, logger_ref, JUL_LOGGER_NAME_FIELD)?
     {
         Slot::Reference(Some(name_ref)) => Ok(Some(string_value_from_ref(heap, name_ref)?)),
         Slot::Reference(None) => Ok(None),
@@ -723,12 +713,7 @@ fn jul_allocate_record(
 ) -> Result<u64> {
     let record_ref = heap.allocate("java/util/logging/LogRecord".to_string(), 6);
     let message_ref = heap.allocate_string(message.to_string());
-    let logger_name_slot = heap
-        .get(logger_ref)?
-        .fields
-        .get(JUL_LOGGER_NAME_FIELD)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let logger_name_slot = extract_field_arg(heap, logger_ref, JUL_LOGGER_NAME_FIELD)?;
     let parameters_slot = if params.is_empty() {
         Slot::Reference(None)
     } else {
@@ -760,12 +745,7 @@ fn jul_record_level_slot(heap: &duke_gc::Heap, record_ref: u64) -> Slot {
 }
 
 fn jul_record_message(heap: &duke_gc::Heap, record_ref: u64) -> Result<String> {
-    match heap
-        .get(record_ref)?
-        .fields
-        .get(JUL_LOG_RECORD_MESSAGE_FIELD)
-        .copied()
-        .unwrap_or(Slot::Reference(None))
+    match extract_field_arg(heap, record_ref, JUL_LOG_RECORD_MESSAGE_FIELD)?
     {
         Slot::Reference(Some(message_ref)) => string_value_from_ref(heap, message_ref),
         Slot::Reference(None) => Ok(String::new()),
@@ -787,12 +767,7 @@ fn jul_handler_allows_record(
     handler_ref: u64,
     record_ref: u64,
 ) -> Result<bool> {
-    let handler_level = heap
-        .get(handler_ref)?
-        .fields
-        .get(JUL_HANDLER_LEVEL_FIELD)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let handler_level = extract_field_arg(heap, handler_ref, JUL_HANDLER_LEVEL_FIELD)?;
     if matches!(handler_level, Slot::Reference(None)) {
         return Ok(true);
     }
@@ -1009,11 +984,7 @@ pub(crate) fn native_jul_logger_get_name(
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
     Ok(Some(
-        heap.get(logger_ref)?
-            .fields
-            .get(JUL_LOGGER_NAME_FIELD)
-            .copied()
-            .unwrap_or(Slot::Reference(None)),
+        extract_field_arg(heap, logger_ref, JUL_LOGGER_NAME_FIELD)?,
     ))
 }
 
@@ -1025,11 +996,7 @@ pub(crate) fn native_jul_logger_get_level(
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
     Ok(Some(
-        heap.get(logger_ref)?
-            .fields
-            .get(JUL_LOGGER_LEVEL_FIELD)
-            .copied()
-            .unwrap_or(Slot::Reference(None)),
+        extract_field_arg(heap, logger_ref, JUL_LOGGER_LEVEL_FIELD)?,
     ))
 }
 
@@ -1424,11 +1391,7 @@ pub(crate) fn native_jul_logger_get_parent(
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
     Ok(Some(
-        heap.get(logger_ref)?
-            .fields
-            .get(JUL_LOGGER_PARENT_FIELD)
-            .copied()
-            .unwrap_or(Slot::Reference(None)),
+        extract_field_arg(heap, logger_ref, JUL_LOGGER_PARENT_FIELD)?,
     ))
 }
 
@@ -1620,11 +1583,7 @@ pub(crate) fn native_jul_handler_get_level(
 ) -> Result<Option<Slot>> {
     let handler_ref = extract_ref_arg(args, 0)?;
     Ok(Some(
-        heap.get(handler_ref)?
-            .fields
-            .get(JUL_HANDLER_LEVEL_FIELD)
-            .copied()
-            .unwrap_or(Slot::Reference(None)),
+        extract_field_arg(heap, handler_ref, JUL_HANDLER_LEVEL_FIELD)?,
     ))
 }
 
@@ -1692,12 +1651,7 @@ fn jul_log_record_get_field(
     field_idx: usize,
 ) -> Result<Slot> {
     let record_ref = extract_ref_arg(args, 0)?;
-    Ok(heap
-        .get(record_ref)?
-        .fields
-        .get(field_idx)
-        .copied()
-        .unwrap_or(Slot::Reference(None)))
+    extract_field_arg(heap, record_ref, field_idx)
 }
 
 fn jul_log_record_set_field(
@@ -3596,12 +3550,7 @@ fn clone_reference_array(
 }
 
 fn throwable_field_slot(heap: &duke_gc::Heap, throwable_ref: u64, index: usize) -> Result<Slot> {
-    Ok(heap
-        .get(throwable_ref)?
-        .fields
-        .get(index)
-        .copied()
-        .unwrap_or(Slot::Reference(None)))
+    extract_field_arg(heap, throwable_ref, index)
 }
 
 fn throwable_header(heap: &duke_gc::Heap, throwable_ref: u64) -> Result<String> {
@@ -3707,7 +3656,7 @@ fn write_to_print_stream_or_output(
     out: &mut dyn Write,
     text: &str,
 ) -> Result<()> {
-    let print_stream_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let print_stream_slot = extract_slot_arg(args, 1);
     if let Some(print_stream_ref) = print_stream_slot.as_reference() {
         let target_slot = heap
             .get(print_stream_ref)?
@@ -3745,7 +3694,7 @@ pub(crate) fn native_throwable_add_suppressed(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let suppressed = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let suppressed = extract_slot_arg(args, 1);
     if suppressed.as_reference().is_none() {
         return Ok(None);
     }
@@ -3925,7 +3874,7 @@ pub(crate) fn native_throwable_set_stack_trace(
     let this_ref = extract_ref_arg(args, 0)?;
     let new_trace = clone_reference_array(
         heap,
-        args.get(1).copied().unwrap_or(Slot::Reference(None)),
+        extract_slot_arg(args, 1),
         STACK_TRACE_ARRAY_CLASS,
     )?;
     set_object_field(heap, this_ref, THROWABLE_STACK_TRACE_FIELD, new_trace)?;
@@ -3978,9 +3927,9 @@ pub(crate) fn native_stack_trace_element_init(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let class_slot = args.get(1).copied().unwrap_or(Slot::Reference(None));
-    let method_slot = args.get(2).copied().unwrap_or(Slot::Reference(None));
-    let file_slot = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let class_slot = extract_slot_arg(args, 1);
+    let method_slot = extract_slot_arg(args, 2);
+    let file_slot = extract_slot_arg(args, 3);
     let line_slot = args.get(4).copied().unwrap_or(Slot::Int(-1));
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.len() < 4 {
@@ -3995,12 +3944,7 @@ pub(crate) fn native_stack_trace_element_init(
 
 fn stack_trace_element_field(args: &[Slot], heap: &duke_gc::Heap, index: usize) -> Result<Slot> {
     let this_ref = extract_ref_arg(args, 0)?;
-    Ok(heap
-        .get(this_ref)?
-        .fields
-        .get(index)
-        .copied()
-        .unwrap_or(Slot::Reference(None)))
+    extract_field_arg(heap, this_ref, index)
 }
 
 pub(crate) fn native_stack_trace_element_get_class_name(
@@ -4071,7 +4015,7 @@ pub(crate) fn native_printstream_init_output_stream(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let target = args.get(1).copied().unwrap_or(Slot::Reference(None));
+    let target = extract_slot_arg(args, 1);
     set_object_field(heap, this_ref, 0, target)?;
     Ok(None)
 }
@@ -11873,7 +11817,7 @@ pub(crate) fn native_executor_submit_runnable_result(
     control: &mut NativeControl,
     _ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let result = args.get(2).copied().unwrap_or(Slot::Reference(None));
+    let result = extract_slot_arg(args, 2);
     let future_ref = executor_submit_common(
         args,
         heap,
@@ -30054,12 +29998,7 @@ pub(crate) fn native_properties_enum_next_element(
         });
     }
     let slot_idx = PROPERTIES_ENUM_NAMES_START + index as usize;
-    let value = heap
-        .get(this_ref)?
-        .fields
-        .get(slot_idx)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
+    let value = extract_field_arg(heap, this_ref, slot_idx)?;
     heap.get_mut(this_ref)?.fields[PROPERTIES_ENUM_INDEX_FIELD] = Slot::Int(index + 1);
     Ok(Some(value))
 }
