@@ -186,6 +186,14 @@ impl ZipReader {
         }
 
         // Read local header's own filename_len and extra_len to find data start.
+        if offset
+            .checked_add(30)
+            .is_none_or(|end| end > self.data.len())
+        {
+            return Err(Error::ZipFormat {
+                msg: format!("local header at offset {offset} is truncated"),
+            });
+        }
         let filename_len = usize::from(read_u16_le(&self.data, offset + 26));
         let extra_len = usize::from(read_u16_le(&self.data, offset + 28));
         let data_start = offset
