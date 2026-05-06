@@ -128,7 +128,6 @@ impl ClassLoader for CliLoader {
     }
 }
 
-/// Bolt Optimization: Pre-allocates `entries` vector when capacity is known to avoid reallocation overhead.
 fn make_loader(jdk_home: Option<&str>, classpath: &[std::path::PathBuf]) -> CliLoader {
     if let Some(home) = jdk_home {
         let modules = std::path::Path::new(home).join("lib").join("modules");
@@ -163,7 +162,7 @@ fn make_loader(jdk_home: Option<&str>, classpath: &[std::path::PathBuf]) -> CliL
         return CliLoader(Box::new(DirectoryLoader::new(p)));
     }
     // Multiple entries: build a chain loader.
-    let mut entries: Vec<ClasspathEntry> = Vec::with_capacity(classpath.len());
+    let mut entries: Vec<ClasspathEntry> = Vec::new();
     for p in classpath {
         let is_archive = p
             .extension()
@@ -782,8 +781,7 @@ fn run_main(
     bootstrap_stdlib(&mut registry, &mut heap);
 
     // Build String[] args array on the heap.
-    // Bolt Optimization: Pre-allocates vector when capacity is known to avoid reallocation overhead.
-    let mut arg_refs: Vec<Slot> = Vec::with_capacity(string_args.len());
+    let mut arg_refs: Vec<Slot> = Vec::new();
     for arg in &string_args {
         let r = heap.allocate_string((*arg).to_string());
         arg_refs.push(Slot::Reference(Some(r)));
@@ -877,8 +875,7 @@ fn run_jar(
     }
 
     // Build String[] args array on the heap.
-    // Bolt Optimization: Pre-allocates vector when capacity is known to avoid reallocation overhead.
-    let mut arg_refs: Vec<Slot> = Vec::with_capacity(string_args.len());
+    let mut arg_refs: Vec<Slot> = Vec::new();
     for arg in string_args {
         let r = heap.allocate_string((*arg).to_string());
         arg_refs.push(Slot::Reference(Some(r)));
