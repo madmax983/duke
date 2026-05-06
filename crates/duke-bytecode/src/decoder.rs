@@ -1232,4 +1232,33 @@ mod tests {
         let mut cursor4 = Cursor::new(&[0xFF, 0xFF]);
         assert_eq!(cursor4.read_i16().unwrap(), -1);
     }
+
+    #[test]
+    fn should_return_unexpected_eof_for_cursor_reads() {
+        let mut cursor = Cursor::new(&[0x01]);
+        assert_eq!(cursor.read_u8().unwrap(), 0x01);
+
+        // Next u8 should fail
+        let err = cursor.read_u8().unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 1 })
+        ));
+
+        // Let's test u16 and u32 boundaries as well
+        let mut cursor2 = Cursor::new(&[0x01, 0x02, 0x03]);
+        cursor2.pos = 2; // only 1 byte remaining
+        let err = cursor2.read_u16().unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 2 })
+        ));
+
+        cursor2.pos = 0; // 3 bytes remaining
+        let err = cursor2.read_u32().unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 0 })
+        ));
+    }
 }

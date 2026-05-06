@@ -27,3 +27,6 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2024-05-25 - Testing EOF and Out-of-Bounds Error Arms
+**Learning:** Decoders and parsers often implicitly rely on boundary check logic deep inside their cursors/readers, leading to branches returning `UnexpectedEof` remaining untested. Furthermore, `DirectoryLoader` inside `duke-loader` did not have tests confirming that directly attempting to search for dots (e.g. `java.lang.Object`) correctly triggers the boundary abort early returning `NotFound`.
+**Action:** Adding explicit unit tests that construct undersized buffers or supply dot-separated strings forces evaluation of these error paths (`UnexpectedEof`, `NotFound`), closing coverage gaps inside `duke-bytecode`, `duke-classfile`, and `duke-loader`.

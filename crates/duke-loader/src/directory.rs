@@ -195,4 +195,11 @@ mod tests {
         );
         assert!(resource.url.ends_with("sample.txt"));
     }
+
+    #[test]
+    fn directory_loader_find_class_with_dot_returns_not_found() {
+        let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
+        let result = loader.find_class("java.lang.Object");
+        assert!(matches!(result, Err(Error::NotFound { .. })));
+    }
 }

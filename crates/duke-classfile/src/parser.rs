@@ -705,4 +705,20 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+
+    #[test]
+    fn should_return_unexpected_eof_when_reading_out_of_bounds() {
+        let mut cursor = Cursor::new(&[0x01]);
+        assert_eq!(cursor.remaining(), 1);
+        let val = cursor.read_u8().unwrap();
+        assert_eq!(val, 0x01);
+        let err = cursor.read_u8().unwrap_err();
+        assert!(
+            matches!(err, Error::UnexpectedEof { offset: 1 }),
+            "Expected Error::UnexpectedEof, got {err:?}"
+        );
+
+        let err2 = cursor.read_bytes(1).unwrap_err();
+        assert!(matches!(err2, Error::UnexpectedEof { offset: 1 }));
+    }
 }
