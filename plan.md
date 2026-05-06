@@ -1,7 +1,16 @@
-1. **Understand the problem:** The problem requires fixing missing documentation warnings that `cargo clippy --all-targets --all-features -- -W missing-docs` reports.
-2. **Current state:** We had missing docs for test binaries `crates/duke-loader/tests/havoc_jimage_proptest.rs`, `crates/duke-loader/tests/havoc_zip_proptest.rs`, `crates/duke-interpreter/tests/havoc_zip_files_loom.rs`.
-3. **Execution:** We already fixed this by adding `#![allow(missing_docs)]` to these test files, which makes sense for test binaries that don't need crate-level documentation to satisfy the warning.
-4. **Fixing other module:** We had an issue with `duke-interpreter` missing the crate documentation block. I updated `crates/duke-interpreter/src/lib.rs` to have a nice `//!` description that documents the crate-level module.
-5. **Validation:** `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` completes successfully, and `cargo clippy --all-targets --all-features -- -W missing_docs` doesn't produce missing_docs warnings, and tests pass.
-6. **Pre-commit step**: Execute tests and run pre commit step.
-7. **Submit**: Create PR.
+1. **Refactor "The Leak" in `duke-bytecode`, `duke-classfile`, `duke-telemetry`, and `duke-interpreter`**
+   - The crates use a facade pattern but leak internal implementation details via wildcard exports like `pub use ...::*` and `pub use crate::...::*`. I will replace these with explicit item exports to form a strict API boundary.
+   - Use `run_in_bash_session` with a Python script and `re.sub` to update:
+     - `crates/duke-classfile/src/lib.rs` (replace wildcard exports in `pub mod types` and explicitly export AttributeData, ClassFile, etc.)
+     - `crates/duke-interpreter/src/lib.rs` (replace `pub use context::*;`, `pub use registry::*;` with explicit types)
+     - `crates/duke-telemetry/src/lib.rs` (replace wildcard exports like `pub use bytecode_cost::*;` with explicitly naming structs)
+
+2. **Verify the structural changes**
+   - Use `run_in_bash_session` to run `cargo test`, `cargo check`, and `cargo clippy --all-targets --all-features -- -D warnings`.
+   - Also, use `git diff` to review the modifications made in step 1.
+
+3. **Complete pre-commit steps**
+   - Call the `pre_commit_instructions` tool and follow the steps to ensure proper testing, verification, review, and reflection are done.
+
+4. **Commit the changes**
+   - Execute `git checkout -b atlas-explicit-exports`, `git add -u`, and `git commit -m "🗺️ Atlas: [Explicit API boundaries]"` using `run_in_bash_session`.
