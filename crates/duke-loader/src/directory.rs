@@ -195,4 +195,13 @@ mod tests {
         );
         assert!(resource.url.ends_with("sample.txt"));
     }
+    #[test]
+    fn should_reject_absolute_paths_unix() {
+        let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
+        let result = loader.find_class("/etc/passwd");
+        assert!(matches!(result, Err(Error::NotFound { .. })));
+
+        let result = loader.find_class("\\etc\\passwd");
+        assert!(matches!(result, Err(Error::NotFound { .. })));
+    }
 }

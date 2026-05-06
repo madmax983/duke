@@ -204,4 +204,64 @@ mod tests {
         let json = serde_json::to_string(&w).unwrap();
         assert_eq!(json, r#"{"set":["a","b","c"]}"#);
     }
+    #[test]
+    fn test_empty_keyed_map_serialize_error() {
+        use serde::ser::Error;
+        struct FailingSerializer;
+        impl serde::Serializer for FailingSerializer {
+            type Ok = ();
+            type Error = serde::de::value::Error;
+            type SerializeSeq = serde::ser::Impossible<(), Self::Error>;
+            type SerializeTuple = serde::ser::Impossible<(), Self::Error>;
+            type SerializeTupleStruct = serde::ser::Impossible<(), Self::Error>;
+            type SerializeTupleVariant = serde::ser::Impossible<(), Self::Error>;
+            type SerializeMap = serde::ser::Impossible<(), Self::Error>;
+            type SerializeStruct = serde::ser::Impossible<(), Self::Error>;
+            type SerializeStructVariant = serde::ser::Impossible<(), Self::Error>;
+
+            fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_i32(self, _v: i32) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_i64(self, _v: i64) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_u8(self, _v: u8) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_str(self, _v: &str) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_none(self) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_some<T: ?Sized + Serialize>(self, _value: &T) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_unit(self) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_unit_variant(self, _name: &'static str, _variant_index: u32, _variant: &'static str) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_newtype_struct<T: ?Sized + Serialize>(self, _name: &'static str, _value: &T) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_newtype_variant<T: ?Sized + Serialize>(self, _name: &'static str, _variant_index: u32, _variant: &'static str, _value: &T) -> Result<Self::Ok, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_tuple_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeTupleStruct, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_tuple_variant(self, _name: &'static str, _variant_index: u32, _variant: &'static str, _len: usize) -> Result<Self::SerializeTupleVariant, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+            fn serialize_struct_variant(self, _name: &'static str, _variant_index: u32, _variant: &'static str, _len: usize) -> Result<Self::SerializeStructVariant, Self::Error> { Err(serde::de::value::Error::custom("failed")) }
+        }
+
+        let map = HashMap::<i32, i32>::new();
+        let err = super::ser_helpers::keyed_map(&map, FailingSerializer, std::string::ToString::to_string).unwrap_err();
+        assert_eq!(err.to_string(), "failed");
+
+        let err = super::ser_helpers::site3::<i32, FailingSerializer>(&HashMap::new(), FailingSerializer).unwrap_err();
+        assert_eq!(err.to_string(), "failed");
+        let err = super::ser_helpers::site2_u16::<i32, FailingSerializer>(&HashMap::new(), FailingSerializer).unwrap_err();
+        assert_eq!(err.to_string(), "failed");
+        let err = super::ser_helpers::pair_str::<i32, FailingSerializer>(&HashMap::new(), FailingSerializer).unwrap_err();
+        assert_eq!(err.to_string(), "failed");
+
+        let set = HashSet::new();
+        let err = super::ser_helpers::sorted_set(&set, FailingSerializer).unwrap_err();
+        assert_eq!(err.to_string(), "failed");
+    }
 }

@@ -37919,4 +37919,21 @@ mod native_helper_tests {
         let res = extract_slot_arg(&args, 0);
         assert_eq!(res, Slot::Reference(None));
     }
+    #[test]
+    fn test_native_atomic_errors() {
+        let mut heap = duke_gc::Heap::new();
+        let ref_id = heap.allocate("java/lang/Object".to_string(), 0);
+
+        let err1 = super::with_atomic_i32(&heap, ref_id, |_| {}).unwrap_err();
+        assert!(matches!(err1, Error::InvalidRef { .. }));
+
+        let err2 = super::with_atomic_i64(&heap, ref_id, |_| {}).unwrap_err();
+        assert!(matches!(err2, Error::InvalidRef { .. }));
+
+        let err3 = super::with_atomic_bool(&heap, ref_id, |_| {}).unwrap_err();
+        assert!(matches!(err3, Error::InvalidRef { .. }));
+
+        let err4 = super::with_atomic_reference(&heap, ref_id, |_| Ok(())).unwrap_err();
+        assert!(matches!(err4, Error::InvalidRef { .. }));
+    }
 }

@@ -705,4 +705,13 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+    #[test]
+    fn test_cursor_remaining() {
+        let cursor = Cursor::new(&[1, 2, 3]);
+        assert_eq!(cursor.remaining(), 3);
+
+        let mut cursor2 = Cursor::new(&[1, 2, 3]);
+        cursor2.read_u8().unwrap();
+        assert_eq!(cursor2.remaining(), 2);
+    }
 }

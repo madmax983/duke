@@ -1401,4 +1401,12 @@ mod callback_ops_tests {
             .unwrap_err();
         assert!(matches!(err, Error::Unimplemented { .. }));
     }
+
+    #[test]
+    fn test_resolve_loaded_class_key() {
+        let registry = ClassRegistry::new();
+        // Assume empty registry initially
+        let res = registry.resolve_loaded_class_key("NonExistent");
+        assert!(matches!(res, Err(Error::ClassNotFound { .. })));
+    }
 }

@@ -1232,4 +1232,47 @@ mod tests {
         let mut cursor4 = Cursor::new(&[0xFF, 0xFF]);
         assert_eq!(cursor4.read_i16().unwrap(), -1);
     }
+    #[test]
+    fn test_cursor_read_operations() {
+        let mut cursor = Cursor::new(&[0x01, 0xFF, 0x00, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00]);
+
+        assert!(cursor.has_remaining());
+        assert_eq!(cursor.read_u8().unwrap(), 0x01);
+        assert_eq!(cursor.read_i8().unwrap(), -1);
+        assert_eq!(cursor.read_u16().unwrap(), 0x0002);
+        assert_eq!(cursor.read_i32().unwrap(), -1);
+
+        assert!(cursor.has_remaining());
+        let _ = cursor.read_u16().unwrap();
+        assert!(!cursor.has_remaining());
+
+        let err = cursor.read_u8().unwrap_err();
+        assert!(matches!(
+            err,
+            crate::Error::Decode(DecodeError::UnexpectedEof { pc: 10 })
+        ));
+
+        let mut cursor2 = Cursor::new(&[0x00, 0x01]);
+        assert_eq!(cursor2.read_u8().unwrap(), 0x00);
+        cursor2.align4();
+        assert_eq!(cursor2.pos, 4);
+
+        let mut cursor3 = Cursor::new(&[0x00, 0x42]);
+        assert_eq!(cursor3.read_cp().unwrap().0, 0x42);
+
+        let mut cursor4 = Cursor::new(&[0xFF, 0xFF]);
+        assert_eq!(cursor4.read_i16().unwrap(), -1);
+
+        let mut cursor5 = Cursor::new(&[0x01]);
+        assert!(matches!(
+            cursor5.read_u16().unwrap_err(),
+            crate::Error::Decode(_)
+        ));
+
+        let mut cursor6 = Cursor::new(&[0x01, 0x02, 0x03]);
+        assert!(matches!(
+            cursor6.read_u32().unwrap_err(),
+            crate::Error::Decode(_)
+        ));
+    }
 }
