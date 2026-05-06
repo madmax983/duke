@@ -1,8 +1,12 @@
 #![allow(missing_docs)]
+//! Fuzz testing for `JImageReader`.
+
 use proptest::prelude::*;
 use std::path::PathBuf;
 
 proptest! {
+    /// Fuzz test `JImageReader::open` with completely arbitrary bytes
+    /// to ensure it never panics.
     #[test]
     fn test_jimage_oob(data in any::<Vec<u8>>()) {
 
