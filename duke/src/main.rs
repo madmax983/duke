@@ -13,6 +13,8 @@ mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
 mod deps_graph;
+#[cfg(feature = "nova")]
+mod fingerprint;
 mod histogram;
 mod html;
 #[cfg(feature = "nova")]
@@ -318,6 +320,8 @@ fn main() {
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke fingerprint <file.jar>");
         eprintln!("       duke histogram <file.jar>");
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke scan <classfile.class>");
@@ -354,6 +358,23 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-dead-code'");
+            std::process::exit(1);
+        }
+    }
+
+    if args.len() > 1 && args[1] == "fingerprint" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke fingerprint <file.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            fingerprint::dump_fingerprints(&args[2]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'fingerprint'");
             std::process::exit(1);
         }
     }
