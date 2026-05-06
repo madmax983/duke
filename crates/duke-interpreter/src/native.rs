@@ -550,21 +550,25 @@ fn jul_manager_count(heap: &duke_gc::Heap, manager_ref: u64) -> usize {
     }
 }
 
+/// ⚡ Bolt: Prevented intermediate Vec allocation by extracting values using a scoped immutable borrow.
 fn jul_manager_find_logger_by_name(
     heap: &duke_gc::Heap,
     manager_ref: u64,
     name: &str,
 ) -> Result<Option<u64>> {
-    let fields = heap.get(manager_ref)?.fields.clone();
     let count = jul_manager_count(heap, manager_ref);
     for idx in 0..count {
         let name_idx = JUL_MANAGER_LOGGERS_START + idx * 2;
         let logger_idx = name_idx + 1;
-        let Some(Slot::Reference(Some(name_ref))) = fields.get(name_idx).copied() else {
-            continue;
+        let (name_ref, logger_ref_opt) = {
+            let fields = &heap.get(manager_ref)?.fields;
+            let Some(Slot::Reference(Some(name_ref))) = fields.get(name_idx).copied() else {
+                continue;
+            };
+            (name_ref, fields.get(logger_idx).copied())
         };
         if string_value_from_ref(heap, name_ref)? == name
-            && let Some(Slot::Reference(Some(logger_ref))) = fields.get(logger_idx).copied()
+            && let Some(Slot::Reference(Some(logger_ref))) = logger_ref_opt
         {
             return Ok(Some(logger_ref));
         }
@@ -825,25 +829,38 @@ fn jul_publish_record_to_logger(
     if depth > 64 {
         return Ok(());
     }
-    let fields = heap.get(logger_ref)?.fields.clone();
-    let handler_count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
-        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
-        _ => 0,
-    };
-    for idx in 0..handler_count {
-        if let Some(Slot::Reference(Some(handler_ref))) =
-            fields.get(JUL_LOGGER_HANDLERS_START + idx).copied()
-        {
-            jul_publish_record_to_handler(heap, out, handler_ref, record_ref)?;
+    let (handlers, use_parent_handlers, parent_ref_opt) = {
+        let fields = &heap.get(logger_ref)?.fields;
+        let handler_count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+            Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        let mut handlers = Vec::with_capacity(handler_count);
+        for idx in 0..handler_count {
+            if let Some(Slot::Reference(Some(handler_ref))) =
+                fields.get(JUL_LOGGER_HANDLERS_START + idx).copied()
+            {
+                handlers.push(handler_ref);
+            }
         }
+        let use_parent_handlers = matches!(
+            fields.get(JUL_LOGGER_USE_PARENT_HANDLERS_FIELD),
+            Some(Slot::Int(value)) if *value != 0
+        );
+        let parent_ref_opt = if use_parent_handlers {
+            match fields.get(JUL_LOGGER_PARENT_FIELD).copied() {
+                Some(Slot::Reference(Some(parent_ref))) => Some(parent_ref),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        (handlers, use_parent_handlers, parent_ref_opt)
+    };
+    for handler_ref in handlers {
+        jul_publish_record_to_handler(heap, out, handler_ref, record_ref)?;
     }
-    let use_parent_handlers = matches!(
-        fields.get(JUL_LOGGER_USE_PARENT_HANDLERS_FIELD),
-        Some(Slot::Int(value)) if *value != 0
-    );
-    if use_parent_handlers
-        && let Some(Slot::Reference(Some(parent_ref))) = fields.get(JUL_LOGGER_PARENT_FIELD).copied()
-    {
+    if use_parent_handlers && let Some(parent_ref) = parent_ref_opt {
         jul_publish_record_to_logger(heap, out, parent_ref, record_ref, depth + 1)?;
     }
     Ok(())
@@ -1324,24 +1341,27 @@ pub(crate) fn native_jul_logger_remove_handler(
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(logger_ref)?.fields.clone();
-    let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
-        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
-        _ => 0,
-    };
-    let mut retained = Vec::new();
-    let mut removed = false;
-    for idx in 0..count {
-        let handler_slot = fields
-            .get(JUL_LOGGER_HANDLERS_START + idx)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        if !removed && handler_slot == target {
-            removed = true;
-        } else {
-            retained.push(handler_slot);
+    let retained = {
+        let fields = &heap.get(logger_ref)?.fields;
+        let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+            Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        let mut retained = Vec::new();
+        let mut removed = false;
+        for idx in 0..count {
+            let handler_slot = fields
+                .get(JUL_LOGGER_HANDLERS_START + idx)
+                .copied()
+                .unwrap_or(Slot::Reference(None));
+            if !removed && handler_slot == target {
+                removed = true;
+            } else {
+                retained.push(handler_slot);
+            }
         }
-    }
+        retained
+    };
     heap.get_mut(logger_ref)?
         .fields
         .truncate(JUL_LOGGER_HANDLERS_START);
@@ -1356,6 +1376,7 @@ pub(crate) fn native_jul_logger_remove_handler(
     Ok(None)
 }
 
+/// ⚡ Bolt: Prevented intermediate Vec allocation by extracting values using a scoped immutable borrow.
 pub(crate) fn native_jul_logger_get_handlers(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1363,19 +1384,21 @@ pub(crate) fn native_jul_logger_get_handlers(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(logger_ref)?.fields.clone();
-    let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
-        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
-        _ => 0,
+    let handlers: Vec<Slot> = {
+        let fields = &heap.get(logger_ref)?.fields;
+        let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+            Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        (0..count)
+            .map(|idx| {
+                fields
+                    .get(JUL_LOGGER_HANDLERS_START + idx)
+                    .copied()
+                    .unwrap_or(Slot::Reference(None))
+            })
+            .collect()
     };
-    let handlers: Vec<Slot> = (0..count)
-        .map(|idx| {
-            fields
-                .get(JUL_LOGGER_HANDLERS_START + idx)
-                .copied()
-                .unwrap_or(Slot::Reference(None))
-        })
-        .collect();
     let array_ref = allocate_reference_array_from_slots(
         heap,
         "[Ljava/util/logging/Handler;",
@@ -1458,6 +1481,7 @@ pub(crate) fn native_jul_log_manager_get_logger(
     ))
 }
 
+/// ⚡ Bolt: Prevented intermediate Vec allocation by extracting values using a scoped immutable borrow.
 pub(crate) fn native_jul_log_manager_get_logger_names(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1465,16 +1489,18 @@ pub(crate) fn native_jul_log_manager_get_logger_names(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let manager_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(manager_ref)?.fields.clone();
     let count = jul_manager_count(heap, manager_ref);
-    let names: Vec<Slot> = (0..count)
-        .map(|idx| {
-            fields
-                .get(JUL_MANAGER_LOGGERS_START + idx * 2)
-                .copied()
-                .unwrap_or(Slot::Reference(None))
-        })
-        .collect();
+    let names: Vec<Slot> = {
+        let fields = &heap.get(manager_ref)?.fields;
+        (0..count)
+            .map(|idx| {
+                fields
+                    .get(JUL_MANAGER_LOGGERS_START + idx * 2)
+                    .copied()
+                    .unwrap_or(Slot::Reference(None))
+            })
+            .collect()
+    };
     let enumeration_ref = heap.allocate(
         "duke/util/JulLoggerNameEnumeration".to_string(),
         JUL_ENUM_NAMES_START + names.len(),
@@ -1853,6 +1879,7 @@ pub(crate) fn native_jul_logger_names_has_more_elements(
     Ok(Some(Slot::Int(i32::from(index < count))))
 }
 
+/// ⚡ Bolt: Prevented intermediate Vec allocation by extracting values using a scoped immutable borrow.
 pub(crate) fn native_jul_logger_names_next_element(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1860,14 +1887,21 @@ pub(crate) fn native_jul_logger_names_next_element(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let enum_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(enum_ref)?.fields.clone();
-    let index = match fields.get(JUL_ENUM_INDEX_FIELD) {
-        Some(Slot::Int(index)) => usize::try_from((*index).max(0)).unwrap_or(0),
-        _ => 0,
-    };
-    let count = match fields.get(JUL_ENUM_COUNT_FIELD) {
-        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
-        _ => 0,
+    let (index, count, next_element) = {
+        let fields = &heap.get(enum_ref)?.fields;
+        let index = match fields.get(JUL_ENUM_INDEX_FIELD) {
+            Some(Slot::Int(index)) => usize::try_from((*index).max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        let count = match fields.get(JUL_ENUM_COUNT_FIELD) {
+            Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        let next_element = fields
+            .get(JUL_ENUM_NAMES_START + index)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        (index, count, next_element)
     };
     if index >= count {
         return Ok(Some(Slot::Reference(None)));
@@ -1877,12 +1911,7 @@ pub(crate) fn native_jul_logger_names_next_element(
         JUL_ENUM_INDEX_FIELD,
         Slot::Int(i32::try_from(index.saturating_add(1)).unwrap_or(i32::MAX)),
     )?;
-    Ok(Some(
-        fields
-            .get(JUL_ENUM_NAMES_START + index)
-            .copied()
-            .unwrap_or(Slot::Reference(None)),
-    ))
+    Ok(Some(next_element))
 }
 
 const REPLACEMENT_CHAR: char = '\u{fffd}';
@@ -15519,6 +15548,7 @@ pub(crate) fn native_arrays_stream_int_range(
 }
 
 /// Native: `Arrays.stream(Object[])Stream` — wraps a reference array as an eager `Stream`.
+/// ⚡ Bolt: Avoid intermediate vector allocation by passing the iterator directly to `extend_from_slice`.
 pub(crate) fn native_arrays_stream_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -15530,9 +15560,7 @@ pub(crate) fn native_arrays_stream_object(
     let n = i32::try_from(elems.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend_from_slice(&elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -16540,6 +16568,7 @@ pub(crate) fn native_string_split(
 }
 
 /// Native: `String.split(String, int)` — split with a limit parameter.
+/// ⚡ Bolt: Prevented intermediate String allocation and used `Vec::with_capacity` directly.
 pub(crate) fn native_string_split_limit(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -16560,9 +16589,13 @@ pub(crate) fn native_string_split_limit(
     };
     #[allow(clippy::cast_sign_loss)] // limit is validated > 0 before the cast
     let parts: Vec<String> = if delim.is_empty() {
-        let chars: Vec<String> = s.chars().map(|c| c.to_string()).collect();
+        let mut chars = Vec::with_capacity(s.len());
+        for c in s.chars() {
+            chars.push(c.to_string());
+        }
         if limit > 0 && (limit as usize) < chars.len() {
-            let mut v = chars[..limit as usize - 1].to_vec();
+            let mut v = Vec::with_capacity(limit as usize);
+            v.extend_from_slice(&chars[..limit as usize - 1]);
             v.push(chars[limit as usize - 1..].join(""));
             v
         } else {
@@ -16571,17 +16604,22 @@ pub(crate) fn native_string_split_limit(
     } else {
         let re = regex::Regex::new(&delim)
             .unwrap_or_else(|_| regex::Regex::new(&regex::escape(&delim)).unwrap());
+        let mut v = Vec::new();
         if limit > 0 {
-            re.splitn(&s, limit as usize).map(str::to_string).collect()
+            for part in re.splitn(&s, limit as usize) {
+                v.push(part.to_string());
+            }
         } else {
-            let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
+            for part in re.split(&s) {
+                v.push(part.to_string());
+            }
             if limit == 0 {
                 while v.last().is_some_and(String::is_empty) {
                     v.pop();
                 }
             }
-            v
         }
+        v
     };
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
     for (i, part) in parts.iter().enumerate() {
