@@ -21516,12 +21516,12 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
                 .iter()
                 .find_map(|attr| {
                     if let AttributeData::LineNumberTable(entries) = &attr.data {
-                        Some(
-                            entries
-                                .iter()
-                                .map(|entry| (entry.start_pc, entry.line_number))
-                                .collect::<Vec<_>>(),
-                        )
+                        // /// Bolt Optimization: Eliminates intermediate map and collect iterators by pre-allocating the capacity.
+                        let mut vec = Vec::with_capacity(entries.len());
+                        for entry in entries {
+                            vec.push((entry.start_pc, entry.line_number));
+                        }
+                        Some(vec)
                     } else {
                         None
                     }
@@ -21825,11 +21825,14 @@ fn resolve_annotation_value(
         ElementValue::AnnotationValue(annotation) => resolve_annotation(cp, annotation)
             .map(Box::new)
             .map(ReflectedAnnotationValue::Annotation),
-        ElementValue::ArrayValue(values) => values
-            .iter()
-            .map(|value| resolve_annotation_value(cp, value))
-            .collect::<Option<Vec<_>>>()
-            .map(ReflectedAnnotationValue::Array),
+        ElementValue::ArrayValue(values) => {
+            // /// Bolt Optimization: Eliminates intermediate Option iterators by pre-allocating the vector and early-returning on None.
+            let mut arr = Vec::with_capacity(values.len());
+            for value in values {
+                arr.push(resolve_annotation_value(cp, value)?);
+            }
+            Some(ReflectedAnnotationValue::Array(arr))
+        }
     }
 }
 
@@ -21838,16 +21841,14 @@ fn resolve_annotation(
     annotation: &duke_classfile::types::Annotation,
 ) -> Option<ReflectedAnnotation> {
     let descriptor = cp_utf8_string(cp, annotation.type_index.0 as usize).ok()?;
-    let elements = annotation
-        .element_value_pairs
-        .iter()
-        .map(|pair| {
-            Some(ReflectedAnnotationElement {
-                name: cp_utf8_string(cp, pair.element_name_index.0 as usize).ok()?,
-                value: resolve_annotation_value(cp, &pair.value)?,
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
+    // /// Bolt Optimization: Eliminates intermediate Option iterators by pre-allocating the vector and early-returning on None.
+    let mut elements = Vec::with_capacity(annotation.element_value_pairs.len());
+    for pair in &annotation.element_value_pairs {
+        elements.push(ReflectedAnnotationElement {
+            name: cp_utf8_string(cp, pair.element_name_index.0 as usize).ok()?,
+            value: resolve_annotation_value(cp, &pair.value)?,
+        });
+    }
     Some(ReflectedAnnotation {
         type_name: annotation_descriptor_to_internal_name(&descriptor),
         elements,
