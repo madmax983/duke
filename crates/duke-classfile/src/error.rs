@@ -129,6 +129,10 @@ pub enum Error {
         /// Raw tag byte.
         tag: u8,
     },
+
+    /// Annotation nesting is too deep.
+    #[error("annotation nesting is too deep")]
+    AnnotationNestingTooDeep,
 }
 
 /// Convenience alias.
