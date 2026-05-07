@@ -204,7 +204,7 @@ fn dispatch_command(
     }
 }
 
-fn send_reply(stream: &mut TcpStream, id: i32, err: u16, data: &[u8]) -> std::io::Result<()> {
+fn send_reply(stream: &mut dyn Write, id: i32, err: u16, data: &[u8]) -> std::io::Result<()> {
     let len = 11_u32 + to_u32_len(data.len());
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(&id.to_be_bytes())?;
@@ -213,7 +213,7 @@ fn send_reply(stream: &mut TcpStream, id: i32, err: u16, data: &[u8]) -> std::io
     stream.write_all(data)
 }
 
-fn send_vm_start_event(stream: &mut TcpStream, suspended: bool) -> std::io::Result<()> {
+fn send_vm_start_event(stream: &mut dyn Write, suspended: bool) -> std::io::Result<()> {
     let mut data = Vec::new();
     data.push(if suspended { 2 } else { 0 });
     data.extend_from_slice(&1_u32.to_be_bytes());
@@ -320,5 +320,208 @@ mod tests {
     fn normalize_address() {
         assert_eq!(normalize_socket_addr("5005"), "127.0.0.1:5005");
         assert_eq!(normalize_socket_addr("0.0.0.0:5005"), "0.0.0.0:5005");
+    }
+
+    #[test]
+    fn parse_agentlib_returns_none_if_no_prefix() {
+        assert!(parse_agentlib_jdwp("invalid_arg").is_none());
+    }
+
+    #[test]
+    fn test_dispatch_command_vm_version() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(1, 1, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn test_dispatch_command_unimplemented() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, _, close) = dispatch_command(99, 99, &[], &req_id, &suspended);
+        assert_eq!(err, 99);
+        assert!(!close);
+    }
+
+    #[test]
+    fn test_dispatch_command_suspend() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, _, close) = dispatch_command(1, 8, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert!(suspended.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_dispatch_command_resume() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(true);
+        let (err, _, close) = dispatch_command(1, 9, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert!(!suspended.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_dispatch_command_event_request_set() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(15, 1, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data, 1_i32.to_be_bytes().to_vec());
+        assert_eq!(req_id.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_dispatch_command_id_sizes() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(1, 7, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data.len(), 20); // 5 sizes * 4 bytes
+    }
+
+    #[test]
+    fn test_dispatch_command_class_paths() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(1, 13, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn test_dispatch_command_reference_type_signature() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(2, 1, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn test_dispatch_command_thread_reference_frames() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(11, 6, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn test_dispatch_command_one_thread_list() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(1, 4, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data.len(), 12);
+    }
+
+    #[test]
+    fn test_dispatch_command_method_line_table() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(6, 1, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data.len(), 20);
+    }
+
+    #[test]
+    fn test_dispatch_command_capabilities() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(1, 12, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data.len(), 32);
+
+        let (err, data, close) = dispatch_command(1, 17, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data.len(), 32);
+    }
+
+    #[test]
+    fn test_dispatch_command_close() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(1, 6, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(close);
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_dispatch_command_object_reference_get_values() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let mut payload = vec![0; 12];
+        payload[8..12].copy_from_slice(&2_u32.to_be_bytes());
+        let (err, data, close) = dispatch_command(9, 2, &payload, &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data.len(), 4 + 2 * (1 + 8)); // count + 2 * (tag + id)
+    }
+
+    #[test]
+    fn test_dispatch_command_stack_frame_get_values() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let mut payload = vec![0; 12];
+        payload[8..12].copy_from_slice(&3_u32.to_be_bytes());
+        let (err, data, close) = dispatch_command(16, 1, &payload, &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data.len(), 4 + 3 * (1 + 4)); // slots + 3 * (tag + i32)
+    }
+
+    #[test]
+    fn test_dispatch_command_reference_type_modifiers() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(2, 5, &[], &req_id, &suspended);
+        assert_eq!(err, 0);
+        assert!(!close);
+        assert_eq!(data, vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_normalize_address_edge_cases() {
+        assert_eq!(normalize_socket_addr(""), "127.0.0.1:");
+    }
+
+    #[test]
+    fn test_send_reply() {
+        let mut buf = Vec::new();
+        let res = send_reply(&mut buf, 42, 0, b"data");
+        assert!(res.is_ok());
+        assert_eq!(buf.len(), 11 + 4);
+    }
+
+    #[test]
+    fn test_send_vm_start_event() {
+        let mut buf = Vec::new();
+        let res = send_vm_start_event(&mut buf, true);
+        assert!(res.is_ok());
+        assert_eq!(buf.len(), 11 + 18);
+    }
+
+    #[test]
+    fn test_jdwp_server_wait() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let server = JdwpServer { attached_rx: rx };
+        tx.send(()).unwrap();
+        server.wait_for_attach();
     }
 }

@@ -165,6 +165,145 @@ mod tests {
         let _: Option<Box<dyn ClassLoader>> = None;
     }
 
+    #[test]
+    fn test_classloader_default_find_resource() {
+        struct DummyLoader;
+        impl ClassLoader for DummyLoader {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+        }
+        let loader = DummyLoader;
+        let res = loader.find_resource("test.txt");
+        assert!(matches!(res, Err(Error::NotFound { .. })));
+    }
+
+    #[test]
+    fn test_classloader_default_find_resource_entry() {
+        struct DummyLoader;
+        impl ClassLoader for DummyLoader {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+        }
+        let loader = DummyLoader;
+        let res = loader.find_resource_entry("test.txt");
+        assert!(matches!(res, Err(Error::NotFound { .. })));
+    }
+
+    #[test]
+    fn test_classloader_default_find_resources() {
+        struct DummyLoader1;
+        impl ClassLoader for DummyLoader1 {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+            fn find_resource(&self, _name: &str) -> Result<Vec<u8>> {
+                Ok(vec![1, 2, 3])
+            }
+        }
+        let loader1 = DummyLoader1;
+        let res1 = loader1.find_resources("test.txt").unwrap();
+        assert_eq!(res1, vec![vec![1, 2, 3]]);
+
+        #[allow(clippy::items_after_statements)]
+        struct DummyLoader2;
+        #[allow(clippy::items_after_statements)]
+        impl ClassLoader for DummyLoader2 {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+        }
+        let loader2 = DummyLoader2;
+        let res2 = loader2.find_resources("test.txt").unwrap();
+        assert!(res2.is_empty());
+
+        #[allow(clippy::items_after_statements)]
+        struct DummyLoader3;
+        #[allow(clippy::items_after_statements)]
+        impl ClassLoader for DummyLoader3 {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+            fn find_resource(&self, _name: &str) -> Result<Vec<u8>> {
+                Err(Error::Io {
+                    path: "test".to_string(),
+                    source: std::io::Error::other("test"),
+                })
+            }
+        }
+        let loader3 = DummyLoader3;
+        let res3 = loader3.find_resources("test.txt");
+        assert!(matches!(res3, Err(Error::Io { .. })));
+    }
+
+    #[test]
+    fn test_classloader_default_find_resource_entries() {
+        struct DummyLoader1;
+        impl ClassLoader for DummyLoader1 {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+            fn find_resource_entry(&self, _name: &str) -> Result<LocatedResource> {
+                Ok(LocatedResource {
+                    bytes: vec![1, 2, 3],
+                    url: "test:url".to_string(),
+                })
+            }
+        }
+        let loader1 = DummyLoader1;
+        let res1 = loader1.find_resource_entries("test.txt").unwrap();
+        assert_eq!(res1.len(), 1);
+        assert_eq!(res1[0].url, "test:url");
+
+        #[allow(clippy::items_after_statements)]
+        struct DummyLoader2;
+        #[allow(clippy::items_after_statements)]
+        impl ClassLoader for DummyLoader2 {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+        }
+        let loader2 = DummyLoader2;
+        let res2 = loader2.find_resource_entries("test.txt").unwrap();
+        assert!(res2.is_empty());
+
+        #[allow(clippy::items_after_statements)]
+        struct DummyLoader3;
+        #[allow(clippy::items_after_statements)]
+        impl ClassLoader for DummyLoader3 {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+            fn find_resource_entry(&self, _name: &str) -> Result<LocatedResource> {
+                Err(Error::Io {
+                    path: "test".to_string(),
+                    source: std::io::Error::other("test"),
+                })
+            }
+        }
+        let loader3 = DummyLoader3;
+        let res3 = loader3.find_resource_entries("test.txt");
+        assert!(matches!(res3, Err(Error::Io { .. })));
+    }
+
+    #[test]
+    fn test_classloader_default_service_configuration_files() {
+        struct DummyLoader;
+        impl ClassLoader for DummyLoader {
+            fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+                unimplemented!()
+            }
+            fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+                assert_eq!(name, "META-INF/services/my.service");
+                Ok(vec![4, 5, 6])
+            }
+        }
+        let loader = DummyLoader;
+        let res = loader.service_configuration_files("my.service").unwrap();
+        assert_eq!(res, vec![vec![4, 5, 6]]);
+    }
+
     // -----------------------------------------------------------------------
     // DirectoryLoader
     // -----------------------------------------------------------------------

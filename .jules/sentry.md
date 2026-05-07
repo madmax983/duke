@@ -27,3 +27,7 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2024-05-07 - Test Coverage Improvements
+
+**Learning:** `cargo tarpaulin --ignore-tests` skips files that are annotated with `#[cfg(test)]`. If tests for generic helpers are bundled into the same module with `#[cfg(test)]` block (which is typical for unit testing), tarpaulin correctly skips evaluating the code inside those blocks, resulting in false 0% coverage.
+**Action:** Do not unnecessarily extract unit tests from `mod tests` into integration tests (`tests/*.rs`) just to bump coverage numbers. Evaluate if there's actually untested logic. Use `cargo tarpaulin --run-types Tests` when accurate line coverage inside test modules is needed. Keep unit tests isolated inside their respective domains.
