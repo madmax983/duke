@@ -37920,3 +37920,281 @@ mod native_helper_tests {
         assert_eq!(res, Slot::Reference(None));
     }
 }
+
+
+
+
+#[cfg(test)]
+mod tests_sentry {
+    use super::*;
+    use duke_gc::{Heap, AtomicPayload};
+    use duke_runtime::{Slot, Error};
+    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::AtomicI32;
+
+    #[test]
+    fn should_return_error_when_atomic_payload_is_missing_or_wrong_type() {
+        let mut heap = Heap::new();
+        // Allocate a generic object without atomic payload
+        let r = heap.allocate("java/lang/Object".to_string(), 1);
+
+        let res = with_atomic_i32(&heap, r, |_| 42);
+        assert!(matches!(res, Err(Error::InvalidRef { address }) if address == r));
+
+        let res = with_atomic_i64(&heap, r, |_| 42);
+        assert!(matches!(res, Err(Error::InvalidRef { address }) if address == r));
+
+        let res = with_atomic_bool(&heap, r, |_| 42);
+        assert!(matches!(res, Err(Error::InvalidRef { address }) if address == r));
+
+        let res = with_atomic_reference(&heap, r, |_| Ok(42));
+        assert!(matches!(res, Err(Error::InvalidRef { address }) if address == r));
+    }
+
+    #[test]
+    fn should_load_atomic_reference_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("java/util/concurrent/atomic/AtomicReference".to_string(), 1);
+
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.atomic_payload = Some(AtomicPayload::Reference(Arc::new(Mutex::new(Slot::Int(99)))));
+        }
+
+        let res = load_atomic_reference(&heap, r).unwrap();
+        assert_eq!(res, Slot::Int(99));
+
+        // Test error when not a reference
+        let r_int = heap.allocate("java/util/concurrent/atomic/AtomicInteger".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r_int) {
+            obj.atomic_payload = Some(AtomicPayload::Int(Arc::new(AtomicI32::new(10))));
+        }
+        let res_err = load_atomic_reference(&heap, r_int);
+        assert!(matches!(res_err, Err(Error::InvalidRef { .. })));
+    }
+
+    #[test]
+    fn should_extract_field_args_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("test/Class".to_string(), 2);
+
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Int(42);
+            obj.fields[1] = Slot::Reference(Some(100));
+        }
+
+        assert_eq!(extract_first_field_arg(&heap, r).unwrap(), Slot::Int(42));
+        assert_eq!(extract_field_arg(&heap, r, 1).unwrap(), Slot::Reference(Some(100)));
+
+        // Out of bounds field
+        assert_eq!(extract_field_arg(&heap, r, 5).unwrap(), Slot::Reference(None));
+    }
+
+    #[test]
+    fn should_extract_io_fd_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("java/io/FileDescriptor".to_string(), 2);
+
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Int(3); // fd 3
+        }
+
+        assert_eq!(extract_io_fd(&heap, r).unwrap(), 3);
+        assert_eq!(extract_io_fd_at(&heap, r, 0).unwrap(), 3);
+
+        // Not an int
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Reference(None);
+        }
+
+        assert!(matches!(extract_io_fd(&heap, r), Err(Error::JavaException { .. })));
+        assert!(matches!(extract_io_fd_at(&heap, r, 0), Err(Error::JavaException { .. })));
+    }
+
+    #[test]
+    fn should_format_string_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate_string("hello".to_string());
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('s', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "hello");
+
+        let null_slot = Slot::Reference(None);
+        let res = format_arg('s', "", None, None, &null_slot, &heap).unwrap();
+        assert_eq!(res, "null");
+    }
+
+    #[test]
+    fn should_format_boolean_correctly() {
+        let mut heap = Heap::new();
+
+        let null_slot = Slot::Reference(None);
+        let res = format_arg('b', "", None, None, &null_slot, &heap).unwrap();
+        assert_eq!(res, "false");
+
+        // Object boolean
+        let r = heap.allocate("java/lang/Boolean".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Int(1);
+        }
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('b', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "true");
+
+        let r_false = heap.allocate("java/lang/Boolean".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r_false) {
+            obj.fields[0] = Slot::Int(0);
+        }
+        let slot_false = Slot::Reference(Some(r_false));
+        let res = format_arg('b', "", None, None, &slot_false, &heap).unwrap();
+        assert_eq!(res, "false");
+
+        // Other Object boolean
+        let r_other = heap.allocate("java/lang/Object".to_string(), 0);
+        let slot_other = Slot::Reference(Some(r_other));
+        let res = format_arg('b', "", None, None, &slot_other, &heap).unwrap();
+        assert_eq!(res, "true");
+    }
+
+    #[test]
+    fn should_format_char_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("java/lang/Character".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Int(65); // 'A'
+        }
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('c', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "A");
+    }
+
+    #[test]
+    fn should_format_integer_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("java/lang/Integer".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Int(42);
+        }
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('d', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "42");
+
+        // force sign
+        let res = format_arg('d', "+", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "+42");
+    }
+
+
+    #[test]
+    fn should_format_octal_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("java/lang/Integer".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Int(10);
+        }
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('o', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "12"); // 10 in octal is 12
+
+        // Long
+        let r = heap.allocate("java/lang/Long".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Long(10);
+        }
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('o', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "12");
+
+        // Object
+        let r = heap.allocate("java/lang/Object".to_string(), 0);
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('o', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "0");
+    }
+
+    #[test]
+    fn should_format_float_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("java/lang/Double".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Double(42.12345);
+        }
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('f', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "42.123450");
+
+        let res = format_arg('f', "", None, Some(2), &slot, &heap).unwrap();
+        assert_eq!(res, "42.12");
+
+        let res = format_arg('f', "+", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "+42.123450");
+
+        // Object
+        let r = heap.allocate("java/lang/Object".to_string(), 0);
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('f', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "0.000000");
+    }
+
+
+    #[test]
+    fn should_format_scientific_and_hex_correctly() {
+        let mut heap = Heap::new();
+        let r = heap.allocate("java/lang/Double".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r) {
+            obj.fields[0] = Slot::Double(12345.6789);
+        }
+        let slot = Slot::Reference(Some(r));
+        let res = format_arg('e', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "1.234568e+04"); // format_scientific output
+
+        // hex
+        let r_hex = heap.allocate("java/lang/Integer".to_string(), 1);
+        if let Ok(obj) = heap.get_mut(r_hex) {
+            obj.fields[0] = Slot::Int(255);
+        }
+        let slot_hex = Slot::Reference(Some(r_hex));
+        let res = format_arg('x', "", None, None, &slot_hex, &heap).unwrap();
+        assert_eq!(res, "ff");
+
+        let res = format_arg('X', "", None, None, &slot_hex, &heap).unwrap();
+        assert_eq!(res, "FF");
+
+        let res = format_arg('Z', "", None, None, &slot_hex, &heap).unwrap();
+        assert_eq!(res, "");
+    }
+
+    #[test]
+    fn should_format_raw_slots() {
+        let heap = Heap::new();
+        let slot = Slot::Int(255);
+        let res = format_arg('d', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "255");
+
+        let res = format_arg('b', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "true");
+
+        let res = format_arg('o', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "377"); // 255 in octal
+
+        let res = format_arg('x', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "ff");
+
+        let res = format_arg('X', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "FF");
+
+        let res = format_arg('Z', "", None, None, &slot, &heap).unwrap();
+        assert_eq!(res, "255");
+
+        let slot_long = Slot::Long(255);
+        let res = format_arg('d', "+", None, None, &slot_long, &heap).unwrap();
+        assert_eq!(res, "+255");
+
+        let slot_double = Slot::Double(42.12);
+        let res = format_arg('f', "", None, None, &slot_double, &heap).unwrap();
+        assert_eq!(res, "42.120000");
+
+        let res = format_arg('Z', "", None, None, &slot_double, &heap).unwrap();
+        assert_eq!(res, "42.12");
+    }
+
+}

@@ -27,3 +27,8 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2025-05-07 - Mocking Native Boundary State
+
+**Learning:** When testing native internal helper methods (e.g. `format_arg`, `with_atomic_i32`, `extract_io_fd_at`), allocating a basic `java/lang/Object` or corresponding generic Java struct using `Heap::allocate` directly mimics what the JVM produces during normal execution. We can then mutate its `fields` array or `atomic_payload` manually to set up edge cases like missing references, invalid type payloads, and unexpected index offsets.
+
+**Action:** Continue initializing `Heap::new()` and assigning `Slot` fields array directly for testing deep interpreter logic instead of running fully integrated `.class` programs.
