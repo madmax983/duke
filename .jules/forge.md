@@ -68,3 +68,6 @@
 **Extract Control Flow Graph Edges**
 **Learning:** `generate_mermaid_cfg`, `generate_basic_block_cfg`, and `cyclomatic_complexity` in `crates/duke-bytecode/src/cfg.rs` shared complex, duplicated matching logic to determine the control flow edges of instructions (using `is_return()`, `unconditional_jump_target()`, `conditional_branch_target()`, `switch_targets()`).
 **Action:** Created `Instruction::control_flow_edges` to centralize this logic, returning a generic list of `(target_pc, Option<label>)` tuples. This massively simplified all three functions by replacing their redundant if-else chains with a simple loop over the extracted edges.
+**[Replacing Match Blocks Safely]**
+**Learning:** Replacing deeply nested `match` boilerplate with strictly-typed helper functions can easily introduce runtime regressions if the exact fallback semantics (e.g., returning `None` vs `String::new()` vs throwing `Error::TypeMismatch`) are not perfectly preserved.
+**Action:** Always create distinct, tailored helper functions that match the original code's specific fallback behavior before performing a bulk find-and-replace, rather than forcing a single generic error-throwing helper onto all call sites.
