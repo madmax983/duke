@@ -13174,29 +13174,38 @@ fn condition_await_common(
         let released_hold_count = waiter.released_hold_count.max(1);
         let timed_out = waiter.timed_out;
         let deadline = waiter.deadline;
-        if reentrant_lock_try_acquire(&mut lock_guard, thread_id) {
-            lock_guard.hold_count = released_hold_count;
-            condition_guard.waiters.remove(waiter_idx);
-            let result = timeout_nanos.map(|_| {
-                let remaining = if timed_out {
-                    0
-                } else {
-                    deadline.map_or(0, |deadline| {
-                        i64::try_from(deadline.saturating_duration_since(now).as_nanos())
-                            .unwrap_or(i64::MAX)
-                    })
-                };
-                Slot::Long(remaining)
-            });
+
+        if !reentrant_lock_try_acquire(&mut lock_guard, thread_id) {
             drop(lock_guard);
             drop(condition_guard);
-            return Ok(result);
+            request_native_retry(control);
+            return Ok(None);
         }
 
+        lock_guard.hold_count = released_hold_count;
+        condition_guard.waiters.remove(waiter_idx);
+
+        let interrupted = take_current_host_thread_interrupted();
+        if interrupted {
+            drop(lock_guard);
+            drop(condition_guard);
+            return Err(interrupted_exception_error());
+        }
+
+        let result = timeout_nanos.map(|_| {
+            let remaining = if timed_out {
+                0
+            } else {
+                deadline.map_or(0, |deadline| {
+                    i64::try_from(deadline.saturating_duration_since(now).as_nanos())
+                        .unwrap_or(i64::MAX)
+                })
+            };
+            Slot::Long(remaining)
+        });
         drop(lock_guard);
         drop(condition_guard);
-        request_native_retry(control);
-        return Ok(None);
+        return Ok(result);
     }
 
     if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
