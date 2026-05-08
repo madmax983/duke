@@ -1,6 +1,3 @@
-**Standardize Workspace Error Types**
-**Tangle:** Each module defined its own duplicate aliases like `VmResult`, `LoadResult`, and `ParseError`, breaking standardized `Result<T, crate::Error>` rules.
-**Blueprint:** Removed domain-specific error aliases in favor of standard `Result` and `Error` types across all crates.
-**[Encapsulate Module Facades]
-**Tangle:** The `pub mod` declarations for internal sub-modules like `reachability` and `ser_helpers` were publicly exposed, violating encapsulation boundaries.
-**Blueprint:** Changed the visibilities to `pub(crate) mod` to encapsulate the modules, while re-exporting only the specific items like `find_shortest_path` where needed.
+## 2024-05-08 - Explicit Facade Exports
+**Tangle:** The `duke-classfile`, `duke-interpreter`, and `duke-telemetry` crates used wildcard re-exports (`pub use module::*`) at their `lib.rs` boundaries. This is a "Leaky Abstraction" smell, as it unintentionally pollutes the public API namespace with private, internal, or implementation-detail types from submodules, making the architectural boundary unclear and prone to accidental coupling by consumers.
+**Blueprint:** Replaced all wildcard exports with explicit, named exports of only the intended public domain structures. This establishes a strict, intentional contract at the crate boundaries, ensuring the facade pattern properly hides internal sub-modules from external callers and maintains a clean, understandable API.
