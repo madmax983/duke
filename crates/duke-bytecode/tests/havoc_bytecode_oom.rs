@@ -86,28 +86,47 @@ fn havoc_cfg_oom() {
     let mut offsets = Vec::new();
     // Simulate a massive tableswitch
     for i in 0..1_000_000 {
-        offsets.push(i as i32);
+        offsets.push(i);
     }
-    instructions.push((0, Instruction::Tableswitch { default: 0, low: 0, high: 999_999, offsets }));
+    instructions.push((
+        0,
+        Instruction::Tableswitch {
+            default: 0,
+            low: 0,
+            high: 999_999,
+            offsets,
+        },
+    ));
 
     ALLOCATED.store(0, Ordering::SeqCst);
     let _ = generate_mermaid_cfg(&instructions);
 
     let allocated = ALLOCATED.load(Ordering::SeqCst);
-    assert!(allocated < 10_000_000, "Allocated {allocated} bytes! OOM triggered in generate_mermaid_cfg");
+    assert!(
+        allocated < 10_000_000,
+        "Allocated {allocated} bytes! OOM triggered in generate_mermaid_cfg"
+    );
 }
 
 #[test]
 #[cfg(feature = "nova")]
 fn havoc_basic_block_cfg_oom() {
-    use duke_bytecode::{Instruction, generate_basic_block_cfg, BasicBlock};
+    use duke_bytecode::{BasicBlock, Instruction, generate_basic_block_cfg};
     let mut instructions = Vec::new();
     let mut offsets = Vec::new();
     // Simulate a massive tableswitch
     for i in 0..1_000_000 {
-        offsets.push(i as i32);
+        offsets.push(i);
     }
-    instructions.push((0, Instruction::Tableswitch { default: 0, low: 0, high: 999_999, offsets }));
+    instructions.push((
+        0,
+        Instruction::Tableswitch {
+            default: 0,
+            low: 0,
+            high: 999_999,
+            offsets,
+        },
+    ));
 
     let block = BasicBlock {
         start_pc: 0,
@@ -119,5 +138,8 @@ fn havoc_basic_block_cfg_oom() {
     let _ = generate_basic_block_cfg(&[block]);
 
     let allocated = ALLOCATED.load(Ordering::SeqCst);
-    assert!(allocated < 10_000_000, "Allocated {allocated} bytes! OOM triggered in generate_basic_block_cfg");
+    assert!(
+        allocated < 10_000_000,
+        "Allocated {allocated} bytes! OOM triggered in generate_basic_block_cfg"
+    );
 }

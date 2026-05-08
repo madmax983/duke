@@ -175,7 +175,11 @@ fn parse_class_members(
     // interfaces
     let interfaces_count = c.read_u16()?;
     let max_interfaces = c.remaining() / 2;
-    if interfaces_count as usize > max_interfaces { return Err(Error::UnexpectedEof { offset: c.position() }); }
+    if interfaces_count as usize > max_interfaces {
+        return Err(Error::UnexpectedEof {
+            offset: c.position(),
+        });
+    }
     let mut interfaces = Vec::with_capacity(interfaces_count as usize);
     for _ in 0..interfaces_count {
         interfaces.push(c.read_cp_index()?);
@@ -184,7 +188,11 @@ fn parse_class_members(
     // fields
     let fields_count = c.read_u16()?;
     let max_fields = c.remaining() / 8;
-    if fields_count as usize > max_fields { return Err(Error::UnexpectedEof { offset: c.position() }); }
+    if fields_count as usize > max_fields {
+        return Err(Error::UnexpectedEof {
+            offset: c.position(),
+        });
+    }
     let mut fields = Vec::with_capacity(fields_count as usize);
     for _ in 0..fields_count {
         fields.push(parse_field(c, cp_len)?);
@@ -193,7 +201,11 @@ fn parse_class_members(
     // methods
     let methods_count = c.read_u16()?;
     let max_methods = c.remaining() / 8;
-    if methods_count as usize > max_methods { return Err(Error::UnexpectedEof { offset: c.position() }); }
+    if methods_count as usize > max_methods {
+        return Err(Error::UnexpectedEof {
+            offset: c.position(),
+        });
+    }
     let mut methods = Vec::with_capacity(methods_count as usize);
     for _ in 0..methods_count {
         methods.push(parse_method(c, cp_len)?);
@@ -314,7 +326,11 @@ fn parse_constant_pool(c: &mut Cursor<'_>) -> Result<Vec<Option<CpEntry>>> {
     let count = c.read_u16()? as usize;
     // Index 0 is unused; spec uses 1-based indexing.
     // `count` is one more than the actual number of entries.
-    if count > 1 + c.remaining() { return Err(Error::UnexpectedEof { offset: c.position() }); }
+    if count > 1 + c.remaining() {
+        return Err(Error::UnexpectedEof {
+            offset: c.position(),
+        });
+    }
     let mut pool: Vec<Option<CpEntry>> = Vec::with_capacity(count);
     pool.push(None); // slot 0 — reserved
 
@@ -372,7 +388,11 @@ fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> Result<MethodInfo> {
 fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> Result<Vec<AttributeInfo>> {
     let count = c.read_u16()?;
     let max_attrs = c.remaining() / 6;
-    if count as usize > max_attrs { return Err(Error::UnexpectedEof { offset: c.position() }); }
+    if count as usize > max_attrs {
+        return Err(Error::UnexpectedEof {
+            offset: c.position(),
+        });
+    }
     let mut attributes = Vec::with_capacity(count as usize);
     for _ in 0..count {
         attributes.push(parse_attribute(c, cp_len)?);

@@ -51,11 +51,15 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
         }
     }
     if total_edges > 10_000 {
-        return String::from("graph TD
-    Too_Many_Nodes[\"Too many nodes to render CFG\"]");
+        return String::from(
+            "graph TD
+    Too_Many_Nodes[\"Too many nodes to render CFG\"]",
+        );
     }
-    let mut cfg = String::from("graph TD
-");
+    let mut cfg = String::from(
+        "graph TD
+",
+    );
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
         let mnemonic = instr.mnemonic();
@@ -407,8 +411,10 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         }
     }
     if total_edges > 10_000 {
-        return String::from("graph TD
-    Too_Many_Nodes[\"Too many nodes to render CFG\"]");
+        return String::from(
+            "graph TD
+    Too_Many_Nodes[\"Too many nodes to render CFG\"]",
+        );
     }
 
     let mut cfg = String::with_capacity(1024);
