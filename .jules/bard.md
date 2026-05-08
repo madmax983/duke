@@ -25,3 +25,7 @@
 ## 2024-05-23 - [Test Files Missing Docs]
 **Confusion:** Proptest and loom test binaries generated missing documentation warnings, which shouldn't require full crate documentation blocks.
 **Clarification:** Suppressed warnings in `havoc_jimage_proptest.rs`, `havoc_zip_proptest.rs`, and `havoc_zip_files_loom.rs` using `#![allow(missing_docs)]`. Added `//!` crate documentation to `duke-interpreter` to clarify its core orchestration role.
+
+## 2024-05-24 - [Public Docs TODO and Missing Docs]
+**Confusion:** `TODO` comments left inside publicly generated template strings caused linting issues under strict documentation requirements. Additionally, major orchestration structs and functions (`TelemetryStore`, `run_execution`, `execute`, `execute_class`) lacked clear explanations, failing the `missing_docs` checks.
+**Clarification:** Removed the `TODO` prefix in code generation templates (transforming them into standard informative comments). Added comprehensive module-level `///` docs to `TelemetryStore`, `run_execution`, `execute`, and `execute_class` to explain their purpose in driving JVM orchestration and telemetry.

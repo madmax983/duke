@@ -68,6 +68,11 @@ pub use native_boundary::*;
 /// ```
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "telemetry", derive(serde::Serialize))]
+/// Top-level container for all telemetry data collected during JVM execution.
+///
+/// This store aggregates various metrics such as bytecode costs, object lineage,
+/// and exception flows, allowing for comprehensive analysis of application performance
+/// and behavior.
 pub struct TelemetryStore {
     /// Metrics on bytecode execution costs.
     pub bytecode_cost: BytecodeCostStore,

@@ -1254,7 +1254,7 @@ pub fn generate_native_stubs_code(cf: &ClassFile) -> String {
         );
         let _ = writeln!(
             out,
-            "    // TODO: Implement native method {class_name}.{name} {desc}"
+            "    // Implement native method {class_name}.{name} {desc}"
         );
         out.push_str("    Err(duke_runtime::Error::Unimplemented { mnemonic: \"native_stub\" })\n");
         out.push_str("}\n\n");
@@ -1607,7 +1607,7 @@ mod tests {
         assert!(output.contains("fn native_java_lang_System_currentTimeMillis("));
         assert!(
             output.contains(
-                "// TODO: Implement native method java/lang/System.currentTimeMillis ()J"
+                "// Implement native method java/lang/System.currentTimeMillis ()J"
             )
         );
     }

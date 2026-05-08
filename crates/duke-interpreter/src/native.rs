@@ -18234,6 +18234,12 @@ fn format_java_double(v: f64) -> String {
     clippy::too_many_lines,
     clippy::cognitive_complexity
 )]
+/// Executes a specific Java method given its class, method name, and descriptor.
+///
+/// This function handles the setup of the initial execution frame, including argument
+/// passing, and then delegates to the core interpretation loop. It serves as an entry
+/// point for invoking individual methods directly, often used for testing or specific
+/// native interop scenarios.
 pub fn execute(
     instructions: &[(usize, Instruction)],
     cp: &[Option<CpEntry>],
@@ -20376,6 +20382,11 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+/// Executes the main method of a specified Java class.
+///
+/// This is typically the entry point for running a Java application. It resolves the
+/// class, finds the `public static void main(String[])` method, sets up the initial
+/// thread and execution environment, and starts the interpreter loop.
 pub fn execute_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,

@@ -63,6 +63,12 @@ use crate::*;
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+/// Top-level execution loop for the Duke JVM interpreter.
+///
+/// This function drives the interpretation process for a given `ExecutionState`,
+/// utilizing the provided `ClassRegistry`, `ClassLoader`, and `Heap` to manage
+/// class resolution, method invocation, and memory allocation. It continues execution
+/// until the active method returns or an unhandled exception is encountered.
 pub fn run_execution(
     state: &mut ExecutionState,
     registry: &mut ClassRegistry,
