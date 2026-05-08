@@ -98,3 +98,75 @@ fn test_oom_interfaces() {
     let allocated = ALLOCATED.load(Ordering::SeqCst);
     assert!(allocated < 10_000_000, "Allocated {allocated} bytes");
 }
+
+#[test]
+fn test_oom_fields() {
+    let mut data = vec![0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x41]; // magic and version
+    // constant pool count: 1
+    data.push(0x00);
+    data.push(0x01);
+
+    // access flags
+    data.push(0x00);
+    data.push(0x00);
+    // this class
+    data.push(0x00);
+    data.push(0x00);
+    // super class
+    data.push(0x00);
+    data.push(0x00);
+
+    // interfaces count
+    data.push(0x00);
+    data.push(0x00);
+
+    // fields count: 0xffff
+    data.push(0xff);
+    data.push(0xff);
+
+    ALLOCATED.store(0, Ordering::SeqCst);
+    let _ = parse(&data);
+
+    let allocated = ALLOCATED.load(Ordering::SeqCst);
+    assert!(allocated < 10_000_000, "Allocated {allocated} bytes");
+}
+
+#[test]
+fn havoc_classfile_oom_attributes() {
+    let mut data = vec![0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x41]; // magic and version
+    // constant pool count: 1
+    data.push(0x00);
+    data.push(0x01);
+
+    // access flags
+    data.push(0x00);
+    data.push(0x00);
+    // this class
+    data.push(0x00);
+    data.push(0x00);
+    // super class
+    data.push(0x00);
+    data.push(0x00);
+
+    // interfaces count
+    data.push(0x00);
+    data.push(0x00);
+
+    // fields count
+    data.push(0x00);
+    data.push(0x00);
+
+    // methods count
+    data.push(0x00);
+    data.push(0x00);
+
+    // attributes count: 0xffff
+    data.push(0xff);
+    data.push(0xff);
+
+    ALLOCATED.store(0, Ordering::SeqCst);
+    let _ = parse(&data);
+
+    let allocated = ALLOCATED.load(Ordering::SeqCst);
+    assert!(allocated < 10_000_000, "Allocated {allocated} bytes");
+}

@@ -42,7 +42,20 @@ use crate::Instruction;
 )]
 #[must_use]
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
-    let mut cfg = String::from("graph TD\n");
+    let mut total_edges = 0;
+    for (_, instr) in instructions {
+        if let Some((_, targets)) = instr.switch_targets() {
+            total_edges += targets.size_hint().0;
+        } else {
+            total_edges += 2;
+        }
+    }
+    if total_edges > 10_000 {
+        return String::from("graph TD
+    Too_Many_Nodes[\"Too many nodes to render CFG\"]");
+    }
+    let mut cfg = String::from("graph TD
+");
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
         let mnemonic = instr.mnemonic();
@@ -383,6 +396,21 @@ mod complexity_tests {
 #[must_use]
 pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> String {
     use std::fmt::Write;
+    let mut total_edges = 0;
+    for block in blocks {
+        for (_, instr) in &block.instructions {
+            if let Some((_, targets)) = instr.switch_targets() {
+                total_edges += targets.size_hint().0;
+            } else {
+                total_edges += 2;
+            }
+        }
+    }
+    if total_edges > 10_000 {
+        return String::from("graph TD
+    Too_Many_Nodes[\"Too many nodes to render CFG\"]");
+    }
+
     let mut cfg = String::with_capacity(1024);
     cfg.push_str("graph TD\n");
     if blocks.is_empty() {
