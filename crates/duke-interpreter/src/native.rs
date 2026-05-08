@@ -37920,3 +37920,23 @@ mod native_helper_tests {
         assert_eq!(res, Slot::Reference(None));
     }
 }
+
+#[cfg(test)]
+mod tests_sentry {
+
+    #[test]
+    fn test_atomic_helpers_error_paths() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/lang/Object".to_string(), 0);
+
+        let err_i32 = super::with_atomic_i32(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_i32, crate::Error::InvalidRef { address: _ }));
+
+        let err_i64 = super::with_atomic_i64(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_i64, crate::Error::InvalidRef { address: _ }));
+
+        let err_bool = super::with_atomic_bool(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_bool, crate::Error::InvalidRef { address: _ }));
+    }
+
+}

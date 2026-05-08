@@ -27,3 +27,14 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2024-05-24 - Testing Duke Internal Registry Paths
+**Learning:** Found an uncovered error case in `duke-interpreter` registry related to checking `ensure_loaded_with_code_source`.
+**Action:** Adding tests to test the edge case when the fallback path is used or the path is missing.
+
+## 2024-05-24 - Atomic Types Testing
+**Learning:** Added test coverage for `duke-interpreter` internal atomic extraction mechanisms `with_atomic_i32`, `with_atomic_bool` and `with_atomic_i64`. When these methods are queried with an invalid or unexpected atomic object type, they must successfully propagate an error.
+**Action:** Tested the fallback error conditions, avoiding runtime crashes due to mistyped values being placed into the `AtomicPayload` fields.
+
+## 2024-05-24 - Path Handling Edge Cases
+**Learning:** Found uncovered path resolution boundary checks in `duke-loader`'s `DirectoryLoader::resolve_child_path`.
+**Action:** Asserted that potentially unsafe file paths (such as `..`, `/absolute`, `\\backslash` or `C:colon`) correctly throw safe missing file IO errors instead of enabling directory traversal risks.
