@@ -540,4 +540,39 @@ mod tests {
         let res = store.print_report(&mut w);
         assert!(res.is_err());
     }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_bytecode_cost_io_error() {
+        struct FailingWriter;
+        impl std::io::Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("disk full"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let store = TelemetryStore::default();
+        let mut writer = FailingWriter;
+        assert!(store.print_bytecode_cost(&mut writer).is_err());
+        assert!(store.print_object_lineage(&mut writer).is_err());
+        assert!(store.print_class_init_dag(&mut writer).is_err());
+        assert!(store.print_exception_flow(&mut writer).is_err());
+        assert!(store.print_dispatch_resolution(&mut writer).is_err());
+        assert!(store.print_native_boundary(&mut writer).is_err());
+    }
+
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_to_markdown_report_edge_cases() {
+        let mut store = TelemetryStore::default();
+        store.exception_flow.record_throw("java/lang/Exception", "com/Example", "throwIt", 42);
+        // Note: uncaught is already covered, but let's just make sure.
+        let report = store.to_markdown_report();
+        assert!(report.contains("uncaught"));
+    }
+
 }

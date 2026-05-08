@@ -1401,4 +1401,22 @@ mod callback_ops_tests {
             .unwrap_err();
         assert!(matches!(err, Error::Unimplemented { .. }));
     }
+
+    #[test]
+    fn test_lambda_info_methods() {
+        let lambda = LambdaInfo {
+            impl_class: "com/example/Main".to_string(),
+            impl_method: "lambda$0".to_string(),
+            impl_desc: "()V".to_string(),
+            impl_kind: 6,
+            sam_method: "run".to_string(),
+            sam_desc: "()V".to_string(),
+            sam_interface: "java/lang/Runnable".to_string(),
+            captured_count: 0,
+        };
+        // Simple test to hit line 34 which is likely just a derive.
+        let lambda_clone = lambda.clone();
+        assert_eq!(lambda.impl_class, lambda_clone.impl_class);
+    }
+
 }

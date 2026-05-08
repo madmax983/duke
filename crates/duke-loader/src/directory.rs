@@ -195,4 +195,44 @@ mod tests {
         );
         assert!(resource.url.ends_with("sample.txt"));
     }
+
+    #[test]
+    fn test_directory_loader_new_as_ref() {
+        let loader1 = DirectoryLoader::new("my_classes");
+        assert_eq!(loader1.root.to_str().unwrap(), "my_classes");
+
+        let path = std::path::PathBuf::from("my_classes");
+        let loader2 = DirectoryLoader::new(&path);
+        assert_eq!(loader2.root, path);
+    }
+
+
+    #[test]
+    fn test_resolve_child_path_error_colon() {
+        let loader = DirectoryLoader::new("my_classes");
+        assert!(matches!(
+            loader.find_class("invalid:class"),
+            Err(Error::NotFound { .. })
+        ));
+    }
+
+
+    #[test]
+    fn test_resolve_child_path_error_empty_component() {
+        let loader = DirectoryLoader::new("my_classes");
+        assert!(matches!(
+            loader.find_class("com//example"),
+            Err(Error::NotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn test_resolve_child_path_error_dot_component() {
+        let loader = DirectoryLoader::new("my_classes");
+        assert!(matches!(
+            loader.find_class("com/./example"),
+            Err(Error::NotFound { .. })
+        ));
+    }
+
 }

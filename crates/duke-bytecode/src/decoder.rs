@@ -1232,4 +1232,53 @@ mod tests {
         let mut cursor4 = Cursor::new(&[0xFF, 0xFF]);
         assert_eq!(cursor4.read_i16().unwrap(), -1);
     }
+
+    #[test]
+    fn test_decoder_cursor_read_i8() {
+        let mut cursor = Cursor::new(&[0x01, 0xFF]);
+        assert_eq!(cursor.read_i8().unwrap(), 1);
+        assert_eq!(cursor.read_i8().unwrap(), -1);
+        assert!(matches!(
+            cursor.read_i8(),
+            Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: 2 }))
+        ));
+    }
+
+    #[test]
+    fn test_decoder_cursor_read_u32() {
+        let mut cursor = Cursor::new(&[0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(cursor.read_u32().unwrap(), 1);
+        assert_eq!(cursor.read_u32().unwrap(), 4_294_967_295);
+        assert!(matches!(
+            cursor.read_u32(),
+            Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: 8 }))
+        ));
+
+        let mut cursor2 = Cursor::new(&[0x00, 0x00, 0x00]);
+        assert!(matches!(
+            cursor2.read_u32(),
+            Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: 0 }))
+        ));
+    }
+
+    #[test]
+    fn test_decoder_cursor_read_i32() {
+        let mut cursor = Cursor::new(&[0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(cursor.read_i32().unwrap(), 1);
+        assert_eq!(cursor.read_i32().unwrap(), -1);
+        assert!(matches!(
+            cursor.read_i32(),
+            Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: 8 }))
+        ));
+    }
+
+    #[test]
+    fn test_decoder_cursor_read_i16_eof() {
+        let mut cursor = Cursor::new(&[0xFF]);
+        assert!(matches!(
+            cursor.read_i16(),
+            Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: 0 }))
+        ));
+    }
+
 }

@@ -27,3 +27,8 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+## 2026-05-08 - Added Cursor and Error test coverage
+
+**Learning:** Cursor implementation methods across multiple parsing files (`duke-bytecode`, `duke-classfile`) are missing tests for basic read functionality resulting in EOF conditions. Tests were added to ensure they trigger expected EOF failures. Also added coverage for loader fallback methods and exception formatting.
+
+**Action:** Look for inner helper structures within files and add explicit unit tests to catch EOF or bounds panicking bugs during error returns.

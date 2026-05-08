@@ -705,4 +705,50 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+
+    #[test]
+    fn test_cursor_read_i32() {
+        let mut cursor = Cursor::new(&[0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(cursor.read_i32().unwrap(), 1);
+        assert_eq!(cursor.read_i32().unwrap(), -1);
+        assert!(matches!(
+            cursor.read_i32(),
+            Err(Error::UnexpectedEof { offset: 8 })
+        ));
+    }
+
+    #[test]
+    fn test_cursor_read_u64() {
+        let mut cursor = Cursor::new(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        assert_eq!(cursor.read_u64().unwrap(), 1);
+        assert!(matches!(
+            cursor.read_u64(),
+            Err(Error::UnexpectedEof { offset: 8 })
+        ));
+    }
+
+    #[test]
+    fn test_cursor_remaining_and_position() {
+        let mut cursor = Cursor::new(&[0x01, 0x02, 0x03]);
+        assert_eq!(cursor.remaining(), 3);
+        assert_eq!(cursor.position(), 0);
+
+        let _ = cursor.read_u8().unwrap();
+        assert_eq!(cursor.remaining(), 2);
+        assert_eq!(cursor.position(), 1);
+
+        let _ = cursor.read_u16().unwrap();
+        assert_eq!(cursor.remaining(), 0);
+        assert_eq!(cursor.position(), 3);
+    }
+
+    #[test]
+    fn test_cursor_read_i16_eof() {
+        let mut cursor = Cursor::new(&[0xFF]);
+        assert!(matches!(
+            cursor.read_i16(),
+            Err(Error::UnexpectedEof { offset: 1 })
+        ));
+    }
+
 }
