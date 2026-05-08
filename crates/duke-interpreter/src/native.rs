@@ -235,6 +235,26 @@ fn extract_double_arg(args: &[Slot], idx: usize) -> Result<f64> {
     }
 }
 
+#[inline]
+fn extract_string_arg_opt(args: &[Slot], idx: usize, heap: &duke_gc::Heap) -> Result<Option<String>> {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => Ok(heap.get(*r)?.string_value.clone()),
+        _ => Ok(None),
+    }
+}
+
+#[inline]
+fn extract_string_arg_or_default(args: &[Slot], idx: usize, heap: &duke_gc::Heap) -> String {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => heap
+            .get(*r)
+            .ok()
+            .and_then(|o| o.string_value.clone())
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
 macro_rules! extract_print_arg {
     ($args:expr, $pat:pat => $expr:expr, $expected:literal) => {
         match $args.get(1) {
@@ -3786,10 +3806,7 @@ pub(crate) fn native_throwable_init_string(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_string_arg_opt(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
@@ -3803,10 +3820,7 @@ pub(crate) fn native_throwable_init_string_cause(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_string_arg_opt(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     // Store cause in fields[0] (Throwable.cause field)
     if let Some(&cause_slot) = args.get(2)
@@ -7027,14 +7041,7 @@ pub(crate) fn native_collectors_joining_full(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let read_str = |heap: &duke_gc::Heap, idx: usize| -> String {
-        match args.get(idx) {
-            Some(Slot::Reference(Some(r))) => heap
-                .get(*r)
-                .ok()
-                .and_then(|o| o.string_value.clone())
-                .unwrap_or_default(),
-            _ => String::new(),
-        }
+        extract_string_arg_or_default(args, idx, heap)
     };
     let delim = read_str(heap, 0);
     let prefix = read_str(heap, 1);
@@ -7772,10 +7779,7 @@ pub(crate) fn native_string_init_copy(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let src_val = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let src_val = extract_string_arg_opt(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = src_val;
     Ok(None)
 }
