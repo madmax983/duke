@@ -1,7 +1,12 @@
-1. **Understand the problem:** The problem requires fixing missing documentation warnings that `cargo clippy --all-targets --all-features -- -W missing-docs` reports.
-2. **Current state:** We had missing docs for test binaries `crates/duke-loader/tests/havoc_jimage_proptest.rs`, `crates/duke-loader/tests/havoc_zip_proptest.rs`, `crates/duke-interpreter/tests/havoc_zip_files_loom.rs`.
-3. **Execution:** We already fixed this by adding `#![allow(missing_docs)]` to these test files, which makes sense for test binaries that don't need crate-level documentation to satisfy the warning.
-4. **Fixing other module:** We had an issue with `duke-interpreter` missing the crate documentation block. I updated `crates/duke-interpreter/src/lib.rs` to have a nice `//!` description that documents the crate-level module.
-5. **Validation:** `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` completes successfully, and `cargo clippy --all-targets --all-features -- -W missing_docs` doesn't produce missing_docs warnings, and tests pass.
-6. **Pre-commit step**: Execute tests and run pre commit step.
-7. **Submit**: Create PR.
+1. **Optimize String concatenation in `native_string_concat`**
+   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
+   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
+     ```rust
+     let mut combined = String::with_capacity(s1.len() + s2.len());
+     combined.push_str(&s1);
+     combined.push_str(&s2);
+     let r = heap.allocate_string(combined);
+     ```
+   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
+   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
+   - Ensure the tests pass.

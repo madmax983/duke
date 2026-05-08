@@ -16110,7 +16110,11 @@ pub(crate) fn native_string_concat(
         .string_value
         .clone()
         .unwrap_or_default();
-    let r = heap.allocate_string(format!("{s1}{s2}"));
+    // ⚡ Bolt: Eliminate intermediate format! allocation
+    let mut combined = String::with_capacity(s1.len() + s2.len());
+    combined.push_str(&s1);
+    combined.push_str(&s2);
+    let r = heap.allocate_string(combined);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
