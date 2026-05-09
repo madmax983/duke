@@ -1,3 +1,10 @@
+//! Open-Source Smoke Chamber Integration Tests
+//!
+//! This module contains integration tests that execute the interpreter against real-world,
+//! open-source Java archives (`.jar` files) to validate core JVM components.
+//! It bootstraps a custom class loader chain to load test fixtures from `tests/fixtures/oss-jars`
+//! and executes specific methods to ensure end-to-end functionality.
+
 use std::path::{Path, PathBuf};
 
 use duke_gc::Heap;
