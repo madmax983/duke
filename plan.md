@@ -1,7 +1,19 @@
-1. **Understand the problem:** The problem requires fixing missing documentation warnings that `cargo clippy --all-targets --all-features -- -W missing-docs` reports.
-2. **Current state:** We had missing docs for test binaries `crates/duke-loader/tests/havoc_jimage_proptest.rs`, `crates/duke-loader/tests/havoc_zip_proptest.rs`, `crates/duke-interpreter/tests/havoc_zip_files_loom.rs`.
-3. **Execution:** We already fixed this by adding `#![allow(missing_docs)]` to these test files, which makes sense for test binaries that don't need crate-level documentation to satisfy the warning.
-4. **Fixing other module:** We had an issue with `duke-interpreter` missing the crate documentation block. I updated `crates/duke-interpreter/src/lib.rs` to have a nice `//!` description that documents the crate-level module.
-5. **Validation:** `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` completes successfully, and `cargo clippy --all-targets --all-features -- -W missing_docs` doesn't produce missing_docs warnings, and tests pass.
-6. **Pre-commit step**: Execute tests and run pre commit step.
-7. **Submit**: Create PR.
+1. Modify `crates/duke-interpreter/src/lib.rs`
+   - Remove wildcard exports `pub use context::*;` and `pub use registry::*;`
+   - Replace them with explicit exports for `MethodEntry`, `FieldEntry`, `ExceptionEntry`, `ClassLoadSource`, `ClassContext` from `context` and `LambdaInfo`, `NativeThreadAction`, `NativeStackFrame`, `NativeControl`, `ReflectedMethodInfo`, `ReflectedFieldInfo`, `ReflectedAnnotation`, `ReflectedAnnotationElement`, `ReflectedAnnotationValue`, `ReflectedAnnotationConst`, `ReflectedClassInfo`, `ClassRegistry`, `NativeHandler`, `CallbackOps`, `CallbackNativeHandler`, `HandlerKind`, `NativeRegistry` from `registry`.
+
+2. Modify `crates/duke-telemetry/src/lib.rs`
+   - Remove wildcard exports `pub use bytecode_cost::*;`, `pub use object_lineage::*;`, `pub use class_init_dag::*;`, `pub use exception_flow::*;`, `pub use dispatch_resolution::*;`, `pub use native_boundary::*;`
+   - Replace them with explicit exports for `OpcodeStat`, `BytecodeCostStore` from `bytecode_cost`; `AllocationSite`, `ObjectLineageStore` from `object_lineage`; `ClinitEvent`, `ClassInitDagStore` from `class_init_dag`; `ExceptionEvent`, `ExceptionFlowStore` from `exception_flow`; `DispatchStat`, `DispatchResolutionStore` from `dispatch_resolution`; `NativeStat`, `NativeBoundaryStore` from `native_boundary`.
+
+3. Ensure no regressions
+   - Run tests for all crates `cargo test` and `cargo clippy --all-targets --all-features -- -D warnings`.
+
+4. Journal Learning
+   - Add journal entry to `.jules/atlas.md` about wildcard exports causing leaky abstractions and breaking API boundaries.
+
+5. Pre-commit
+   - Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+
+6. Submit
+   - Commit and submit.
