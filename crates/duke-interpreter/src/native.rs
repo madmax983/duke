@@ -2734,21 +2734,18 @@ pub(crate) fn native_file_input_stream_read_bytes(
         return Ok(Some(Slot::Int(0)));
     }
 
-    let mut count = 0_usize;
-    for idx in 0..len {
-        let next = heap.read_host_file_byte(file_id)?;
-        if next < 0 {
-            break;
-        }
-        heap.get_mut(array_ref)?.fields[idx] = Slot::Int(next);
-        count += 1;
+    let mut buf = vec![0u8; len];
+    let read_res = heap.read_host_file_bytes(file_id, &mut buf)?;
+    if read_res < 0 {
+        return Ok(Some(Slot::Int(-1)));
     }
 
-    if count == 0 {
-        Ok(Some(Slot::Int(-1)))
-    } else {
-        Ok(Some(Slot::Int(i32::try_from(count).unwrap_or(i32::MAX))))
+    let count = usize::try_from(read_res).unwrap_or(0);
+    for (idx, &byte) in buf.iter().enumerate().take(count) {
+        heap.get_mut(array_ref)?.fields[idx] = Slot::Int(i32::from(byte));
     }
+
+    Ok(Some(Slot::Int(read_res)))
 }
 
 pub(crate) fn native_file_input_stream_close(
@@ -29764,13 +29761,14 @@ pub(crate) fn native_properties_load(
     let this_ref = extract_ref_arg(args, 0)?;
     let file_id = properties_stream_id_from_slot(extract_slot_arg(args, 1), heap)?;
     let mut bytes = Vec::new();
+    let mut buf = [0u8; 4096];
     loop {
-        let next = heap.read_host_file_byte(file_id)?;
-        if next < 0 {
+        let n = heap.read_host_file_bytes(file_id, &mut buf)?;
+        if n < 0 {
             break;
         }
-        let byte = u8::try_from(next).map_err(|_| properties_io_exception())?;
-        bytes.push(byte);
+        let n = usize::try_from(n).unwrap_or(0);
+        bytes.extend_from_slice(&buf[..n]);
     }
 
     for (key, value) in parse_properties_bytes(&bytes)? {
