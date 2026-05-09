@@ -24,7 +24,10 @@ pub(crate) mod parser;
 
 /// Compatibility module re-exporting the split type structures.
 pub mod types {
-    pub use crate::attributes::{Annotation, AttributeData, AttributeInfo, BootstrapMethodEntry, CodeAttribute, ElementValue, ElementValuePair, ExceptionTableEntry, LineNumberEntry, LocalVariableEntry};
+    pub use crate::attributes::{
+        Annotation, AttributeData, AttributeInfo, BootstrapMethodEntry, CodeAttribute,
+        ElementValue, ElementValuePair, ExceptionTableEntry, LineNumberEntry, LocalVariableEntry,
+    };
     pub use crate::class::{ClassFile, FieldInfo, MethodInfo};
     pub use crate::constant_pool::{CpEntry, CpIndex};
 }
