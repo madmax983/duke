@@ -705,4 +705,66 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+
+    #[test]
+    fn should_return_u16_for_cursor() {
+        let mut cursor = Cursor::new(&[0x12, 0x34]);
+        assert_eq!(cursor.read_u16().unwrap(), 0x1234);
+    }
+
+    #[test]
+    fn should_return_u32_for_cursor() {
+        let mut cursor = Cursor::new(&[0x12, 0x34, 0x56, 0x78]);
+        assert_eq!(cursor.read_u32().unwrap(), 0x1234_5678);
+    }
+
+    #[test]
+    fn should_return_i32_for_cursor() {
+        let mut cursor = Cursor::new(&[0xFF, 0xFF, 0xFF, 0xFE]);
+        assert_eq!(cursor.read_i32().unwrap(), -2);
+    }
+
+    #[test]
+    fn should_return_u64_for_cursor() {
+        let mut cursor = Cursor::new(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
+        assert_eq!(cursor.read_u64().unwrap(), 0x1122_3344_5566_7788);
+    }
+
+    #[test]
+    fn should_return_i64_for_cursor() {
+        let mut cursor = Cursor::new(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE]);
+        assert_eq!(cursor.read_i64().unwrap(), -2);
+    }
+
+    #[test]
+    fn should_return_f32_for_cursor() {
+        let bytes = 42.0f32.to_bits().to_be_bytes();
+        let mut cursor = Cursor::new(&bytes);
+        assert!((cursor.read_f32().unwrap() - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn should_return_f64_for_cursor() {
+        let bytes = 42.0f64.to_bits().to_be_bytes();
+        let mut cursor = Cursor::new(&bytes);
+        assert!((cursor.read_f64().unwrap() - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn should_return_bytes_for_cursor() {
+        let data = [0x01, 0x02, 0x03, 0x04];
+        let mut cursor = Cursor::new(&data);
+        assert_eq!(cursor.read_bytes(2).unwrap(), &[0x01, 0x02]);
+        assert_eq!(cursor.read_bytes(2).unwrap(), &[0x03, 0x04]);
+    }
+
+    #[test]
+    fn should_return_err_when_read_bytes_out_of_bounds() {
+        let data = [0x01, 0x02];
+        let mut cursor = Cursor::new(&data);
+        assert!(matches!(
+            cursor.read_bytes(3),
+            Err(Error::UnexpectedEof { offset: 0 })
+        ));
+    }
 }
