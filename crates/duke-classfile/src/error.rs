@@ -129,6 +129,11 @@ pub enum Error {
         /// Raw tag byte.
         tag: u8,
     },
+
+    /// The annotation recursion depth limit was exceeded.
+    #[error("annotation recursion depth exceeded")]
+    AnnotationDepthExceeded,
+
 }
 
 /// Convenience alias.
