@@ -105,6 +105,62 @@ impl<'a> Cursor<'a> {
     }
 }
 
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+
+    #[test]
+    fn test_cursor_read_operations() {
+        let mut cursor = Cursor::new(&[
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+        ]);
+
+        assert_eq!(cursor.position(), 0);
+        assert_eq!(cursor.remaining(), 16);
+
+        assert_eq!(cursor.read_u8().unwrap(), 0x01);
+        assert_eq!(cursor.read_u16().unwrap(), 0x0203);
+        assert_eq!(cursor.read_i16().unwrap(), 0x0405);
+        assert_eq!(cursor.read_u32().unwrap(), 0x0607_0809);
+        assert_eq!(cursor.read_i32().unwrap(), 0x0A0B_0C0D);
+
+        // Test out of bounds read_u8
+        let mut short_cursor = Cursor::new(&[]);
+        assert!(matches!(
+            short_cursor.read_u8(),
+            Err(Error::UnexpectedEof { offset: 0 })
+        ));
+
+        // Test out of bounds read_bytes
+        let mut bytes_cursor = Cursor::new(&[0x01, 0x02]);
+        assert!(matches!(
+            bytes_cursor.read_bytes(3),
+            Err(Error::UnexpectedEof { offset: 0 })
+        ));
+
+        let mut f_cursor = Cursor::new(&[0x42, 0x28, 0x7E, 0xD7]); // 42.12385
+        let val = f_cursor.read_f32().unwrap();
+        assert!((val - 42.123_87).abs() < 0.0001);
+
+        let mut d_cursor = Cursor::new(&[0x40, 0x45, 0x0F, 0xCE, 0xD9, 0x16, 0x87, 0x2B]); // 42.12345
+        let val2 = d_cursor.read_f64().unwrap();
+        assert!((val2 - 42.123_45).abs() < 0.0001);
+
+        let mut u64_cursor = Cursor::new(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
+        assert_eq!(u64_cursor.read_u64().unwrap(), 0x0102_0304_0506_0708);
+
+        let mut i64_cursor = Cursor::new(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(i64_cursor.read_i64().unwrap(), -1);
+
+        let mut cp_cursor = Cursor::new(&[0x00, 0x42]);
+        assert_eq!(cp_cursor.read_cp_index().unwrap().0, 0x42);
+
+        let mut slice_cursor = Cursor::new(&[0x01, 0x02, 0x03]);
+        assert_eq!(slice_cursor.read_bytes(2).unwrap(), &[0x01, 0x02]);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
