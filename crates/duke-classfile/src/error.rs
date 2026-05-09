@@ -96,6 +96,10 @@ pub enum Error {
         source: std::string::FromUtf8Error,
     },
 
+    /// The class file has an annotation that is too deeply nested.
+    #[error("annotation depth limit exceeded")]
+    AnnotationDepthLimit,
+
     /// An invalid reference kind was provided in a `MethodHandle` structure.
     #[error("invalid method handle reference kind {kind} (must be 1–9)")]
     InvalidMethodHandleKind {
