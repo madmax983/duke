@@ -14,7 +14,7 @@ use crate::constant_pool::CpIndex;
 /// # Examples
 ///
 /// ```
-/// use duke_classfile::types::{ClassFile, CpIndex};
+/// use duke_classfile::{ClassFile, CpIndex};
 /// use duke_classfile::ClassAccessFlags;
 ///
 /// let class_file = ClassFile {
@@ -68,7 +68,7 @@ pub struct ClassFile {
 /// # Examples
 ///
 /// ```
-/// use duke_classfile::types::{FieldInfo, CpIndex};
+/// use duke_classfile::{FieldInfo, CpIndex};
 /// use duke_classfile::FieldAccessFlags;
 ///
 /// let field = FieldInfo {
@@ -102,7 +102,7 @@ pub struct FieldInfo {
 /// # Examples
 ///
 /// ```
-/// use duke_classfile::types::{MethodInfo, CpIndex};
+/// use duke_classfile::{MethodInfo, CpIndex};
 /// use duke_classfile::MethodAccessFlags;
 ///
 /// let method = MethodInfo {

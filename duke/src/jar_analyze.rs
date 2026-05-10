@@ -7,8 +7,7 @@
 )]
 use duke_bytecode::{cyclomatic_complexity, decode};
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, {AttributeData, CpEntry, CpIndex},
 };
 use duke_loader::{ClassLoader, ZipLoader};
 use std::path::Path;
@@ -155,7 +154,7 @@ pub fn dump_jar_analyze(jar_path: &str) {
 mod tests {
     use super::*;
     use duke_classfile::ClassAccessFlags;
-    use duke_classfile::types::ClassFile;
+    use duke_classfile::ClassFile;
 
     #[test]
     fn test_dump_jar_analyze_valid() {

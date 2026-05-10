@@ -107,6 +107,17 @@ impl ClassLoader for DirectoryLoader {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn test_resolve_child_path_invalid_characters() {
+        let loader = DirectoryLoader::new(PathBuf::from("my_classes"));
+
+        assert!(loader.resolve_child_path("..").is_err());
+        assert!(loader.resolve_child_path("/absolute").is_err());
+        assert!(loader.resolve_child_path("\\backslash").is_err());
+        assert!(loader.resolve_child_path("C:colon").is_err());
+    }
+
     use super::*;
 
     #[test]

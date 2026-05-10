@@ -118,6 +118,15 @@ impl ZipReader {
     /// Reads the entire file into memory, parses the end-of-central-directory
     /// record and central directory, and builds an in-memory index.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::ZipReader;
+    ///
+    /// let reader = ZipReader::open(Path::new("app.jar")).unwrap();
+    /// ```
+    ///
     /// # Errors
     /// Returns [`Error::Io`] on read failure, or [`Error::ZipFormat`]
     /// if the file is not a valid ZIP archive.
@@ -131,6 +140,19 @@ impl ZipReader {
 
     /// Build a `ZipReader` from raw bytes (useful for tests).
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// ```
+    ///
     /// # Errors
     /// Returns [`Error::ZipFormat`] if the data is not a valid ZIP archive.
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
@@ -140,6 +162,20 @@ impl ZipReader {
     }
 
     /// Look up an entry by name.  O(1).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// assert!(reader.get_entry("nonexistent.txt").is_none());
+    /// ```
     #[must_use]
     pub fn get_entry(&self, name: &str) -> Option<&ZipEntryInfo> {
         self.index.get(name)
@@ -161,6 +197,18 @@ impl ZipReader {
     }
 
     /// Read entry bytes given a pre-looked-up `ZipEntryInfo`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::ZipReader;
+    ///
+    /// let reader = ZipReader::open(Path::new("app.jar")).unwrap();
+    /// if let Some(info) = reader.get_entry("file.txt") {
+    ///     let data = reader.read_entry_info(info).unwrap();
+    /// }
+    /// ```
     ///
     /// # Errors
     /// Returns [`Error::ZipFormat`] on decompression or format errors,
@@ -257,12 +305,40 @@ impl ZipReader {
     }
 
     /// Number of entries in the archive.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// assert_eq!(reader.entry_count(), 0);
+    /// ```
     #[must_use]
     pub fn entry_count(&self) -> usize {
         self.index.len()
     }
 
     /// Iterate over all entry names.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// assert_eq!(reader.entry_names().count(), 0);
+    /// ```
     pub fn entry_names(&self) -> impl Iterator<Item = &str> {
         self.index.keys().map(String::as_str)
     }
@@ -301,6 +377,12 @@ pub struct ZipLoader {
 }
 
 impl ZipLoader {
+    #[inline]
+    fn append_boot_inf_classes_path(buf: &mut String, name: &str) {
+        buf.push_str("BOOT-INF/classes/");
+        buf.push_str(name);
+    }
+
     /// Open a ZIP/JAR file as a class loader.
     ///
     /// This immediately memory-maps the file and parses its Central Directory to build
@@ -345,9 +427,15 @@ impl ZipLoader {
             nested_libs,
         })
     }
-
+    /// ⚡ Bolt: Eliminates intermediate String allocation and `format!` macro overhead
+    /// by pre-computing string capacity and using `.push_str()` sequentially.
     fn resource_url(&self, entry_name: &str) -> String {
-        format!("jar:{}!/{entry_name}", self.container_spec)
+        let mut url = String::with_capacity(4 + self.container_spec.len() + 2 + entry_name.len());
+        url.push_str("jar:");
+        url.push_str(&self.container_spec);
+        url.push_str("!/");
+        url.push_str(entry_name);
+        url
     }
 }
 
@@ -367,8 +455,7 @@ impl ClassLoader for ZipLoader {
 
         // Try BOOT-INF path: BOOT-INF/classes/{name}.class
         entry_name.clear();
-        entry_name.push_str("BOOT-INF/classes/");
-        entry_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut entry_name, name);
         entry_name.push_str(".class");
         match self.reader.read_entry(&entry_name) {
             Err(Error::NotFound { .. }) => {}
@@ -394,8 +481,7 @@ impl ClassLoader for ZipLoader {
 
         // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Err(Error::NotFound { .. }) => {}
             result => return result,
@@ -422,8 +508,7 @@ impl ClassLoader for ZipLoader {
 
         // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => resources.push(bytes),
             Err(Error::NotFound { .. }) => {}
@@ -449,8 +534,7 @@ impl ClassLoader for ZipLoader {
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => {
                 return Ok(LocatedResource {
@@ -486,8 +570,7 @@ impl ClassLoader for ZipLoader {
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => resources.push(LocatedResource {
                 bytes,
@@ -515,9 +598,16 @@ fn nested_boot_inf_lib_loaders(reader: &ZipReader, container_spec: &str) -> Resu
     let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
     for entry_name in nested_entry_names {
         let nested_bytes = reader.read_entry(entry_name)?;
+
+        let mut nested_container_spec =
+            String::with_capacity(container_spec.len() + 2 + entry_name.len());
+        nested_container_spec.push_str(container_spec);
+        nested_container_spec.push_str("!/");
+        nested_container_spec.push_str(entry_name);
+
         nested_libs.push(ZipLoader::from_reader(
             ZipReader::from_bytes(nested_bytes)?,
-            format!("{container_spec}!/{entry_name}"),
+            nested_container_spec,
         )?);
     }
     Ok(nested_libs)
