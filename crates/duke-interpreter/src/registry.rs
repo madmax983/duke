@@ -1267,6 +1267,38 @@ impl Default for NativeRegistry {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn test_registry_ensure_loaded_with_code_source_missing_path() {
+        let mut registry = ClassRegistry::new();
+        // Uses path_loader_for_path which will return None since the path doesn't exist.
+        // Returns Ok(false) instead of an error per the implementation
+        let result = registry.ensure_loaded_with_code_source("com/example/Test", "/does/not/exist");
+        assert!(matches!(result, Ok(false)));
+    }
+
+    #[test]
+    fn test_registry_ensure_loaded_from_source_class() {
+        let mut registry = ClassRegistry::new();
+        let loader = duke_loader::DirectoryLoader::new(".");
+
+        // Without source_class mapped, it falls back to the provided loader (which in this case finds nothing)
+        let result =
+            registry.ensure_loaded_from("com/example/Test", Some("com/example/Source"), &loader);
+        assert!(matches!(result, Ok(false)));
+    }
+
+    #[test]
+    fn test_registry_class_key_from_provenance() {
+        let registry = ClassRegistry::new();
+        let key1 = registry.class_key_from_provenance("com/example/Test", None, None);
+        assert_eq!(key1, "com/example/Test");
+
+        let key2 =
+            registry.class_key_from_provenance("com/example/Test", Some("/my/path"), Some(123));
+        assert_eq!(key2, "com/example/Test\0loader:123");
+    }
+
     use super::*;
     use std::path::PathBuf;
 

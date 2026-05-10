@@ -632,6 +632,55 @@ pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn test_cursor_operations() {
+        let data = [
+            0x01, // u8
+            0x02, 0x03, // u16
+            0x04, 0x05, 0x06, 0x07, // u32
+            0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, // u64
+            0x3F, 0x80, 0x00, 0x00, // f32 (1.0)
+            0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // f64 (1.0)
+            0xFF, // i8/u8 for cast check
+            0xFF, 0xFF, // i16
+            0xFF, 0xFF, 0xFF, 0xFF, // i32
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // i64
+            0x00, 0x2A, // cp_index
+        ];
+        let mut cursor = Cursor::new(&data);
+        assert_eq!(cursor.position(), 0);
+        assert_eq!(cursor.remaining(), data.len());
+
+        assert_eq!(cursor.read_u8().unwrap(), 0x01);
+        assert_eq!(cursor.read_u16().unwrap(), 0x0203);
+        assert_eq!(cursor.read_u32().unwrap(), 0x0405_0607);
+        assert_eq!(cursor.read_u64().unwrap(), 0x0809_0A0B_0C0D_0E0F);
+        assert!((cursor.read_f32().unwrap() - 1.0).abs() < f32::EPSILON);
+        assert!((cursor.read_f64().unwrap() - 1.0).abs() < f64::EPSILON);
+
+        let _ = cursor.read_u8().unwrap(); // skip FF
+        assert_eq!(cursor.read_i16().unwrap(), -1);
+        assert_eq!(cursor.read_i32().unwrap(), -1);
+        assert_eq!(cursor.read_i64().unwrap(), -1);
+        assert_eq!(cursor.read_cp_index().unwrap().0, 42);
+
+        // Out of bounds
+        assert!(matches!(cursor.read_u8(), Err(Error::UnexpectedEof { .. })));
+        assert!(matches!(
+            cursor.read_bytes(1),
+            Err(Error::UnexpectedEof { .. })
+        ));
+    }
+
+    #[test]
+    fn test_cursor_read_bytes() {
+        let data = [0xAA, 0xBB, 0xCC];
+        let mut cursor = Cursor::new(&data);
+        assert_eq!(cursor.read_bytes(2).unwrap(), &[0xAA, 0xBB]);
+        assert_eq!(cursor.position(), 2);
+    }
+
     use super::*;
 
     #[test]
