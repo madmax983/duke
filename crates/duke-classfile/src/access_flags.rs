@@ -1,4 +1,9 @@
 //! `duke-classfile::access_flags` — Class, field, and method access flags
+//!
+//! The JVM relies on a compact set of bitflags to encode the visibility, state, and properties
+//! of classes, fields, and methods. These 16-bit masks determine if a method is `public`, if a
+//! field is `static`, or if a class is actually an `interface`. This module defines strongly-typed
+//! representations of these flags, allowing safe, readable bitwise operations instead of raw `u16` masking.
 
 use bitflags::bitflags;
 

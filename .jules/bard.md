@@ -25,3 +25,7 @@
 ## 2024-05-23 - [Test Files Missing Docs]
 **Confusion:** Proptest and loom test binaries generated missing documentation warnings, which shouldn't require full crate documentation blocks.
 **Clarification:** Suppressed warnings in `havoc_jimage_proptest.rs`, `havoc_zip_proptest.rs`, and `havoc_zip_files_loom.rs` using `#![allow(missing_docs)]`. Added `//!` crate documentation to `duke-interpreter` to clarify its core orchestration role.
+
+## 2024-05-24 - [Clippy Doc Markdown Lint]
+**Confusion:** Clippy was throwing `clippy::doc-markdown` warnings on capitalized names in documentation (like `ClassLoader`, `JImage`, `OpenJDK`).
+**Clarification:** Replaced bare occurrences of these system or format names with backtick-enclosed code block formatting (e.g., `` `ClassLoader` ``) to satisfy documentation style lints.

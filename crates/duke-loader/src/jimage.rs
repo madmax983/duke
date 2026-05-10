@@ -74,6 +74,10 @@ const ATTR_UNCOMPRESSED: u8 = 7;
 /// assert_eq!(info.uncompressed, 1024);
 /// ```
 #[derive(Debug, Clone)]
+/// Metadata detailing the location and compression state of a resource inside the `JImage`.
+///
+/// A resource can be uncompressed (raw bytes) or compressed. This metadata is extracted
+/// from the locations table and guides the decompression logic.
 pub struct ResourceInfo {
     /// Byte offset into the data section.
     pub offset: u64,
@@ -98,6 +102,12 @@ pub struct ResourceInfo {
 /// let reader = JImageReader::open(Path::new("/usr/lib/jvm/java-21-openjdk/lib/modules")).unwrap();
 /// println!("Found {} resources", reader.resource_count());
 /// ```
+/// A reader for the `OpenJDK` 9+ `modules` file format (`jimage`).
+///
+/// Modern JVMs bundle all system classes (like `java.lang.Object`) into a highly optimized
+/// binary container instead of hundreds of individual JAR files. The `JImageReader` memory-maps
+/// this container, scans its perfect-hash directory structure, and allows fast O(1) lookups
+/// for any system resource or class.
 pub struct JImageReader {
     data: Vec<u8>,
     resource_count: u32,

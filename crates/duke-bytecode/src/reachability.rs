@@ -1,9 +1,15 @@
 //! Basic block reachability and pathfinding.
 //!
 //! This module provides algorithms for analyzing control flow reachability
-//! within a method's basic blocks. It includes utilities to determine basic
-//! block successors, identify dead (unreachable) blocks, and find the shortest
-//! execution paths between blocks.
+//! within a method's basic blocks. A method's bytecode is not just a linear sequence
+//! of instructions; it is a complex web of jumps, branches, and returns. By grouping
+//! these instructions into `BasicBlock`s, we can traverse this web to answer critical questions:
+//! - What can execute next? (`get_successors`)
+//! - Is there code that can never be reached? (`find_dead_blocks`)
+//! - How do we get from point A to point B? (`find_shortest_path`)
+//!
+//! These utilities are essential for generating control flow graphs, optimizing bytecode,
+//! and analyzing execution paths during debugging or testing.
 
 #[cfg(feature = "nova")]
 use crate::basic_block::BasicBlock;

@@ -1,4 +1,8 @@
 //! `duke-loader::directory` - Loads classes and resources from directories.
+//!
+//! The `DirectoryLoader` is the simplest form of a `ClassLoader`. It maps a JVM internal class name
+//! (like `java/lang/Object`) directly to a file path on the local filesystem (like `java/lang/Object.class`).
+//! It enforces strict bounds-checking to prevent directory traversal attacks (e.g., rejecting paths with `..` or absolute paths).
 
 use std::path::{Path, PathBuf};
 
