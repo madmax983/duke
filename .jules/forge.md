@@ -68,3 +68,7 @@
 **Extract Control Flow Graph Edges**
 **Learning:** `generate_mermaid_cfg`, `generate_basic_block_cfg`, and `cyclomatic_complexity` in `crates/duke-bytecode/src/cfg.rs` shared complex, duplicated matching logic to determine the control flow edges of instructions (using `is_return()`, `unconditional_jump_target()`, `conditional_branch_target()`, `switch_targets()`).
 **Action:** Created `Instruction::control_flow_edges` to centralize this logic, returning a generic list of `(target_pc, Option<label>)` tuples. This massively simplified all three functions by replacing their redundant if-else chains with a simple loop over the extracted edges.
+
+**Refactoring String Allocations**
+**Learning:** Extracting inline string logic into a helper that returns a `String` can accidentally break zero-allocation optimizations where existing buffers were being cleared and reused.
+**Action:** When extracting repeated string concatenation logic into helper functions, avoid introducing unnecessary intermediate allocations. Instead of allocating and returning a new `String`, modify the helper to accept a mutable buffer (`&mut String`) and append to it directly.
