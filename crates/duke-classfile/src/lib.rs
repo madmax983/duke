@@ -22,9 +22,12 @@ pub(crate) mod constant_pool;
 pub(crate) mod error;
 pub(crate) mod parser;
 
-pub use crate::attributes::*;
-pub use crate::class::*;
-pub use crate::constant_pool::*;
+pub use crate::attributes::{
+    Annotation, AttributeData, AttributeInfo, BootstrapMethodEntry, CodeAttribute, ElementValue,
+    ElementValuePair, ExceptionTableEntry, LineNumberEntry, LocalVariableEntry,
+};
+pub use crate::class::{ClassFile, FieldInfo, MethodInfo};
+pub use crate::constant_pool::{CpEntry, CpIndex};
 pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, Result};
 pub use parser::parse;

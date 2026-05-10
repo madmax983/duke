@@ -38,17 +38,17 @@
 pub(crate) mod helpers;
 
 pub(crate) mod bytecode_cost;
-pub use bytecode_cost::*;
+pub use bytecode_cost::{BytecodeCostStore, OpcodeStat};
 pub(crate) mod object_lineage;
-pub use object_lineage::*;
+pub use object_lineage::{AllocationSite, ObjectLineageStore};
 pub(crate) mod class_init_dag;
-pub use class_init_dag::*;
+pub use class_init_dag::{ClassInitDagStore, ClinitEvent};
 pub(crate) mod exception_flow;
-pub use exception_flow::*;
+pub use exception_flow::{ExceptionEvent, ExceptionFlowStore};
 pub(crate) mod dispatch_resolution;
-pub use dispatch_resolution::*;
+pub use dispatch_resolution::{DispatchResolutionStore, DispatchStat};
 pub(crate) mod native_boundary;
-pub use native_boundary::*;
+pub use native_boundary::{NativeBoundaryStore, NativeStat};
 
 // -- TelemetryStore --------------------------------------------------------------
 
