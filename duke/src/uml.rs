@@ -4,8 +4,7 @@
 //! representation using [Mermaid JS](https://mermaid.js.org/) `classDiagram`.
 
 use duke_classfile::{
-    ClassFile, FieldAccessFlags, MethodAccessFlags,
-    types::{CpEntry, CpIndex},
+    ClassFile, FieldAccessFlags, MethodAccessFlags, {CpEntry, CpIndex},
 };
 use std::fmt::Write;
 
@@ -129,8 +128,8 @@ pub fn generate_mermaid_uml(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::types::{FieldInfo, MethodInfo};
     use duke_classfile::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
+    use duke_classfile::{FieldInfo, MethodInfo};
 
     #[test]
     fn test_generate_mermaid_uml() {

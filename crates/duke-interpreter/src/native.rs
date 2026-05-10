@@ -21459,7 +21459,7 @@ fn native_control_for_call(
 fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
     use duke_classfile::MethodAccessFlags;
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     let source_file = cf.attributes.iter().find_map(|a| {
         if let AttributeData::SourceFile { sourcefile_index } = &a.data {
@@ -21593,7 +21593,7 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
 
 fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<Slot>, usize) {
     use duke_classfile::FieldAccessFlags;
-    use duke_classfile::types::CpEntry;
+    use duke_classfile::CpEntry;
 
     let mut fields = Vec::with_capacity(cf.fields.len());
     let mut static_fields = Vec::new();
@@ -21642,7 +21642,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 /// # use duke_interpreter::build_class_context;
 /// # use duke_classfile::{ClassFile, ClassAccessFlags};
-/// # use duke_classfile::types::{CpIndex, CpEntry};
+/// # use duke_classfile::{CpIndex, CpEntry};
 /// // A minimal class file representation of `java/lang/Object`.
 /// let cf = ClassFile {
 ///     minor_version: 0,
@@ -21667,7 +21667,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 #[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     // Resolve this_class -> class name string.
     let class_name = {
@@ -21805,9 +21805,9 @@ fn cp_annotation_const(
 
 fn resolve_annotation_value(
     cp: &[Option<CpEntry>],
-    value: &duke_classfile::types::ElementValue,
+    value: &duke_classfile::ElementValue,
 ) -> Option<ReflectedAnnotationValue> {
-    use duke_classfile::types::ElementValue;
+    use duke_classfile::ElementValue;
     match value {
         ElementValue::ConstValueIndex(index) => cp_annotation_const(cp, index.0 as usize)
             .map(ReflectedAnnotationValue::Const),
@@ -21841,7 +21841,7 @@ fn resolve_annotation_value(
 
 fn resolve_annotation(
     cp: &[Option<CpEntry>],
-    annotation: &duke_classfile::types::Annotation,
+    annotation: &duke_classfile::Annotation,
 ) -> Option<ReflectedAnnotation> {
     let descriptor = cp_utf8_string(cp, annotation.type_index.0 as usize).ok()?;
     let elements = annotation
@@ -21862,12 +21862,12 @@ fn resolve_annotation(
 
 fn runtime_visible_annotations_from_attrs(
     cp: &[Option<CpEntry>],
-    attrs: &[duke_classfile::types::AttributeInfo],
+    attrs: &[duke_classfile::AttributeInfo],
 ) -> Vec<ReflectedAnnotation> {
     attrs
         .iter()
         .find_map(|attr| {
-            if let duke_classfile::types::AttributeData::RuntimeVisibleAnnotations(annotations) =
+            if let duke_classfile::AttributeData::RuntimeVisibleAnnotations(annotations) =
                 &attr.data
             {
                 Some(
@@ -21885,10 +21885,10 @@ fn runtime_visible_annotations_from_attrs(
 
 fn annotation_default_from_attrs(
     cp: &[Option<CpEntry>],
-    attrs: &[duke_classfile::types::AttributeInfo],
+    attrs: &[duke_classfile::AttributeInfo],
 ) -> Option<ReflectedAnnotationValue> {
     attrs.iter().find_map(|attr| {
-        if let duke_classfile::types::AttributeData::AnnotationDefault(value) = &attr.data {
+        if let duke_classfile::AttributeData::AnnotationDefault(value) = &attr.data {
             resolve_annotation_value(cp, value)
         } else {
             None

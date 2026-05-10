@@ -1,6 +1,5 @@
 use duke_classfile::{
-    ClassFile,
-    types::{CpEntry, CpIndex},
+    ClassFile, {CpEntry, CpIndex},
 };
 
 #[cfg(not(tarpaulin_include))]
