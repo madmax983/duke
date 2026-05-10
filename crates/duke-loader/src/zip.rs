@@ -351,9 +351,15 @@ impl ZipLoader {
             nested_libs,
         })
     }
-
+    /// ⚡ Bolt: Eliminates intermediate String allocation and `format!` macro overhead
+    /// by pre-computing string capacity and using `.push_str()` sequentially.
     fn resource_url(&self, entry_name: &str) -> String {
-        format!("jar:{}!/{entry_name}", self.container_spec)
+        let mut url = String::with_capacity(4 + self.container_spec.len() + 2 + entry_name.len());
+        url.push_str("jar:");
+        url.push_str(&self.container_spec);
+        url.push_str("!/");
+        url.push_str(entry_name);
+        url
     }
 }
 
@@ -516,9 +522,16 @@ fn nested_boot_inf_lib_loaders(reader: &ZipReader, container_spec: &str) -> Resu
     let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
     for entry_name in nested_entry_names {
         let nested_bytes = reader.read_entry(entry_name)?;
+
+        let mut nested_container_spec =
+            String::with_capacity(container_spec.len() + 2 + entry_name.len());
+        nested_container_spec.push_str(container_spec);
+        nested_container_spec.push_str("!/");
+        nested_container_spec.push_str(entry_name);
+
         nested_libs.push(ZipLoader::from_reader(
             ZipReader::from_bytes(nested_bytes)?,
-            format!("{container_spec}!/{entry_name}"),
+            nested_container_spec,
         )?);
     }
     Ok(nested_libs)
