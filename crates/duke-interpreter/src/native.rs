@@ -2137,28 +2137,28 @@ enum Utf16Endian {
     Little,
 }
 
-fn decode_utf16_units(units: Vec<u16>, has_trailing_byte: bool) -> String {
-    let mut decoded: String = char::decode_utf16(units)
+/// Decodes UTF-16 bytes into a Rust String.
+///
+/// ⚡ Bolt: Removed the intermediate `Vec<u16>` allocation by passing a lazy iterator
+/// (`chunks.by_ref().map(...)`) directly to `char::decode_utf16`. This avoids an $O(N)$
+/// heap allocation for every UTF-16 decoding operation.
+fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
+    let mut chunks = bytes.chunks_exact(2);
+    let iter = chunks.by_ref().map(|chunk| {
+        let pair = [chunk[0], chunk[1]];
+        match endian {
+            Utf16Endian::Big => u16::from_be_bytes(pair),
+            Utf16Endian::Little => u16::from_le_bytes(pair),
+        }
+    });
+
+    let mut decoded: String = char::decode_utf16(iter)
         .map(|item| item.unwrap_or(REPLACEMENT_CHAR))
         .collect();
-    if has_trailing_byte {
+    if !chunks.remainder().is_empty() {
         decoded.push(REPLACEMENT_CHAR);
     }
     decoded
-}
-
-fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
-    let mut chunks = bytes.chunks_exact(2);
-    let mut units = Vec::with_capacity(bytes.len() / 2);
-    for chunk in &mut chunks {
-        let pair = [chunk[0], chunk[1]];
-        let unit = match endian {
-            Utf16Endian::Big => u16::from_be_bytes(pair),
-            Utf16Endian::Little => u16::from_le_bytes(pair),
-        };
-        units.push(unit);
-    }
-    decode_utf16_units(units, !chunks.remainder().is_empty())
 }
 
 fn decode_string_with_charset(bytes: &[u8], charset: StandardCharset) -> String {
@@ -2734,21 +2734,18 @@ pub(crate) fn native_file_input_stream_read_bytes(
         return Ok(Some(Slot::Int(0)));
     }
 
-    let mut count = 0_usize;
-    for idx in 0..len {
-        let next = heap.read_host_file_byte(file_id)?;
-        if next < 0 {
-            break;
-        }
-        heap.get_mut(array_ref)?.fields[idx] = Slot::Int(next);
-        count += 1;
+    let mut buf = vec![0u8; len];
+    let read_res = heap.read_host_file_bytes(file_id, &mut buf)?;
+    if read_res < 0 {
+        return Ok(Some(Slot::Int(-1)));
     }
 
-    if count == 0 {
-        Ok(Some(Slot::Int(-1)))
-    } else {
-        Ok(Some(Slot::Int(i32::try_from(count).unwrap_or(i32::MAX))))
+    let count = usize::try_from(read_res).unwrap_or(0);
+    for (idx, &byte) in buf.iter().enumerate().take(count) {
+        heap.get_mut(array_ref)?.fields[idx] = Slot::Int(i32::from(byte));
     }
+
+    Ok(Some(Slot::Int(read_res)))
 }
 
 pub(crate) fn native_file_input_stream_close(
@@ -4448,9 +4445,7 @@ pub(crate) fn native_linked_list_init_collection(
     let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[1..=src_size].to_vec();
     let n = i32::try_from(src_elems.len()).unwrap_or(0);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(n);
-    for elem in src_elems {
-        heap.get_mut(this_ref)?.fields.push(elem);
-    }
+    heap.get_mut(this_ref)?.fields.extend(src_elems);
     Ok(None)
 }
 
@@ -5445,9 +5440,7 @@ pub(crate) fn native_stream_of(
     let n = i32::try_from(elems.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -5467,9 +5460,7 @@ pub(crate) fn native_arraylist_stream(
         heap.get(list_ref)?.fields[1..=usize::try_from(size).unwrap_or(0)].to_vec();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(size);
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -5525,9 +5516,7 @@ pub(crate) fn native_stream_filter(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(kept);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -5567,9 +5556,7 @@ pub(crate) fn native_stream_map(
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in mapped {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(mapped);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -6275,9 +6262,7 @@ pub(crate) fn native_stream_collect(
         let mapped_size = i32::try_from(mapped_elems.len()).unwrap_or(0);
         let tmp_stream = heap.allocate("duke/util/Stream".to_string(), 1);
         heap.get_mut(tmp_stream)?.fields[0] = Slot::Int(mapped_size);
-        for elem in mapped_elems {
-            heap.get_mut(tmp_stream)?.fields.push(elem);
-        }
+        heap.get_mut(tmp_stream)?.fields.extend(mapped_elems);
         let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
         native_stream_collect(&tmp_args, heap, out, control, ops)
     } else if collector_class == "duke/util/GroupingBy2Collector" {
@@ -6374,9 +6359,7 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(tmp_stream)?.fields[0] = group_size_field;
             let group_elems: Vec<Slot> =
                 heap.get(list_ref)?.fields[1..=usize::try_from(group_size).unwrap_or(0)].to_vec();
-            for e in group_elems {
-                heap.get_mut(tmp_stream)?.fields.push(e);
-            }
+            heap.get_mut(tmp_stream)?.fields.extend(group_elems);
             let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
             let collected = native_stream_collect(&tmp_args, heap, out, control, ops)?
                 .unwrap_or(Slot::Reference(None));
@@ -6637,17 +6620,13 @@ pub(crate) fn native_stream_collect(
         // toUnmodifiableList(): collect into UnmodifiableList (mutations throw).
         let list_ref = heap.allocate("java/util/UnmodifiableList".to_string(), 1);
         heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
-        for elem in elems {
-            heap.get_mut(list_ref)?.fields.push(elem);
-        }
+        heap.get_mut(list_ref)?.fields.extend(elems);
         Ok(Some(Slot::Reference(Some(list_ref))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
         heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
-        for elem in elems {
-            heap.get_mut(list_ref)?.fields.push(elem);
-        }
+        heap.get_mut(list_ref)?.fields.extend(elems);
         Ok(Some(Slot::Reference(Some(list_ref))))
     }
 }
@@ -6674,9 +6653,7 @@ pub(crate) fn native_stream_distinct(
     let new_size = i32::try_from(seen.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in seen {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(seen);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -6724,9 +6701,7 @@ pub(crate) fn native_stream_sorted(
     let new_size = i32::try_from(elems.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in elems {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -7114,9 +7089,7 @@ pub(crate) fn native_stream_peek(
     // Return a new stream with same elements (consumer may have GC'd things)
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(elems.len()).unwrap_or(0));
-    for elem in elems {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -7135,9 +7108,7 @@ pub(crate) fn native_stream_to_array(
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     // Arrays use fields directly (no length header); arraylength returns fields.len().
     let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
-    for elem in elems {
-        heap.get_mut(arr_ref)?.fields.push(elem);
-    }
+    heap.get_mut(arr_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
 
@@ -7249,9 +7220,7 @@ pub(crate) fn native_stream_skip(
     let new_size = i32::try_from(skipped.len()).unwrap_or(0);
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in skipped {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(skipped);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -7297,9 +7266,7 @@ pub(crate) fn native_stream_flat_map(
     let new_size = i32::try_from(flat.len()).unwrap_or(0);
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in flat {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(flat);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -7739,9 +7706,7 @@ pub(crate) fn native_int_stream_map_to_obj(
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in mapped {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(mapped);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -14134,6 +14099,8 @@ fn allocate_read_write_view(
     Ok(Slot::Reference(Some(view_ref)))
 }
 
+/// Native: `ReentrantReadWriteLock.init()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -14174,6 +14141,8 @@ pub(crate) fn native_reentrant_read_write_lock_init(
     Ok(None)
 }
 
+/// Native: `ReentrantReadWriteLock.readLock()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_read_lock(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -14207,6 +14176,8 @@ pub(crate) fn native_reentrant_read_write_lock_read_lock(
     Ok(Some(slot))
 }
 
+/// Native: `ReentrantReadWriteLock.writeLock()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_write_lock(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -15530,9 +15501,7 @@ pub(crate) fn native_arrays_stream_object(
     let n = i32::try_from(elems.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -16110,7 +16079,11 @@ pub(crate) fn native_string_concat(
         .string_value
         .clone()
         .unwrap_or_default();
-    let r = heap.allocate_string(format!("{s1}{s2}"));
+    // ⚡ Bolt: Eliminate intermediate format! allocation
+    let mut combined = String::with_capacity(s1.len() + s2.len());
+    combined.push_str(&s1);
+    combined.push_str(&s2);
+    let r = heap.allocate_string(combined);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -21453,7 +21426,7 @@ fn native_control_for_call(
 fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
     use duke_classfile::MethodAccessFlags;
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     let source_file = cf.attributes.iter().find_map(|a| {
         if let AttributeData::SourceFile { sourcefile_index } = &a.data {
@@ -21587,7 +21560,7 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
 
 fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<Slot>, usize) {
     use duke_classfile::FieldAccessFlags;
-    use duke_classfile::types::CpEntry;
+    use duke_classfile::CpEntry;
 
     let mut fields = Vec::with_capacity(cf.fields.len());
     let mut static_fields = Vec::new();
@@ -21636,7 +21609,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 /// # use duke_interpreter::build_class_context;
 /// # use duke_classfile::{ClassFile, ClassAccessFlags};
-/// # use duke_classfile::types::{CpIndex, CpEntry};
+/// # use duke_classfile::{CpIndex, CpEntry};
 /// // A minimal class file representation of `java/lang/Object`.
 /// let cf = ClassFile {
 ///     minor_version: 0,
@@ -21661,7 +21634,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 #[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     // Resolve this_class -> class name string.
     let class_name = {
@@ -21799,9 +21772,9 @@ fn cp_annotation_const(
 
 fn resolve_annotation_value(
     cp: &[Option<CpEntry>],
-    value: &duke_classfile::types::ElementValue,
+    value: &duke_classfile::ElementValue,
 ) -> Option<ReflectedAnnotationValue> {
-    use duke_classfile::types::ElementValue;
+    use duke_classfile::ElementValue;
     match value {
         ElementValue::ConstValueIndex(index) => cp_annotation_const(cp, index.0 as usize)
             .map(ReflectedAnnotationValue::Const),
@@ -21835,7 +21808,7 @@ fn resolve_annotation_value(
 
 fn resolve_annotation(
     cp: &[Option<CpEntry>],
-    annotation: &duke_classfile::types::Annotation,
+    annotation: &duke_classfile::Annotation,
 ) -> Option<ReflectedAnnotation> {
     let descriptor = cp_utf8_string(cp, annotation.type_index.0 as usize).ok()?;
     let elements = annotation
@@ -21856,12 +21829,12 @@ fn resolve_annotation(
 
 fn runtime_visible_annotations_from_attrs(
     cp: &[Option<CpEntry>],
-    attrs: &[duke_classfile::types::AttributeInfo],
+    attrs: &[duke_classfile::AttributeInfo],
 ) -> Vec<ReflectedAnnotation> {
     attrs
         .iter()
         .find_map(|attr| {
-            if let duke_classfile::types::AttributeData::RuntimeVisibleAnnotations(annotations) =
+            if let duke_classfile::AttributeData::RuntimeVisibleAnnotations(annotations) =
                 &attr.data
             {
                 Some(
@@ -21879,10 +21852,10 @@ fn runtime_visible_annotations_from_attrs(
 
 fn annotation_default_from_attrs(
     cp: &[Option<CpEntry>],
-    attrs: &[duke_classfile::types::AttributeInfo],
+    attrs: &[duke_classfile::AttributeInfo],
 ) -> Option<ReflectedAnnotationValue> {
     attrs.iter().find_map(|attr| {
-        if let duke_classfile::types::AttributeData::AnnotationDefault(value) = &attr.data {
+        if let duke_classfile::AttributeData::AnnotationDefault(value) = &attr.data {
             resolve_annotation_value(cp, value)
         } else {
             None
@@ -23599,8 +23572,8 @@ fn materialize_java_exception_object(
     Ok(exc_ref)
 }
 
-type PendingExceptionMessages = std::sync::Mutex<HashMap<String, VecDeque<String>>>;
-type PendingExceptionCauses = std::sync::Mutex<HashMap<String, VecDeque<Slot>>>;
+type PendingExceptionMessages = std::sync::Mutex<HashMap<(std::thread::ThreadId, String), VecDeque<String>>>;
+type PendingExceptionCauses = std::sync::Mutex<HashMap<(std::thread::ThreadId, String), VecDeque<Slot>>>;
 type UncaughtExceptionRefs = std::sync::Mutex<HashMap<std::thread::ThreadId, VecDeque<(String, u64)>>>;
 
 fn pending_java_exception_messages() -> &'static PendingExceptionMessages {
@@ -23613,7 +23586,7 @@ fn push_pending_java_exception_message(class_name: &str, message: String) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     messages
-        .entry(class_name.to_string())
+        .entry((std::thread::current().id(), class_name.to_string()))
         .or_default()
         .push_back(message);
 }
@@ -23622,10 +23595,11 @@ fn pop_pending_java_exception_message(class_name: &str) -> Option<String> {
     let mut messages = pending_java_exception_messages()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let queue = messages.get_mut(class_name)?;
+    let key = (std::thread::current().id(), class_name.to_string());
+    let queue = messages.get_mut(&key)?;
     let message = queue.pop_front();
     if queue.is_empty() {
-        messages.remove(class_name);
+        messages.remove(&key);
     }
     message
 }
@@ -23640,7 +23614,7 @@ fn push_pending_java_exception_cause(class_name: &str, cause: Slot) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     causes
-        .entry(class_name.to_string())
+        .entry((std::thread::current().id(), class_name.to_string()))
         .or_default()
         .push_back(cause);
 }
@@ -23649,10 +23623,11 @@ fn pop_pending_java_exception_cause(class_name: &str) -> Option<Slot> {
     let mut causes = pending_java_exception_causes()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let queue = causes.get_mut(class_name)?;
+    let key = (std::thread::current().id(), class_name.to_string());
+    let queue = causes.get_mut(&key)?;
     let cause = queue.pop_front();
     if queue.is_empty() {
-        causes.remove(class_name);
+        causes.remove(&key);
     }
     cause
 }
@@ -25713,9 +25688,7 @@ pub(crate) fn native_arraylist_sub_list(
     };
     let sub_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
     heap.get_mut(sub_ref)?.fields[0] = Slot::Int(i32::try_from(new_len).unwrap_or(0));
-    for elem in src_elems {
-        heap.get_mut(sub_ref)?.fields.push(elem);
-    }
+    heap.get_mut(sub_ref)?.fields.extend(src_elems);
     Ok(Some(Slot::Reference(Some(sub_ref))))
 }
 
@@ -25761,9 +25734,7 @@ pub(crate) fn native_arraylist_remove_if(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     heap.get_mut(this_ref)?.fields.truncate(1);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(this_ref)?.fields.push(elem);
-    }
+    heap.get_mut(this_ref)?.fields.extend(kept);
     Ok(Some(Slot::Int(i32::from(removed))))
 }
 
@@ -29764,13 +29735,14 @@ pub(crate) fn native_properties_load(
     let this_ref = extract_ref_arg(args, 0)?;
     let file_id = properties_stream_id_from_slot(extract_slot_arg(args, 1), heap)?;
     let mut bytes = Vec::new();
+    let mut buf = [0u8; 4096];
     loop {
-        let next = heap.read_host_file_byte(file_id)?;
-        if next < 0 {
+        let n = heap.read_host_file_bytes(file_id, &mut buf)?;
+        if n < 0 {
             break;
         }
-        let byte = u8::try_from(next).map_err(|_| properties_io_exception())?;
-        bytes.push(byte);
+        let n = usize::try_from(n).unwrap_or(0);
+        bytes.extend_from_slice(&buf[..n]);
     }
 
     for (key, value) in parse_properties_bytes(&bytes)? {
@@ -30994,9 +30966,7 @@ pub(crate) fn native_hashset_stream(
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -31383,9 +31353,7 @@ pub(crate) fn native_stream_concat(
     let total = a_size + b_size;
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(total).unwrap_or(0));
-    for elem in a_elems.into_iter().chain(b_elems) {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(a_elems.into_iter().chain(b_elems));
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -31444,9 +31412,7 @@ pub(crate) fn native_stream_take_while(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(kept);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -31491,9 +31457,7 @@ pub(crate) fn native_stream_drop_while(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(kept);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -31578,9 +31542,7 @@ pub(crate) fn native_stream_sorted_comparator(
     let new_size = i32::try_from(elems.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in elems {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -35282,9 +35244,7 @@ pub(crate) fn native_stream_iterate_predicate(
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     let size = i32::try_from(elems.len()).unwrap_or(i32::MAX);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(size);
-    for elem in elems {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -35446,9 +35406,7 @@ pub(crate) fn native_arraydeque_stream(
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
-    for elem in elems {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -37919,4 +37877,132 @@ mod native_helper_tests {
         let res = extract_slot_arg(&args, 0);
         assert_eq!(res, Slot::Reference(None));
     }
+
+    #[test]
+    fn should_init_reentrant_read_write_lock() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_init(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, None);
+        let lock_obj = heap.get(lock_ref).unwrap();
+        assert!(matches!(lock_obj.atomic_payload, Some(duke_gc::AtomicPayload::ReadWriteLock(_))));
+        assert!(matches!(lock_obj.fields[0], Slot::Reference(Some(_))));
+        assert!(matches!(lock_obj.fields[1], Slot::Reference(Some(_))));
+    }
+
+    #[test]
+    fn should_return_existing_read_lock_if_present() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let read_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock".to_string(), 0);
+        heap.get_mut(lock_ref).unwrap().fields[0] = Slot::Reference(Some(read_ref));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_read_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(Some(read_ref))));
+    }
+
+    #[test]
+    fn should_create_new_read_lock_if_missing() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 1);
+        let state = std::sync::Arc::new(std::sync::Mutex::new(duke_gc::ReadWriteLockState::default()));
+        heap.get_mut(lock_ref).unwrap().atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_read_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert!(matches!(res, Some(Slot::Reference(Some(_)))));
+    }
+
+    #[test]
+    fn should_return_existing_write_lock_if_present() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let write_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock".to_string(), 0);
+        heap.get_mut(lock_ref).unwrap().fields[1] = Slot::Reference(Some(write_ref));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_write_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(Some(write_ref))));
+    }
+
+    #[test]
+    fn should_create_new_write_lock_if_missing() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let state = std::sync::Arc::new(std::sync::Mutex::new(duke_gc::ReadWriteLockState::default()));
+        heap.get_mut(lock_ref).unwrap().atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_write_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert!(matches!(res, Some(Slot::Reference(Some(_)))));
+    }
+
+
+    #[test]
+    fn should_return_none_when_priorityqueue_peek_size_zero() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(0);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(None)));
+    }
+
+    #[test]
+    fn should_return_none_when_priorityqueue_peek_no_fields() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 0);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(None)));
+    }
+
+    #[test]
+    fn should_return_element_when_priorityqueue_peek_size_not_zero() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 2);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(1);
+        heap.get_mut(obj_ref).unwrap().fields[1] = Slot::Int(42);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Int(42)));
+    }
+
+}
+
+#[cfg(test)]
+mod tests_sentry {
+
+    #[test]
+    fn test_atomic_helpers_error_paths() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/lang/Object".to_string(), 0);
+
+        let err_i32 = super::with_atomic_i32(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_i32, crate::Error::InvalidRef { address: _ }));
+
+        let err_i64 = super::with_atomic_i64(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_i64, crate::Error::InvalidRef { address: _ }));
+
+        let err_bool = super::with_atomic_bool(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_bool, crate::Error::InvalidRef { address: _ }));
+    }
+
 }
