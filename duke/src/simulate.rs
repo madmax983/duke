@@ -1,7 +1,7 @@
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;
 #[cfg(feature = "nova")]
-use duke_classfile::types::{AttributeData, ClassFile, CpEntry, CpIndex};
+use duke_classfile::{AttributeData, ClassFile, CpEntry, CpIndex};
 
 #[cfg(feature = "nova")]
 #[allow(unexpected_cfgs)]
@@ -52,8 +52,7 @@ pub fn dump_simulate(path: &str, method_name: &str) {
 mod tests {
     use super::*;
     use duke_classfile::{
-        ClassAccessFlags,
-        types::{ClassFile, CpEntry, CpIndex},
+        ClassAccessFlags, {ClassFile, CpEntry, CpIndex},
     };
 
     #[test]

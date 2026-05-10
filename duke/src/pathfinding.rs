@@ -3,8 +3,7 @@
 use duke_bytecode::{build_basic_blocks, decode, find_shortest_path};
 #[cfg(feature = "nova")]
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry},
+    parse, {AttributeData, CpEntry},
 };
 use std::process;
 

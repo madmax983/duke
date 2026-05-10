@@ -43,6 +43,13 @@ pub enum Error {
         offset: usize,
     },
 
+    /// Parsing exceeded maximum recursion depth.
+    #[error("exceeded maximum recursion depth at offset {offset}")]
+    RecursionLimitExceeded {
+        /// Offset where the limit was exceeded.
+        offset: usize,
+    },
+
     /// The parsed file does not begin with the JVM magic number (`0xCAFEBABE`).
     #[error("invalid magic number: expected 0xCAFEBABE, got {got:#010X}")]
     BadMagic {

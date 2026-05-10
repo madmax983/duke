@@ -301,6 +301,12 @@ pub struct ZipLoader {
 }
 
 impl ZipLoader {
+    #[inline]
+    fn append_boot_inf_classes_path(buf: &mut String, name: &str) {
+        buf.push_str("BOOT-INF/classes/");
+        buf.push_str(name);
+    }
+
     /// Open a ZIP/JAR file as a class loader.
     ///
     /// This immediately memory-maps the file and parses its Central Directory to build
@@ -345,9 +351,15 @@ impl ZipLoader {
             nested_libs,
         })
     }
-
+    /// ⚡ Bolt: Eliminates intermediate String allocation and `format!` macro overhead
+    /// by pre-computing string capacity and using `.push_str()` sequentially.
     fn resource_url(&self, entry_name: &str) -> String {
-        format!("jar:{}!/{entry_name}", self.container_spec)
+        let mut url = String::with_capacity(4 + self.container_spec.len() + 2 + entry_name.len());
+        url.push_str("jar:");
+        url.push_str(&self.container_spec);
+        url.push_str("!/");
+        url.push_str(entry_name);
+        url
     }
 }
 
@@ -367,8 +379,7 @@ impl ClassLoader for ZipLoader {
 
         // Try BOOT-INF path: BOOT-INF/classes/{name}.class
         entry_name.clear();
-        entry_name.push_str("BOOT-INF/classes/");
-        entry_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut entry_name, name);
         entry_name.push_str(".class");
         match self.reader.read_entry(&entry_name) {
             Err(Error::NotFound { .. }) => {}
@@ -394,8 +405,7 @@ impl ClassLoader for ZipLoader {
 
         // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Err(Error::NotFound { .. }) => {}
             result => return result,
@@ -422,8 +432,7 @@ impl ClassLoader for ZipLoader {
 
         // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => resources.push(bytes),
             Err(Error::NotFound { .. }) => {}
@@ -449,8 +458,7 @@ impl ClassLoader for ZipLoader {
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => {
                 return Ok(LocatedResource {
@@ -486,8 +494,7 @@ impl ClassLoader for ZipLoader {
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => resources.push(LocatedResource {
                 bytes,
@@ -515,9 +522,16 @@ fn nested_boot_inf_lib_loaders(reader: &ZipReader, container_spec: &str) -> Resu
     let mut nested_libs = Vec::with_capacity(nested_entry_names.len());
     for entry_name in nested_entry_names {
         let nested_bytes = reader.read_entry(entry_name)?;
+
+        let mut nested_container_spec =
+            String::with_capacity(container_spec.len() + 2 + entry_name.len());
+        nested_container_spec.push_str(container_spec);
+        nested_container_spec.push_str("!/");
+        nested_container_spec.push_str(entry_name);
+
         nested_libs.push(ZipLoader::from_reader(
             ZipReader::from_bytes(nested_bytes)?,
-            format!("{container_spec}!/{entry_name}"),
+            nested_container_spec,
         )?);
     }
     Ok(nested_libs)

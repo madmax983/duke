@@ -12,7 +12,7 @@
 use std::io::Write;
 
 use duke_bytecode::Instruction;
-use duke_classfile::types::CpEntry;
+use duke_classfile::CpEntry;
 use duke_loader::ClassLoader;
 use duke_runtime::{Error, Frame, Result, Slot};
 
@@ -1707,7 +1707,9 @@ pub fn run_execution(
                                 };
 
                                 let obj = heap.get(this_ref)?;
-                                let mut impl_args: Vec<Slot> = Vec::new();
+                                // ⚡ Bolt: Pre-allocate vector capacity to avoid multiple reallocations during push/extend
+                                let mut impl_args: Vec<Slot> =
+                                    Vec::with_capacity(lambda_info.captured_count + sam_args.len());
                                 for i in 0..lambda_info.captured_count {
                                     impl_args.push(obj.fields[i]);
                                 }
@@ -2580,7 +2582,7 @@ pub fn run_execution(
                         .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
                     let (_kind, class, _name, _desc) =
                         resolve_method_handle(&ctx.constant_pool, bsm_entry.method_ref.0 as usize)?;
-                    let args: Vec<duke_classfile::types::CpIndex> = bsm_entry.arguments.clone();
+                    let args: Vec<duke_classfile::CpIndex> = bsm_entry.arguments.clone();
                     (class, args)
                 };
 
@@ -3031,7 +3033,10 @@ pub fn run_execution(
                                 _ => return Err(Error::NullPointerException),
                             };
                             let obj = heap.get(this_ref)?;
-                            let mut impl_args: Vec<Slot> = Vec::new();
+                            // ⚡ Bolt: Pre-allocate vector capacity to avoid multiple reallocations during push/extend
+                            let mut impl_args: Vec<Slot> = Vec::with_capacity(
+                                lambda_info.captured_count + callee_args.len() - 1,
+                            );
                             for i in 0..lambda_info.captured_count {
                                 impl_args.push(obj.fields[i]);
                             }
@@ -3492,8 +3497,9 @@ pub fn run_execution(
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
 
+                // ⚡ Bolt: Pre-allocate vector capacity to avoid intermediate reallocations
                 // Pop dimension sizes from stack (first popped is rightmost dimension).
-                let mut dims: Vec<i32> = Vec::new();
+                let mut dims: Vec<i32> = Vec::with_capacity(*dimensions as usize);
                 for _ in 0..*dimensions {
                     dims.push(frame.pop_int()?);
                 }

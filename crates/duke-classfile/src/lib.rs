@@ -22,20 +22,12 @@ pub(crate) mod constant_pool;
 pub(crate) mod error;
 pub(crate) mod parser;
 
-/// Compatibility module re-exporting the split type structures.
-pub mod types {
-    pub use crate::attributes::*;
-    pub use crate::class::*;
-    pub use crate::constant_pool::*;
-}
-
+pub use crate::attributes::*;
+pub use crate::class::*;
+pub use crate::constant_pool::*;
 pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, Result};
 pub use parser::parse;
-pub use types::{
-    AttributeData, AttributeInfo, ClassFile, CodeAttribute, CpEntry, CpIndex, ExceptionTableEntry,
-    FieldInfo, LineNumberEntry, LocalVariableEntry, MethodInfo,
-};
 
 #[cfg(test)]
 mod tests {
@@ -760,26 +752,26 @@ mod tests {
 
         for attr in &cf.attributes {
             match &attr.data {
-                crate::types::AttributeData::LineNumberTable(entries) => {
+                AttributeData::LineNumberTable(entries) => {
                     lnt_found = true;
                     assert_eq!(entries.len(), 1);
                     assert_eq!(entries[0].start_pc, 0);
                     assert_eq!(entries[0].line_number, 10);
                 }
-                crate::types::AttributeData::LocalVariableTable(entries) => {
+                AttributeData::LocalVariableTable(entries) => {
                     found_lvt = true;
                     assert_eq!(entries.len(), 1);
                     assert_eq!(entries[0].start_pc, 0);
                     assert_eq!(entries[0].length, 10);
                 }
-                crate::types::AttributeData::Exceptions {
+                AttributeData::Exceptions {
                     exception_index_table,
                 } => {
                     found_exc = true;
                     assert_eq!(exception_index_table.len(), 1);
                     assert_eq!(exception_index_table[0].0, 2);
                 }
-                crate::types::AttributeData::BootstrapMethods(entries) => {
+                AttributeData::BootstrapMethods(entries) => {
                     found_bm = true;
                     assert_eq!(entries.len(), 1);
                     assert_eq!(entries[0].method_ref.0, 9);

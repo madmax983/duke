@@ -3,15 +3,14 @@
 use duke_bytecode::decode;
 #[cfg(feature = "nova")]
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, {AttributeData, CpEntry, CpIndex},
 };
 use std::process;
 
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
-fn cp_str(cf: &duke_classfile::types::ClassFile, idx: CpIndex) -> Option<&str> {
+fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
         .and_then(|slot| slot.as_ref())

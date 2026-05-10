@@ -1,7 +1,6 @@
 use duke_bytecode::decode;
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, {AttributeData, CpEntry, CpIndex},
 };
 use std::process;
 
@@ -88,7 +87,7 @@ pub fn dump_search(path: &str, query: &str) {
 mod tests {
     use super::*;
     use duke_classfile::ClassAccessFlags;
-    use duke_classfile::types::ClassFile;
+    use duke_classfile::ClassFile;
 
     #[test]
     fn test_dump_search_valid() {

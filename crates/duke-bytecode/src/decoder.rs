@@ -2,14 +2,12 @@
 //!
 //! Returns a vector of `(pc, Instruction)` pairs. The `pc` is the byte offset
 //! of the instruction within the Code array (as used by branch targets).
-
 use crate::{
     error::{DecodeError, Result},
     instruction::{ArrayType, Instruction},
     opcodes as op,
 };
 use duke_classfile::CpIndex;
-
 /// Decode a bytecode sequence from a `Code` attribute into typed instructions.
 ///
 /// This performs the first pass over a raw byte stream, resolving variable-length
@@ -41,35 +39,28 @@ pub fn decode(code: &[u8]) -> Result<Vec<(usize, Instruction)>> {
     // multiple reallocations during parsing. A heuristic of 3 bytes per instruction
     // provides a good balance between memory overhead and allocation avoidance.
     let mut instructions = Vec::with_capacity(code.len() / 3);
-
     while cursor.has_remaining() {
         let pc = cursor.pos;
         let opcode = cursor.read_u8()?;
         let instr = decode_one(&mut cursor, opcode, pc)?;
         instructions.push((pc, instr));
     }
-
     Ok(instructions)
 }
-
 // ---------------------------------------------------------------------------
 // Cursor
 // ---------------------------------------------------------------------------
-
 struct Cursor<'a> {
     data: &'a [u8],
     pos: usize,
 }
-
 impl<'a> Cursor<'a> {
     const fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
-
     const fn has_remaining(&self) -> bool {
         self.pos < self.data.len()
     }
-
     fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
             return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
@@ -80,11 +71,9 @@ impl<'a> Cursor<'a> {
         self.pos += 1;
         Ok(b)
     }
-
     fn read_i8(&mut self) -> Result<i8> {
         Ok(self.read_u8()?.cast_signed())
     }
-
     fn read_u16(&mut self) -> Result<u16> {
         if self.pos + 2 > self.data.len() {
             return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
@@ -95,11 +84,9 @@ impl<'a> Cursor<'a> {
         self.pos += 2;
         Ok(u16::from_be_bytes(bytes))
     }
-
     fn read_i16(&mut self) -> Result<i16> {
         Ok(self.read_u16()?.cast_signed())
     }
-
     fn read_u32(&mut self) -> Result<u32> {
         if self.pos + 4 > self.data.len() {
             return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
@@ -115,15 +102,12 @@ impl<'a> Cursor<'a> {
         self.pos += 4;
         Ok(u32::from_be_bytes(bytes))
     }
-
     fn read_i32(&mut self) -> Result<i32> {
         Ok(self.read_u32()?.cast_signed())
     }
-
     fn read_cp(&mut self) -> Result<CpIndex> {
         Ok(CpIndex(self.read_u16()?))
     }
-
     /// Advance to the next 4-byte boundary (relative to the start of the Code array).
     const fn align4(&mut self) {
         let rem = self.pos % 4;
@@ -132,15 +116,11 @@ impl<'a> Cursor<'a> {
         }
     }
 }
-
 // ---------------------------------------------------------------------------
 // Core dispatch
 // ---------------------------------------------------------------------------
-
-#[allow(clippy::too_many_lines)]
-fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
-    let instr = match opcode {
-        // -- Constants -------------------------------------------------------
+fn decode_constant_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
         op::NOP => Instruction::Nop,
         op::ACONST_NULL => Instruction::AconstNull,
         op::ICONST_M1 => Instruction::IconstM1,
@@ -162,7 +142,11 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::LDC => Instruction::Ldc(c.read_u8()?),
         op::LDC_W => Instruction::LdcW(c.read_cp()?),
         op::LDC2_W => Instruction::Ldc2W(c.read_cp()?),
-
+        _ => unreachable!(),
+    })
+}
+fn decode_load_store_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
         // -- Loads -----------------------------------------------------------
         op::ILOAD => Instruction::Iload(c.read_u8()?),
         op::LLOAD => Instruction::Lload(c.read_u8()?),
@@ -197,7 +181,6 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::BALOAD => Instruction::Baload,
         op::CALOAD => Instruction::Caload,
         op::SALOAD => Instruction::Saload,
-
         // -- Stores ----------------------------------------------------------
         op::ISTORE => Instruction::Istore(c.read_u8()?),
         op::LSTORE => Instruction::Lstore(c.read_u8()?),
@@ -232,19 +215,11 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::BASTORE => Instruction::Bastore,
         op::CASTORE => Instruction::Castore,
         op::SASTORE => Instruction::Sastore,
-
-        // -- Stack -----------------------------------------------------------
-        op::POP => Instruction::Pop,
-        op::POP2 => Instruction::Pop2,
-        op::DUP => Instruction::Dup,
-        op::DUP_X1 => Instruction::DupX1,
-        op::DUP_X2 => Instruction::DupX2,
-        op::DUP2 => Instruction::Dup2,
-        op::DUP2_X1 => Instruction::Dup2X1,
-        op::DUP2_X2 => Instruction::Dup2X2,
-        op::SWAP => Instruction::Swap,
-
-        // -- Arithmetic ------------------------------------------------------
+        _ => unreachable!(),
+    })
+}
+fn decode_math_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
         op::IADD => Instruction::Iadd,
         op::LADD => Instruction::Ladd,
         op::FADD => Instruction::Fadd,
@@ -285,8 +260,12 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
             index: c.read_u8()?,
             value: c.read_i8()?,
         },
-
-        // -- Conversions -----------------------------------------------------
+        _ => unreachable!(),
+    })
+}
+#[allow(clippy::unnecessary_wraps)]
+fn decode_conversion_op(opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
         op::I2L => Instruction::I2l,
         op::I2F => Instruction::I2f,
         op::I2D => Instruction::I2d,
@@ -302,14 +281,17 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::I2B => Instruction::I2b,
         op::I2C => Instruction::I2c,
         op::I2S => Instruction::I2s,
-
+        _ => unreachable!(),
+    })
+}
+fn decode_control_flow_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
+    Ok(match opcode {
         // -- Comparisons -----------------------------------------------------
         op::LCMP => Instruction::Lcmp,
         op::FCMPL => Instruction::Fcmpl,
         op::FCMPG => Instruction::Fcmpg,
         op::DCMPL => Instruction::Dcmpl,
         op::DCMPG => Instruction::Dcmpg,
-
         // -- Branches --------------------------------------------------------
         op::IFEQ => Instruction::Ifeq(c.read_i16()?),
         op::IFNE => Instruction::Ifne(c.read_i16()?),
@@ -328,13 +310,10 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::GOTO => Instruction::Goto(c.read_i16()?),
         op::JSR => Instruction::Jsr(c.read_i16()?),
         op::RET => Instruction::Ret(c.read_u8()?),
-
         // -- Tableswitch (§6.5 tableswitch) ----------------------------------
-        op::TABLESWITCH => decode_tableswitch(c, pc)?,
-
+        op::TABLESWITCH => return decode_tableswitch(c, pc),
         // -- Lookupswitch (§6.5 lookupswitch) --------------------------------
-        op::LOOKUPSWITCH => decode_lookupswitch(c, pc)?,
-
+        op::LOOKUPSWITCH => return decode_lookupswitch(c, pc),
         // -- Returns ---------------------------------------------------------
         op::IRETURN => Instruction::Ireturn,
         op::LRETURN => Instruction::Lreturn,
@@ -342,7 +321,11 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::DRETURN => Instruction::Dreturn,
         op::ARETURN => Instruction::Areturn,
         op::RETURN => Instruction::Return,
-
+        _ => unreachable!(),
+    })
+}
+fn decode_object_invoke_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
+    Ok(match opcode {
         // -- Field / method --------------------------------------------------
         op::GETSTATIC => Instruction::Getstatic(c.read_cp()?),
         op::PUTSTATIC => Instruction::Putstatic(c.read_cp()?),
@@ -377,7 +360,6 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
             }
             Instruction::Invokedynamic(index)
         }
-
         // -- Object / array --------------------------------------------------
         op::NEW => Instruction::New(c.read_cp()?),
         op::NEWARRAY => {
@@ -393,11 +375,11 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::INSTANCEOF => Instruction::Instanceof(c.read_cp()?),
         op::MONITORENTER => Instruction::Monitorenter,
         op::MONITOREXIT => Instruction::Monitorexit,
-
-        // -- Wide prefix (§6.5 wide) -----------------------------------------
-        op::WIDE => decode_wide(c, pc)?,
-
-        // -- Extended --------------------------------------------------------
+        _ => unreachable!(),
+    })
+}
+fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
         op::MULTIANEWARRAY => {
             let index = c.read_cp()?;
             let dimensions = c.read_u8()?;
@@ -407,16 +389,39 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
         op::IFNONNULL => Instruction::Ifnonnull(c.read_i16()?),
         op::GOTO_W => Instruction::GotoW(c.read_i32()?),
         op::JSR_W => Instruction::JsrW(c.read_i32()?),
+        _ => unreachable!(),
+    })
+}
 
-        // -- Unknown ---------------------------------------------------------
-        other => {
-            return Err(crate::Error::Decode(DecodeError::UnknownOpcode {
-                pc,
-                opcode: other,
-            }));
-        }
-    };
-    Ok(instr)
+#[allow(clippy::unnecessary_wraps)]
+#[allow(clippy::too_many_lines)]
+fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
+    match opcode {
+        op::NOP..=op::LDC2_W => decode_constant_op(c, opcode),
+        op::ILOAD..=op::SASTORE => decode_load_store_op(c, opcode),
+        op::POP..=op::SWAP => Ok(match opcode {
+            op::POP => Instruction::Pop,
+            op::POP2 => Instruction::Pop2,
+            op::DUP => Instruction::Dup,
+            op::DUP_X1 => Instruction::DupX1,
+            op::DUP_X2 => Instruction::DupX2,
+            op::DUP2 => Instruction::Dup2,
+            op::DUP2_X1 => Instruction::Dup2X1,
+            op::DUP2_X2 => Instruction::Dup2X2,
+            op::SWAP => Instruction::Swap,
+            _ => unreachable!(),
+        }),
+        op::IADD..=op::IINC => decode_math_op(c, opcode),
+        op::I2L..=op::I2S => decode_conversion_op(opcode),
+        op::LCMP..=op::RETURN => decode_control_flow_op(c, opcode, pc),
+        op::GETSTATIC..=op::MONITOREXIT => decode_object_invoke_op(c, opcode, pc),
+        op::WIDE => decode_wide(c, pc),
+        op::MULTIANEWARRAY..=op::JSR_W => decode_extended_op(c, opcode),
+        other => Err(crate::Error::Decode(DecodeError::UnknownOpcode {
+            pc,
+            opcode: other,
+        })),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +463,6 @@ fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
         offsets,
     })
 }
-
 fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     c.align4();
     let default = c.read_i32()?;
@@ -485,10 +489,8 @@ fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     }
     Ok(Instruction::Lookupswitch { default, pairs })
 }
-
 // Wide prefix handler
 // ---------------------------------------------------------------------------
-
 fn decode_wide(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     let opcode = c.read_u8()?;
     let instr = match opcode {
@@ -516,11 +518,9 @@ fn decode_wide(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     };
     Ok(instr)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_decoder_truncated_operands() {
         // Sipush needs 2 bytes, only 1 provided
@@ -531,7 +531,6 @@ mod tests {
             crate::Error::Decode(DecodeError::UnexpectedEof { pc: 1 })
         ));
     }
-
     #[test]
     fn test_decoder_unknown_opcode() {
         let code = [0xFF];
@@ -544,7 +543,6 @@ mod tests {
             })
         ));
     }
-
     #[test]
     fn test_decoder_invalid_wide_prefix() {
         // Wide followed by an invalid opcode (e.g. NOP)
@@ -558,7 +556,6 @@ mod tests {
             })
         ));
     }
-
     #[test]
     fn test_decoder_spot_checks() {
         // Iload2, Fload0, Saload, Dstore3, Swap, Newarray(Int)
@@ -572,7 +569,6 @@ mod tests {
         assert_eq!(instrs[4].1, Instruction::Swap);
         assert_eq!(instrs[5].1, Instruction::Newarray(ArrayType::Int));
     }
-
     #[test]
     fn test_decoder_spot_checks2() {
         // Astore3, Athrow
@@ -582,7 +578,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Astore3);
         assert_eq!(instrs[1].1, Instruction::Athrow);
     }
-
     #[test]
     fn test_decoder_spot_checks3() {
         // Sastore, Goto
@@ -592,7 +587,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Sastore);
         assert_eq!(instrs[1].1, Instruction::Goto(0x0102));
     }
-
     #[test]
     fn test_decoder_spot_checks4() {
         // Aload3, Caload, Iastore, Pop2, Iinc(index=1, value=2)
@@ -605,7 +599,6 @@ mod tests {
         assert_eq!(instrs[3].1, Instruction::Pop2);
         assert_eq!(instrs[4].1, Instruction::Iinc { index: 1, value: 2 });
     }
-
     #[test]
     fn test_decoder_spot_checks5() {
         // Fstore1
@@ -614,7 +607,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Fstore1);
     }
-
     #[test]
     fn test_decoder_coverage_additional() {
         let code = vec![
@@ -647,7 +639,6 @@ mod tests {
             }
         );
     }
-
     #[test]
     fn test_decoder_spot_checks6() {
         // Iconst5, Dload3
@@ -657,7 +648,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Iconst5);
         assert_eq!(instrs[1].1, Instruction::Dload3);
     }
-
     #[test]
     fn test_decoder_spot_checks7() {
         // Iconst4, Ifgt
@@ -667,7 +657,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Iconst4);
         assert_eq!(instrs[1].1, Instruction::Ifgt(0x0102));
     }
-
     #[test]
     fn test_decoder_spot_checks8() {
         // IfIcmpeq
@@ -676,7 +665,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::IfIcmpeq(0x0102));
     }
-
     #[test]
     fn test_decoder_spot_checks9() {
         // Astore1, Irem
@@ -686,7 +674,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Astore1);
         assert_eq!(instrs[1].1, Instruction::Irem);
     }
-
     #[test]
     fn test_decoder_spot_checks10() {
         // Lsub, IfIcmple, Checkcast
@@ -697,7 +684,6 @@ mod tests {
         assert_eq!(instrs[1].1, Instruction::IfIcmple(0x0102));
         assert_eq!(instrs[2].1, Instruction::Checkcast(CpIndex(0x0304)));
     }
-
     #[test]
     fn test_decoder_spot_checks11() {
         // IconstM1, Astore, Ishr
@@ -708,7 +694,6 @@ mod tests {
         assert_eq!(instrs[1].1, Instruction::Astore(0x01));
         assert_eq!(instrs[2].1, Instruction::Ishr);
     }
-
     #[test]
     fn test_decoder_spot_checks12() {
         // Lstore0, Lshr
@@ -718,7 +703,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Lstore0);
         assert_eq!(instrs[1].1, Instruction::Lshr);
     }
-
     #[test]
     fn test_decoder_spot_checks13() {
         // Dload2
@@ -727,7 +711,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Dload2);
     }
-
     #[test]
     fn test_decoder_spot_checks14() {
         // Dload1, I2l, Dcmpl, Monitorexit
@@ -739,7 +722,6 @@ mod tests {
         assert_eq!(instrs[2].1, Instruction::Dcmpl);
         assert_eq!(instrs[3].1, Instruction::Monitorexit);
     }
-
     #[test]
     fn test_decoder_spot_checks15() {
         // Dload0
@@ -748,7 +730,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Dload0);
     }
-
     #[test]
     fn test_decoder_spot_checks16() {
         // Iconst2, LdcW, Ret, Anewarray
@@ -760,7 +741,6 @@ mod tests {
         assert_eq!(instrs[2].1, Instruction::Ret(0x01));
         assert_eq!(instrs[3].1, Instruction::Anewarray(CpIndex(0x0102)));
     }
-
     #[test]
     fn test_decoder_spot_checks17() {
         // New
@@ -769,7 +749,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::New(CpIndex(0x0102)));
     }
-
     #[test]
     fn test_decoder_spot_checks18() {
         // Ior, Lcmp
@@ -779,7 +758,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Ior);
         assert_eq!(instrs[1].1, Instruction::Lcmp);
     }
-
     #[test]
     fn test_decoder_spot_checks19() {
         // Lload2, Lload3, Istore0
@@ -790,7 +768,6 @@ mod tests {
         assert_eq!(instrs[1].1, Instruction::Lload3);
         assert_eq!(instrs[2].1, Instruction::Istore0);
     }
-
     #[test]
     fn test_decoder_spot_checks20() {
         // Drem, IfIcmpne
@@ -800,7 +777,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Drem);
         assert_eq!(instrs[1].1, Instruction::IfIcmpne(0x0102));
     }
-
     #[test]
     fn test_decoder_spot_checks21() {
         // Dstore1, Dcmpg
@@ -810,7 +786,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Dstore1);
         assert_eq!(instrs[1].1, Instruction::Dcmpg);
     }
-
     #[test]
     fn test_decoder_spot_checks22() {
         // Pop, Iushr
@@ -820,7 +795,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Pop);
         assert_eq!(instrs[1].1, Instruction::Iushr);
     }
-
     #[test]
     fn test_decoder_spot_checks23() {
         // Aload2, Lstore2, Ifnonnull
@@ -831,7 +805,6 @@ mod tests {
         assert_eq!(instrs[1].1, Instruction::Lstore2);
         assert_eq!(instrs[2].1, Instruction::Ifnonnull(0x0102));
     }
-
     #[test]
     fn test_decoder_spot_checks24() {
         // Istore2, Astore2
@@ -841,7 +814,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Istore2);
         assert_eq!(instrs[1].1, Instruction::Astore2);
     }
-
     #[test]
     fn test_decoder_spot_checks25() {
         // Ldiv
@@ -850,7 +822,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Ldiv);
     }
-
     #[test]
     fn test_decoder_spot_checks26() {
         // Fastore
@@ -859,7 +830,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Fastore);
     }
-
     #[test]
     fn test_decoder_spot_checks27() {
         // Ifne
@@ -868,7 +838,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Ifne(0x0102));
     }
-
     #[test]
     fn test_decoder_spot_checks28() {
         // Isub, Idiv
@@ -878,7 +847,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Isub);
         assert_eq!(instrs[1].1, Instruction::Idiv);
     }
-
     #[test]
     fn test_decoder_spot_checks29() {
         // Dload, Iload3, Lneg, Monitorenter
@@ -890,7 +858,6 @@ mod tests {
         assert_eq!(instrs[2].1, Instruction::Lneg);
         assert_eq!(instrs[3].1, Instruction::Monitorenter);
     }
-
     #[test]
     fn test_decoder_spot_checks30() {
         // Lload1, Fmul, Lrem, Iand
@@ -902,7 +869,6 @@ mod tests {
         assert_eq!(instrs[2].1, Instruction::Lrem);
         assert_eq!(instrs[3].1, Instruction::Iand);
     }
-
     #[test]
     fn test_decoder_spot_checks31() {
         // Ldc2W, Aload1
@@ -912,7 +878,6 @@ mod tests {
         assert_eq!(instrs[0].1, Instruction::Ldc2W(CpIndex(0x0102)));
         assert_eq!(instrs[1].1, Instruction::Aload1);
     }
-
     #[test]
     fn test_decoder_spot_checks32() {
         // Faload, Ineg, Instanceof
@@ -923,7 +888,6 @@ mod tests {
         assert_eq!(instrs[1].1, Instruction::Ineg);
         assert_eq!(instrs[2].1, Instruction::Instanceof(CpIndex(0x0102)));
     }
-
     #[test]
     fn test_decoder_spot_checks33() {
         // Dstore
@@ -932,7 +896,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Dstore(0x01));
     }
-
     #[test]
     fn test_decoder_spot_checks34() {
         // Fconst2
@@ -941,7 +904,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Fconst2);
     }
-
     #[test]
     fn test_decoder_spot_checks35() {
         // Lor
@@ -950,7 +912,6 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::Lor);
     }
-
     #[test]
     fn test_decoder_invalid_lookupswitch_npairs() {
         // npairs < 0
@@ -974,7 +935,6 @@ mod tests {
             crate::Error::Decode(DecodeError::InvalidLookupswitch { pc: 0, npairs: -1 })
         ));
     }
-
     #[test]
     fn test_decoder_wide_instructions() {
         // wide lload
@@ -982,61 +942,51 @@ mod tests {
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::LloadW(0x0102));
-
         // wide fload
         let code = vec![0xC4, 0x17, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::FloadW(0x0102));
-
         // wide dload
         let code = vec![0xC4, 0x18, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::DloadW(0x0102));
-
         // wide aload
         let code = vec![0xC4, 0x19, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::AloadW(0x0102));
-
         // wide istore
         let code = vec![0xC4, 0x36, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::IstoreW(0x0102));
-
         // wide lstore
         let code = vec![0xC4, 0x37, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::LstoreW(0x0102));
-
         // wide fstore
         let code = vec![0xC4, 0x38, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::FstoreW(0x0102));
-
         // wide dstore
         let code = vec![0xC4, 0x39, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::DstoreW(0x0102));
-
         // wide astore
         let code = vec![0xC4, 0x3A, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::AstoreW(0x0102));
-
         // wide ret
         let code = vec![0xC4, 0xA9, 0x01, 0x02];
         let instrs = decode(&code).unwrap();
         assert_eq!(instrs.len(), 1);
         assert_eq!(instrs[0].1, Instruction::RetW(0x0102));
-
         // wide iinc
         let code = vec![0xC4, 0x84, 0x01, 0x02, 0xFF, 0xFE];
         let instrs = decode(&code).unwrap();
@@ -1061,7 +1011,6 @@ mod tests {
             })
         ));
     }
-
     #[test]
     fn test_decoder_invalid_tableswitch() {
         // high < low
@@ -1094,7 +1043,6 @@ mod tests {
             })
         ));
     }
-
     #[test]
     fn test_decoder_invalid_tableswitch_high_less_than_low() {
         // tableswitch, padding(3), default(4), low(4), high(4)
@@ -1126,7 +1074,6 @@ mod tests {
             })
         ));
     }
-
     #[test]
     fn test_decoder_tableswitch_too_many_entries() {
         // count = high - low + 1 = 10 - 0 + 1 = 11, but only 4 bytes of offsets provided.
@@ -1162,7 +1109,6 @@ mod tests {
             })
         ));
     }
-
     #[test]
     fn test_decoder_lookupswitch_too_many_pairs() {
         // npairs = 10, but only 8 bytes of pairs provided.
@@ -1194,40 +1140,33 @@ mod tests {
             crate::Error::Decode(DecodeError::InvalidLookupswitch { pc: 0, npairs: 10 })
         ));
     }
-
     #[test]
     fn test_decoder_cursor_read_operations() {
         let mut cursor = Cursor::new(&[0x01, 0xFF, 0x00, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00]);
-
         assert!(cursor.has_remaining());
         assert_eq!(cursor.read_u8().unwrap(), 0x01);
         assert_eq!(cursor.read_i8().unwrap(), -1);
         assert_eq!(cursor.read_u16().unwrap(), 0x0002);
         assert_eq!(cursor.read_i32().unwrap(), -1);
-
         // At position 8. Buffer is length 10. `has_remaining` should be true.
         assert!(cursor.has_remaining());
         let _ = cursor.read_u16().unwrap();
         // Now position 10.
         assert!(!cursor.has_remaining());
-
         // Out of bounds read.
         assert!(matches!(
             cursor.read_u8(),
             Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: 10 }))
         ));
-
         // align4 test
         let mut cursor2 = Cursor::new(&[0x00, 0x01]);
         assert_eq!(cursor2.read_u8().unwrap(), 0x00);
         cursor2.align4();
         // Since pos is 1, rem is 1. align4 adds 3, making pos 4.
         assert_eq!(cursor2.pos, 4);
-
         // cp read
         let mut cursor3 = Cursor::new(&[0x00, 0x42]);
         assert_eq!(cursor3.read_cp().unwrap().0, 0x42);
-
         // i16 test
         let mut cursor4 = Cursor::new(&[0xFF, 0xFF]);
         assert_eq!(cursor4.read_i16().unwrap(), -1);
