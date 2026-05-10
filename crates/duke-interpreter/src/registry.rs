@@ -1401,4 +1401,14 @@ mod callback_ops_tests {
             .unwrap_err();
         assert!(matches!(err, Error::Unimplemented { .. }));
     }
+
+    #[test]
+    fn should_return_class_not_found_when_resolving_unknown_class() {
+        let registry = ClassRegistry::new();
+        let res = registry.resolve_loaded_class_key("com/example/UnknownClass");
+        assert!(matches!(
+            res,
+            Err(duke_runtime::Error::ClassNotFound { .. })
+        ));
+    }
 }

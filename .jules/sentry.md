@@ -27,3 +27,11 @@
 ## 2024-05-24 - Testing Duke Telemetry Serde Map Emptiness
 **Learning:** `keyed_map` formatting utilities using `serialize_map` were missing tests to ensure empty HashMaps correctly serialize as `{}`.
 **Action:** Adding tests for `HashMap::new()` in serialization wrappers proves correct behavior.
+
+## 2024-05-24 - Testing Interpreter Registry
+**Learning:** For testing `resolve_loaded_class_key` returning `AmbiguousClassName`, you can manually instantiate dummy `ClassFile`s, use `build_class_context`, and insert them directly into the internal cache of `ClassRegistry` to trigger logic that isn't naturally reachable without fully bootstrapping multi-layered JVM environments.
+**Action:** When testing registry lookups, build synthetic ClassContexts instead of relying on external loaders or classfiles if the logic only operates on internal maps.
+
+## 2024-05-24 - Testing Classfile Cursor Bounds
+**Learning:** `read_f32`, `read_f64`, `read_i32`, `read_i64` in `duke_classfile::parser::Cursor` might not be hit in naturally loaded classes.
+**Action:** Write an explicit small `Cursor` test over an array of 24 bytes testing all variants instead of generating huge fake attribute sections.

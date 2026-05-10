@@ -209,4 +209,92 @@ mod tests {
             "Verify error: stack underflow at pc=20: tried to pop from empty stack"
         );
     }
+
+    #[test]
+    fn test_decode_error_display() {
+        let err = DecodeError::UnknownOpcode {
+            pc: 5,
+            opcode: 0xFF,
+        };
+        assert_eq!(err.to_string(), "unknown opcode 0xFF at pc=5");
+
+        let err = DecodeError::InvalidWideTarget {
+            pc: 10,
+            opcode: 0xFF,
+        };
+        assert_eq!(err.to_string(), "invalid wide target opcode 0xFF at pc=10");
+
+        let err = DecodeError::InvalidTableswitch {
+            pc: 15,
+            low: 5,
+            high: 2,
+        };
+        assert_eq!(
+            err.to_string(),
+            "tableswitch at pc=15 has high (2) < low (5)"
+        );
+
+        let err = DecodeError::InvalidLookupswitch { pc: 20, npairs: -1 };
+        assert_eq!(
+            err.to_string(),
+            "lookupswitch at pc=20 has invalid npairs (-1)"
+        );
+
+        let err = DecodeError::InvalidNewarrayType {
+            pc: 25,
+            type_code: 99,
+        };
+        assert_eq!(
+            err.to_string(),
+            "newarray at pc=25 has invalid array type code 99"
+        );
+
+        let err = DecodeError::InvalidInvokeinterfaceReserved {
+            pc: 30,
+            reserved: 1,
+        };
+        assert_eq!(
+            err.to_string(),
+            "invokeinterface at pc=30 has non-zero reserved byte (1)"
+        );
+
+        let err = DecodeError::InvalidInvokedynamicReserved {
+            pc: 35,
+            reserved1: 1,
+            reserved2: 2,
+        };
+        assert_eq!(
+            err.to_string(),
+            "invokedynamic at pc=35 has non-zero reserved bytes (1, 2)"
+        );
+    }
+
+    #[test]
+    fn test_verify_error_display() {
+        let err = VerifyError::StackOverflow {
+            pc: 5,
+            depth: 11,
+            max_stack: 10,
+        };
+        assert_eq!(
+            err.to_string(),
+            "stack overflow at pc=5: depth would be 11 but max_stack=10"
+        );
+
+        let err = VerifyError::LocalOutOfBounds {
+            pc: 10,
+            index: 5,
+            max_locals: 4,
+        };
+        assert_eq!(
+            err.to_string(),
+            "local variable index 5 at pc=10 exceeds max_locals=4"
+        );
+
+        let err = VerifyError::NonEmptyStackOnReturn { pc: 15, depth: 2 };
+        assert_eq!(
+            err.to_string(),
+            "non-empty stack on return at pc=15: 2 value(s) remaining"
+        );
+    }
 }

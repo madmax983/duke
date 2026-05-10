@@ -37919,4 +37919,50 @@ mod native_helper_tests {
         let res = extract_slot_arg(&args, 0);
         assert_eq!(res, Slot::Reference(None));
     }
+
+
+
+
+
+
+
+    #[test]
+    fn should_return_error_for_with_atomic_i32_on_invalid_ref() {
+        let heap = duke_gc::Heap::new();
+        let res = with_atomic_i32(&heap, 999, |_| ());
+        assert!(matches!(res, Err(Error::NullPointerException | Error::InvalidRef { .. })));
+    }
+
+    #[test]
+    fn should_return_error_for_with_atomic_i32_on_wrong_payload() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_i32(&heap, obj_ref, |_| ());
+        assert!(matches!(res, Err(Error::NullPointerException | Error::InvalidRef { .. })));
+    }
+
+    #[test]
+    fn should_return_error_for_with_atomic_i64_on_wrong_payload() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_i64(&heap, obj_ref, |_| ());
+        assert!(matches!(res, Err(Error::NullPointerException | Error::InvalidRef { .. })));
+    }
+
+    #[test]
+    fn should_return_error_for_with_atomic_bool_on_wrong_payload() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_bool(&heap, obj_ref, |_| ());
+        assert!(matches!(res, Err(Error::NullPointerException | Error::InvalidRef { .. })));
+    }
+
+    #[test]
+    fn should_return_error_for_with_atomic_reference_on_wrong_payload() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/lang/Object".to_string(), 0);
+        let res = with_atomic_reference(&heap, obj_ref, |_| Ok(()));
+        assert!(matches!(res, Err(Error::NullPointerException | Error::InvalidRef { .. })));
+    }
+
 }

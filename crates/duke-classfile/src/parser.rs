@@ -705,4 +705,33 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+
+    #[test]
+    fn test_cursor_coverage() {
+        let mut cursor = Cursor::new(&[
+            0x00, 0x01, 0x00, 0x02, // 4 bytes for f32
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 8 bytes for f64
+            0xFF, 0xFF, 0xFF, 0xFF, // 4 bytes for i32
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 8 bytes for i64
+        ]);
+
+        assert_eq!(cursor.remaining(), 24);
+        assert_eq!(cursor.position(), 0);
+
+        let _ = cursor.read_f32().unwrap();
+        assert_eq!(cursor.position(), 4);
+        assert_eq!(cursor.remaining(), 20);
+
+        let _ = cursor.read_f64().unwrap();
+        assert_eq!(cursor.position(), 12);
+
+        let _ = cursor.read_i32().unwrap();
+        assert_eq!(cursor.position(), 16);
+
+        let _ = cursor.read_i64().unwrap();
+        assert_eq!(cursor.position(), 24);
+
+        assert_eq!(cursor.remaining(), 0);
+        assert!(cursor.read_u8().is_err());
+    }
 }

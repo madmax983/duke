@@ -195,4 +195,24 @@ mod tests {
         );
         assert!(resource.url.ends_with("sample.txt"));
     }
+
+    #[test]
+    fn should_prevent_resolve_child_path_with_colons() {
+        let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
+        let result = loader.find_class("com/example/a:b");
+        assert!(
+            matches!(result, Err(Error::NotFound { .. })),
+            "Expected NotFound, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn should_prevent_resolve_child_path_with_current_dir() {
+        let loader = DirectoryLoader::new(std::path::PathBuf::from("/tmp"));
+        let result = loader.find_class("com/example/./Main");
+        assert!(
+            matches!(result, Err(Error::NotFound { .. })),
+            "Expected NotFound, got {result:?}"
+        );
+    }
 }
