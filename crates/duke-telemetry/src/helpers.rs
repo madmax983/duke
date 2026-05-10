@@ -435,4 +435,52 @@ mod tests {
         let res = super::ser_helpers::sorted_set(&set, FailingSerializer);
         assert!(res.is_err());
     }
+
+    #[test]
+    fn test_site3_full() {
+        let mut map = HashMap::new();
+        map.insert(
+            ("java/lang/String".to_string(), "intern".to_string(), 42),
+            Dummy { val: 1 },
+        );
+
+        let w = Site3Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{"java/lang/String::intern@42":{"val":1}}}"#);
+    }
+
+    #[test]
+    fn test_site2_u16_full() {
+        let mut map = HashMap::new();
+        map.insert(("java/lang/String".to_string(), 42), Dummy { val: 1 });
+
+        let w = Site2Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{"java/lang/String@42":{"val":1}}}"#);
+    }
+
+    #[test]
+    fn test_pair_str_full() {
+        let mut map = HashMap::new();
+        map.insert(
+            ("java/lang/String".to_string(), "intern".to_string()),
+            Dummy { val: 1 },
+        );
+
+        let w = PairWrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{"java/lang/String::intern":{"val":1}}}"#);
+    }
+
+    #[test]
+    fn test_sorted_set_full() {
+        let mut set = HashSet::new();
+        set.insert("b".to_string());
+        set.insert("a".to_string());
+        set.insert("c".to_string());
+
+        let w = SetWrapper { set };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"set":["a","b","c"]}"#);
+    }
 }

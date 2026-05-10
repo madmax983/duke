@@ -1612,3 +1612,24 @@ mod proptests {
         }
     }
 }
+
+#[cfg(test)]
+mod more_zip_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_zip_loader_resource_url() {
+        let loader = ZipLoader::open(Path::new("../../tests/fixtures/hello.jar")).unwrap();
+        let url = loader.resource_url("META-INF/MANIFEST.MF");
+        assert!(url.starts_with("jar:file://"));
+        assert!(url.ends_with("!/META-INF/MANIFEST.MF"));
+    }
+
+    #[test]
+    fn test_zip_loader_append_boot_inf_classes_path() {
+        let mut buf = String::new();
+        ZipLoader::append_boot_inf_classes_path(&mut buf, "java/lang/String.class");
+        assert_eq!(buf, "BOOT-INF/classes/java/lang/String.class");
+    }
+}

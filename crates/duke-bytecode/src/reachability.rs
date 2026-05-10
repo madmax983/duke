@@ -282,3 +282,39 @@ mod tests {
         assert!(find_shortest_path(&blocks, 0, 6).is_none());
     }
 }
+
+#[cfg(test)]
+#[cfg(feature = "nova")]
+mod additional_reachability_tests {
+    use super::*;
+    use crate::Instruction;
+    use crate::basic_block::BasicBlock;
+    use crate::basic_block::build_basic_blocks;
+
+    #[test]
+    fn test_get_successors_empty() {
+        let block = BasicBlock {
+            start_pc: 0,
+            end_pc: 0,
+            instructions: Vec::new(),
+        };
+        assert!(get_successors(&block).is_empty());
+    }
+
+    #[test]
+    fn test_find_dead_blocks_empty() {
+        assert!(find_dead_blocks(&[], 0).is_empty());
+    }
+
+    #[test]
+    fn test_find_shortest_path_empty() {
+        assert!(find_shortest_path(&[], 0, 0).is_none());
+    }
+
+    #[test]
+    fn test_find_shortest_path_missing_targets() {
+        let instructions = vec![(0, Instruction::Iconst0), (1, Instruction::Ireturn)];
+        let blocks = build_basic_blocks(&instructions);
+        assert!(find_shortest_path(&blocks, 99, 100).is_none());
+    }
+}

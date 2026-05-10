@@ -774,3 +774,100 @@ mod tests {
         assert_eq!(values.len(), 2);
     }
 }
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+
+    #[test]
+    fn test_cursor_read_f32() {
+        let data = [0x42, 0x28, 0x7e, 0x6b];
+        let mut c = Cursor::new(&data);
+        let val = c.read_f32().unwrap();
+        assert_eq!(val.to_bits(), 0x4228_7e6b);
+    }
+
+    #[test]
+    fn test_cursor_read_f64() {
+        let data = [0x40, 0x45, 0x0f, 0xcd, 0x6e, 0x9e, 0x04, 0x52];
+        let mut c = Cursor::new(&data);
+        let val = c.read_f64().unwrap();
+        assert_eq!(val.to_bits(), 0x4045_0fcd_6e9e_0452);
+    }
+
+    #[test]
+    fn test_cursor_read_i64() {
+        let data = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; // -1
+        let mut c = Cursor::new(&data);
+        let val = c.read_i64().unwrap();
+        assert_eq!(val, -1);
+    }
+
+    #[test]
+    fn test_parse_cp_entry_method_type_dynamic_etc() {
+        // Tag 16: MethodType
+        let data16 = [0x00, 0x01];
+        let mut cursor16 = Cursor::new(&data16);
+        let parsed_cp16 = parse_cp_entry(&mut cursor16, 16, 1).unwrap();
+        assert!(matches!(
+            parsed_cp16,
+            CpEntry::MethodType {
+                descriptor_index: CpIndex(1)
+            }
+        ));
+
+        // Tag 17: Dynamic
+        let data17 = [0x00, 0x02, 0x00, 0x03];
+        let mut cursor17 = Cursor::new(&data17);
+        let parsed_cp17 = parse_cp_entry(&mut cursor17, 17, 1).unwrap();
+        assert!(matches!(
+            parsed_cp17,
+            CpEntry::Dynamic {
+                bootstrap_method_attr_index: 2,
+                name_and_type_index: CpIndex(3)
+            }
+        ));
+
+        // Tag 18: InvokeDynamic
+        let data18 = [0x00, 0x04, 0x00, 0x05];
+        let mut cursor18 = Cursor::new(&data18);
+        let parsed_cp18 = parse_cp_entry(&mut cursor18, 18, 1).unwrap();
+        assert!(matches!(
+            parsed_cp18,
+            CpEntry::InvokeDynamic {
+                bootstrap_method_attr_index: 4,
+                name_and_type_index: CpIndex(5)
+            }
+        ));
+
+        // Tag 19: Module
+        let data19 = [0x00, 0x06];
+        let mut cursor19 = Cursor::new(&data19);
+        let parsed_cp19 = parse_cp_entry(&mut cursor19, 19, 1).unwrap();
+        assert!(matches!(
+            parsed_cp19,
+            CpEntry::Module {
+                name_index: CpIndex(6)
+            }
+        ));
+
+        // Tag 20: Package
+        let data20 = [0x00, 0x07];
+        let mut cursor20 = Cursor::new(&data20);
+        let parsed_cp20 = parse_cp_entry(&mut cursor20, 20, 1).unwrap();
+        assert!(matches!(
+            parsed_cp20,
+            CpEntry::Package {
+                name_index: CpIndex(7)
+            }
+        ));
+    }
+
+    #[test]
+    fn test_decode_element_value_class() {
+        let data = [b'c', 0x00, 0x01];
+        let mut c = Cursor::new(&data);
+        let val = decode_element_value(&mut c, 0).unwrap();
+        assert!(matches!(val, ElementValue::ClassInfoIndex(CpIndex(1))));
+    }
+}
