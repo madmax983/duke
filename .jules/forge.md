@@ -68,6 +68,10 @@
 **Extract Control Flow Graph Edges**
 **Learning:** `generate_mermaid_cfg`, `generate_basic_block_cfg`, and `cyclomatic_complexity` in `crates/duke-bytecode/src/cfg.rs` shared complex, duplicated matching logic to determine the control flow edges of instructions (using `is_return()`, `unconditional_jump_target()`, `conditional_branch_target()`, `switch_targets()`).
 **Action:** Created `Instruction::control_flow_edges` to centralize this logic, returning a generic list of `(target_pc, Option<label>)` tuples. This massively simplified all three functions by replacing their redundant if-else chains with a simple loop over the extracted edges.
+
+**Extract Native Error Handling**
+**Learning:** `crates/duke-interpreter/src/execution.rs` contained six exact duplicates of a large 30-line `match` block responsible for materializing and propagating Java exceptions based on native execution results. This violated DRY, artificially inflated the file size by ~200 lines, and created unnecessary noise within the native function dispatch arms.
+**Action:** Created the `handle_native_result!` macro to encapsulate the complex logic of unwrapping results, matching errors, materializing `Exception` objects, and triggering `propagate_java_exception!`. Replaced all inline matches with a single macro invocation.
 **Extract God Function (decode_one)**
 **Learning:** `decode_one` in `crates/duke-bytecode/src/decoder.rs` was a 300-line match statement handling every JVM opcode. Breaking it down into helper functions based on opcode groups (`decode_constant_op`, `decode_math_op`, etc.) greatly improves readability.
 **Action:** When a function has a massive match statement switching on contiguous ranges (like opcodes or enums with many variants), group them by category and delegate to smaller helper functions using range matches (e.g., `op::NOP..=op::LDC2_W => decode_constant_op(...)`).

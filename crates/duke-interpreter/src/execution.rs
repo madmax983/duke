@@ -291,6 +291,38 @@ pub fn run_execution(
                 continue;
             }};
         }
+        // Helper macro for native call results
+        macro_rules! handle_native_result {
+            ($res:expr, $reg:expr, $ld:expr, $hp:expr, $p:expr) => {
+                match $res {
+                    Ok(r) => r,
+                    Err(Error::JavaException { class_name }) => {
+                        let exception_ref =
+                            materialize_java_exception_object($reg, $ld, $hp, &class_name)?;
+                        propagate_java_exception!(class_name, exception_ref, $p);
+                    }
+                    Err(err) => {
+                        let class_name = match err {
+                            Error::NullPointerException => {
+                                "java/lang/NullPointerException".to_string()
+                            }
+                            Error::ClassCastException { .. } => {
+                                "java/lang/ClassCastException".to_string()
+                            }
+                            Error::ArrayIndexOutOfBounds { .. } => {
+                                "java/lang/ArrayIndexOutOfBoundsException".to_string()
+                            }
+                            Error::JavaException { class_name } => class_name,
+                            other => return Err(other),
+                        };
+                        let exception_ref =
+                            materialize_java_exception_object($reg, $ld, $hp, &class_name)?;
+                        propagate_java_exception!(class_name, exception_ref, $p);
+                    }
+                }
+            };
+        }
+
         macro_rules! throw_java {
             ($class_name:expr) => {{
                 let class_name = $class_name.to_string();
@@ -503,41 +535,8 @@ pub fn run_execution(
                                     _native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
                                 );
-                                let result = match result {
-                                    Ok(result) => result,
-                                    Err(Error::JavaException { class_name }) => {
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                    Err(err) => {
-                                        let class_name = match err {
-                                            Error::NullPointerException => {
-                                                "java/lang/NullPointerException".to_string()
-                                            }
-                                            Error::ClassCastException { .. } => {
-                                                "java/lang/ClassCastException".to_string()
-                                            }
-                                            Error::ArrayIndexOutOfBounds { .. } => {
-                                                "java/lang/ArrayIndexOutOfBoundsException"
-                                                    .to_string()
-                                            }
-                                            Error::JavaException { class_name } => class_name,
-                                            other => return Err(other),
-                                        };
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                };
+                                let result =
+                                    handle_native_result!(result, registry, loader, heap, pc);
                                 if let Some(outcome) = finish_native_call(
                                     &mut native_control,
                                     frame,
@@ -588,41 +587,8 @@ pub fn run_execution(
                                     _native_start.elapsed().as_nanos() as u64,
                                     result.is_err(),
                                 );
-                                let result = match result {
-                                    Ok(result) => result,
-                                    Err(Error::JavaException { class_name }) => {
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                    Err(err) => {
-                                        let class_name = match err {
-                                            Error::NullPointerException => {
-                                                "java/lang/NullPointerException".to_string()
-                                            }
-                                            Error::ClassCastException { .. } => {
-                                                "java/lang/ClassCastException".to_string()
-                                            }
-                                            Error::ArrayIndexOutOfBounds { .. } => {
-                                                "java/lang/ArrayIndexOutOfBoundsException"
-                                                    .to_string()
-                                            }
-                                            Error::JavaException { class_name } => class_name,
-                                            other => return Err(other),
-                                        };
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                };
+                                let result =
+                                    handle_native_result!(result, registry, loader, heap, pc);
                                 if let Some(outcome) = finish_native_call(
                                     &mut native_control,
                                     frame,
@@ -1893,41 +1859,8 @@ pub fn run_execution(
                                         );
                                     }
                                 }
-                                let result = match result {
-                                    Ok(result) => result,
-                                    Err(Error::JavaException { class_name }) => {
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                    Err(err) => {
-                                        let class_name = match err {
-                                            Error::NullPointerException => {
-                                                "java/lang/NullPointerException".to_string()
-                                            }
-                                            Error::ClassCastException { .. } => {
-                                                "java/lang/ClassCastException".to_string()
-                                            }
-                                            Error::ArrayIndexOutOfBounds { .. } => {
-                                                "java/lang/ArrayIndexOutOfBoundsException"
-                                                    .to_string()
-                                            }
-                                            Error::JavaException { class_name } => class_name,
-                                            other => return Err(other),
-                                        };
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                };
+                                let result =
+                                    handle_native_result!(result, registry, loader, heap, pc);
                                 if let Some(outcome) = finish_native_call(
                                     &mut native_control,
                                     frame,
@@ -1990,41 +1923,8 @@ pub fn run_execution(
                                         );
                                     }
                                 }
-                                let result = match result {
-                                    Ok(result) => result,
-                                    Err(Error::JavaException { class_name }) => {
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                    Err(err) => {
-                                        let class_name = match err {
-                                            Error::NullPointerException => {
-                                                "java/lang/NullPointerException".to_string()
-                                            }
-                                            Error::ClassCastException { .. } => {
-                                                "java/lang/ClassCastException".to_string()
-                                            }
-                                            Error::ArrayIndexOutOfBounds { .. } => {
-                                                "java/lang/ArrayIndexOutOfBoundsException"
-                                                    .to_string()
-                                            }
-                                            Error::JavaException { class_name } => class_name,
-                                            other => return Err(other),
-                                        };
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                };
+                                let result =
+                                    handle_native_result!(result, registry, loader, heap, pc);
                                 if let Some(outcome) = finish_native_call(
                                     &mut native_control,
                                     frame,
@@ -2871,41 +2771,8 @@ pub fn run_execution(
                                         false,
                                     );
                                 }
-                                let result = match result {
-                                    Ok(result) => result,
-                                    Err(Error::JavaException { class_name }) => {
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                    Err(err) => {
-                                        let class_name = match err {
-                                            Error::NullPointerException => {
-                                                "java/lang/NullPointerException".to_string()
-                                            }
-                                            Error::ClassCastException { .. } => {
-                                                "java/lang/ClassCastException".to_string()
-                                            }
-                                            Error::ArrayIndexOutOfBounds { .. } => {
-                                                "java/lang/ArrayIndexOutOfBoundsException"
-                                                    .to_string()
-                                            }
-                                            Error::JavaException { class_name } => class_name,
-                                            other => return Err(other),
-                                        };
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                };
+                                let result =
+                                    handle_native_result!(result, registry, loader, heap, pc);
                                 if let Some(outcome) = finish_native_call(
                                     &mut native_control,
                                     frame,
@@ -2965,41 +2832,8 @@ pub fn run_execution(
                                         false,
                                     );
                                 }
-                                let result = match result {
-                                    Ok(result) => result,
-                                    Err(Error::JavaException { class_name }) => {
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                    Err(err) => {
-                                        let class_name = match err {
-                                            Error::NullPointerException => {
-                                                "java/lang/NullPointerException".to_string()
-                                            }
-                                            Error::ClassCastException { .. } => {
-                                                "java/lang/ClassCastException".to_string()
-                                            }
-                                            Error::ArrayIndexOutOfBounds { .. } => {
-                                                "java/lang/ArrayIndexOutOfBoundsException"
-                                                    .to_string()
-                                            }
-                                            Error::JavaException { class_name } => class_name,
-                                            other => return Err(other),
-                                        };
-                                        let exception_ref = materialize_java_exception_object(
-                                            registry,
-                                            loader,
-                                            heap,
-                                            &class_name,
-                                        )?;
-                                        propagate_java_exception!(class_name, exception_ref, pc);
-                                    }
-                                };
+                                let result =
+                                    handle_native_result!(result, registry, loader, heap, pc);
                                 if let Some(outcome) = finish_native_call(
                                     &mut native_control,
                                     frame,
@@ -3214,53 +3048,9 @@ pub fn run_execution(
                                             _native_start.elapsed().as_nanos() as u64,
                                             result.is_err(),
                                         );
-                                        let result = match result {
-                                            Ok(result) => result,
-                                            Err(Error::JavaException { class_name }) => {
-                                                let exception_ref =
-                                                    materialize_java_exception_object(
-                                                        registry,
-                                                        loader,
-                                                        heap,
-                                                        &class_name,
-                                                    )?;
-                                                propagate_java_exception!(
-                                                    class_name,
-                                                    exception_ref,
-                                                    pc
-                                                );
-                                            }
-                                            Err(err) => {
-                                                let class_name = match err {
-                                                    Error::NullPointerException => {
-                                                        "java/lang/NullPointerException".to_string()
-                                                    }
-                                                    Error::ClassCastException { .. } => {
-                                                        "java/lang/ClassCastException".to_string()
-                                                    }
-                                                    Error::ArrayIndexOutOfBounds { .. } => {
-                                                        "java/lang/ArrayIndexOutOfBoundsException"
-                                                            .to_string()
-                                                    }
-                                                    Error::JavaException { class_name } => {
-                                                        class_name
-                                                    }
-                                                    other => return Err(other),
-                                                };
-                                                let exception_ref =
-                                                    materialize_java_exception_object(
-                                                        registry,
-                                                        loader,
-                                                        heap,
-                                                        &class_name,
-                                                    )?;
-                                                propagate_java_exception!(
-                                                    class_name,
-                                                    exception_ref,
-                                                    pc
-                                                );
-                                            }
-                                        };
+                                        let result = handle_native_result!(
+                                            result, registry, loader, heap, pc
+                                        );
                                         let result = autobox_if_needed(
                                             result,
                                             &lambda_info.impl_desc,
@@ -3309,53 +3099,9 @@ pub fn run_execution(
                                             _native_start.elapsed().as_nanos() as u64,
                                             result.is_err(),
                                         );
-                                        let result = match result {
-                                            Ok(result) => result,
-                                            Err(Error::JavaException { class_name }) => {
-                                                let exception_ref =
-                                                    materialize_java_exception_object(
-                                                        registry,
-                                                        loader,
-                                                        heap,
-                                                        &class_name,
-                                                    )?;
-                                                propagate_java_exception!(
-                                                    class_name,
-                                                    exception_ref,
-                                                    pc
-                                                );
-                                            }
-                                            Err(err) => {
-                                                let class_name = match err {
-                                                    Error::NullPointerException => {
-                                                        "java/lang/NullPointerException".to_string()
-                                                    }
-                                                    Error::ClassCastException { .. } => {
-                                                        "java/lang/ClassCastException".to_string()
-                                                    }
-                                                    Error::ArrayIndexOutOfBounds { .. } => {
-                                                        "java/lang/ArrayIndexOutOfBoundsException"
-                                                            .to_string()
-                                                    }
-                                                    Error::JavaException { class_name } => {
-                                                        class_name
-                                                    }
-                                                    other => return Err(other),
-                                                };
-                                                let exception_ref =
-                                                    materialize_java_exception_object(
-                                                        registry,
-                                                        loader,
-                                                        heap,
-                                                        &class_name,
-                                                    )?;
-                                                propagate_java_exception!(
-                                                    class_name,
-                                                    exception_ref,
-                                                    pc
-                                                );
-                                            }
-                                        };
+                                        let result = handle_native_result!(
+                                            result, registry, loader, heap, pc
+                                        );
                                         let result = autobox_if_needed(
                                             result,
                                             &lambda_info.impl_desc,
