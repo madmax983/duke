@@ -88,296 +88,520 @@ impl ArrayType {
 /// assert_eq!(get_field.mnemonic(), "getfield");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(missing_docs)]
 pub enum Instruction {
     // -----------------------------------------------------------------------
     // Constants
     // -----------------------------------------------------------------------
+    /// Do nothing.
     Nop,
+    /// Push `null`.
     AconstNull,
+    /// Push `int` constant -1.
     IconstM1,
+    /// Push `int` constant 0.
     Iconst0,
+    /// Push `int` constant 1.
     Iconst1,
+    /// Push `int` constant 2.
     Iconst2,
+    /// Push `int` constant 3.
     Iconst3,
+    /// Push `int` constant 4.
     Iconst4,
+    /// Push `int` constant 5.
     Iconst5,
+    /// Push `long` constant 0.
     Lconst0,
+    /// Push `long` constant 1.
     Lconst1,
+    /// Push `float` constant 0.
     Fconst0,
+    /// Push `float` constant 1.
     Fconst1,
+    /// Push `float` constant 2.
     Fconst2,
+    /// Push `double` constant 0.
     Dconst0,
+    /// Push `double` constant 1.
     Dconst1,
+    /// Push `byte`.
     Bipush(i8),
+    /// Push `short`.
     Sipush(i16),
+    /// Push item from run-time constant pool.
     Ldc(u8),
+    /// Push item from run-time constant pool (wide index).
     LdcW(CpIndex),
+    /// Push `long` or `double` from run-time constant pool (wide index).
     Ldc2W(CpIndex),
 
     // -----------------------------------------------------------------------
     // Loads
     // -----------------------------------------------------------------------
+    /// Load `int` from local variable.
     Iload(u8),
+    /// Load `long` from local variable.
     Lload(u8),
+    /// Load `float` from local variable.
     Fload(u8),
+    /// Load `double` from local variable.
     Dload(u8),
+    /// Load `reference` from local variable.
     Aload(u8),
+    /// Load `int` from local variable 0.
     Iload0,
+    /// Load `int` from local variable 1.
     Iload1,
+    /// Load `int` from local variable 2.
     Iload2,
+    /// Load `int` from local variable 3.
     Iload3,
+    /// Load `long` from local variable 0.
     Lload0,
+    /// Load `long` from local variable 1.
     Lload1,
+    /// Load `long` from local variable 2.
     Lload2,
+    /// Load `long` from local variable 3.
     Lload3,
+    /// Load `float` from local variable 0.
     Fload0,
+    /// Load `float` from local variable 1.
     Fload1,
+    /// Load `float` from local variable 2.
     Fload2,
+    /// Load `float` from local variable 3.
     Fload3,
+    /// Load `double` from local variable 0.
     Dload0,
+    /// Load `double` from local variable 1.
     Dload1,
+    /// Load `double` from local variable 2.
     Dload2,
+    /// Load `double` from local variable 3.
     Dload3,
+    /// Load `reference` from local variable 0.
     Aload0,
+    /// Load `reference` from local variable 1.
     Aload1,
+    /// Load `reference` from local variable 2.
     Aload2,
+    /// Load `reference` from local variable 3.
     Aload3,
+    /// Load `int` from array.
     Iaload,
+    /// Load `long` from array.
     Laload,
+    /// Load `float` from array.
     Faload,
+    /// Load `double` from array.
     Daload,
+    /// Load `reference` from array.
     Aaload,
+    /// Load `byte or boolean` from array.
     Baload,
+    /// Load `char` from array.
     Caload,
+    /// Load `short` from array.
     Saload,
 
     // -----------------------------------------------------------------------
     // Stores
     // -----------------------------------------------------------------------
+    /// Store `int` into local variable.
     Istore(u8),
+    /// Store `long` into local variable.
     Lstore(u8),
+    /// Store `float` into local variable.
     Fstore(u8),
+    /// Store `double` into local variable.
     Dstore(u8),
+    /// Store `reference` into local variable.
     Astore(u8),
+    /// Store `int` into local variable 0.
     Istore0,
+    /// Store `int` into local variable 1.
     Istore1,
+    /// Store `int` into local variable 2.
     Istore2,
+    /// Store `int` into local variable 3.
     Istore3,
+    /// Store `long` into local variable 0.
     Lstore0,
+    /// Store `long` into local variable 1.
     Lstore1,
+    /// Store `long` into local variable 2.
     Lstore2,
+    /// Store `long` into local variable 3.
     Lstore3,
+    /// Store `float` into local variable 0.
     Fstore0,
+    /// Store `float` into local variable 1.
     Fstore1,
+    /// Store `float` into local variable 2.
     Fstore2,
+    /// Store `float` into local variable 3.
     Fstore3,
+    /// Store `double` into local variable 0.
     Dstore0,
+    /// Store `double` into local variable 1.
     Dstore1,
+    /// Store `double` into local variable 2.
     Dstore2,
+    /// Store `double` into local variable 3.
     Dstore3,
+    /// Store `reference` into local variable 0.
     Astore0,
+    /// Store `reference` into local variable 1.
     Astore1,
+    /// Store `reference` into local variable 2.
     Astore2,
+    /// Store `reference` into local variable 3.
     Astore3,
+    /// Store `int` into array.
     Iastore,
+    /// Store `long` into array.
     Lastore,
+    /// Store `float` into array.
     Fastore,
+    /// Store `double` into array.
     Dastore,
+    /// Store `reference` into array.
     Aastore,
+    /// Store `byte or boolean` into array.
     Bastore,
+    /// Store `char` into array.
     Castore,
+    /// Store `short` into array.
     Sastore,
 
     // -----------------------------------------------------------------------
     // Stack
     // -----------------------------------------------------------------------
+    /// Pop the top operand stack value.
     Pop,
+    /// Pop the top one or two operand stack values.
     Pop2,
+    /// Duplicate the top operand stack value.
     Dup,
+    /// Duplicate the top operand stack value and insert two values down.
     DupX1,
+    /// Duplicate the top operand stack value and insert two or three values down.
     DupX2,
+    /// Duplicate the top one or two operand stack values.
     Dup2,
+    /// Duplicate the top one or two operand stack values and insert two or three values down.
     Dup2X1,
+    /// Duplicate the top one or two operand stack values and insert two, three, or four values down.
     Dup2X2,
+    /// Swap the top two operand stack values.
     Swap,
 
     // -----------------------------------------------------------------------
     // Arithmetic
     // -----------------------------------------------------------------------
+    /// Add `int`.
     Iadd,
+    /// Add `long`.
     Ladd,
+    /// Add `float`.
     Fadd,
+    /// Add `double`.
     Dadd,
+    /// Subtract `int`.
     Isub,
+    /// Subtract `long`.
     Lsub,
+    /// Subtract `float`.
     Fsub,
+    /// Subtract `double`.
     Dsub,
+    /// Multiply `int`.
     Imul,
+    /// Multiply `long`.
     Lmul,
+    /// Multiply `float`.
     Fmul,
+    /// Multiply `double`.
     Dmul,
+    /// Divide `int`.
     Idiv,
+    /// Divide `long`.
     Ldiv,
+    /// Divide `float`.
     Fdiv,
+    /// Divide `double`.
     Ddiv,
+    /// Remainder `int`.
     Irem,
+    /// Remainder `long`.
     Lrem,
+    /// Remainder `float`.
     Frem,
+    /// Remainder `double`.
     Drem,
+    /// Negate `int`.
     Ineg,
+    /// Negate `long`.
     Lneg,
+    /// Negate `float`.
     Fneg,
+    /// Negate `double`.
     Dneg,
+    /// Shift left `int`.
     Ishl,
+    /// Shift left `long`.
     Lshl,
+    /// Arithmetic shift right `int`.
     Ishr,
+    /// Arithmetic shift right `long`.
     Lshr,
+    /// Logical shift right `int`.
     Iushr,
+    /// Logical shift right `long`.
     Lushr,
+    /// Boolean AND `int`.
     Iand,
+    /// Boolean AND `long`.
     Land,
+    /// Boolean OR `int`.
     Ior,
+    /// Boolean OR `long`.
     Lor,
+    /// Boolean XOR `int`.
     Ixor,
+    /// Boolean XOR `long`.
     Lxor,
     /// `iinc index const` — increment local by constant.
     Iinc {
+        /// Index of local variable.
         index: u8,
+        /// Value to increment by.
         value: i8,
     },
 
     // -----------------------------------------------------------------------
     // Conversions
     // -----------------------------------------------------------------------
+    /// Convert `int` to `long`.
     I2l,
+    /// Convert `int` to `float`.
     I2f,
+    /// Convert `int` to `double`.
     I2d,
+    /// Convert `long` to `int`.
     L2i,
+    /// Convert `long` to `float`.
     L2f,
+    /// Convert `long` to `double`.
     L2d,
+    /// Convert `float` to `int`.
     F2i,
+    /// Convert `float` to `long`.
     F2l,
+    /// Convert `float` to `double`.
     F2d,
+    /// Convert `double` to `int`.
     D2i,
+    /// Convert `double` to `long`.
     D2l,
+    /// Convert `double` to `float`.
     D2f,
+    /// Convert `int` to `byte`.
     I2b,
+    /// Convert `int` to `char`.
     I2c,
+    /// Convert `int` to `short`.
     I2s,
 
     // -----------------------------------------------------------------------
     // Comparisons
     // -----------------------------------------------------------------------
+    /// Compare `long`.
     Lcmp,
+    /// Compare `float`.
     Fcmpl,
+    /// Compare `float`.
     Fcmpg,
+    /// Compare `double`.
     Dcmpl,
+    /// Compare `double`.
     Dcmpg,
 
     // -----------------------------------------------------------------------
     // Branches — offset is relative to the PC of this instruction
     // -----------------------------------------------------------------------
+    /// Branch if `int` comparison with zero succeeds.
     Ifeq(i16),
+    /// Branch if `int` comparison with zero succeeds.
     Ifne(i16),
+    /// Branch if `int` comparison with zero succeeds.
     Iflt(i16),
+    /// Branch if `int` comparison with zero succeeds.
     Ifge(i16),
+    /// Branch if `int` comparison with zero succeeds.
     Ifgt(i16),
+    /// Branch if `int` comparison with zero succeeds.
     Ifle(i16),
+    /// Branch if `int` comparison succeeds.
     IfIcmpeq(i16),
+    /// Branch if `int` comparison succeeds.
     IfIcmpne(i16),
+    /// Branch if `int` comparison succeeds.
     IfIcmplt(i16),
+    /// Branch if `int` comparison succeeds.
     IfIcmpge(i16),
+    /// Branch if `int` comparison succeeds.
     IfIcmpgt(i16),
+    /// Branch if `int` comparison succeeds.
     IfIcmple(i16),
+    /// Branch if `reference` comparison succeeds.
     IfAcmpeq(i16),
+    /// Branch if `reference` comparison succeeds.
     IfAcmpne(i16),
+    /// Branch always.
     Goto(i16),
+    /// Jump subroutine.
     Jsr(i16),
+    /// Return from subroutine.
     Ret(u8),
+    /// Access jump table by index and jump.
     Tableswitch {
+        /// Default offset.
         default: i32,
+        /// Low bound.
         low: i32,
+        /// High bound.
         high: i32,
+        /// Jump offsets.
         offsets: Vec<i32>,
     },
+    /// Access jump table by key match and jump.
     Lookupswitch {
+        /// Default offset.
         default: i32,
-        pairs: Vec<(i32, i32)>, // (match_value, offset)
+        /// Pairs of (`match_value`, offset).
+        pairs: Vec<(i32, i32)>,
     },
 
     // -----------------------------------------------------------------------
     // Returns
     // -----------------------------------------------------------------------
+    /// Return from method.
     Ireturn,
+    /// Return from method.
     Lreturn,
+    /// Return from method.
     Freturn,
+    /// Return from method.
     Dreturn,
+    /// Return from method.
     Areturn,
+    /// Return from method.
     Return,
 
     // -----------------------------------------------------------------------
     // Field access
     // -----------------------------------------------------------------------
+    /// Get static field from class.
     Getstatic(CpIndex),
+    /// Set static field in class.
     Putstatic(CpIndex),
+    /// Fetch field from object.
     Getfield(CpIndex),
+    /// Set field in object.
     Putfield(CpIndex),
 
     // -----------------------------------------------------------------------
     // Method invocation
     // -----------------------------------------------------------------------
+    /// Invoke instance method; dispatch based on class.
     Invokevirtual(CpIndex),
+    /// Invoke instance method; special handling for superclass, private, and instance initialization method invocations.
     Invokespecial(CpIndex),
+    /// Invoke a class (static) method.
     Invokestatic(CpIndex),
     /// `invokeinterface index count` — `count` is the number of arguments.
     Invokeinterface {
+        /// Constant pool index.
         index: CpIndex,
+        /// Count of arguments.
         count: u8,
     },
+    /// Invoke dynamic method.
     Invokedynamic(CpIndex),
 
     // -----------------------------------------------------------------------
     // Object / array
     // -----------------------------------------------------------------------
+    /// Create new object.
     New(CpIndex),
+    /// Create new array.
     Newarray(ArrayType),
+    /// Create new array of reference.
     Anewarray(CpIndex),
+    /// Get length of array.
     Arraylength,
+    /// Throw exception or error.
     Athrow,
+    /// Check whether object is of given type.
     Checkcast(CpIndex),
+    /// Determine if object is of given type.
     Instanceof(CpIndex),
+    /// Enter monitor for object.
     Monitorenter,
+    /// Exit monitor for object.
     Monitorexit,
 
     // -----------------------------------------------------------------------
     // Extended
     // -----------------------------------------------------------------------
+    /// Create new multidimensional array.
     Multianewarray {
+        /// Constant pool index for class.
         index: CpIndex,
+        /// Number of dimensions.
         dimensions: u8,
     },
+    /// Branch if reference is null.
     Ifnull(i16),
+    /// Branch if reference not null.
     Ifnonnull(i16),
+    /// Branch always (wide index).
     GotoW(i32),
+    /// Jump subroutine (wide index).
     JsrW(i32),
 
     // -----------------------------------------------------------------------
     // Wide-prefixed variants (u16 index instead of u8)
     // -----------------------------------------------------------------------
+    /// Load `int` from local variable (wide index).
     IloadW(u16),
+    /// Load `long` from local variable (wide index).
     LloadW(u16),
+    /// Load `float` from local variable (wide index).
     FloadW(u16),
+    /// Load `double` from local variable (wide index).
     DloadW(u16),
+    /// Load `reference` from local variable (wide index).
     AloadW(u16),
+    /// Store `int` into local variable (wide index).
     IstoreW(u16),
+    /// Store `long` into local variable (wide index).
     LstoreW(u16),
+    /// Store `float` into local variable (wide index).
     FstoreW(u16),
+    /// Store `double` into local variable (wide index).
     DstoreW(u16),
+    /// Store `reference` into local variable (wide index).
     AstoreW(u16),
+    /// Return from subroutine (wide index).
     RetW(u16),
+    /// Increment local variable by constant (wide index).
     IincW {
+        /// Index of local variable.
         index: u16,
+        /// Value to increment by.
         value: i16,
     },
 }

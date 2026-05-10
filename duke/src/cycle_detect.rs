@@ -1,6 +1,5 @@
 use duke_classfile::{
-    parse,
-    types::{CpEntry, CpIndex},
+    parse, {CpEntry, CpIndex},
 };
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};

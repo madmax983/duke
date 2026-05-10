@@ -38,9 +38,19 @@ impl<'a> Cursor<'a> {
         self.pos
     }
 
-    #[allow(dead_code)]
     const fn remaining(&self) -> usize {
         self.data.len() - self.pos
+    }
+
+    /// Calculates a safe pre-allocation capacity that will not exceed the remaining
+    /// available bytes in the buffer, preventing OOM attacks from maliciously large counts.
+    const fn safe_capacity(&self, requested: usize, bytes_per_item: usize) -> usize {
+        let max_possible = self.remaining() / bytes_per_item;
+        if requested < max_possible {
+            requested
+        } else {
+            max_possible
+        }
     }
 
     fn read_u8(&mut self) -> Result<u8> {
@@ -174,21 +184,21 @@ fn parse_class_members(
 
     // interfaces
     let interfaces_count = c.read_u16()?;
-    let mut interfaces = Vec::with_capacity((interfaces_count as usize).min(c.remaining() / 2));
+    let mut interfaces = Vec::with_capacity(c.safe_capacity(interfaces_count as usize, 2));
     for _ in 0..interfaces_count {
         interfaces.push(c.read_cp_index()?);
     }
 
     // fields
     let fields_count = c.read_u16()?;
-    let mut fields = Vec::with_capacity((fields_count as usize).min(c.remaining() / 8));
+    let mut fields = Vec::with_capacity(c.safe_capacity(fields_count as usize, 8));
     for _ in 0..fields_count {
         fields.push(parse_field(c, cp_len)?);
     }
 
     // methods
     let methods_count = c.read_u16()?;
-    let mut methods = Vec::with_capacity((methods_count as usize).min(c.remaining() / 8));
+    let mut methods = Vec::with_capacity(c.safe_capacity(methods_count as usize, 8));
     for _ in 0..methods_count {
         methods.push(parse_method(c, cp_len)?);
     }
@@ -364,7 +374,7 @@ fn parse_method(c: &mut Cursor<'_>, cp_len: usize) -> Result<MethodInfo> {
 
 fn parse_attributes(c: &mut Cursor<'_>, cp_len: usize) -> Result<Vec<AttributeInfo>> {
     let count = c.read_u16()?;
-    let mut attributes = Vec::with_capacity((count as usize).min(c.remaining() / 6));
+    let mut attributes = Vec::with_capacity(c.safe_capacity(count as usize, 6));
     for _ in 0..count {
         attributes.push(parse_attribute(c, cp_len)?);
     }
@@ -433,7 +443,7 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
         "RuntimeVisibleAnnotations" => {
             AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c)?)
         }
-        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c)?),
+        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c, 0)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
@@ -449,7 +459,7 @@ fn decode_source_file(c: &mut Cursor<'_>) -> Result<CpIndex> {
 
 fn decode_line_number_table(c: &mut Cursor<'_>) -> Result<Vec<LineNumberEntry>> {
     let len = c.read_u16()? as usize;
-    let mut entries = Vec::with_capacity(len.min(c.remaining() / 4));
+    let mut entries = Vec::with_capacity(c.safe_capacity(len, 4));
     for _ in 0..len {
         entries.push(LineNumberEntry {
             start_pc: c.read_u16()?,
@@ -461,7 +471,7 @@ fn decode_line_number_table(c: &mut Cursor<'_>) -> Result<Vec<LineNumberEntry>> 
 
 fn decode_local_variable_table(c: &mut Cursor<'_>) -> Result<Vec<LocalVariableEntry>> {
     let len = c.read_u16()? as usize;
-    let mut entries = Vec::with_capacity(len.min(c.remaining() / 10));
+    let mut entries = Vec::with_capacity(c.safe_capacity(len, 10));
     for _ in 0..len {
         entries.push(LocalVariableEntry {
             start_pc: c.read_u16()?,
@@ -476,7 +486,7 @@ fn decode_local_variable_table(c: &mut Cursor<'_>) -> Result<Vec<LocalVariableEn
 
 fn decode_exceptions(c: &mut Cursor<'_>) -> Result<Vec<CpIndex>> {
     let num = c.read_u16()? as usize;
-    let mut table = Vec::with_capacity(num.min(c.remaining() / 2));
+    let mut table = Vec::with_capacity(c.safe_capacity(num, 2));
     for _ in 0..num {
         table.push(c.read_cp_index()?);
     }
@@ -485,11 +495,11 @@ fn decode_exceptions(c: &mut Cursor<'_>) -> Result<Vec<CpIndex>> {
 
 fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> Result<Vec<BootstrapMethodEntry>> {
     let num = c.read_u16()? as usize;
-    let mut entries = Vec::with_capacity(num.min(c.remaining() / 4));
+    let mut entries = Vec::with_capacity(c.safe_capacity(num, 4));
     for _ in 0..num {
         let method_ref = c.read_cp_index()?;
         let num_args = c.read_u16()? as usize;
-        let mut arguments = Vec::with_capacity(num_args.min(c.remaining() / 2));
+        let mut arguments = Vec::with_capacity(c.safe_capacity(num_args, 2));
         for _ in 0..num_args {
             arguments.push(c.read_cp_index()?);
         }
@@ -503,21 +513,24 @@ fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> Result<Vec<BootstrapMethodEnt
 
 fn decode_runtime_visible_annotations(c: &mut Cursor<'_>) -> Result<Vec<Annotation>> {
     let num_annotations = c.read_u16()? as usize;
-    let mut annotations = Vec::with_capacity(num_annotations.min(c.remaining() / 4));
+    let mut annotations = Vec::with_capacity(c.safe_capacity(num_annotations, 4));
     for _ in 0..num_annotations {
-        annotations.push(decode_annotation(c)?);
+        annotations.push(decode_annotation(c, 0)?);
     }
     Ok(annotations)
 }
 
-fn decode_annotation(c: &mut Cursor<'_>) -> Result<Annotation> {
+fn decode_annotation(c: &mut Cursor<'_>, depth: usize) -> Result<Annotation> {
+    if depth > 16 {
+        return Err(Error::RecursionLimitExceeded { offset: c.pos });
+    }
     let type_index = c.read_cp_index()?;
     let num_pairs = c.read_u16()? as usize;
-    let mut element_value_pairs = Vec::with_capacity(num_pairs.min(c.remaining() / 3));
+    let mut element_value_pairs = Vec::with_capacity(c.safe_capacity(num_pairs, 3));
     for _ in 0..num_pairs {
         element_value_pairs.push(ElementValuePair {
             element_name_index: c.read_cp_index()?,
-            value: decode_element_value(c)?,
+            value: decode_element_value(c, depth + 1)?,
         });
     }
     Ok(Annotation {
@@ -526,7 +539,10 @@ fn decode_annotation(c: &mut Cursor<'_>) -> Result<Annotation> {
     })
 }
 
-fn decode_element_value(c: &mut Cursor<'_>) -> Result<ElementValue> {
+fn decode_element_value(c: &mut Cursor<'_>, depth: usize) -> Result<ElementValue> {
+    if depth > 16 {
+        return Err(Error::RecursionLimitExceeded { offset: c.pos });
+    }
     let tag = c.read_u8()?;
     match tag {
         b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b's' => {
@@ -537,12 +553,15 @@ fn decode_element_value(c: &mut Cursor<'_>) -> Result<ElementValue> {
             const_name_index: c.read_cp_index()?,
         }),
         b'c' => Ok(ElementValue::ClassInfoIndex(c.read_cp_index()?)),
-        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(c)?)),
+        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(
+            c,
+            depth + 1,
+        )?)),
         b'[' => {
             let num_values = c.read_u16()? as usize;
-            let mut values = Vec::with_capacity(num_values.min(c.remaining() / 3));
+            let mut values = Vec::with_capacity(c.safe_capacity(num_values, 3));
             for _ in 0..num_values {
-                values.push(decode_element_value(c)?);
+                values.push(decode_element_value(c, depth + 1)?);
             }
             Ok(ElementValue::ArrayValue(values))
         }
@@ -558,7 +577,7 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
     let code = c.read_bytes(code_len)?.to_vec();
 
     let ex_count = c.read_u16()? as usize;
-    let mut exception_table = Vec::with_capacity(ex_count.min(c.remaining() / 8));
+    let mut exception_table = Vec::with_capacity(c.safe_capacity(ex_count, 8));
     for _ in 0..ex_count {
         exception_table.push(ExceptionTableEntry {
             start_pc: c.read_u16()?,
@@ -571,7 +590,7 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
     // Code sub-attributes (LineNumberTable etc.) — stored as Raw for now;
     // resolve_attributes will decode them.
     let attr_count = c.read_u16()? as usize;
-    let mut attributes = Vec::with_capacity(attr_count.min(c.remaining() / 6));
+    let mut attributes = Vec::with_capacity(c.safe_capacity(attr_count, 6));
     for _ in 0..attr_count {
         let name_index = c.read_cp_index()?;
         let attr_len = c.read_u32()? as usize;

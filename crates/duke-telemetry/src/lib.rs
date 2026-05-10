@@ -173,6 +173,10 @@ impl TelemetryStore {
     }
 
     fn print_class_init_dag(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
+        if self.class_init_dag.events.is_empty() {
+            writeln!(w, "\nNo class initialization events recorded.")?;
+            return Ok(());
+        }
         writeln!(
             w,
             "\n-- class_init_dag ({} clinit events) --",
@@ -189,6 +193,10 @@ impl TelemetryStore {
     }
 
     fn print_exception_flow(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
+        if self.exception_flow.events.is_empty() {
+            writeln!(w, "\nNo exception flow events recorded.")?;
+            return Ok(());
+        }
         writeln!(
             w,
             "\n-- exception_flow ({} throw events) --",
@@ -323,6 +331,10 @@ impl TelemetryStore {
     fn markdown_exception_flow(&self, out: &mut String) {
         use std::fmt::Write;
         writeln!(out, "## Exception Flow\n").unwrap();
+        if self.exception_flow.events.is_empty() {
+            writeln!(out, "No exception flow events recorded.\n").unwrap();
+            return;
+        }
         writeln!(out, "| Exception Class | Throw Site | Catch Site |").unwrap();
         writeln!(out, "|-----------------|------------|------------|").unwrap();
         for ev in &self.exception_flow.events {
@@ -539,5 +551,51 @@ mod tests {
         let mut w = FailingWriter;
         let res = store.print_report(&mut w);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_bytecode_cost_with_less_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("iadd"));
+    }
+
+    #[test]
+    fn test_print_object_lineage_with_less_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String"));
+    }
+
+    #[test]
+    fn test_print_class_init_dag_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let mut buf = Vec::new();
+        store.print_class_init_dag(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String"));
+    }
+
+    #[test]
+    fn test_print_exception_flow_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        let mut buf = Vec::new();
+        store.print_exception_flow(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/Exception"));
     }
 }

@@ -1,7 +1,8 @@
-1. **Understand the problem:** The problem requires fixing missing documentation warnings that `cargo clippy --all-targets --all-features -- -W missing-docs` reports.
-2. **Current state:** We had missing docs for test binaries `crates/duke-loader/tests/havoc_jimage_proptest.rs`, `crates/duke-loader/tests/havoc_zip_proptest.rs`, `crates/duke-interpreter/tests/havoc_zip_files_loom.rs`.
-3. **Execution:** We already fixed this by adding `#![allow(missing_docs)]` to these test files, which makes sense for test binaries that don't need crate-level documentation to satisfy the warning.
-4. **Fixing other module:** We had an issue with `duke-interpreter` missing the crate documentation block. I updated `crates/duke-interpreter/src/lib.rs` to have a nice `//!` description that documents the crate-level module.
-5. **Validation:** `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` completes successfully, and `cargo clippy --all-targets --all-features -- -W missing_docs` doesn't produce missing_docs warnings, and tests pass.
-6. **Pre-commit step**: Execute tests and run pre commit step.
-7. **Submit**: Create PR.
+1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
+   - Before: Outputs headers and empty tables for empty components.
+   - After: Outputs a concise message stating no events were recorded.
+2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
+3. Submit the change using a descriptive title.
+1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
+2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
+3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
