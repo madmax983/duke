@@ -37,8 +37,7 @@ pub use verifier::verify;
 mod tests {
     use super::*;
     use duke_classfile::{
-        parse,
-        types::{AttributeData, CpEntry},
+        parse, {AttributeData, CpEntry},
     };
 
     // -----------------------------------------------------------------------

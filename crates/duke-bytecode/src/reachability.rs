@@ -86,13 +86,14 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
         return Vec::new();
     }
 
-    let mut block_map = HashMap::new();
+    // ⚡ Bolt: Pre-allocate capacities based on known block count to eliminate heap reallocations
+    let mut block_map = HashMap::with_capacity(blocks.len());
     for block in blocks {
         block_map.insert(block.start_pc, block);
     }
 
-    let mut visited = HashSet::new();
-    let mut queue = VecDeque::new();
+    let mut visited = HashSet::with_capacity(blocks.len());
+    let mut queue = VecDeque::with_capacity(blocks.len());
 
     if block_map.contains_key(&entry_pc) {
         queue.push_back(entry_pc);
@@ -166,7 +167,8 @@ pub fn find_shortest_path(
         return None;
     }
 
-    let mut block_map = HashMap::new();
+    // ⚡ Bolt: Pre-allocate capacities based on known block count to eliminate heap reallocations
+    let mut block_map = HashMap::with_capacity(blocks.len());
     for block in blocks {
         block_map.insert(block.start_pc, block);
     }
@@ -175,9 +177,9 @@ pub fn find_shortest_path(
         return None;
     }
 
-    let mut visited = HashSet::new();
-    let mut queue = VecDeque::new();
-    let mut parents: HashMap<usize, usize> = HashMap::new();
+    let mut visited = HashSet::with_capacity(blocks.len());
+    let mut queue = VecDeque::with_capacity(blocks.len());
+    let mut parents: HashMap<usize, usize> = HashMap::with_capacity(blocks.len());
 
     queue.push_back(start_pc);
     visited.insert(start_pc);

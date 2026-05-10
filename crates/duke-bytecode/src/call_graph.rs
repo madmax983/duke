@@ -7,8 +7,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use duke_classfile::{
-    ClassFile,
-    types::{AttributeData, CpEntry, CpIndex},
+    ClassFile, {AttributeData, CpEntry, CpIndex},
 };
 
 use crate::{Instruction, decode};
@@ -84,7 +83,7 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 ///
 /// ```
 /// use duke_bytecode::generate_mermaid_call_graph;
-/// use duke_classfile::{parse, types::ClassFile};
+/// use duke_classfile::{parse, ClassFile};
 ///
 /// // Create a dummy ClassFile from valid dummy bytecode:
 /// let mut v: Vec<u8> = Vec::new();
@@ -158,7 +157,7 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::types::{AttributeInfo, CodeAttribute, MethodInfo};
+    use duke_classfile::{AttributeInfo, CodeAttribute, MethodInfo};
     use duke_classfile::{ClassAccessFlags, MethodAccessFlags};
 
     #[test]
