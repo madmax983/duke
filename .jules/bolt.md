@@ -27,3 +27,7 @@
 **Pre-allocate String capacity instead of format! macro**
 **Learning:** Using `format!("prefix{value}")` inside loops or hot paths creates unnecessary intermediate heap allocations and string operations that slow down the application.
 **Action:** When creating strings from known prefixes/suffixes, calculate the exact length with `String::with_capacity(prefix.len() + value.len())` and use `push_str()` directly to achieve zero-cost abstraction.
+
+**Avoid Unnecessary Vector Allocations During Iterator Processing**
+**Learning:** Functions that process iterators and convert elements into collections (like decoding UTF-16 units into a `String`) often don't need intermediate vectors. In `decode_utf16_bytes`, an entire `Vec<u16>` was pre-allocated and populated just to be immediately consumed by `char::decode_utf16`.
+**Action:** When a function accepts an iterator or a slice, design internal helpers to accept `impl IntoIterator` rather than concrete `Vec`s. Here, modifying `decode_utf16_bytes` to pass a mapped `.chunks_exact` iterator directly to `char::decode_utf16` eliminated a full intermediate O(N) heap allocation, adhering to the "Zero-cost abstractions are the law. Memory allocations are the enemy" philosophy.

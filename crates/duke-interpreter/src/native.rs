@@ -2137,28 +2137,28 @@ enum Utf16Endian {
     Little,
 }
 
-fn decode_utf16_units(units: Vec<u16>, has_trailing_byte: bool) -> String {
-    let mut decoded: String = char::decode_utf16(units)
+/// Decodes UTF-16 bytes into a Rust String.
+///
+/// ⚡ Bolt: Removed the intermediate `Vec<u16>` allocation by passing a lazy iterator
+/// (`chunks.by_ref().map(...)`) directly to `char::decode_utf16`. This avoids an $O(N)$
+/// heap allocation for every UTF-16 decoding operation.
+fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
+    let mut chunks = bytes.chunks_exact(2);
+    let iter = chunks.by_ref().map(|chunk| {
+        let pair = [chunk[0], chunk[1]];
+        match endian {
+            Utf16Endian::Big => u16::from_be_bytes(pair),
+            Utf16Endian::Little => u16::from_le_bytes(pair),
+        }
+    });
+
+    let mut decoded: String = char::decode_utf16(iter)
         .map(|item| item.unwrap_or(REPLACEMENT_CHAR))
         .collect();
-    if has_trailing_byte {
+    if !chunks.remainder().is_empty() {
         decoded.push(REPLACEMENT_CHAR);
     }
     decoded
-}
-
-fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
-    let mut chunks = bytes.chunks_exact(2);
-    let mut units = Vec::with_capacity(bytes.len() / 2);
-    for chunk in &mut chunks {
-        let pair = [chunk[0], chunk[1]];
-        let unit = match endian {
-            Utf16Endian::Big => u16::from_be_bytes(pair),
-            Utf16Endian::Little => u16::from_le_bytes(pair),
-        };
-        units.push(unit);
-    }
-    decode_utf16_units(units, !chunks.remainder().is_empty())
 }
 
 fn decode_string_with_charset(bytes: &[u8], charset: StandardCharset) -> String {
