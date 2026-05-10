@@ -301,6 +301,12 @@ pub struct ZipLoader {
 }
 
 impl ZipLoader {
+    #[inline]
+    fn append_boot_inf_classes_path(buf: &mut String, name: &str) {
+        buf.push_str("BOOT-INF/classes/");
+        buf.push_str(name);
+    }
+
     /// Open a ZIP/JAR file as a class loader.
     ///
     /// This immediately memory-maps the file and parses its Central Directory to build
@@ -367,8 +373,7 @@ impl ClassLoader for ZipLoader {
 
         // Try BOOT-INF path: BOOT-INF/classes/{name}.class
         entry_name.clear();
-        entry_name.push_str("BOOT-INF/classes/");
-        entry_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut entry_name, name);
         entry_name.push_str(".class");
         match self.reader.read_entry(&entry_name) {
             Err(Error::NotFound { .. }) => {}
@@ -394,8 +399,7 @@ impl ClassLoader for ZipLoader {
 
         // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Err(Error::NotFound { .. }) => {}
             result => return result,
@@ -422,8 +426,7 @@ impl ClassLoader for ZipLoader {
 
         // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => resources.push(bytes),
             Err(Error::NotFound { .. }) => {}
@@ -449,8 +452,7 @@ impl ClassLoader for ZipLoader {
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => {
                 return Ok(LocatedResource {
@@ -486,8 +488,7 @@ impl ClassLoader for ZipLoader {
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        boot_inf_name.push_str("BOOT-INF/classes/");
-        boot_inf_name.push_str(name);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
         match self.reader.read_entry(&boot_inf_name) {
             Ok(bytes) => resources.push(LocatedResource {
                 bytes,
