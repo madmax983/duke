@@ -26,8 +26,8 @@ pub(crate) mod registry;
 pub(crate) mod stdlib;
 pub(crate) mod threading;
 
-pub use context::*;
-pub use registry::*;
+pub use context::{ClassContext, ClassLoadSource, ExceptionEntry, FieldEntry, MethodEntry};
+pub use registry::{CallbackNativeHandler, CallbackOps, ClassRegistry, HandlerKind, LambdaInfo, NativeControl, NativeHandler, NativeRegistry, NativeStackFrame, NativeThreadAction, ReflectedAnnotation, ReflectedAnnotationConst, ReflectedAnnotationElement, ReflectedAnnotationValue, ReflectedClassInfo, ReflectedFieldInfo, ReflectedMethodInfo};
 pub use stdlib::bootstrap_stdlib;
 pub use threading::{SharedOutput, ThreadPause, ThreadRecord, ThreadRuntime};
 
