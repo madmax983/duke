@@ -1,0 +1,22 @@
+I will complete the `diff.rs` tool and expose it via the CLI under the `nova` feature flag.
+
+1. Implement `pub fn dump_diff(path1: &str, path2: &str)` in `duke/src/diff.rs`.
+   - Parse both class files using `duke_classfile::parse`.
+   - Compare their properties (major/minor version).
+   - Compare the list of methods:
+     - Methods present in `path1` but not `path2` are "Removed".
+     - Methods present in `path2` but not `path1` are "Added".
+     - Methods in both but with different instructions (decoded via `duke_bytecode::decode`) are "Changed".
+2. Hook `diff` up to `duke/src/main.rs`.
+   - Add `eprintln!("       duke diff <class1> <class2>");` to the help menu (under `#[cfg(feature = "nova")]`).
+   - Add the dispatch code:
+     ```rust
+     #[cfg(feature = "nova")]
+     if args.len() >= 4 && args[1] == "diff" {
+         diff::dump_diff(&args[2], &args[3]);
+         return;
+     }
+     ```
+3. Fix the `diff.rs` test module by putting it inside `#[cfg(test)] mod tests { ... }`.
+4. Run `cargo test` and `cargo clippy`.
+5. Complete pre-commit steps.

@@ -1,4 +1,6 @@
-## 2024-05-24 - JAR Security Audit
-**The Spark:** "I noticed we calculate complexities and basic graph analysis, but what if we can identify problematic usages in terms of security or stability? For instance, what if we want to find potentially dangerous API calls like `System.exit()`, `Runtime.exec()`, or Reflection APIs?"
-**The Feature:** Implemented `audit.rs` and the `duke audit` command to scan a JAR file for invocations of dangerous JVM methods.
-**The Potential:** Could be used as a pre-commit hook or CI check to prevent the introduction of arbitrary code execution vectors or abrupt JVM shutdown calls.
+## 2026-05-06 - Bytecode Diff
+
+**The Spark:** "I noticed we parse and decode bytecodes, and we have multiple analysis tools, but no way to easily compare two versions of a class file to see what changed."
+**The Feature:** "Implemented `duke diff` to compare class files."
+**The Potential:** "Could be used for reverse-engineering patches, understanding compiler optimizations, and tracking down regressions."
+**Risk:** "Low. Isolated in `duke/src/diff.rs`."
