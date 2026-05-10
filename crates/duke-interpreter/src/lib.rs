@@ -36,7 +36,7 @@ use std::io::Write;
 
 use duke_bytecode::ArrayType;
 use duke_bytecode::Instruction;
-use duke_classfile::types::CpEntry;
+use duke_classfile::CpEntry;
 use duke_loader::ClassLoader;
 use duke_runtime::{Error, Frame, Result, Slot};
 

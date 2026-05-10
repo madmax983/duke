@@ -14131,6 +14131,8 @@ fn allocate_read_write_view(
     Ok(Slot::Reference(Some(view_ref)))
 }
 
+/// Native: `ReentrantReadWriteLock.init()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_init(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -14171,6 +14173,8 @@ pub(crate) fn native_reentrant_read_write_lock_init(
     Ok(None)
 }
 
+/// Native: `ReentrantReadWriteLock.readLock()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_read_lock(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -14204,6 +14208,8 @@ pub(crate) fn native_reentrant_read_write_lock_read_lock(
     Ok(Some(slot))
 }
 
+/// Native: `ReentrantReadWriteLock.writeLock()`
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_reentrant_read_write_lock_write_lock(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -21450,7 +21456,7 @@ fn native_control_for_call(
 fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
     use duke_bytecode::decode;
     use duke_classfile::MethodAccessFlags;
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     let source_file = cf.attributes.iter().find_map(|a| {
         if let AttributeData::SourceFile { sourcefile_index } = &a.data {
@@ -21584,7 +21590,7 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
 
 fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<Slot>, usize) {
     use duke_classfile::FieldAccessFlags;
-    use duke_classfile::types::CpEntry;
+    use duke_classfile::CpEntry;
 
     let mut fields = Vec::with_capacity(cf.fields.len());
     let mut static_fields = Vec::new();
@@ -21633,7 +21639,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 /// # use duke_interpreter::build_class_context;
 /// # use duke_classfile::{ClassFile, ClassAccessFlags};
-/// # use duke_classfile::types::{CpIndex, CpEntry};
+/// # use duke_classfile::{CpIndex, CpEntry};
 /// // A minimal class file representation of `java/lang/Object`.
 /// let cf = ClassFile {
 ///     minor_version: 0,
@@ -21658,7 +21664,7 @@ fn build_field_entries(cf: &duke_classfile::ClassFile) -> (Vec<FieldEntry>, Vec<
 /// ```
 #[must_use]
 pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
-    use duke_classfile::types::{AttributeData, CpEntry};
+    use duke_classfile::{AttributeData, CpEntry};
 
     // Resolve this_class -> class name string.
     let class_name = {
@@ -21796,9 +21802,9 @@ fn cp_annotation_const(
 
 fn resolve_annotation_value(
     cp: &[Option<CpEntry>],
-    value: &duke_classfile::types::ElementValue,
+    value: &duke_classfile::ElementValue,
 ) -> Option<ReflectedAnnotationValue> {
-    use duke_classfile::types::ElementValue;
+    use duke_classfile::ElementValue;
     match value {
         ElementValue::ConstValueIndex(index) => cp_annotation_const(cp, index.0 as usize)
             .map(ReflectedAnnotationValue::Const),
@@ -21832,7 +21838,7 @@ fn resolve_annotation_value(
 
 fn resolve_annotation(
     cp: &[Option<CpEntry>],
-    annotation: &duke_classfile::types::Annotation,
+    annotation: &duke_classfile::Annotation,
 ) -> Option<ReflectedAnnotation> {
     let descriptor = cp_utf8_string(cp, annotation.type_index.0 as usize).ok()?;
     let elements = annotation
@@ -21853,12 +21859,12 @@ fn resolve_annotation(
 
 fn runtime_visible_annotations_from_attrs(
     cp: &[Option<CpEntry>],
-    attrs: &[duke_classfile::types::AttributeInfo],
+    attrs: &[duke_classfile::AttributeInfo],
 ) -> Vec<ReflectedAnnotation> {
     attrs
         .iter()
         .find_map(|attr| {
-            if let duke_classfile::types::AttributeData::RuntimeVisibleAnnotations(annotations) =
+            if let duke_classfile::AttributeData::RuntimeVisibleAnnotations(annotations) =
                 &attr.data
             {
                 Some(
@@ -21876,10 +21882,10 @@ fn runtime_visible_annotations_from_attrs(
 
 fn annotation_default_from_attrs(
     cp: &[Option<CpEntry>],
-    attrs: &[duke_classfile::types::AttributeInfo],
+    attrs: &[duke_classfile::AttributeInfo],
 ) -> Option<ReflectedAnnotationValue> {
     attrs.iter().find_map(|attr| {
-        if let duke_classfile::types::AttributeData::AnnotationDefault(value) = &attr.data {
+        if let duke_classfile::AttributeData::AnnotationDefault(value) = &attr.data {
             resolve_annotation_value(cp, value)
         } else {
             None
@@ -37917,4 +37923,132 @@ mod native_helper_tests {
         let res = extract_slot_arg(&args, 0);
         assert_eq!(res, Slot::Reference(None));
     }
+
+    #[test]
+    fn should_init_reentrant_read_write_lock() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_init(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, None);
+        let lock_obj = heap.get(lock_ref).unwrap();
+        assert!(matches!(lock_obj.atomic_payload, Some(duke_gc::AtomicPayload::ReadWriteLock(_))));
+        assert!(matches!(lock_obj.fields[0], Slot::Reference(Some(_))));
+        assert!(matches!(lock_obj.fields[1], Slot::Reference(Some(_))));
+    }
+
+    #[test]
+    fn should_return_existing_read_lock_if_present() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let read_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock$ReadLock".to_string(), 0);
+        heap.get_mut(lock_ref).unwrap().fields[0] = Slot::Reference(Some(read_ref));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_read_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(Some(read_ref))));
+    }
+
+    #[test]
+    fn should_create_new_read_lock_if_missing() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 1);
+        let state = std::sync::Arc::new(std::sync::Mutex::new(duke_gc::ReadWriteLockState::default()));
+        heap.get_mut(lock_ref).unwrap().atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_read_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert!(matches!(res, Some(Slot::Reference(Some(_)))));
+    }
+
+    #[test]
+    fn should_return_existing_write_lock_if_present() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let write_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock$WriteLock".to_string(), 0);
+        heap.get_mut(lock_ref).unwrap().fields[1] = Slot::Reference(Some(write_ref));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_write_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(Some(write_ref))));
+    }
+
+    #[test]
+    fn should_create_new_write_lock_if_missing() {
+        let mut heap = duke_gc::Heap::new();
+        let lock_ref = heap.allocate("java/util/concurrent/locks/ReentrantReadWriteLock".to_string(), 2);
+        let state = std::sync::Arc::new(std::sync::Mutex::new(duke_gc::ReadWriteLockState::default()));
+        heap.get_mut(lock_ref).unwrap().atomic_payload = Some(duke_gc::AtomicPayload::ReadWriteLock(state));
+        let args = vec![Slot::Reference(Some(lock_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_reentrant_read_write_lock_write_lock(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert!(matches!(res, Some(Slot::Reference(Some(_)))));
+    }
+
+
+    #[test]
+    fn should_return_none_when_priorityqueue_peek_size_zero() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 1);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(0);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(None)));
+    }
+
+    #[test]
+    fn should_return_none_when_priorityqueue_peek_no_fields() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 0);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Reference(None)));
+    }
+
+    #[test]
+    fn should_return_element_when_priorityqueue_peek_size_not_zero() {
+        let mut heap = duke_gc::Heap::new();
+        let obj_ref = heap.allocate("java/util/PriorityQueue".to_string(), 2);
+        heap.get_mut(obj_ref).unwrap().fields[0] = Slot::Int(1);
+        heap.get_mut(obj_ref).unwrap().fields[1] = Slot::Int(42);
+
+        let args = vec![Slot::Reference(Some(obj_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let res = native_priorityqueue_peek(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(res, Some(Slot::Int(42)));
+    }
+
+}
+
+#[cfg(test)]
+mod tests_sentry {
+
+    #[test]
+    fn test_atomic_helpers_error_paths() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/lang/Object".to_string(), 0);
+
+        let err_i32 = super::with_atomic_i32(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_i32, crate::Error::InvalidRef { address: _ }));
+
+        let err_i64 = super::with_atomic_i64(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_i64, crate::Error::InvalidRef { address: _ }));
+
+        let err_bool = super::with_atomic_bool(&heap, this_ref, |_| ()).unwrap_err();
+        assert!(matches!(err_bool, crate::Error::InvalidRef { address: _ }));
+    }
+
 }
