@@ -173,6 +173,10 @@ impl TelemetryStore {
     }
 
     fn print_class_init_dag(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
+        if self.class_init_dag.events.is_empty() {
+            writeln!(w, "\nNo class initialization events recorded.")?;
+            return Ok(());
+        }
         writeln!(
             w,
             "\n-- class_init_dag ({} clinit events) --",
@@ -189,6 +193,10 @@ impl TelemetryStore {
     }
 
     fn print_exception_flow(&self, w: &mut dyn std::io::Write) -> std::io::Result<()> {
+        if self.exception_flow.events.is_empty() {
+            writeln!(w, "\nNo exception flow events recorded.")?;
+            return Ok(());
+        }
         writeln!(
             w,
             "\n-- exception_flow ({} throw events) --",
@@ -323,6 +331,10 @@ impl TelemetryStore {
     fn markdown_exception_flow(&self, out: &mut String) {
         use std::fmt::Write;
         writeln!(out, "## Exception Flow\n").unwrap();
+        if self.exception_flow.events.is_empty() {
+            writeln!(out, "No exception flow events recorded.\n").unwrap();
+            return;
+        }
         writeln!(out, "| Exception Class | Throw Site | Catch Site |").unwrap();
         writeln!(out, "|-----------------|------------|------------|").unwrap();
         for ev in &self.exception_flow.events {
