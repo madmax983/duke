@@ -19,6 +19,8 @@ mod html;
 mod html_jar;
 mod jar_analyze;
 #[cfg(feature = "nova")]
+mod jar_diff;
+#[cfg(feature = "nova")]
 mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
@@ -36,8 +38,7 @@ use duke_bytecode::{
     generate_mermaid_cfg,
 };
 use duke_classfile::{
-    ClassFile, MethodAccessFlags, parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    ClassFile, MethodAccessFlags, parse, {AttributeData, CpEntry, CpIndex},
 };
 use duke_gc::Heap;
 use duke_interpreter::{
@@ -356,6 +357,19 @@ fn main() {
             eprintln!("duke: unknown subcommand 'jar-dead-code'");
             std::process::exit(1);
         }
+    }
+
+    // Dispatch `jar-diff`
+    if args.len() > 1 && args[1] == "jar-diff" {
+        if args.len() < 4 {
+            eprintln!("Usage: duke jar-diff <file1.jar> <file2.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        jar_diff::dump_jar_diff(&args[2], &args[3]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'jar-diff' command requires the 'nova' feature flag.");
+        return;
     }
 
     // Dispatch `jar-search`
@@ -1540,8 +1554,7 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code_empty() {
         use duke_classfile::{
-            ClassAccessFlags,
-            types::{ClassFile, CpEntry, CpIndex},
+            ClassAccessFlags, {ClassFile, CpEntry, CpIndex},
         };
 
         let cf = ClassFile {
@@ -1570,8 +1583,7 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code() {
         use duke_classfile::{
-            ClassAccessFlags, MethodAccessFlags,
-            types::{ClassFile, CpEntry, CpIndex, MethodInfo},
+            ClassAccessFlags, MethodAccessFlags, {ClassFile, CpEntry, CpIndex, MethodInfo},
         };
 
         let cf = ClassFile {
