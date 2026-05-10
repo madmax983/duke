@@ -36,6 +36,11 @@ use thiserror::Error;
 /// ```
 #[derive(Debug, Error)]
 pub enum Error {
+
+    /// A recursive structure (like nested annotations) exceeded the maximum depth limit.
+    #[error("recursion limit exceeded while parsing class file")]
+    RecursionLimitExceeded,
+
     /// Expected more bytes to parse but reached the end of the file.
     #[error("unexpected end of input at offset {offset}")]
     UnexpectedEof {
