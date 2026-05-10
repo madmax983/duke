@@ -81,24 +81,17 @@ fn find_leaders(instructions: &[(usize, Instruction)]) -> BTreeSet<usize> {
     leaders.insert(instructions[0].0);
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
-        let is_branch_or_return = if let Some(offset) = instr.conditional_branch_target() {
-            leaders.insert((*pc as isize + offset) as usize);
-            true
-        } else if let Some(offset) = instr.unconditional_jump_target() {
-            leaders.insert((*pc as isize + offset) as usize);
-            true
-        } else if instr.is_return() {
-            true
-        } else if let Some((default, pairs)) = instr.switch_targets() {
-            leaders.insert((*pc as isize + default as isize) as usize);
-            for (_, offset) in pairs {
-                leaders.insert((*pc as isize + offset as isize) as usize);
-            }
-            true
-        } else {
-            false
-        };
+        let is_branch_or_return = instr.is_conditional_branch()
+            || instr.is_unconditional_jump()
+            || instr.is_switch()
+            || instr.is_return();
 
+        // Target of any jump or branch is a leader
+        for target in instr.control_flow_targets(*pc, None) {
+            leaders.insert(target);
+        }
+
+        // The instruction immediately following any jump, branch, or return is a leader
         if is_branch_or_return && i + 1 < instructions.len() {
             leaders.insert(instructions[i + 1].0);
         }
