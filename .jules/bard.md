@@ -25,6 +25,9 @@
 ## 2024-05-23 - [Test Files Missing Docs]
 **Confusion:** Proptest and loom test binaries generated missing documentation warnings, which shouldn't require full crate documentation blocks.
 **Clarification:** Suppressed warnings in `havoc_jimage_proptest.rs`, `havoc_zip_proptest.rs`, and `havoc_zip_files_loom.rs` using `#![allow(missing_docs)]`. Added `//!` crate documentation to `duke-interpreter` to clarify its core orchestration role.
+## 2024-05-24 - [Test Files Missing Docs]
+**Confusion:** The `oss_jar_smoke.rs` integration test generated missing documentation warnings.
+**Clarification:** Added `//!` crate documentation to `oss_jar_smoke.rs`.
 
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
