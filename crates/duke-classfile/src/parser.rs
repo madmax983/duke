@@ -443,7 +443,7 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
         "RuntimeVisibleAnnotations" => {
             AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c)?)
         }
-        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c)?),
+        "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c, 0)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
     Ok(data)
@@ -515,19 +515,22 @@ fn decode_runtime_visible_annotations(c: &mut Cursor<'_>) -> Result<Vec<Annotati
     let num_annotations = c.read_u16()? as usize;
     let mut annotations = Vec::with_capacity(c.safe_capacity(num_annotations, 4));
     for _ in 0..num_annotations {
-        annotations.push(decode_annotation(c)?);
+        annotations.push(decode_annotation(c, 0)?);
     }
     Ok(annotations)
 }
 
-fn decode_annotation(c: &mut Cursor<'_>) -> Result<Annotation> {
+fn decode_annotation(c: &mut Cursor<'_>, depth: usize) -> Result<Annotation> {
+    if depth > 16 {
+        return Err(Error::RecursionLimitExceeded { offset: c.pos });
+    }
     let type_index = c.read_cp_index()?;
     let num_pairs = c.read_u16()? as usize;
     let mut element_value_pairs = Vec::with_capacity(c.safe_capacity(num_pairs, 3));
     for _ in 0..num_pairs {
         element_value_pairs.push(ElementValuePair {
             element_name_index: c.read_cp_index()?,
-            value: decode_element_value(c)?,
+            value: decode_element_value(c, depth + 1)?,
         });
     }
     Ok(Annotation {
@@ -536,7 +539,10 @@ fn decode_annotation(c: &mut Cursor<'_>) -> Result<Annotation> {
     })
 }
 
-fn decode_element_value(c: &mut Cursor<'_>) -> Result<ElementValue> {
+fn decode_element_value(c: &mut Cursor<'_>, depth: usize) -> Result<ElementValue> {
+    if depth > 16 {
+        return Err(Error::RecursionLimitExceeded { offset: c.pos });
+    }
     let tag = c.read_u8()?;
     match tag {
         b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' | b's' => {
@@ -547,12 +553,15 @@ fn decode_element_value(c: &mut Cursor<'_>) -> Result<ElementValue> {
             const_name_index: c.read_cp_index()?,
         }),
         b'c' => Ok(ElementValue::ClassInfoIndex(c.read_cp_index()?)),
-        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(c)?)),
+        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(
+            c,
+            depth + 1,
+        )?)),
         b'[' => {
             let num_values = c.read_u16()? as usize;
             let mut values = Vec::with_capacity(c.safe_capacity(num_values, 3));
             for _ in 0..num_values {
-                values.push(decode_element_value(c)?);
+                values.push(decode_element_value(c, depth + 1)?);
             }
             Ok(ElementValue::ArrayValue(values))
         }
