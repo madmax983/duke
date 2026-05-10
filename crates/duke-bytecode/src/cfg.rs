@@ -42,7 +42,8 @@ use crate::Instruction;
 )]
 #[must_use]
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
-    let mut cfg = String::from("graph TD\n");
+    let mut cfg = String::with_capacity(64 + instructions.len() * 64);
+    cfg.push_str("graph TD\n");
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
         let mnemonic = instr.mnemonic();

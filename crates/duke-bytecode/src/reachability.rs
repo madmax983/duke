@@ -101,7 +101,7 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
         return Vec::new();
     }
 
-    let mut block_map = HashMap::new();
+    let mut block_map = HashMap::with_capacity(blocks.len());
     for block in blocks {
         block_map.insert(block.start_pc, block);
     }
@@ -181,7 +181,7 @@ pub fn find_shortest_path(
         return None;
     }
 
-    let mut block_map = HashMap::new();
+    let mut block_map = HashMap::with_capacity(blocks.len());
     for block in blocks {
         block_map.insert(block.start_pc, block);
     }
