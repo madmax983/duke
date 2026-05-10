@@ -69,6 +69,9 @@
 **Learning:** `generate_mermaid_cfg`, `generate_basic_block_cfg`, and `cyclomatic_complexity` in `crates/duke-bytecode/src/cfg.rs` shared complex, duplicated matching logic to determine the control flow edges of instructions (using `is_return()`, `unconditional_jump_target()`, `conditional_branch_target()`, `switch_targets()`).
 **Action:** Created `Instruction::control_flow_edges` to centralize this logic, returning a generic list of `(target_pc, Option<label>)` tuples. This massively simplified all three functions by replacing their redundant if-else chains with a simple loop over the extracted edges.
 
+**Extract Control Flow Graph Targets**
+**Learning:** `find_leaders` in `crates/duke-bytecode/src/basic_block.rs` contained a massive, 20-line inline `if-else` chain to identify conditional branches, unconditional jumps, switch statements, and return instructions. This duplicated logic and inflated file size.
+**Action:** Always extract boolean categorization logic (e.g., `is_conditional_branch()`, `is_return()`) and data extraction logic (`control_flow_targets()`) into public helper methods directly on the enum (`Instruction`) to DRY up matching code and dramatically flatten calling modules.
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
