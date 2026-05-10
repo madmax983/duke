@@ -4445,9 +4445,7 @@ pub(crate) fn native_linked_list_init_collection(
     let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[1..=src_size].to_vec();
     let n = i32::try_from(src_elems.len()).unwrap_or(0);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(n);
-    for elem in src_elems {
-        heap.get_mut(this_ref)?.fields.push(elem);
-    }
+    heap.get_mut(this_ref)?.fields.extend(src_elems);
     Ok(None)
 }
 
@@ -5442,9 +5440,7 @@ pub(crate) fn native_stream_of(
     let n = i32::try_from(elems.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -5464,9 +5460,7 @@ pub(crate) fn native_arraylist_stream(
         heap.get(list_ref)?.fields[1..=usize::try_from(size).unwrap_or(0)].to_vec();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(size);
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -5522,9 +5516,7 @@ pub(crate) fn native_stream_filter(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(kept);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -5564,9 +5556,7 @@ pub(crate) fn native_stream_map(
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in mapped {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(mapped);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -6272,9 +6262,7 @@ pub(crate) fn native_stream_collect(
         let mapped_size = i32::try_from(mapped_elems.len()).unwrap_or(0);
         let tmp_stream = heap.allocate("duke/util/Stream".to_string(), 1);
         heap.get_mut(tmp_stream)?.fields[0] = Slot::Int(mapped_size);
-        for elem in mapped_elems {
-            heap.get_mut(tmp_stream)?.fields.push(elem);
-        }
+        heap.get_mut(tmp_stream)?.fields.extend(mapped_elems);
         let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
         native_stream_collect(&tmp_args, heap, out, control, ops)
     } else if collector_class == "duke/util/GroupingBy2Collector" {
@@ -6371,9 +6359,7 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(tmp_stream)?.fields[0] = group_size_field;
             let group_elems: Vec<Slot> =
                 heap.get(list_ref)?.fields[1..=usize::try_from(group_size).unwrap_or(0)].to_vec();
-            for e in group_elems {
-                heap.get_mut(tmp_stream)?.fields.push(e);
-            }
+            heap.get_mut(tmp_stream)?.fields.extend(group_elems);
             let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
             let collected = native_stream_collect(&tmp_args, heap, out, control, ops)?
                 .unwrap_or(Slot::Reference(None));
@@ -6634,17 +6620,13 @@ pub(crate) fn native_stream_collect(
         // toUnmodifiableList(): collect into UnmodifiableList (mutations throw).
         let list_ref = heap.allocate("java/util/UnmodifiableList".to_string(), 1);
         heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
-        for elem in elems {
-            heap.get_mut(list_ref)?.fields.push(elem);
-        }
+        heap.get_mut(list_ref)?.fields.extend(elems);
         Ok(Some(Slot::Reference(Some(list_ref))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
         heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
-        for elem in elems {
-            heap.get_mut(list_ref)?.fields.push(elem);
-        }
+        heap.get_mut(list_ref)?.fields.extend(elems);
         Ok(Some(Slot::Reference(Some(list_ref))))
     }
 }
@@ -6671,9 +6653,7 @@ pub(crate) fn native_stream_distinct(
     let new_size = i32::try_from(seen.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in seen {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(seen);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -6721,9 +6701,7 @@ pub(crate) fn native_stream_sorted(
     let new_size = i32::try_from(elems.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in elems {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -7111,9 +7089,7 @@ pub(crate) fn native_stream_peek(
     // Return a new stream with same elements (consumer may have GC'd things)
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(elems.len()).unwrap_or(0));
-    for elem in elems {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -7132,9 +7108,7 @@ pub(crate) fn native_stream_to_array(
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     // Arrays use fields directly (no length header); arraylength returns fields.len().
     let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
-    for elem in elems {
-        heap.get_mut(arr_ref)?.fields.push(elem);
-    }
+    heap.get_mut(arr_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
 
@@ -7246,9 +7220,7 @@ pub(crate) fn native_stream_skip(
     let new_size = i32::try_from(skipped.len()).unwrap_or(0);
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in skipped {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(skipped);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -7294,9 +7266,7 @@ pub(crate) fn native_stream_flat_map(
     let new_size = i32::try_from(flat.len()).unwrap_or(0);
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in flat {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(flat);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -7736,9 +7706,7 @@ pub(crate) fn native_int_stream_map_to_obj(
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in mapped {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(mapped);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -15533,9 +15501,7 @@ pub(crate) fn native_arrays_stream_object(
     let n = i32::try_from(elems.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -25720,9 +25686,7 @@ pub(crate) fn native_arraylist_sub_list(
     };
     let sub_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
     heap.get_mut(sub_ref)?.fields[0] = Slot::Int(i32::try_from(new_len).unwrap_or(0));
-    for elem in src_elems {
-        heap.get_mut(sub_ref)?.fields.push(elem);
-    }
+    heap.get_mut(sub_ref)?.fields.extend(src_elems);
     Ok(Some(Slot::Reference(Some(sub_ref))))
 }
 
@@ -25768,9 +25732,7 @@ pub(crate) fn native_arraylist_remove_if(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     heap.get_mut(this_ref)?.fields.truncate(1);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(this_ref)?.fields.push(elem);
-    }
+    heap.get_mut(this_ref)?.fields.extend(kept);
     Ok(Some(Slot::Int(i32::from(removed))))
 }
 
@@ -31002,9 +30964,7 @@ pub(crate) fn native_hashset_stream(
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
-    for elem in elems {
-        heap.get_mut(stream_ref)?.fields.push(elem);
-    }
+    heap.get_mut(stream_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -31391,9 +31351,7 @@ pub(crate) fn native_stream_concat(
     let total = a_size + b_size;
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(total).unwrap_or(0));
-    for elem in a_elems.into_iter().chain(b_elems) {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(a_elems.into_iter().chain(b_elems));
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -31452,9 +31410,7 @@ pub(crate) fn native_stream_take_while(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(kept);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -31499,9 +31455,7 @@ pub(crate) fn native_stream_drop_while(
     let new_size = i32::try_from(kept.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in kept {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(kept);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -31586,9 +31540,7 @@ pub(crate) fn native_stream_sorted_comparator(
     let new_size = i32::try_from(elems.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    for elem in elems {
-        heap.get_mut(new_stream)?.fields.push(elem);
-    }
+    heap.get_mut(new_stream)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 
@@ -35290,9 +35242,7 @@ pub(crate) fn native_stream_iterate_predicate(
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     let size = i32::try_from(elems.len()).unwrap_or(i32::MAX);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(size);
-    for elem in elems {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
@@ -35454,9 +35404,7 @@ pub(crate) fn native_arraydeque_stream(
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
-    for elem in elems {
-        heap.get_mut(out_ref)?.fields.push(elem);
-    }
+    heap.get_mut(out_ref)?.fields.extend(elems);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 
