@@ -89,6 +89,21 @@ impl SharedOutput {
 }
 
 /// Minimal metadata for a Java thread record.
+///
+/// This struct holds the essential lifecycle state for a thread spawned within the JVM,
+/// mapping its internal `java.lang.Thread` object reference to an execution ID and
+/// tracking its completion state.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::ThreadRecord;
+///
+/// let mut record = ThreadRecord::new(0x1234, 1);
+/// assert!(!record.finished);
+/// assert!(record.mark_finished());
+/// assert!(record.finished);
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ThreadRecord {
     /// The heap reference (object ID) of the underlying `java/lang/Thread` instance.
@@ -136,6 +151,29 @@ impl ThreadRecord {
 }
 
 /// Interpreter-owned threading runtime scaffold.
+///
+/// Because `duke` operates fundamentally as a single-threaded execution loop, it cannot rely
+/// on OS-level threads to manage `java.lang.Thread` lifecycle directly. Instead, this struct
+/// provides a localized, cooperative threading registry. It allocates unique thread IDs, tracks
+/// which threads are actively running, and provides safe coordination primitives when virtual
+/// threads finish or are joined.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::{ThreadRuntime, ThreadRecord};
+///
+/// let mut runtime = ThreadRuntime::new();
+/// let tid = runtime.allocate_thread_id();
+///
+/// // Register a newly started Java thread
+/// runtime.register(ThreadRecord::new(0xABC, tid));
+/// assert_eq!(runtime.live_workers(), 1);
+///
+/// // Thread completes execution
+/// assert!(runtime.mark_finished(tid));
+/// assert_eq!(runtime.live_workers(), 0);
+/// ```
 #[derive(Debug, Default)]
 pub struct ThreadRuntime {
     next_thread_id: i32,

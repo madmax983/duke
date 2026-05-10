@@ -1,3 +1,4 @@
+//! Smoke tests for integrating various OSS jars to ensure the interpreter can execute them correctly.
 use std::path::{Path, PathBuf};
 
 use duke_gc::Heap;

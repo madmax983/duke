@@ -113,6 +113,23 @@ pub enum NativeThreadAction {
 
 /// One Java-frame snapshot made available to native handlers that need to
 /// materialize stack traces.
+///
+/// This struct holds the essential information to reconstruct a single element of
+/// a Java exception stack trace, mapping the execution state back to the original source.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::NativeStackFrame;
+///
+/// let frame = NativeStackFrame {
+///     class_name: "java/lang/String".to_string(),
+///     method_name: "indexOf".to_string(),
+///     file_name: Some("String.java".to_string()),
+///     line_number: 1234,
+/// };
+/// assert_eq!(frame.class_name, "java/lang/String");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeStackFrame {
     /// Internal JVM class name, e.g. `com/example/Main`.
@@ -126,6 +143,35 @@ pub struct NativeStackFrame {
 }
 
 /// Per-invocation control state for native handlers.
+///
+/// When an interpreted method invokes a native function, the JVM needs a way for
+/// that native code to communicate side-effects back to the main interpreter loop.
+/// The `NativeControl` struct acts as this out-of-band communication channel, allowing
+/// native code to request thread yields, sleeps, joins, or to attach a synthesized
+/// stack trace to a newly thrown exception.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::{NativeControl, NativeThreadAction, NativeStackFrame};
+///
+/// let mut control = NativeControl::default();
+///
+/// // A native method requesting the current thread to sleep
+/// control.request(NativeThreadAction::Sleep(std::time::Duration::from_millis(100)));
+/// assert!(control.take().is_some());
+///
+/// // Synthesizing a stack trace for an exception
+/// control.set_stack_trace(vec![
+///     NativeStackFrame {
+///         class_name: "Test".to_string(),
+///         method_name: "run".to_string(),
+///         file_name: None,
+///         line_number: -1,
+///     }
+/// ]);
+/// assert_eq!(control.stack_trace().len(), 1);
+/// ```
 #[derive(Debug, Default)]
 pub struct NativeControl {
     pending_thread_action: Option<NativeThreadAction>,

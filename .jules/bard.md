@@ -25,3 +25,7 @@
 ## 2024-05-23 - [Test Files Missing Docs]
 **Confusion:** Proptest and loom test binaries generated missing documentation warnings, which shouldn't require full crate documentation blocks.
 **Clarification:** Suppressed warnings in `havoc_jimage_proptest.rs`, `havoc_zip_proptest.rs`, and `havoc_zip_files_loom.rs` using `#![allow(missing_docs)]`. Added `//!` crate documentation to `duke-interpreter` to clarify its core orchestration role.
+
+## 2024-05-24 - [Undocumented Interpreter Elements]
+**Confusion:** Several core structs such as `NativeStackFrame`, `NativeControl` in `registry.rs`, `ThreadRecord`, `ThreadRuntime` in `threading.rs` and `MethodEntry`, `FieldEntry` in `context.rs` were undocumented, triggering `missing_docs` clippy lints if the check was fully enforced across the interpreter crate.
+**Clarification:** Added module-level documentation to test modules that triggered missing docs warnings and comprehensive doc strings, complete with executable `## Examples` doc tests to the previously undocumented structs to clear up their role in the JVM interpreter engine.
