@@ -1,3 +1,4 @@
+//! Tests for random classfile fuzzing
 use proptest::prelude::*;
 
 proptest! {
