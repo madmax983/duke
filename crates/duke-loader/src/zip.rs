@@ -118,6 +118,15 @@ impl ZipReader {
     /// Reads the entire file into memory, parses the end-of-central-directory
     /// record and central directory, and builds an in-memory index.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::ZipReader;
+    ///
+    /// let reader = ZipReader::open(Path::new("app.jar")).unwrap();
+    /// ```
+    ///
     /// # Errors
     /// Returns [`Error::Io`] on read failure, or [`Error::ZipFormat`]
     /// if the file is not a valid ZIP archive.
@@ -131,6 +140,19 @@ impl ZipReader {
 
     /// Build a `ZipReader` from raw bytes (useful for tests).
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// ```
+    ///
     /// # Errors
     /// Returns [`Error::ZipFormat`] if the data is not a valid ZIP archive.
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
@@ -140,6 +162,20 @@ impl ZipReader {
     }
 
     /// Look up an entry by name.  O(1).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// assert!(reader.get_entry("nonexistent.txt").is_none());
+    /// ```
     #[must_use]
     pub fn get_entry(&self, name: &str) -> Option<&ZipEntryInfo> {
         self.index.get(name)
@@ -161,6 +197,18 @@ impl ZipReader {
     }
 
     /// Read entry bytes given a pre-looked-up `ZipEntryInfo`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::ZipReader;
+    ///
+    /// let reader = ZipReader::open(Path::new("app.jar")).unwrap();
+    /// if let Some(info) = reader.get_entry("file.txt") {
+    ///     let data = reader.read_entry_info(info).unwrap();
+    /// }
+    /// ```
     ///
     /// # Errors
     /// Returns [`Error::ZipFormat`] on decompression or format errors,
@@ -257,12 +305,40 @@ impl ZipReader {
     }
 
     /// Number of entries in the archive.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// assert_eq!(reader.entry_count(), 0);
+    /// ```
     #[must_use]
     pub fn entry_count(&self) -> usize {
         self.index.len()
     }
 
     /// Iterate over all entry names.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::ZipReader;
+    ///
+    /// let archive_data = vec![
+    ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    /// ];
+    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
+    /// assert_eq!(reader.entry_names().count(), 0);
+    /// ```
     pub fn entry_names(&self) -> impl Iterator<Item = &str> {
         self.index.keys().map(String::as_str)
     }
