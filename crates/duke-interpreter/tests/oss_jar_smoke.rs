@@ -1,3 +1,7 @@
+//! Integration tests for running real-world OSS JARs.
+//! These tests verify that Duke can successfully load, initialize, and execute
+//! unmodified bytecode from third-party libraries like slf4j.
+
 use std::path::{Path, PathBuf};
 
 use duke_gc::Heap;

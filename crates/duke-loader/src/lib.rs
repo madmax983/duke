@@ -34,12 +34,17 @@ pub struct LocatedResource {
     pub url: String,
 }
 
+/// ⚡ Bolt: Eliminates intermediate String allocation and `format!` macro overhead
+/// by pre-computing string capacity and using `.push_str()` sequentially.
 pub(crate) fn path_to_file_url(path: &Path) -> String {
     let canonical = path.canonicalize().unwrap_or_else(|_| PathBuf::from(path));
     let mut normalized = canonical.to_string_lossy().replace('\\', "/");
     if cfg!(windows) {
         if let Some(stripped) = normalized.strip_prefix("//?/UNC/") {
-            normalized = format!("//{stripped}");
+            let mut s = String::with_capacity(2 + stripped.len());
+            s.push_str("//");
+            s.push_str(stripped);
+            normalized = s;
         } else if let Some(stripped) = normalized.strip_prefix("//?/") {
             normalized = stripped.to_string();
         }
@@ -47,7 +52,11 @@ pub(crate) fn path_to_file_url(path: &Path) -> String {
     if cfg!(windows) && !normalized.starts_with('/') {
         normalized.insert(0, '/');
     }
-    format!("file://{normalized}")
+
+    let mut url = String::with_capacity(7 + normalized.len());
+    url.push_str("file://");
+    url.push_str(&normalized);
+    url
 }
 
 /// Abstraction over class file loading sources.

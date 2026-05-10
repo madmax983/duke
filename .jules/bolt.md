@@ -27,3 +27,10 @@
 **Pre-allocate String capacity instead of format! macro**
 **Learning:** Using `format!("prefix{value}")` inside loops or hot paths creates unnecessary intermediate heap allocations and string operations that slow down the application.
 **Action:** When creating strings from known prefixes/suffixes, calculate the exact length with `String::with_capacity(prefix.len() + value.len())` and use `push_str()` directly to achieve zero-cost abstraction.
+
+**[IO Bottleneck in Native Methods]**
+**Learning:** `native_file_input_stream_read_bytes` and `native_properties_load` were manually reading byte-by-byte in a tight loop via `read_host_file_byte`. Each iteration crossed the host file boundary, incurring dynamic dispatch overhead, `unwrap` checks, and a potential native syscall, severely bottlenecking data parsing.
+**Action:** Implemented a chunked read method `read_host_file_bytes` on `duke_gc::Heap` to efficiently read large blocks natively in one sys-read (or buffered read) operation.
+**Trust the Iterator: .collect() is Optimized**
+**Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
+**Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.

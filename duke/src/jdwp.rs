@@ -321,4 +321,69 @@ mod tests {
         assert_eq!(normalize_socket_addr("5005"), "127.0.0.1:5005");
         assert_eq!(normalize_socket_addr("0.0.0.0:5005"), "0.0.0.0:5005");
     }
+
+    #[test]
+    fn test_parse_agentlib_empty_and_defaults() {
+        assert_eq!(parse_agentlib_jdwp("foo"), None);
+
+        let cfg = parse_agentlib_jdwp("-agentlib:jdwp=").unwrap();
+        assert_eq!(cfg.transport, "dt_socket");
+        assert!(cfg.server);
+        assert!(!cfg.suspend);
+        assert_eq!(cfg.address, "127.0.0.1:5005");
+    }
+
+    #[test]
+    fn test_parse_agentlib_override_some() {
+        let cfg = parse_agentlib_jdwp("-agentlib:jdwp=server=n,suspend=N,address=8000").unwrap();
+        assert!(!cfg.server);
+        assert!(!cfg.suspend);
+        assert_eq!(cfg.address, "127.0.0.1:8000");
+    }
+
+    #[test]
+    fn test_dispatch_command_known_commands() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+
+        let (err, data, close) = dispatch_command(1, 1, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(!close);
+        assert!(!data.is_empty());
+
+        let (err, _, _close) = dispatch_command(1, 8, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(suspended.load(Ordering::SeqCst));
+
+        let (err, _, _close) = dispatch_command(1, 9, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(!suspended.load(Ordering::SeqCst));
+
+        let (err, _, close) = dispatch_command(1, 6, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(close);
+
+        let (err, data, _) = dispatch_command(15, 1, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert_eq!(data, 1_i32.to_be_bytes().to_vec());
+        assert_eq!(req_id.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_dispatch_command_unknown_commands() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let (err, data, close) = dispatch_command(99, 99, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NOT_IMPLEMENTED);
+        assert!(data.is_empty());
+        assert!(!close);
+    }
+
+    #[test]
+    fn test_string_formatting() {
+        let mut out = Vec::new();
+        write_string(&mut out, "hello");
+        assert_eq!(out[0..4], 5_u32.to_be_bytes());
+        assert_eq!(&out[4..], b"hello");
+    }
 }

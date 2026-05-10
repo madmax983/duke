@@ -29,3 +29,10 @@
 ## 2024-05-19 - Documenting Structs in pub(crate) modules
 **Confusion:** `rustdoc` tests fail to find structs when you try to import them using their private path (`use duke_loader::zip::ZipReader`), and changing `pub(crate)` to `pub` breaks module encapsulation.
 **Clarification:** If a struct in a `pub(crate)` module is already exported publicly at the crate root via `pub use zip::ZipReader`, import it directly from the crate root in your doc tests (`use duke_loader::ZipReader;`). This allows executable examples without polluting the public API.
+## 2024-05-24 - [Test Files Missing Docs]
+**Confusion:** The `oss_jar_smoke.rs` integration test generated missing documentation warnings.
+**Clarification:** Added `//!` crate documentation to `oss_jar_smoke.rs`.
+
+## 2024-05-24 - [Instruction Enum Documentation]
+**Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
+**Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.

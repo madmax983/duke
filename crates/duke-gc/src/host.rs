@@ -107,6 +107,37 @@ impl Heap {
         Ok(id)
     }
 
+    /// Reads up to `buf.len()` bytes from a host file.
+    ///
+    /// # Errors
+    /// Returns `Error::JavaException` if the file handle is invalid or an IO error occurs.
+    pub fn read_host_file_bytes(&mut self, id: i32, buf: &mut [u8]) -> Result<i32> {
+        let Some(handle) = self.host_files.get_mut(&id) else {
+            return Err(Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        };
+        let reader: &mut dyn Read = match handle {
+            HostFileHandle::Reader(f) => f,
+            HostFileHandle::SocketReader(s) => s,
+            HostFileHandle::ByteBuffer(cursor) => cursor,
+            HostFileHandle::ProcessStdout(stdout) => stdout,
+            HostFileHandle::ProcessStderr(stderr) => stderr,
+            _ => {
+                return Err(Error::JavaException {
+                    class_name: "java/io/IOException".into(),
+                });
+            }
+        };
+        match reader.read(buf) {
+            Ok(0) => Ok(-1),
+            Ok(n) => Ok(i32::try_from(n).unwrap_or(i32::MAX)),
+            Err(_) => Err(Error::JavaException {
+                class_name: "java/io/IOException".into(),
+            }),
+        }
+    }
+
     /// Reads a single byte from a host file.
     ///
     /// # Errors
