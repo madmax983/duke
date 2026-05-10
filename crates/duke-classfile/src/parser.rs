@@ -543,7 +543,10 @@ fn decode_element_value(c: &mut Cursor<'_>, depth: u16) -> Result<ElementValue> 
             const_name_index: c.read_cp_index()?,
         }),
         b'c' => Ok(ElementValue::ClassInfoIndex(c.read_cp_index()?)),
-        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(c, depth + 1)?)),
+        b'@' => Ok(ElementValue::AnnotationValue(decode_annotation(
+            c,
+            depth + 1,
+        )?)),
         b'[' => {
             let num_values = c.read_u16()? as usize;
             let mut values = Vec::with_capacity(num_values.min(c.remaining() / 3));
