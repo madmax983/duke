@@ -71,3 +71,13 @@
 **Extract God Function (decode_one)**
 **Learning:** `decode_one` in `crates/duke-bytecode/src/decoder.rs` was a 300-line match statement handling every JVM opcode. Breaking it down into helper functions based on opcode groups (`decode_constant_op`, `decode_math_op`, etc.) greatly improves readability.
 **Action:** When a function has a massive match statement switching on contiguous ranges (like opcodes or enums with many variants), group them by category and delegate to smaller helper functions using range matches (e.g., `op::NOP..=op::LDC2_W => decode_constant_op(...)`).
+
+**Refactoring String Allocations**
+**Learning:** Extracting inline string logic into a helper that returns a `String` can accidentally break zero-allocation optimizations where existing buffers were being cleared and reused.
+**Action:** When extracting repeated string concatenation logic into helper functions, avoid introducing unnecessary intermediate allocations. Instead of allocating and returning a new `String`, modify the helper to accept a mutable buffer (`&mut String`) and append to it directly.
+**Extract Control Flow Graph Targets**
+**Learning:** `find_leaders` in `crates/duke-bytecode/src/basic_block.rs` contained a massive, 20-line inline `if-else` chain to identify conditional branches, unconditional jumps, switch statements, and return instructions. This duplicated logic and inflated file size.
+**Action:** Always extract boolean categorization logic (e.g., `is_conditional_branch()`, `is_return()`) and data extraction logic (`control_flow_targets()`) into public helper methods directly on the enum (`Instruction`) to DRY up matching code and dramatically flatten calling modules.
+**Extract Bounds-Checking Pre-Allocations**
+**Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
+**Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.

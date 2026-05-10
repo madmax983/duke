@@ -1,6 +1,5 @@
 use duke_classfile::{
-    ClassFile,
-    types::{CpEntry, CpIndex},
+    ClassFile, {CpEntry, CpIndex},
 };
 
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
