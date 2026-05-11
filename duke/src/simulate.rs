@@ -1,3 +1,5 @@
+//! Simulates method execution statically without running the full JVM.
+
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;
 #[cfg(feature = "nova")]
@@ -18,6 +20,12 @@ fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
+/// Simulates the execution of a specific method in a given class within a JAR and prints the trace.
+///
+/// # Examples
+/// ```no_run
+/// duke::simulate::dump_simulate("app.jar", "com/example/Main", "main");
+/// ```
 #[cfg(feature = "nova")]
 #[allow(unexpected_cfgs, clippy::print_stdout)]
 pub fn dump_simulate(path: &str, method_name: &str) {

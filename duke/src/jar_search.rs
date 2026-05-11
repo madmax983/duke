@@ -1,3 +1,5 @@
+//! Utilities for searching for specific patterns or method attributes across a jar file.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;
@@ -34,6 +36,12 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Searches a JAR file for methods whose attributes or bytecode match a given pattern.
+///
+/// # Examples
+/// ```no_run
+/// duke::jar_search::dump_jar_search("app.jar", "SomeMethodPattern");
+/// ```
 pub fn dump_jar_search(jar_path: &str, query: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         eprintln!("duke: failed to open JAR '{jar_path}': {e}");

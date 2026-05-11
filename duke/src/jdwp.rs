@@ -1,3 +1,5 @@
+//! Java Debug Wire Protocol (JDWP) agent implementation for attaching debuggers.
+
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -27,6 +29,12 @@ impl Default for JdwpConfig {
     }
 }
 
+/// Parses the `-agentlib:jdwp=...` configuration string to extract connection options.
+///
+/// # Examples
+/// ```no_run
+/// let cfg = duke::jdwp::parse_agentlib_jdwp("transport=dt_socket,server=y,address=8000");
+/// ```
 pub fn parse_agentlib_jdwp(arg: &str) -> Option<JdwpConfig> {
     let payload = arg.strip_prefix("-agentlib:jdwp=")?;
     let mut config = JdwpConfig::default();
@@ -60,11 +68,23 @@ pub struct JdwpServer {
 }
 
 impl JdwpServer {
+    /// Blocks the current thread and waits for a JDWP debugger to attach on the configured port.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// duke::jdwp::wait_for_attach("localhost:8000");
+    /// ```
     pub fn wait_for_attach(&self) {
         let _ = self.attached_rx.recv();
     }
 }
 
+/// Starts the JDWP debugger agent, listening or connecting based on the parsed configuration.
+///
+/// # Examples
+/// ```no_run
+/// duke::jdwp::start("-agentlib:jdwp=transport=dt_socket,server=y,address=8000");
+/// ```
 pub fn start(config: &JdwpConfig) -> std::io::Result<JdwpServer> {
     let listener = TcpListener::bind(&config.address)?;
     let (attached_tx, attached_rx) = mpsc::channel();

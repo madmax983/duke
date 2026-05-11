@@ -1,3 +1,5 @@
+//! Proptest module testing classfile parser robustness.
+
 use proptest::prelude::*;
 
 proptest! {

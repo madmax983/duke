@@ -1,3 +1,5 @@
+//! Static analysis tool for identifying unreferenced and dead code in loaded classes or JARs.
+
 use duke_bytecode::{Instruction, decode};
 use duke_classfile::{
     ClassFile, {AttributeData, CpEntry, CpIndex},
@@ -79,6 +81,12 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
     clippy::collapsible_if,
     clippy::items_after_statements
 )]
+/// Analyzes the loaded classes to identify and print methods that are never called (dead code).
+///
+/// # Examples
+/// ```no_run
+/// duke::dead_code::dump_dead_code(&class_registry);
+/// ```
 pub fn dump_dead_code(cf: &ClassFile) {
     let mut defined_methods = HashSet::new();
     let mut called_methods = HashSet::new();
@@ -152,6 +160,12 @@ pub fn dump_dead_code(cf: &ClassFile) {
     clippy::case_sensitive_file_extension_comparisons,
     clippy::items_after_statements
 )]
+/// Analyzes a JAR file to identify and print methods that are never called (dead code).
+///
+/// # Examples
+/// ```no_run
+/// duke::dead_code::dump_jar_dead_code("app.jar");
+/// ```
 pub fn dump_jar_dead_code(jar_path: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         eprintln!("duke: failed to open JAR '{jar_path}': {e}");

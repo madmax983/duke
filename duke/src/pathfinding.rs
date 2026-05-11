@@ -1,3 +1,5 @@
+//! Call graph pathfinding tools to trace execution paths between methods.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::{build_basic_blocks, decode, find_shortest_path};
@@ -15,6 +17,12 @@ use std::process;
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Finds and prints the shortest call path between a source method and a target method in a JAR.
+///
+/// # Examples
+/// ```no_run
+/// duke::pathfinding::dump_shortest_path("app.jar", "com/example/A::start", "com/example/B::end");
+/// ```
 pub fn dump_shortest_path(path: &str, method_name: &str, start_pc: usize, target_pc: usize) {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,

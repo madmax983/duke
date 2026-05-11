@@ -1,3 +1,5 @@
+//! Purity analysis tool to identify methods that do not produce side effects.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;
@@ -31,6 +33,12 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Analyzes a JAR file and prints a report identifying methods that are pure (no side effects).
+///
+/// # Examples
+/// ```no_run
+/// duke::purity::dump_purity_analysis("app.jar");
+/// ```
 pub fn dump_purity_analysis(path: &str) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");

@@ -1,3 +1,5 @@
+//! Automated security and performance auditing for JAR files.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::Instruction;
@@ -77,6 +79,12 @@ fn resolve_method_ref(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<(S
     }
 }
 
+/// Analyzes a JAR file for common security and performance issues and prints an audit report.
+///
+/// # Examples
+/// ```no_run
+/// duke::audit::dump_jar_audit("app.jar");
+/// ```
 #[cfg(feature = "nova")]
 #[allow(clippy::print_stdout, clippy::collapsible_if, clippy::use_debug)]
 pub fn dump_jar_audit(jar_path: &str) {

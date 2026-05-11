@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-24 - [CLI Tool Module Documentation]
+**Confusion:** The core utility modules in `duke/src/` (e.g., `jar_diff`, `jdwp`, `purity`) lacked module-level documentation and function comments, creating "Black Boxes" for developers trying to understand what the CLI tools actually do.
+**Clarification:** Added comprehensive `//!` module documentation and `///` function documentation with `## Examples` to all major command modules, clearly articulating the purpose of each analysis tool and debug agent.
