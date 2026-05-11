@@ -18,4 +18,9 @@ public class SystemExtTest {
     static int testIdentityHashCodeNull() {
         return System.identityHashCode(null);  // 0
     }
+
+    @SuppressWarnings("removal")
+    static int testGetSecurityManager() {
+        return System.getSecurityManager() == null ? 1 : 0;
+    }
 }
