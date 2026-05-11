@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-11 - JImage Format Bounds Checking
+**Learning:** Found coverage gaps in edge case format handling where the uncompressed file size or data headers exceed safe limits during `lib/modules` loading. Similarly uncovered edge cases in `HostFileHandle` management during file I/O operations and formatting serialization pipelines for Telemetry output.
+**Action:** Always test buffer lengths directly (e.g. padding test vec data up to boundaries) and intentionally provide invalid bounds (e.g. >256 MB or truncated offsets) when fuzzing or increasing file parser coverage. Verify output formatting against both success and empty default paths.

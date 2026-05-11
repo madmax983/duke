@@ -435,4 +435,40 @@ mod tests {
         let res = super::ser_helpers::sorted_set(&set, FailingSerializer);
         assert!(res.is_err());
     }
+
+    #[test]
+    fn test_keyed_map_ser_error() {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            ("java/lang/String".to_string(), "intern".to_string(), 42),
+            FailingDummy { val: 1 },
+        );
+        let w = Site3FailingWrapper { map };
+        let res = serde_json::to_string(&w);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_site2_u16_ser_error() {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            ("java/lang/String".to_string(), 42),
+            FailingDummy { val: 1 },
+        );
+        let w = Site2FailingWrapper { map };
+        let res = serde_json::to_string(&w);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_pair_str_ser_error() {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            ("java/lang/String".to_string(), "intern".to_string()),
+            FailingDummy { val: 1 },
+        );
+        let w = PairFailingWrapper { map };
+        let res = serde_json::to_string(&w);
+        assert!(res.is_err());
+    }
 }

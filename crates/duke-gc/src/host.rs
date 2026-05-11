@@ -664,6 +664,33 @@ mod tests {
     }
 }
 
+#[test]
+fn test_host_file_open_read() {
+    let mut heap = Heap::new();
+    let path = std::env::temp_dir().join("duke_test_read.txt");
+    std::fs::write(&path, b"hello").unwrap();
+    let id = heap.open_host_input_file(&path).unwrap();
+    let mut buf = [0u8; 5];
+    let n = heap.read_host_file_bytes(id, &mut buf).unwrap();
+    assert_eq!(n, 5);
+    assert_eq!(&buf, b"hello");
+    let n = heap.read_host_file_bytes(id, &mut buf).unwrap();
+    assert_eq!(n, -1);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn test_host_file_open_error() {
+    let mut heap = Heap::new();
+    let res = heap.open_host_input_file(std::path::Path::new("/does/not/exist/1234"));
+    assert!(res.is_err());
+    match res {
+        Err(crate::Error::JavaException { class_name }) => {
+            assert_eq!(class_name, "java/io/FileNotFoundException");
+        }
+        _ => panic!("Expected FileNotFoundException"),
+    }
+}
 #[cfg(test)]
 mod more_tests {
     use super::*;

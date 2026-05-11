@@ -25,3 +25,33 @@ fn test_markdown_bytecode_cost_empty() {
     let output = store.to_markdown_report();
     assert!(output.contains("## Bytecode Cost (Top 10)"));
 }
+
+#[test]
+fn test_print_and_markdown_empty_edge_cases() {
+    let mut store = TelemetryStore::new();
+    let _idx = store
+        .exception_flow
+        .record_throw("java/lang/Exception", "Foo", "bar", 10);
+    // no catch
+    let mut buf = Vec::new();
+    store.print_report(&mut buf).unwrap();
+    let output = String::from_utf8(buf).unwrap();
+    assert!(output.contains("uncaught"));
+
+    let output = store.to_markdown_report();
+    assert!(output.contains("uncaught"));
+}
+
+#[test]
+fn test_markdown_class_init_dag_empty() {
+    let store = TelemetryStore::new();
+    let output = store.to_markdown_report();
+    assert!(output.contains("No class initialization events recorded"));
+}
+
+#[test]
+fn test_markdown_exception_flow_empty() {
+    let store = TelemetryStore::new();
+    let output = store.to_markdown_report();
+    assert!(output.contains("No exception flow events recorded"));
+}

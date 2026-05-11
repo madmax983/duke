@@ -982,4 +982,87 @@ mod tests_oob {
             panic!("Expected JImageFormat error");
         }
     }
+
+    #[test]
+    fn test_jimage_file_too_small() {
+        let mut bytes = vec![0u8; 28];
+        bytes[0..4].copy_from_slice(&0xcafe_dada_u32.to_le_bytes()); // magic
+        bytes[4..8].copy_from_slice(&0x0001_0000_u32.to_le_bytes()); // version
+        bytes[8..12].copy_from_slice(&0u32.to_le_bytes()); // flags
+        bytes[12..16].copy_from_slice(&1u32.to_le_bytes()); // resource_count
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes()); // table_length
+        bytes[20..24].copy_from_slice(&1u32.to_le_bytes()); // locations_size
+        bytes[24..28].copy_from_slice(&1u32.to_le_bytes()); // strings_size
+
+        let path = std::env::temp_dir().join("duke_jimage_small.jimage");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let res = JImageReader::open(&path);
+        assert!(res.is_err());
+        let Err(err) = res else {
+            panic!("Expected error")
+        };
+        assert!(err.to_string().contains("file too small"), "err: {err:?}");
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_jimage_resource_out_of_bounds() {
+        let mut bytes = vec![0u8; 28];
+        bytes[0..4].copy_from_slice(&0xcafe_dada_u32.to_le_bytes()); // magic
+        bytes[4..8].copy_from_slice(&0x0001_0000_u32.to_le_bytes()); // version
+        bytes[8..12].copy_from_slice(&0u32.to_le_bytes()); // flags
+        bytes[12..16].copy_from_slice(&1u32.to_le_bytes()); // resource_count
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes()); // table_length
+        bytes[20..24].copy_from_slice(&1u32.to_le_bytes()); // locations_size
+        bytes[24..28].copy_from_slice(&1u32.to_le_bytes()); // strings_size
+
+        // Ensure data len > data_offset
+        bytes.extend(vec![0; 100]);
+
+        let path = std::env::temp_dir().join("duke_jimage_bounds.jimage");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let _ = JImageReader::open(&path);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_jimage_find_class_delegation() {
+        use crate::ClassLoader;
+        let reader = JImageReader::empty_for_test();
+        let res = reader.find_class("com/example/MyClass");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_parse_location_attributes_pos_ge_locs_end() {
+        let data = [0u8; 10];
+        let (_attrs, pos) = parse_location_attributes(&data, 5, 5);
+        assert_eq!(pos, 5);
+        let (_attrs, pos) = parse_location_attributes(&data, 10, 5);
+        assert_eq!(pos, 10);
+    }
+
+    #[test]
+    fn test_read_resource_uncompressed_limit_exceeded() {
+        let mut reader = JImageReader::empty_for_test();
+        let data_offset = reader.data_offset;
+        let mut data = vec![0; data_offset];
+        data.extend(b"dummy"); // raw data
+        reader.data = data;
+
+        let path = "test_limit".to_string();
+        let info = ResourceInfo {
+            offset: data_offset as u64,
+            compressed: 5,
+            uncompressed: 1024 * 1024 * 256 + 1, // Exceeds limit
+        };
+        reader.index.insert(path.clone(), info);
+
+        let res = reader.read_resource(&path);
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.to_string().contains("exceeds limit"), "err: {err:?}");
+    }
 }
