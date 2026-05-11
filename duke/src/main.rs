@@ -27,6 +27,8 @@ mod jdwp;
 mod pathfinding;
 #[cfg(feature = "nova")]
 mod purity;
+#[cfg(feature = "nova")]
+mod plagiarism;
 mod scan;
 mod search;
 #[cfg(feature = "nova")]
@@ -332,6 +334,8 @@ fn main() {
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-dead-code <file.jar>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke plagiarism <file1.jar> <file2.jar> [threshold]");
+        #[cfg(feature = "nova")]
         eprintln!("       duke jar-search <file.jar> <query>");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
@@ -355,6 +359,26 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-dead-code'");
+            std::process::exit(1);
+        }
+    }
+
+
+    // Dispatch `plagiarism`
+    if args.len() > 1 && args[1] == "plagiarism" {
+        if args.len() < 4 {
+            eprintln!("Usage: duke plagiarism <file1.jar> <file2.jar> [threshold]");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            let threshold = args.get(4).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.85);
+            plagiarism::dump_plagiarism_check(&args[2], &args[3], threshold);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: 'plagiarism' command requires the 'nova' feature flag.");
             std::process::exit(1);
         }
     }
