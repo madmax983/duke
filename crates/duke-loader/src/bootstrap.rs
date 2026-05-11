@@ -26,6 +26,9 @@ pub enum ClasspathEntry {
 
 impl ClassLoader for ClasspathEntry {
     fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         match self {
             Self::Directory(d) => d.find_class(name),
             Self::Zip(z) => z.find_class(name),
@@ -33,6 +36,9 @@ impl ClassLoader for ClasspathEntry {
     }
 
     fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         match self {
             Self::Directory(d) => d.find_resource(name),
             Self::Zip(z) => z.find_resource(name),
@@ -40,6 +46,9 @@ impl ClassLoader for ClasspathEntry {
     }
 
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         match self {
             Self::Directory(d) => d.find_resources(name),
             Self::Zip(z) => z.find_resources(name),
@@ -47,6 +56,9 @@ impl ClassLoader for ClasspathEntry {
     }
 
     fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         match self {
             Self::Directory(d) => d.find_resource_entry(name),
             Self::Zip(z) => z.find_resource_entry(name),
@@ -54,6 +66,9 @@ impl ClassLoader for ClasspathEntry {
     }
 
     fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         match self {
             Self::Directory(d) => d.find_resource_entries(name),
             Self::Zip(z) => z.find_resource_entries(name),
@@ -128,6 +143,9 @@ impl BootstrapLoader {
 
 impl ClassLoader for BootstrapLoader {
     fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         // Standard library: try jimage first
         if let Ok(bytes) = self.jimage.find_class(name) {
             return Ok(bytes);
@@ -144,6 +162,9 @@ impl ClassLoader for BootstrapLoader {
     }
 
     fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         for entry in &self.classpath {
             match entry.find_resource(name) {
                 Err(Error::NotFound { .. }) => {}
@@ -156,6 +177,9 @@ impl ClassLoader for BootstrapLoader {
     }
 
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         let mut resources = Vec::new();
         for entry in &self.classpath {
             resources.extend(entry.find_resources(name)?);
@@ -164,6 +188,9 @@ impl ClassLoader for BootstrapLoader {
     }
 
     fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         for entry in &self.classpath {
             match entry.find_resource_entry(name) {
                 Err(Error::NotFound { .. }) => {}
@@ -176,6 +203,9 @@ impl ClassLoader for BootstrapLoader {
     }
 
     fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         let mut resources = Vec::new();
         for entry in &self.classpath {
             resources.extend(entry.find_resource_entries(name)?);

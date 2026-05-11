@@ -14,6 +14,10 @@ pub enum Error {
         name: String,
     },
 
+    /// The requested class or resource name exceeds the maximum length.
+    #[error("name too long")]
+    NameTooLong,
+
     /// An I/O error occurred reading the `.class` file or container.
     #[error("I/O error reading '{path}': {source}")]
     Io {

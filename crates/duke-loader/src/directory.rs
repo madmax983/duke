@@ -73,6 +73,9 @@ impl DirectoryLoader {
 
 impl ClassLoader for DirectoryLoader {
     fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         if name.contains('.') {
             return Err(Error::NotFound {
                 name: name.to_string(),
@@ -87,6 +90,9 @@ impl ClassLoader for DirectoryLoader {
     }
 
     fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         let path = self.resolve_child_path(name)?;
         std::fs::read(&path).map_err(|_| Error::NotFound {
             name: name.to_string(),
@@ -94,6 +100,9 @@ impl ClassLoader for DirectoryLoader {
     }
 
     fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         let path = self.resolve_child_path(name)?;
         let bytes = std::fs::read(&path).map_err(|_| Error::NotFound {
             name: name.to_string(),

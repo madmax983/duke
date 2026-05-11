@@ -285,6 +285,9 @@ const PROBE_MODULES: &[&str] = &[
 
 impl ClassLoader for JImageReader {
     fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         let (parent, base) = split_class_name(name);
         let mut path = String::with_capacity(64);
         for module in PROBE_MODULES {

@@ -449,6 +449,9 @@ impl ZipLoader {
 
 impl ClassLoader for ZipLoader {
     fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         // Pre-allocate a single buffer large enough for the longest path
         // "BOOT-INF/classes/".len() == 17, ".class".len() == 6. Total = 23
         let mut entry_name = String::with_capacity(name.len() + 23);
@@ -482,6 +485,9 @@ impl ClassLoader for ZipLoader {
     }
 
     fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         match self.reader.read_entry(name) {
             Err(Error::NotFound { .. }) => {}
             result => return result,
@@ -507,6 +513,9 @@ impl ClassLoader for ZipLoader {
     }
 
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         let mut resources = Vec::new();
         match self.reader.read_entry(name) {
             Ok(bytes) => resources.push(bytes),
@@ -530,6 +539,9 @@ impl ClassLoader for ZipLoader {
     }
 
     fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         match self.reader.read_entry(name) {
             Ok(bytes) => {
                 return Ok(LocatedResource {
@@ -567,6 +579,9 @@ impl ClassLoader for ZipLoader {
     }
 
     fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        if name.len() > u16::MAX as usize {
+            return Err(Error::NameTooLong);
+        }
         let mut resources = Vec::new();
         match self.reader.read_entry(name) {
             Ok(bytes) => resources.push(LocatedResource {
