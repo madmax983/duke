@@ -38,8 +38,12 @@ pub fn inspect_jar(path: &str) {
     names.sort_unstable(); // For deterministic parsing in tests
 
     for name in names {
-        if name.ends_with(".class") {
-            if let Ok(class_bytes) = zip.read_entry(name) {
+        let is_class = std::path::Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("class"));
+        if !is_class {
+            continue;
+        }
+
+        if let Ok(class_bytes) = zip.read_entry(name) {
                 if let Ok(cf) = parse(&class_bytes) {
                     total_classes += 1;
                     total_fields += cf.fields.len();
@@ -79,7 +83,6 @@ pub fn inspect_jar(path: &str) {
                 }
             }
         }
-    }
 
     println!("=== JAR Analysis Report: {path} ===");
     println!("Total Classes:      {total_classes}");

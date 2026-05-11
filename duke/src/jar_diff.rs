@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -143,13 +140,13 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
 
     let mut method_hashes = HashMap::new();
     let reader = loader.reader();
-    let class_entries: Vec<String> = reader
-        .entry_names()
-        .filter(|name| name.ends_with(".class"))
-        .map(std::string::ToString::to_string)
-        .collect();
-
-    for entry_name in class_entries {
+    for entry_name in reader.entry_names() {
+        let is_class = std::path::Path::new(entry_name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("class"));
+        if !is_class {
+            continue;
+        }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
         if let Ok(bytes) = loader.find_class(class_name_internal) {
             #[allow(clippy::collapsible_if)]
