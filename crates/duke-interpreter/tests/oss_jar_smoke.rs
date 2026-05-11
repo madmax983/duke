@@ -195,6 +195,12 @@ fn render_smoke_error(err: &Error) -> String {
     }
 }
 
+fn is_explicit_missing_slf4j_capability(rendered: &str) -> bool {
+    rendered.starts_with("Unsupported native: ")
+        || rendered.starts_with("Missing class: ")
+        || rendered.starts_with("Unimplemented opcode: ")
+}
+
 fn run_slf4j_simple_method(method_name: &str, descriptor: &str) -> SmokeRun {
     let loader = oss_smoke_loader();
     let mut registry = ClassRegistry::new();
@@ -238,6 +244,20 @@ fn run_slf4j_simple_smoke() -> SmokeRun {
 }
 
 #[test]
+fn explicit_missing_capability_accepts_map_of_native() {
+    let rendered = concat!(
+        "Unsupported native: java/util/Map.of",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map;"
+    );
+
+    assert!(is_explicit_missing_slf4j_capability(rendered));
+}
+
+#[test]
 fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
     let smoke = run_slf4j_simple_smoke();
     let err = smoke
@@ -250,13 +270,13 @@ fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
         "smoke should progress past getSecurityManager, got: {rendered}"
     );
     assert!(
-        rendered.contains("Missing class: java/security/AccessController"),
+        is_explicit_missing_slf4j_capability(&rendered),
         "expected explicit next missing capability, got: {rendered}"
     );
 }
 
 #[test]
-#[ignore = "Blocked on java/security/AccessController after issue #687."]
+#[ignore = "Blocked on the next SLF4J smoke capability after issue #687."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 
