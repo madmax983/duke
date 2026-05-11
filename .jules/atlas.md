@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**2024-05-11 - Telemetry API Leak**
+**Tangle:** The `duke-telemetry` crate utilized wildcard exports (`pub use module::*`), which can inadvertently expose private implementation details and create leaky abstractions. This resulted in a lack of explicit boundary enforcement.
+**Blueprint:** Replaced wildcard exports with explicit item exports (e.g., `pub use bytecode_cost::{BytecodeCostStore, OpcodeStat};`) for `BytecodeCostStore`, `ObjectLineageStore`, and other core telemetry structures. This enforces strict public API boundaries, ensuring higher cohesion and preventing internal leakage.
