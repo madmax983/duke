@@ -1,3 +1,5 @@
+//! Havoc classfile parsing proptests.
+
 use proptest::prelude::*;
 
 proptest! {

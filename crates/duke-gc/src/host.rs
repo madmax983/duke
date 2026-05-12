@@ -18,12 +18,39 @@ use std::io::{Read, Write};
 /// A handle for a native host process managed by the VM.
 ///
 /// Used for Java's `Runtime.exec` and related API implementations.
+/// It encapsulates the native `std::process::Child` so the JVM can interact with it
+/// via integer handles instead of direct memory pointers.
+///
+/// # Examples
+///
+/// ```text
+/// // Creating a host process handle directly requires a std::process::Child.
+/// // In practice, these are spawned via `Heap::spawn_host_process`.
+/// ```
 pub struct HostProcessHandle {
     child: std::process::Child,
     exit_code: Option<i32>,
 }
 
 /// Identifying file descriptors associated with a spawned native process.
+///
+/// When a child process is spawned, its standard input, output, and error streams
+/// are captured as independent file descriptors. This struct groups the process ID
+/// with its associated I/O stream IDs.
+///
+/// # Examples
+///
+/// ```
+/// use duke_gc::SpawnedProcessIds;
+///
+/// let ids = SpawnedProcessIds {
+///     process_id: 1,
+///     stdin_id: 2,
+///     stdout_id: 3,
+///     stderr_id: 4,
+/// };
+/// assert_eq!(ids.process_id, 1);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpawnedProcessIds {
     /// The unique process identifier.
@@ -38,6 +65,15 @@ pub struct SpawnedProcessIds {
 
 #[derive(Debug)]
 /// A handle to a native file managed by the VM on behalf of Java I/O classes.
+///
+/// This enum multiplexes various native I/O resources (files, sockets, process streams)
+/// behind a single integer file descriptor used by the JVM layer.
+///
+/// # Examples
+///
+/// ```text
+/// // Opened via `Heap::open_host_byte_buffer` or `Heap::connect_socket`.
+/// ```
 pub enum HostFileHandle {
     /// A file opened for reading.
     Reader(std::fs::File),
