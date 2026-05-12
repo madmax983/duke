@@ -776,7 +776,9 @@ mod tests {
     #[test]
     fn reject_unknown_cp_tag() {
         // Tag 99 is invalid
-        let data = [0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x02, 99];
+        let data = [
+            0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x3D, 0x00, 0x02, 99,
+        ];
         let err = parse(&data).unwrap_err();
         assert!(matches!(err, Error::UnknownCpTag { tag: 99, index: 1 }));
     }
