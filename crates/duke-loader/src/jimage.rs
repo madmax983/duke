@@ -522,7 +522,10 @@ fn read_be_u64(bytes: &[u8]) -> u64 {
 }
 
 fn read_u32_le(data: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(data[offset..offset + 4].try_into().expect("4 bytes"))
+    if offset + 4 > data.len() {
+        return 0;
+    }
+    u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap_or([0; 4]))
 }
 
 #[cfg(test)]
@@ -981,5 +984,17 @@ mod tests_oob {
         } else {
             panic!("Expected JImageFormat error");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_invalid_utf8 {
+    use super::*;
+
+    #[test]
+    fn test_read_str_invalid_utf8() {
+        let data = vec![0xFF, 0xFF, 0x00];
+        let s = read_str(&data, 0, 0);
+        assert_eq!(s, ""); // the fallback in std::str::from_utf8(...).unwrap_or("")
     }
 }

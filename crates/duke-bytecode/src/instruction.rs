@@ -1434,7 +1434,7 @@ mod tests {
         };
         let targets = tableswitch.switch_targets();
         assert!(targets.is_some());
-        let (default, iter) = targets.unwrap();
+        let (default, iter) = targets.expect("targets should be some");
         assert_eq!(default, 5);
         assert_eq!(
             iter.collect::<Vec<_>>(),
@@ -1447,7 +1447,7 @@ mod tests {
         };
         let targets = lookupswitch.switch_targets();
         assert!(targets.is_some());
-        let (default, iter) = targets.unwrap();
+        let (default, iter) = targets.expect("targets should be some");
         assert_eq!(default, 5);
         assert_eq!(iter.collect::<Vec<_>>(), vec![(10, 100), (20, 200)]);
 
