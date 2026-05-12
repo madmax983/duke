@@ -1,0 +1,6 @@
+🗺️ Atlas: [architectural change] Encapsulate ser_helpers facade
+
+🕸️ Tangle: The `duke-telemetry` module exposed internal serialization helpers via `pub mod ser_helpers`, creating a leaky abstraction and redundant paths.
+📐 Blueprint: Reduced `ser_helpers` visibility to `pub(crate) mod` to encapsulate the module.
+🧱 Stability: Reduced coupling by preventing internal items from being leaked publicly.
+🔬 Verification: Builds successfully, strict separation enforced. Tests pass without issue.
