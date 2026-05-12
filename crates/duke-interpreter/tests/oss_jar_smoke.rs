@@ -189,9 +189,16 @@ fn render_smoke_error(err: &Error) -> String {
         Error::MethodNotFound { name, descriptor } => {
             format!("Unsupported native: {name}{descriptor}")
         }
+        Error::ClassNotFound { name } => format!("Missing class: {name}"),
         Error::Unimplemented { mnemonic } => format!("Unimplemented opcode: {mnemonic}"),
         other => format!("{other:?}"),
     }
+}
+
+fn is_explicit_missing_slf4j_capability(rendered: &str) -> bool {
+    rendered.starts_with("Unsupported native: ")
+        || rendered.starts_with("Missing class: ")
+        || rendered.starts_with("Unimplemented opcode: ")
 }
 
 fn run_slf4j_simple_method(method_name: &str, descriptor: &str) -> SmokeRun {
@@ -237,23 +244,39 @@ fn run_slf4j_simple_smoke() -> SmokeRun {
 }
 
 #[test]
-fn slf4j_simple_smoke_surfaces_first_missing_native_explicitly() {
+fn explicit_missing_capability_accepts_map_of_native() {
+    let rendered = concat!(
+        "Unsupported native: java/util/Map.of",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;",
+        "Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map;"
+    );
+
+    assert!(is_explicit_missing_slf4j_capability(rendered));
+}
+
+#[test]
+fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
     let smoke = run_slf4j_simple_smoke();
     let err = smoke
         .result
-        .expect_err("slf4j smoke should still hit the first unsupported native");
+        .expect_err("slf4j smoke should still hit the next unsupported capability");
     let rendered = render_smoke_error(&err);
 
     assert!(
-        rendered.contains(
-            "Unsupported native: java/lang/System.getSecurityManager()Ljava/lang/SecurityManager;"
-        ),
-        "expected explicit missing-native diagnostic, got: {rendered}"
+        !rendered.contains("java/lang/System.getSecurityManager()Ljava/lang/SecurityManager;"),
+        "smoke should progress past getSecurityManager, got: {rendered}"
+    );
+    assert!(
+        is_explicit_missing_slf4j_capability(&rendered),
+        "expected explicit next missing capability, got: {rendered}"
     );
 }
 
 #[test]
-#[ignore = "Blocked on java/lang/System.getSecurityManager()Ljava/lang/SecurityManager; see issue #687."]
+#[ignore = "Blocked on the next SLF4J smoke capability after issue #687."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 
