@@ -270,13 +270,22 @@ fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
         "smoke should progress past getSecurityManager, got: {rendered}"
     );
     assert!(
+        !rendered.contains("java/security/AccessController"),
+        "smoke should progress past AccessController.doPrivileged, got: {rendered}"
+    );
+    assert!(
         is_explicit_missing_slf4j_capability(&rendered),
         "expected explicit next missing capability, got: {rendered}"
+    );
+    assert_eq!(
+        rendered,
+        "Unsupported native: java/lang/Thread.getContextClassLoader()Ljava/lang/ClassLoader;",
+        "expected the next SLF4J blocker to stay explicit"
     );
 }
 
 #[test]
-#[ignore = "Blocked on the next SLF4J smoke capability after issue #687."]
+#[ignore = "Blocked on Thread.getContextClassLoader after issue #695."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 

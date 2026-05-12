@@ -9874,6 +9874,76 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             .register("java/util/UUID", method, descriptor, handler);
     }
 
+    for name in [
+        "java/security/PrivilegedAction",
+        "java/security/PrivilegedExceptionAction",
+    ] {
+        registry.register(ClassContext {
+            class_name: name.to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            interfaces: Vec::new(),
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+    }
+
+    let access_controller_ctx = ClassContext {
+        class_name: "java/security/AccessController".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(access_controller_ctx);
+    registry.natives_mut().register_callback(
+        "java/security/AccessController",
+        "doPrivileged",
+        "(Ljava/security/PrivilegedAction;)Ljava/lang/Object;",
+        native_access_controller_do_privileged_action,
+    );
+    registry.natives_mut().register_callback(
+        "java/security/AccessController",
+        "doPrivileged",
+        "(Ljava/security/PrivilegedExceptionAction;)Ljava/lang/Object;",
+        native_access_controller_do_privileged_exception_action,
+    );
+
+    let privileged_action_exception_ctx = ClassContext {
+        class_name: "java/security/PrivilegedActionException".to_string(),
+        super_class: Some("java/lang/Exception".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(privileged_action_exception_ctx);
+    registry.natives_mut().register(
+        "java/security/PrivilegedActionException",
+        "<init>",
+        "(Ljava/lang/Exception;)V",
+        native_throwable_init_cause,
+    );
+    registry.natives_mut().register(
+        "java/security/PrivilegedActionException",
+        "getException",
+        "()Ljava/lang/Exception;",
+        native_throwable_get_cause,
+    );
+
     let no_such_algorithm_ctx = ClassContext {
         class_name: "java/security/NoSuchAlgorithmException".to_string(),
         super_class: Some("java/lang/Exception".to_string()),
