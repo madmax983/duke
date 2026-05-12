@@ -23564,6 +23564,10 @@ fn materialize_java_exception_object(
     heap: &mut duke_gc::Heap,
     class_name: &str,
 ) -> Result<u64> {
+    if let Some(exception_ref) = take_uncaught_java_exception_ref(class_name) {
+        return Ok(exception_ref);
+    }
+
     registry.ensure_loaded(class_name, loader)?;
     let exc_ref = heap.allocate(
         class_name.to_string(),
@@ -26655,6 +26659,7 @@ pub(crate) fn native_base64_decoder_decode_bytes(
 }
 
 const DUKE_SECURITY_PROVIDER: &str = "DUKE";
+const PRIVILEGED_ACTION_EXCEPTION: &str = "java/security/PrivilegedActionException";
 const MESSAGE_DIGEST_SERVICE_TYPE: &str = "MessageDigest";
 const MESSAGE_DIGEST_ALGORITHMS: [&str; 3] = ["SHA-256", "SHA-1", "MD5"];
 const MESSAGE_DIGEST_ALGORITHM_FIELD: usize = 0;
@@ -26662,6 +26667,98 @@ const MESSAGE_DIGEST_BUFFER_FIELD: usize = 1;
 const PROVIDER_SERVICE_PROVIDER_FIELD: usize = 0;
 const PROVIDER_SERVICE_TYPE_FIELD: usize = 1;
 const PROVIDER_SERVICE_ALGORITHM_FIELD: usize = 2;
+const PRIVILEGED_ACTION_RUN_DESCRIPTOR: &str = "()Ljava/lang/Object;";
+
+fn class_extends_via_callback(
+    class_name: &str,
+    target: &str,
+    ops: &mut dyn CallbackOps,
+) -> Result<bool> {
+    let mut current = Some(class_name.to_string());
+    let mut visited = HashSet::new();
+
+    while let Some(name) = current {
+        if name == target {
+            return Ok(true);
+        }
+        if !visited.insert(name.clone()) {
+            return Ok(false);
+        }
+        current = ops.inspect_class(&name)?.super_class;
+    }
+
+    Ok(false)
+}
+
+fn is_unchecked_exception_class(class_name: &str, ops: &mut dyn CallbackOps) -> Result<bool> {
+    Ok(class_extends_via_callback(class_name, "java/lang/RuntimeException", ops)?
+        || class_extends_via_callback(class_name, "java/lang/Error", ops)?)
+}
+
+fn take_uncaught_java_exception_slot(class_name: &str) -> Slot {
+    take_uncaught_java_exception_ref(class_name).map_or(Slot::Reference(None), |exception_ref| {
+        Slot::Reference(Some(exception_ref))
+    })
+}
+
+fn privileged_action_class(args: &[Slot], heap: &duke_gc::Heap) -> Result<(u64, String)> {
+    let action_ref = extract_ref_arg(args, 0)?;
+    let action_class = heap.get(action_ref)?.class_name.clone();
+    Ok((action_ref, action_class))
+}
+
+fn invoke_privileged_action(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    wrap_checked_exception: bool,
+) -> Result<Option<Slot>> {
+    let (action_ref, action_class) = privileged_action_class(args, heap)?;
+    let action_args = vec![Slot::Reference(Some(action_ref))];
+    match ops.invoke(
+        heap,
+        out,
+        &action_class,
+        "run",
+        PRIVILEGED_ACTION_RUN_DESCRIPTOR,
+        action_args,
+    ) {
+        Ok(result) => Ok(result),
+        Err(Error::JavaException { class_name })
+            if wrap_checked_exception && !is_unchecked_exception_class(&class_name, ops)? =>
+        {
+            let cause = take_uncaught_java_exception_slot(&class_name);
+            push_pending_java_exception_cause(PRIVILEGED_ACTION_EXCEPTION, cause);
+            Err(Error::JavaException {
+                class_name: PRIVILEGED_ACTION_EXCEPTION.to_string(),
+            })
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Native: `AccessController.doPrivileged(PrivilegedAction)Object`.
+pub(crate) fn native_access_controller_do_privileged_action(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    invoke_privileged_action(args, heap, out, ops, false)
+}
+
+/// Native: `AccessController.doPrivileged(PrivilegedExceptionAction)Object`.
+pub(crate) fn native_access_controller_do_privileged_exception_action(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    invoke_privileged_action(args, heap, out, ops, true)
+}
 
 fn canonical_digest_algorithm(algorithm: &str) -> Option<&'static str> {
     let compact: String = algorithm

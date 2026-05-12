@@ -364,6 +364,78 @@ fn crypto_spec_provider_registration_is_visible_to_standard_apis() {
 }
 
 #[test]
+fn access_controller_privileged_action_returns_string() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AccessControllerDoPrivilegedTest.class",
+            "privilegedActionReturnsString",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn access_controller_privileged_action_returns_null() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AccessControllerDoPrivilegedTest.class",
+            "privilegedActionReturnsNull",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn access_controller_privileged_action_propagates_unchecked() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AccessControllerDoPrivilegedTest.class",
+            "privilegedActionPropagatesUnchecked",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn access_controller_privileged_exception_action_returns_value() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AccessControllerDoPrivilegedTest.class",
+            "privilegedExceptionActionReturnsValue",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn access_controller_privileged_exception_action_wraps_checked_exception() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AccessControllerDoPrivilegedTest.class",
+            "privilegedExceptionActionWrapsCheckedException",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn access_controller_security_manager_remains_null_during_action() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "AccessControllerDoPrivilegedTest.class",
+            "securityManagerRemainsNullDuringAction",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
 fn uuid_from_string_round_trips_canonical_text() {
     assert_eq!(
         run_bootstrap_int_completion("UuidTest.class", "testFromStringRoundTrip", "()I"),
