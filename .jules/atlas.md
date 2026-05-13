@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[Extract Concurrency Primitives]**
+**Tangle:** The `duke_gc::lib.rs` file was over 2,500 lines long, mixing internal concurrency synchronization primitives (`ReentrantLockState`, `ConditionWaiter`, etc.) with core heap allocation and tracing logic, forming a classic "Blob" anti-pattern.
+**Blueprint:** Extracted the concurrency primitives into a new, encapsulated `concurrent.rs` module (`pub(crate) mod concurrent;`) and re-exported them at the crate root (`pub use concurrent::*;`) to maintain the public API contract while physically decoupling the definitions.

@@ -1,0 +1,5 @@
+🗺️ Atlas: [extract concurrent module]
+🕸️ Tangle: The duke_gc::lib.rs file was over 2,500 lines long, mixing concurrency synchronization primitives with core heap allocation, forming a 'Blob' anti-pattern.
+📐 Blueprint: Extracted concurrency primitives into a new concurrent.rs module and re-exported them to maintain the API.
+🧱 Stability: Reduced coupling, faster compile times.
+🔬 Verification: Builds successfully, strict separation enforced.
