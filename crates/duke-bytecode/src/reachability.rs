@@ -49,7 +49,7 @@ pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
     }
 }
 
-/// Finds all dead (unreachable) basic blocks starting from the given entry PC.
+/// Finds all dead (unreachable) [`BasicBlock`]s starting from the given entry PC.
 ///
 /// A basic block is considered "dead" if there is no valid control flow path from the entry
 /// point to that block. Dead code can occur from unoptimized compilation, such as blocks
@@ -119,7 +119,7 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
         .collect()
 }
 
-/// Finds the shortest execution path (in terms of basic block transitions)
+/// Finds the shortest execution path (in terms of [`BasicBlock`] transitions)
 /// from the entry block to a target block.
 ///
 /// This uses Breadth-First Search (BFS) to traverse the control flow graph.

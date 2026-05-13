@@ -9,7 +9,7 @@ use std::fmt::Write;
 
 use crate::Instruction;
 
-/// Generates a Mermaid control flow graph (CFG) from a list of decoded instructions.
+/// Generates a Mermaid control flow graph (CFG) from a list of decoded [`Instruction`]s.
 ///
 /// This is used for visualising the structure of a Java method. It outputs
 /// Mermaid.js compatible syntax (using `graph TD`). Each instruction becomes a node,
@@ -348,7 +348,7 @@ mod complexity_tests {
     }
 }
 
-/// Generates a Mermaid control flow graph (CFG) from a list of basic blocks.
+/// Generates a Mermaid control flow graph (CFG) from a list of [`crate::basic_block::BasicBlock`]s.
 ///
 /// This is used to visualise the structure of a Java method in terms of basic blocks.
 /// It outputs Mermaid.js compatible syntax (using `graph TD`). Each basic block becomes a node,

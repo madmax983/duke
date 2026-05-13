@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! `duke-bytecode` — JVM bytecode definitions, decoder, and structural verifier.
 //!
 //! # Modules

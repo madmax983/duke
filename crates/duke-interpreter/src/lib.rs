@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! `duke-interpreter` — The execution engine of the JVM.
 //!
 //! This crate orchestrates the flow of the application by interpreting decoded

@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! Generational mark-sweep GC for the Duke JVM (Phase 25).
 //!
 //! **Young generation** — bump-pointer allocation (Eden-style). Minor GC uses

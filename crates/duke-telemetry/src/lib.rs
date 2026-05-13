@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! Duke VM Telemetry subsystem.
 //!
 //! This module provides the [`TelemetryStore`] and its constituent channels for

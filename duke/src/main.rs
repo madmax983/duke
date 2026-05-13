@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! Main entry point for the Duke JVM executable.
 //!
 //! Handles command-line argument parsing, environment initialization,

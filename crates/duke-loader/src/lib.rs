@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! `duke-loader` — Class file loaders and container formats.
 //!
 //! # Modules

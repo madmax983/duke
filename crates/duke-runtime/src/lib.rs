@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! `duke-runtime` — Execution state primitives for the Duke JVM.
 //!
 //! This crate provides the foundational data structures required for JVM execution:

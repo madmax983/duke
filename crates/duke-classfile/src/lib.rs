@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! `duke-classfile` — JVM `.class` file parser.
 //!
 //! Parses `.class` files conforming to JVM SE 21 (class file version 65).

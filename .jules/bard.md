@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-24 - [Enforce Missing Docs Globally]
+**Confusion:** Missing documentation was creeping back into the codebase despite previous efforts because `#![deny(missing_docs)]` wasn't enforced at the crate level across the workspace.
+**Clarification:** Added `#![deny(missing_docs)]` to the top of all `src/lib.rs` and `src/main.rs` files across the workspace. Also fixed some intra-doc link typos in `cfg.rs` and `basic_block.rs`, and resolved type inference errors in `jar_diff.rs` that were masking missing doc errors.

@@ -1,3 +1,7 @@
+//! Fuzzing and property tests for the `duke-classfile` parser.
+//!
+//! This module contains tests using `proptest` to ensure the parser does not panic on arbitrary or malformed input.
+
 use proptest::prelude::*;
 
 proptest! {
