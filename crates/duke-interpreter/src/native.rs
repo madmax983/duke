@@ -428,8 +428,8 @@ fn jul_level_value_from_slot(heap: &duke_gc::Heap, level_slot: Slot) -> Result<i
 }
 
 fn jul_level_name(heap: &duke_gc::Heap, level_ref: u64) -> Result<String> {
-    if let Some(name) = heap.get(level_ref)?.string_value.clone() {
-        return Ok(name);
+    if let Some(name) = &heap.get(level_ref)?.string_value {
+        return Ok(name.clone());
     }
     Ok(jul_level_value(heap, level_ref)?.to_string())
 }
@@ -1465,7 +1465,7 @@ pub(crate) fn native_jul_log_manager_get_logger_names(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let manager_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(manager_ref)?.fields.clone();
+    let fields = &heap.get(manager_ref)?.fields;
     let count = jul_manager_count(heap, manager_ref);
     let names: Vec<Slot> = (0..count)
         .map(|idx| {
@@ -3873,7 +3873,7 @@ pub(crate) fn native_throwable_get_message(
 ) -> Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let msg = heap.get(*r)?.string_value.clone();
+            let msg = heap.get(*r)?.string_value.as_deref().map(std::string::ToString::to_string);
             let slot = msg.map_or(Slot::Reference(None), |s| {
                 Slot::Reference(Some(heap.allocate_string(s)))
             });
@@ -8435,7 +8435,7 @@ pub(crate) fn native_enum_valueof(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
-    let target_name = heap.get(name_ref)?.string_value.clone().unwrap_or_default();
+    let target_name = heap.get(name_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let enum_class_name = heap
         .get(class_ref)?
         .string_value
@@ -14581,15 +14581,15 @@ pub(crate) fn native_string_last_indexof_from(
     let sub_ref = extract_ref_arg(args, 1)?;
     #[allow(clippy::cast_sign_loss)] // .max(0) guarantees non-negative
     let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
-    let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
+    let this_str = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+    let sub_str = heap.get(sub_ref)?.string_value.as_deref().unwrap_or_default();
     let search_in = if from + sub_str.len() < this_str.len() {
         &this_str[..from + sub_str.len()]
     } else {
-        &this_str
+        this_str
     };
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    let result = search_in.rfind(sub_str.as_str()).map_or(-1, |i| i as i32);
+    let result = search_in.rfind(sub_str).map_or(-1, |i| i as i32);
     Ok(Some(Slot::Int(result)))
 }
 
@@ -14662,7 +14662,7 @@ pub(crate) fn native_string_compareto_object(
 ) -> Result<Option<Slot>> {
     let str_val = |s: &Slot| -> Result<String> {
         match s {
-            Slot::Reference(Some(r)) => Ok(heap.get(*r)?.string_value.clone().unwrap_or_default()),
+            Slot::Reference(Some(r)) => Ok(heap.get(*r)?.string_value.as_deref().unwrap_or_default().to_string()),
             _ => Err(Error::NullPointerException),
         }
     };
@@ -14682,7 +14682,7 @@ pub(crate) fn native_string_startswith(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let prefix_ref = extract_ref_arg(args, 1)?;
     let prefix = heap
         .get(prefix_ref)?
@@ -14700,7 +14700,7 @@ pub(crate) fn native_string_endswith(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let suffix_ref = extract_ref_arg(args, 1)?;
     let suffix = heap
         .get(suffix_ref)?
@@ -14718,7 +14718,7 @@ pub(crate) fn native_string_trim(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let trimmed = s.trim().to_string();
     let r = heap.allocate_string(trimmed);
     Ok(Some(Slot::Reference(Some(r))))
@@ -14737,7 +14737,7 @@ pub(crate) fn native_string_tochararray(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let char_count = s.chars().count();
     let arr_ref = heap.allocate("[C".to_string(), char_count);
     for (i, c) in s.chars().enumerate() {
@@ -16083,7 +16083,7 @@ pub(crate) fn native_string_concat(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s1 = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s1 = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let other_ref = extract_ref_arg(args, 1)?;
     let s2 = heap
         .get(other_ref)?
@@ -16320,7 +16320,7 @@ pub(crate) fn native_string_format(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let fmt_ref = extract_ref_arg(args, 0)?;
-    let fmt = heap.get(fmt_ref)?.string_value.clone().unwrap_or_default();
+    let fmt = heap.get(fmt_ref)?.string_value.as_deref().unwrap_or_default().to_string();
 
     let arr_len = match args.get(1) {
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.fields.len(),
@@ -16422,7 +16422,7 @@ pub(crate) fn native_string_touppercase(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let r = heap.allocate_string(s.to_uppercase());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -16435,7 +16435,7 @@ pub(crate) fn native_string_tolowercase(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let r = heap.allocate_string(s.to_lowercase());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -16449,7 +16449,7 @@ pub(crate) fn native_string_replace_char(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
     let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
     let result = s.replace(old_char, &new_char.to_string());
@@ -16465,7 +16465,7 @@ pub(crate) fn native_string_replace_charsequence(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let target_ref = extract_ref_arg(args, 1)?;
     let target = heap
         .get(target_ref)?
@@ -16491,7 +16491,7 @@ pub(crate) fn native_string_split(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let delim_ref = extract_ref_arg(args, 1)?;
     let delim = heap
         .get(delim_ref)?
@@ -16531,7 +16531,7 @@ pub(crate) fn native_string_split_limit(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let delim_ref = extract_ref_arg(args, 1)?;
     let delim = heap
         .get(delim_ref)?
@@ -16584,7 +16584,7 @@ pub(crate) fn native_string_hashcode(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let mut h: i32 = 0;
     for ch in s.chars() {
         h = h.wrapping_mul(31).wrapping_add(ch as i32);
@@ -17423,7 +17423,7 @@ pub(crate) fn native_double_parsedouble(
             });
         }
     };
-    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(str_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let val: f64 = s.trim().parse().map_err(|_| Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })?;
@@ -17520,7 +17520,7 @@ pub(crate) fn native_float_parsefloat(
             });
         }
     };
-    let s = heap.get(str_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(str_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let val: f32 = s.trim().parse().map_err(|_| Error::JavaException {
         class_name: "java/lang/NumberFormatException".to_string(),
     })?;
@@ -17584,7 +17584,7 @@ pub(crate) fn native_boolean_parseboolean(
 ) -> Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let s = heap.get(*r)?.string_value.clone().unwrap_or_default();
+            let s = heap.get(*r)?.string_value.as_deref().unwrap_or_default().to_string();
             let val = s.eq_ignore_ascii_case("true");
             Ok(Some(Slot::Int(i32::from(val))))
         }
@@ -17712,7 +17712,7 @@ fn parse_i128_decode(s: &str) -> Result<i128> {
 
 fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> Result<String> {
     let str_ref = extract_ref_arg(args, index)?;
-    Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
+    Ok(heap.get(str_ref)?.string_value.as_deref().unwrap_or_default().to_string())
 }
 
 fn extract_parse_radix_arg(args: &[Slot], index: usize) -> Result<u32> {
@@ -23816,7 +23816,7 @@ pub(crate) fn native_sb_init_string(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let init_str = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.as_deref().unwrap_or_default().to_string(),
         _ => String::new(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -23833,7 +23833,7 @@ pub(crate) fn native_sb_append_string(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let append_str = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.as_deref().unwrap_or_default().to_string(),
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -23953,7 +23953,7 @@ pub(crate) fn native_sb_tostring(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let content = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let content = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let r = heap.allocate_string(content);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -23970,7 +23970,7 @@ pub(crate) fn native_sb_insert_string(
     let this_ref = extract_ref_arg(args, 0)?;
     let offset = extract_int_arg(args, 1)?;
     let s = match args.get(2) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.as_deref().unwrap_or_default().to_string(),
         Some(Slot::Reference(None)) | None => "null".to_string(),
         _ => {
             return Err(Error::TypeMismatch {
@@ -25878,7 +25878,7 @@ pub(crate) fn native_string_strip(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let r = heap.allocate_string(s.trim().to_owned());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -25891,7 +25891,7 @@ pub(crate) fn native_string_strip_leading(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let r = heap.allocate_string(s.trim_start().to_owned());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -25904,7 +25904,7 @@ pub(crate) fn native_string_strip_trailing(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let r = heap.allocate_string(s.trim_end().to_owned());
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -25935,7 +25935,7 @@ pub(crate) fn native_string_repeat(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let n = usize::try_from(extract_int_arg(args, 1)?.max(0)).unwrap_or(0);
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
 
     let max_size = 1024 * 1024 * 128; // 128 MB max string size
     if n.checked_mul(s.len()).is_none_or(|len| len > max_size) {
@@ -26096,10 +26096,10 @@ pub(crate) fn native_string_last_index_of(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let sub_ref = extract_ref_arg(args, 1)?;
-    let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
+    let this_str = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+    let sub_str = heap.get(sub_ref)?.string_value.as_deref().unwrap_or_default();
     let result = this_str
-        .rfind(sub_str.as_str())
+        .rfind(sub_str)
         .and_then(|byte_pos| i32::try_from(this_str[..byte_pos].chars().count()).ok())
         .unwrap_or(-1);
     Ok(Some(Slot::Int(result)))
@@ -26114,7 +26114,7 @@ pub(crate) fn native_string_code_point_at(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let idx = usize::try_from(extract_int_arg(args, 1)?).unwrap_or(0);
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let cp = s
         .chars()
         .nth(idx)
@@ -26130,7 +26130,7 @@ pub(crate) fn native_string_lines(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let text = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let text = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let lines: Vec<&str> = text.lines().collect();
     let n = lines.len();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), n + 1);
@@ -27777,7 +27777,7 @@ fn compile_java_regex_with_flags(pattern: &str, flags: i32) -> Result<regex::Reg
 
 fn pattern_text_and_flags(heap: &duke_gc::Heap, pat_ref: u64) -> Result<(String, i32)> {
     let pat = heap.get(pat_ref)?;
-    let pattern_str = pat.string_value.clone().unwrap_or_default();
+    let pattern_str = pat.string_value.as_deref().unwrap_or_default().to_string();
     let flags = match pat.fields.get(PATTERN_FLAGS_FIELD).copied() {
         Some(Slot::Int(flags)) => flags,
         _ => 0,
@@ -27857,7 +27857,7 @@ pub(crate) fn native_pattern_matches_static(
 ) -> Result<Option<Slot>> {
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_ref = extract_ref_arg(args, 1)?;
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let pattern_str = heap.get(pat_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let input = heap
         .get(input_ref)?
         .string_value
@@ -28412,7 +28412,7 @@ pub(crate) fn native_matcher_replace_all(
         .string_value
         .clone()
         .unwrap_or_default();
-    let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
+    let repl = heap.get(repl_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace_all(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
@@ -28441,7 +28441,7 @@ pub(crate) fn native_matcher_replace_first(
         .string_value
         .clone()
         .unwrap_or_default();
-    let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
+    let repl = heap.get(repl_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
@@ -28457,8 +28457,8 @@ pub(crate) fn native_string_matches_regex(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let pat_ref = extract_ref_arg(args, 1)?;
-    let input = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let input = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
+    let pattern_str = heap.get(pat_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let re = compile_java_regex(&pattern_str)?;
     let matched = re
         .find(&input)
@@ -28476,9 +28476,9 @@ pub(crate) fn native_string_replace_all_regex(
     let this_ref = extract_ref_arg(args, 0)?;
     let pat_ref = extract_ref_arg(args, 1)?;
     let repl_ref = extract_ref_arg(args, 2)?;
-    let input = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
-    let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
+    let input = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
+    let pattern_str = heap.get(pat_ref)?.string_value.as_deref().unwrap_or_default().to_string();
+    let repl = heap.get(repl_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let re = compile_java_regex(&pattern_str)?;
     let result = re.replace_all(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
@@ -28495,9 +28495,9 @@ pub(crate) fn native_string_replace_first_regex(
     let this_ref = extract_ref_arg(args, 0)?;
     let pat_ref = extract_ref_arg(args, 1)?;
     let repl_ref = extract_ref_arg(args, 2)?;
-    let input = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
-    let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
+    let input = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
+    let pattern_str = heap.get(pat_ref)?.string_value.as_deref().unwrap_or_default().to_string();
+    let repl = heap.get(repl_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let re = compile_java_regex(&pattern_str)?;
     let result = re.replace(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
@@ -28819,7 +28819,7 @@ pub(crate) fn native_stringbuffer_init_string(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = match args.get(1).copied() {
-        Some(Slot::Reference(Some(r))) => heap.get(r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(Some(r))) => heap.get(r)?.string_value.as_deref().unwrap_or_default().to_string(),
         _ => String::new(),
     };
     heap.get_mut(this_ref)?.string_value = Some(s);
@@ -28863,7 +28863,7 @@ pub(crate) fn native_stringbuffer_tostring(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -30201,7 +30201,7 @@ fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
 }
 
 fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(map_ref)?.fields.clone();
+    let fields = &heap.get(map_ref)?.fields;
     let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
     let mut i = 1usize;
     while i + 1 < fields.len() {
@@ -31113,7 +31113,7 @@ pub(crate) fn native_string_chars(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     let values: Vec<i32> = s.chars().map(|c| c as i32).collect();
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
@@ -31663,7 +31663,7 @@ pub(crate) fn native_arrays_to_string_int(
 ) -> Result<Option<Slot>> {
     use std::fmt::Write as FmtWrite;
     let arr_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(arr_ref)?.fields.clone();
+    let fields = &heap.get(arr_ref)?.fields;
 
     // ⚡ Bolt: Eliminate intermediate Vec<String> allocation, format! macro overhead,
     // and .join() by appending directly to a single String buffer.
@@ -31693,7 +31693,7 @@ pub(crate) fn native_arrays_to_string_object(
 ) -> Result<Option<Slot>> {
     use std::fmt::Write as FmtWrite;
     let arr_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(arr_ref)?.fields.clone();
+    let fields = &heap.get(arr_ref)?.fields;
 
     // ⚡ Bolt: Eliminate intermediate Vec<String> allocation, format! macro overhead,
     // and .join() by appending directly to a single String buffer.
@@ -37544,7 +37544,7 @@ pub(crate) fn native_string_indent(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let n = extract_int_arg(args, 1)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default().to_string();
     let result: String = if n >= 0 {
         let n_usize = n as usize;
         let max_size = 1024 * 1024 * 128; // 128 MB max string size
