@@ -63,6 +63,26 @@ use crate::*;
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+
+/// Helper to extract the receiver slot (the `this` reference) without popping it.
+fn peek_receiver_slot(frame: &Frame, arg_count: usize) -> Result<Slot> {
+    let stack_len = frame.stack_len();
+    if stack_len > arg_count {
+        frame.peek_at(stack_len - arg_count - 1)
+    } else {
+        Err(Error::StackUnderflow)
+    }
+}
+
+/// Helper to get the class name of the receiver.
+fn peek_receiver_class(frame: &Frame, heap: &duke_gc::Heap, arg_count: usize) -> Option<String> {
+    if let Ok(Slot::Reference(Some(r))) = peek_receiver_slot(frame, arg_count) {
+        heap.get(r).ok().map(|o| o.class_name.clone())
+    } else {
+        None
+    }
+}
+
 pub fn run_execution(
     state: &mut ExecutionState,
     registry: &mut ClassRegistry,
@@ -1521,17 +1541,7 @@ pub fn run_execution(
                 let virtual_start: Option<String> =
                     if matches!(instr, Instruction::Invokevirtual(_)) {
                         let arg_count = parse_arg_count(&callee_desc);
-                        let stack_len = frame.stack_len();
-                        if stack_len > arg_count {
-                            let this_pos = stack_len - arg_count - 1;
-                            if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
-                                heap.get(r).ok().map(|o| o.class_name.clone())
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
+                        peek_receiver_class(frame, heap, arg_count)
                     } else {
                         None
                     };
@@ -1540,9 +1550,8 @@ pub fn run_execution(
                     && annotation_proxy_type(runtime_class).is_some()
                 {
                     let arg_count = parse_arg_count(&callee_desc);
-                    let stack_len = frame.stack_len();
-                    let this_pos = stack_len - arg_count - 1;
-                    let Slot::Reference(Some(receiver_ref)) = frame.peek_at(this_pos)? else {
+                    let Slot::Reference(Some(receiver_ref)) = peek_receiver_slot(frame, arg_count)?
+                    else {
                         return Err(Error::NullPointerException);
                     };
                     if let Some(result) = annotation_proxy_element_slot(
@@ -2648,23 +2657,12 @@ pub fn run_execution(
                 // Peek at `this` (sits below the args) to determine the actual
                 // runtime class without consuming the stack yet.  Each dispatch
                 // path (native / lambda / bytecode) pops what it needs itself.
-                let stack_len = frame.stack_len();
-                let actual_class = if stack_len > arg_count {
-                    let this_pos = stack_len - arg_count - 1;
-                    if let Ok(Slot::Reference(Some(r))) = frame.peek_at(this_pos) {
-                        heap.get(r).ok().map(|o| o.class_name.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-                .unwrap_or_else(|| callee_class.clone());
+                let actual_class = peek_receiver_class(frame, heap, arg_count)
+                    .unwrap_or_else(|| callee_class.clone());
 
                 if annotation_proxy_type(&actual_class).is_some() {
-                    let stack_len = frame.stack_len();
-                    let this_pos = stack_len - arg_count - 1;
-                    let Slot::Reference(Some(receiver_ref)) = frame.peek_at(this_pos)? else {
+                    let Slot::Reference(Some(receiver_ref)) = peek_receiver_slot(frame, arg_count)?
+                    else {
                         return Err(Error::NullPointerException);
                     };
                     if let Some(result) = annotation_proxy_element_slot(
