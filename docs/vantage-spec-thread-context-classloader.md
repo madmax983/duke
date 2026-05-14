@@ -1,3 +1,5 @@
+# Spec: Thread Context ClassLoader
+
 👤 **User Story:** "As a Java Developer, I want to get and set the context ClassLoader for a thread, so that dynamically loaded frameworks like SLF4J can correctly resolve user-supplied implementations."
 
 **"So What?" (Business Value):**
