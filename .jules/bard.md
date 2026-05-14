@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-14 - Inner attributes compile error
+**Confusion:** Getting compile errors when adding `#![allow(...)]` inside files that already have standard module-level comments or other attributes. Also experienced `unresolved import duke_classfile::types` and `type annotations needed` for closure arguments on `Option<T>` references.
+**Clarification:** Module-level inner attributes (`#!`) must be placed at the very top of the file, before any other items or outer attributes (`#`). Also, `AttributeData`, `CpEntry`, etc., are exported directly at the root of `duke_classfile`, not under a `types` module. When calling `.and_then(|x| x.as_ref())` on collections of `Option<T>`, the closure argument needs explicit type annotation `|x: &Option<T>|` to avoid compiler inference errors.

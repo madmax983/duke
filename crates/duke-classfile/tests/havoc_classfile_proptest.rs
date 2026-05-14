@@ -1,3 +1,4 @@
+//! Fuzzing tests for the `duke-classfile` crate using `proptest`.
 use proptest::prelude::*;
 
 proptest! {
