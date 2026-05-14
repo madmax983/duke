@@ -1,6 +1,6 @@
-🛡️ Sentry: [test coverage improvement]
+🗺️ Atlas: [architectural change]
 
-🎯 Target: native_reentrant_read_write_lock_* and native_priorityqueue_peek in crates/duke-interpreter/src/native.rs.
-💣 Risk: These native implementations lacked unit test coverage. Changes or refactors to how the internal read/write lock instances are structured or initialized could fail without being caught by basic bytecode testing, breaking concurrency features.
-🧪 Strategy: Added specific inline unit tests covering the init, read_lock, and write_lock states of ReentrantReadWriteLock as well as the empty and non-empty scenarios for PriorityQueue.peek(). Added #[allow(clippy::unnecessary_wraps)] to the newly covered, previously unlinted methods since they adhere to an API signature that requires Result<Option<Slot>>.
-🔬 Verification: cargo test -p duke-interpreter
+🕸️ Tangle: The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths. `duke` bin also had missing explicit types.
+📐 Blueprint: Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+🧱 Stability: Reduced coupling, stricter module boundaries.
+🔬 Verification: Builds successfully, strict separation enforced.

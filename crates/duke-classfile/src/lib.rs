@@ -22,9 +22,13 @@ pub(crate) mod constant_pool;
 pub(crate) mod error;
 pub(crate) mod parser;
 
-pub use crate::attributes::*;
-pub use crate::class::*;
-pub use crate::constant_pool::*;
+pub mod types {
+    pub use crate::attributes::*;
+    pub use crate::class::*;
+    pub use crate::constant_pool::*;
+}
+
+pub use types::*;
 pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, Result};
 pub use parser::parse;

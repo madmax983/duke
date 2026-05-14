@@ -4,7 +4,7 @@
 //! the bytecode stream. The variant names match the JVM spec opcode names
 //! (`PascalCase`). Wide-prefixed forms carry a `u16` local index instead of `u8`.
 
-use duke_classfile::CpIndex;
+use duke_classfile::types::CpIndex;
 
 /// Array type codes used by the `newarray` instruction (JVM spec §6.5).
 ///
@@ -79,7 +79,7 @@ impl ArrayType {
 ///
 /// ```
 /// use duke_bytecode::Instruction;
-/// use duke_classfile::CpIndex;
+/// use duke_classfile::types::CpIndex;
 ///
 /// let i_load = Instruction::Iload(4);
 /// assert_eq!(i_load.mnemonic(), "iload");

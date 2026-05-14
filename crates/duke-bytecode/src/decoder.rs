@@ -7,7 +7,7 @@ use crate::{
     instruction::{ArrayType, Instruction},
     opcodes as op,
 };
-use duke_classfile::CpIndex;
+use duke_classfile::types::CpIndex;
 /// Decode a bytecode sequence from a `Code` attribute into typed instructions.
 ///
 /// This performs the first pass over a raw byte stream, resolving variable-length
@@ -683,12 +683,12 @@ mod tests {
         assert_eq!(instrs[2].1, Instruction::Ret(1));
         assert_eq!(
             instrs[3].1,
-            Instruction::Putfield(duke_classfile::CpIndex(1))
+            Instruction::Putfield(duke_classfile::types::CpIndex(1))
         );
         assert_eq!(
             instrs[4].1,
             Instruction::Multianewarray {
-                index: duke_classfile::CpIndex(2),
+                index: duke_classfile::types::CpIndex(2),
                 dimensions: 3
             }
         );

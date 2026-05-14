@@ -503,37 +503,37 @@ mod tests {
         assert_eq!(stack_effect(&Instruction::IloadW(0)), (0, 1));
         assert_eq!(stack_effect(&Instruction::Ireturn), (1, 0));
         assert_eq!(
-            stack_effect(&Instruction::Getstatic(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Getstatic(duke_classfile::types::CpIndex(1))),
             (0, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Putstatic(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Putstatic(duke_classfile::types::CpIndex(1))),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Getfield(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Getfield(duke_classfile::types::CpIndex(1))),
             (1, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Putfield(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Putfield(duke_classfile::types::CpIndex(1))),
             (2, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Invokevirtual(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Invokevirtual(duke_classfile::types::CpIndex(1))),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Invokestatic(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Invokestatic(duke_classfile::types::CpIndex(1))),
             (0, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::New(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::New(duke_classfile::types::CpIndex(1))),
             (0, 1)
         );
         assert_eq!(stack_effect(&Instruction::Newarray(ArrayType::Int)), (1, 1));
         assert_eq!(
             stack_effect(&Instruction::Multianewarray {
-                index: duke_classfile::CpIndex(1),
+                index: duke_classfile::types::CpIndex(1),
                 dimensions: 2
             }),
             (2, 1)
@@ -541,7 +541,7 @@ mod tests {
         assert_eq!(stack_effect(&Instruction::Arraylength), (1, 1));
         assert_eq!(stack_effect(&Instruction::Athrow), (1, 0));
         assert_eq!(
-            stack_effect(&Instruction::Checkcast(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Checkcast(duke_classfile::types::CpIndex(1))),
             (1, 1)
         );
         assert_eq!(stack_effect(&Instruction::Monitorenter), (1, 0));
@@ -554,11 +554,11 @@ mod tests {
         assert_eq!(stack_effect(&Instruction::Sipush(0)), (0, 1));
         assert_eq!(stack_effect(&Instruction::Ldc(1)), (0, 1));
         assert_eq!(
-            stack_effect(&Instruction::LdcW(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::LdcW(duke_classfile::types::CpIndex(1))),
             (0, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Ldc2W(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Ldc2W(duke_classfile::types::CpIndex(1))),
             (0, 1)
         );
         assert_eq!(stack_effect(&Instruction::Iload(0)), (0, 1));
@@ -704,7 +704,7 @@ mod tests {
         assert_eq!(stack_effect(&Instruction::Dreturn), (1, 0));
         assert_eq!(stack_effect(&Instruction::Areturn), (1, 0));
         assert_eq!(
-            stack_effect(&Instruction::Invokespecial(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Invokespecial(duke_classfile::types::CpIndex(1))),
             (1, 0)
         );
         assert_eq!(stack_effect(&Instruction::Monitorexit), (1, 0));
@@ -727,21 +727,21 @@ mod tests {
         );
         assert_eq!(
             stack_effect(&Instruction::Invokeinterface {
-                index: duke_classfile::CpIndex(1),
+                index: duke_classfile::types::CpIndex(1),
                 count: 1,
             }),
             (1, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Invokedynamic(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Invokedynamic(duke_classfile::types::CpIndex(1))),
             (0, 0)
         );
         assert_eq!(
-            stack_effect(&Instruction::Instanceof(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Instanceof(duke_classfile::types::CpIndex(1))),
             (1, 1)
         );
         assert_eq!(
-            stack_effect(&Instruction::Anewarray(duke_classfile::CpIndex(1))),
+            stack_effect(&Instruction::Anewarray(duke_classfile::types::CpIndex(1))),
             (1, 1)
         );
     }
