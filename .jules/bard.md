@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Jar Diff Documentation]
+**Confusion:** The `duke::jar_diff` module lacked documentation explaining its utility, and the `dump_jar_diff` function had no doc comments or doctests, making it unclear how to use it for bytecode-level diffing between two JAR files.
+**Clarification:** Removed `#![allow(missing_docs)]` suppression, added module-level `//!` narrative documentation, and added `///` function documentation with an executable doctest demonstrating usage. Fixed unresolved imports and missing type annotations for closures inside `jar_diff.rs`.

@@ -1,11 +1,15 @@
+//! Utility to perform a bytecode-level diff between two JAR files.
+//!
+//! This module parses the structural information of all `.class` files contained
+//! in two JARs, computing the hashes of their method bodies, and identifies
+//! methods that were added, removed, or modified. This is extremely useful
+//! when analyzing unexpected behavior changes across dependency versions.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +22,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +42,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -56,6 +60,21 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Computes and prints a structural diff between two JAR files.
+///
+/// This analyzes the methods within two JAR archives, hashing the `Code`
+/// attributes (bytecodes) for every method across all parsed `.class` files.
+/// It then compares these sets to print out a human-readable list of methods
+/// that have been newly added, removed, or functionally modified.
+///
+/// # Examples
+///
+/// ```no_run
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// // Compare an old library against a newer patched version to see what changed.
+/// dump_jar_diff("old-lib-v1.0.jar", "new-lib-v1.1.jar");
+/// ```
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);
