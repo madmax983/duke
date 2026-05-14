@@ -16,6 +16,9 @@ pub mod ser_helpers {
         S: serde::Serializer,
         F: Fn(&K) -> String,
     {
+        if map.is_empty() {
+            return ser.serialize_map(Some(0))?.end();
+        }
         let mut map_ser = ser.serialize_map(Some(map.len()))?;
         for (k, v) in map {
             map_ser.serialize_entry(&key_fn(k), v)?;
@@ -28,6 +31,9 @@ pub mod ser_helpers {
         map: &HashMap<(String, String, usize), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
+        if map.is_empty() {
+            return ser.serialize_map(Some(0))?.end();
+        }
         keyed_map(map, ser, |(c, m, pc)| format!("{c}::{m}@{pc}"))
     }
 
@@ -36,6 +42,9 @@ pub mod ser_helpers {
         map: &HashMap<(String, u16), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
+        if map.is_empty() {
+            return ser.serialize_map(Some(0))?.end();
+        }
         keyed_map(map, ser, |(c, cp)| format!("{c}@{cp}"))
     }
 
@@ -44,6 +53,9 @@ pub mod ser_helpers {
         map: &HashMap<(String, String), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
+        if map.is_empty() {
+            return ser.serialize_map(Some(0))?.end();
+        }
         keyed_map(map, ser, |(c, m)| format!("{c}::{m}"))
     }
 
@@ -52,6 +64,9 @@ pub mod ser_helpers {
         set: &std::collections::HashSet<String>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
+        if set.is_empty() {
+            return ser.serialize_seq(Some(0))?.end();
+        }
         let mut v: Vec<&String> = set.iter().collect();
         v.sort();
         v.serialize(ser)
@@ -245,6 +260,38 @@ mod tests {
         ser: S,
     ) -> Result<S::Ok, S::Error> {
         super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+    }
+
+    #[test]
+    fn test_empty_site3() {
+        let map: std::collections::HashMap<(String, String, usize), Dummy> = std::collections::HashMap::new();
+        let w = Site3Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+    }
+
+    #[test]
+    fn test_empty_site2_u16() {
+        let map: std::collections::HashMap<(String, u16), Dummy> = std::collections::HashMap::new();
+        let w = Site2Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+    }
+
+    #[test]
+    fn test_empty_pair_str() {
+        let map: std::collections::HashMap<(String, String), Dummy> = std::collections::HashMap::new();
+        let w = PairWrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+    }
+
+    #[test]
+    fn test_empty_sorted_set() {
+        let set: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let w = SetWrapper { set };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"set":[]}"#);
     }
 
     #[test]
