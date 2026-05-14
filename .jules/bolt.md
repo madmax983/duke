@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Optimize vector capacities in heap objects**
+**Learning:** `heap.allocate` takes a length argument that effectively pre-allocates and initializes the internal fields array in `duke_gc::Heap`. Calling `.push()` afterward without accounting for this allocates extra space dynamically instead of cleanly populating the pre-sized fields array.
+**Action:** Always pre-allocate the correct required length using `heap.allocate("Class".to_string(), required_length)` and populate via index iteration rather than initializing with length 1 and dynamically `.push()`ing elements into the array.

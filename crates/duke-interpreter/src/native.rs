@@ -7276,12 +7276,16 @@ pub(crate) fn native_stream_flat_map(
 // ---------------------------------------------------------------------------
 
 /// Build an `IntStream` heap object from a `Vec<i32>`.
+///
+/// **Bolt Optimization:** Pre-allocates heap fields with exact capacity `values.len() + 1`
+/// instead of `.push()`ing to avoid dynamic vector reallocations.
 fn make_int_stream(heap: &mut duke_gc::Heap, values: Vec<i32>) -> u64 {
     let n = i32::try_from(values.len()).unwrap_or(0);
-    let r = heap.allocate("duke/util/IntStream".to_string(), 1);
-    heap.get_mut(r).expect("fresh").fields[0] = Slot::Int(n);
-    for v in values {
-        heap.get_mut(r).expect("fresh").fields.push(Slot::Int(v));
+    let r = heap.allocate("duke/util/IntStream".to_string(), values.len() + 1);
+    let obj = heap.get_mut(r).expect("fresh");
+    obj.fields[0] = Slot::Int(n);
+    for (i, v) in values.into_iter().enumerate() {
+        obj.fields[i + 1] = Slot::Int(v);
     }
     r
 }
@@ -16507,7 +16511,7 @@ pub(crate) fn native_string_split(
         regex::Regex::new(&delim).map_or_else(
             |_| s.split(delim.as_str()).map(str::to_string).collect(),
             |re| {
-                let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
+                let mut v: Vec<String> = re.split(&s).map(String::from).collect();
                 while v.last().is_some_and(String::is_empty) {
                     v.pop();
                 }
@@ -16556,9 +16560,9 @@ pub(crate) fn native_string_split_limit(
         let re = regex::Regex::new(&delim)
             .unwrap_or_else(|_| regex::Regex::new(&regex::escape(&delim)).unwrap());
         if limit > 0 {
-            re.splitn(&s, limit as usize).map(str::to_string).collect()
+            re.splitn(&s, limit as usize).map(String::from).collect()
         } else {
-            let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
+            let mut v: Vec<String> = re.split(&s).map(String::from).collect();
             if limit == 0 {
                 while v.last().is_some_and(String::is_empty) {
                     v.pop();
@@ -32282,12 +32286,15 @@ pub(crate) fn native_stream_map_to_long(
 }
 
 /// Allocates a `duke/util/LongStream` with `fields[0]=Int(size), fields[1..n]=Long(value)`.
+///
+/// **Bolt Optimization:** Pre-allocates heap fields with exact capacity `values.len() + 1`
+/// instead of `.push()`ing to avoid dynamic vector reallocations.
 fn make_long_stream(heap: &mut duke_gc::Heap, values: Vec<i64>) -> u64 {
-    let r = heap.allocate("duke/util/LongStream".to_string(), 1);
+    let r = heap.allocate("duke/util/LongStream".to_string(), values.len() + 1);
     if let Ok(obj) = heap.get_mut(r) {
         obj.fields[0] = Slot::Int(i32::try_from(values.len()).unwrap_or(0));
-        for v in values {
-            obj.fields.push(Slot::Long(v));
+        for (i, v) in values.into_iter().enumerate() {
+            obj.fields[i + 1] = Slot::Long(v);
         }
     }
     r
@@ -32360,12 +32367,15 @@ pub(crate) fn native_stream_map_to_double(
 }
 
 /// Allocates a `duke/util/DoubleStream` with `fields[0]=Int(size), fields[1..n]=Double(value)`.
+///
+/// **Bolt Optimization:** Pre-allocates heap fields with exact capacity `values.len() + 1`
+/// instead of `.push()`ing to avoid dynamic vector reallocations.
 fn make_double_stream(heap: &mut duke_gc::Heap, values: Vec<f64>) -> u64 {
-    let r = heap.allocate("duke/util/DoubleStream".to_string(), 1);
+    let r = heap.allocate("duke/util/DoubleStream".to_string(), values.len() + 1);
     if let Ok(obj) = heap.get_mut(r) {
         obj.fields[0] = Slot::Int(i32::try_from(values.len()).unwrap_or(0));
-        for v in values {
-            obj.fields.push(Slot::Double(v));
+        for (i, v) in values.into_iter().enumerate() {
+            obj.fields[i + 1] = Slot::Double(v);
         }
     }
     r
