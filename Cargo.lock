@@ -329,6 +329,7 @@ dependencies = [
  "duke-classfile",
  "flate2",
  "proptest",
+ "tempfile",
  "thiserror",
 ]
 
