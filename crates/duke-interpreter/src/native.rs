@@ -13355,7 +13355,7 @@ pub(crate) fn native_thread_get_context_class_loader(
         .get(thread_ref)?
         .fields
         .get(THREAD_CONTEXT_CLASS_LOADER_SLOT)
-        .cloned()
+        .copied()
         .unwrap_or(Slot::Reference(None));
     Ok(Some(loader))
 }
