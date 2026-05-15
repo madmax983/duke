@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Pre-allocating Vec inside Native Methods**
+**Learning:** `Vec::with_capacity` is particularly important for native JVM methods that convert Java objects to Rust vectors, since standard iterators over JVM objects can't cleanly provide `.size_hint()` to `.collect()`.
+**Action:** Use explicit `.len()` based allocations inside native methods (like reflection) where array sizes are known before conversion.

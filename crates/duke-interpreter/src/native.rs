@@ -4127,23 +4127,21 @@ pub(crate) fn native_list_of(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     // Varargs form: single arg that is an Object[] array.
-    let elems: Vec<Slot> = if args.len() == 1 {
+    let list_ref = if args.len() == 1 {
         if let Some(Slot::Reference(Some(arr_ref))) = args.first() {
-            let obj = heap.get(*arr_ref)?;
-            if obj.class_name.starts_with('[') {
-                let fields = obj.fields.clone();
-                let _ = obj;
-                fields
+            let is_array = heap.get(*arr_ref)?.class_name.starts_with('[');
+            if is_array {
+                let fields = heap.get(*arr_ref)?.fields.clone();
+                make_list_from_slots(&fields, heap, out, control)?
             } else {
-                args.to_vec()
+                make_list_from_slots(args, heap, out, control)?
             }
         } else {
-            Vec::new()
+            make_list_from_slots(&[], heap, out, control)?
         }
     } else {
-        args.to_vec()
+        make_list_from_slots(args, heap, out, control)?
     };
-    let list_ref = make_list_from_slots(&elems, heap, out, control)?;
     Ok(Some(Slot::Reference(Some(list_ref))))
 }
 
@@ -4172,23 +4170,21 @@ pub(crate) fn native_set_of_factory(
     out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let elems: Vec<Slot> = if args.len() == 1 {
+    let set_ref = if args.len() == 1 {
         if let Some(Slot::Reference(Some(arr_ref))) = args.first() {
-            let obj = heap.get(*arr_ref)?;
-            if obj.class_name.starts_with('[') {
-                let fields = obj.fields.clone();
-                let _ = obj;
-                fields
+            let is_array = heap.get(*arr_ref)?.class_name.starts_with('[');
+            if is_array {
+                let fields = heap.get(*arr_ref)?.fields.clone();
+                make_set_from_slots(&fields, heap, out, control)?
             } else {
-                args.to_vec()
+                make_set_from_slots(args, heap, out, control)?
             }
         } else {
-            Vec::new()
+            make_set_from_slots(&[], heap, out, control)?
         }
     } else {
-        args.to_vec()
+        make_set_from_slots(args, heap, out, control)?
     };
-    let set_ref = make_set_from_slots(&elems, heap, out, control)?;
     Ok(Some(Slot::Reference(Some(set_ref))))
 }
 
