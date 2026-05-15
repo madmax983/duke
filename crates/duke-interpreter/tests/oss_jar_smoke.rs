@@ -274,18 +274,21 @@ fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
         "smoke should progress past AccessController.doPrivileged, got: {rendered}"
     );
     assert!(
+        !rendered.contains("java/lang/ClassLoader.getSystemResourceAsStream"),
+        "smoke should progress past getSystemResourceAsStream, got: {rendered}"
+    );
+    assert!(
         is_explicit_missing_slf4j_capability(&rendered),
         "expected explicit next missing capability, got: {rendered}"
     );
     assert_eq!(
-        rendered,
-        "Unsupported native: java/lang/ClassLoader.getSystemResourceAsStream(Ljava/lang/String;)Ljava/io/InputStream;",
+        rendered, "Unsupported native: java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z",
         "expected the next SLF4J blocker to stay explicit"
     );
 }
 
 #[test]
-#[ignore = "Blocked on ClassLoader.getSystemResourceAsStream after Thread.getContextClassLoader was fixed."]
+#[ignore = "Blocked on String.equalsIgnoreCase after ClassLoader.getSystemResourceAsStream was fixed."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 
