@@ -114,6 +114,17 @@ public final class ResourceLoadingTest {
         }
     }
 
+    public static int systemResourceAsStreamReturnsBytes() throws Exception {
+        try (InputStream in = ClassLoader.getSystemResourceAsStream("ResourceLoadingTestData.txt")) {
+            if (in == null) return 1;
+            return EXPECTED.equals(readAll(in)) ? 0 : 2;
+        }
+    }
+
+    public static int systemResourceAsStreamMissingReturnsNull() {
+        return ClassLoader.getSystemResourceAsStream("does-not-exist.txt") == null ? 0 : 1;
+    }
+
     public static int runAll() throws Exception {
         if (absoluteFromClassReturnsBytes() != 0) return 101;
         if (relativeFromClassReturnsBytes() != 0) return 102;
@@ -124,6 +135,8 @@ public final class ResourceLoadingTest {
         if (availableSkipAndSliceReadWork() != 0) return 107;
         if (urlOpenStreamReadsBytes() != 0) return 108;
         if (classLoaderGetResourceReturnsUrl() != 0) return 109;
+        if (systemResourceAsStreamReturnsBytes() != 0) return 110;
+        if (systemResourceAsStreamMissingReturnsNull() != 0) return 111;
         return 1;
     }
 }

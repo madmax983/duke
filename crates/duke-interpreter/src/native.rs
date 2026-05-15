@@ -8721,6 +8721,30 @@ pub(crate) fn native_class_loader_get_resource_as_stream(
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
+pub(crate) fn native_class_loader_get_system_resource_as_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let requested_name = string_arg(args, 0, heap)?;
+    let classpath = classpath_debug_label(None);
+    let Some(resolved_name) = normalize_resource_name(&requested_name) else {
+        log_resource_lookup_miss(&requested_name, "<system>", &classpath);
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let resource = ops.find_resource_entry(heap, None, &resolved_name)?;
+    if resource.is_none() {
+        log_resource_lookup_miss(&resolved_name, "<system>", &classpath);
+    }
+    let Some(resource) = resource else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let stream_ref = allocate_resource_input_stream(heap, resource.bytes)?;
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+
 pub(crate) fn native_class_get_resource(
     args: &[Slot],
     heap: &mut duke_gc::Heap,

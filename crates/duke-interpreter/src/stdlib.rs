@@ -4130,6 +4130,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;)Ljava/util/Enumeration;",
         native_class_loader_get_resources,
     );
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getSystemResourceAsStream",
+        "(Ljava/lang/String;)Ljava/io/InputStream;",
+        native_class_loader_get_system_resource_as_stream,
+    );
 
     let thread_ctx = ClassContext {
         class_name: "java/lang/Thread".to_string(),
