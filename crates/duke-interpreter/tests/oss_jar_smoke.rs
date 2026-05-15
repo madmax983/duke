@@ -279,13 +279,13 @@ fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
     );
     assert_eq!(
         rendered,
-        "Unsupported native: java/lang/Thread.getContextClassLoader()Ljava/lang/ClassLoader;",
+        "Unsupported native: java/lang/ClassLoader.getSystemResourceAsStream(Ljava/lang/String;)Ljava/io/InputStream;",
         "expected the next SLF4J blocker to stay explicit"
     );
 }
 
 #[test]
-#[ignore = "Blocked on Thread.getContextClassLoader after issue #695."]
+#[ignore = "Blocked on ClassLoader.getSystemResourceAsStream after Thread.getContextClassLoader was fixed."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 

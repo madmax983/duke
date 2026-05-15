@@ -4157,9 +4157,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "I".to_string(),
                 is_static: false,
             },
+            FieldEntry {
+                name: "contextClassLoader".to_string(),
+                descriptor: "Ljava/lang/ClassLoader;".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: Vec::new(),
-        instance_field_count: 4,
+        instance_field_count: 5,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
@@ -4209,9 +4214,15 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Thread",
+        "getContextClassLoader",
+        "()Ljava/lang/ClassLoader;",
+        native_thread_get_context_class_loader,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
         "setContextClassLoader",
         "(Ljava/lang/ClassLoader;)V",
-        native_void_noop,
+        native_thread_set_context_class_loader,
     );
 
     let stack_trace_element_ctx = ClassContext {

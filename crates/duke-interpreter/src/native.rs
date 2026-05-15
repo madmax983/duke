@@ -11522,6 +11522,7 @@ const THREAD_TARGET_SLOT: usize = 0;
 const THREAD_ID_SLOT: usize = 1;
 const THREAD_INTERRUPTED_SLOT: usize = 2;
 const THREAD_HOST_KEY_SLOT: usize = 3;
+const THREAD_CONTEXT_CLASS_LOADER_SLOT: usize = 4;
 
 static NEXT_THREAD_HOST_KEY: AtomicI32 = AtomicI32::new(1);
 
@@ -11603,12 +11604,13 @@ pub(crate) fn native_thread_current_thread(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 4);
+    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 5);
     let thread = heap.get_mut(thread_ref)?;
     thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
     thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
     thread.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(i32::from(current_host_thread_is_interrupted()));
     thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(java_host_key_for_current_host().unwrap_or(-1));
+    thread.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
     Ok(Some(Slot::Reference(Some(thread_ref))))
 }
 
@@ -11624,6 +11626,7 @@ pub(crate) fn native_thread_init(
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
     this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
     this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
+    this.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
     Ok(None)
 }
 
@@ -11640,6 +11643,7 @@ pub(crate) fn native_thread_init_runnable(
     this.fields[THREAD_ID_SLOT] = Slot::Int(-1);
     this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
     this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
+    this.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
     Ok(None)
 }
 
@@ -13338,6 +13342,34 @@ pub(crate) fn native_thread_interrupted(
     Ok(Some(Slot::Int(i32::from(
         take_current_host_thread_interrupted(),
     ))))
+}
+
+pub(crate) fn native_thread_get_context_class_loader(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let thread_ref = extract_ref_arg(args, 0)?;
+    let loader = heap
+        .get(thread_ref)?
+        .fields
+        .get(THREAD_CONTEXT_CLASS_LOADER_SLOT)
+        .cloned()
+        .unwrap_or(Slot::Reference(None));
+    Ok(Some(loader))
+}
+
+pub(crate) fn native_thread_set_context_class_loader(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let thread_ref = extract_ref_arg(args, 0)?;
+    let loader = extract_slot_arg(args, 1);
+    heap.write_field(thread_ref, THREAD_CONTEXT_CLASS_LOADER_SLOT, loader)?;
+    Ok(None)
 }
 
 pub(crate) fn native_count_down_latch_init(
