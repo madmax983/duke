@@ -982,4 +982,18 @@ mod tests_oob {
             panic!("Expected JImageFormat error");
         }
     }
+
+    #[test]
+    fn test_jimage_find_class_missing() {
+        let index = HashMap::new();
+        let reader = JImageReader {
+            data: vec![],
+            resource_count: 0,
+            data_offset: 0,
+            index,
+        };
+
+        let result = reader.find_class("com/example/Missing");
+        assert!(matches!(result, Err(Error::NotFound { .. })));
+    }
 }

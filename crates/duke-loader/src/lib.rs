@@ -175,6 +175,102 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Default implementations tests
+    // -----------------------------------------------------------------------
+
+    struct FailingLoader;
+
+    impl ClassLoader for FailingLoader {
+        fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+            Err(Error::NotFound {
+                name: "test".into(),
+            })
+        }
+
+        fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
+            if name == "io_error" {
+                Err(Error::Io {
+                    path: "test".into(),
+                    source: std::io::Error::other("test"),
+                })
+            } else {
+                Err(Error::NotFound {
+                    name: name.to_string(),
+                })
+            }
+        }
+
+        fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
+            if name == "io_error" {
+                Err(Error::Io {
+                    path: "test".into(),
+                    source: std::io::Error::other("test"),
+                })
+            } else {
+                Err(Error::NotFound {
+                    name: name.to_string(),
+                })
+            }
+        }
+    }
+
+    struct SucceedingLoader;
+    impl ClassLoader for SucceedingLoader {
+        fn find_class(&self, _name: &str) -> Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn find_resource(&self, _name: &str) -> Result<Vec<u8>> {
+            Ok(vec![1, 2, 3])
+        }
+        fn find_resource_entry(&self, _name: &str) -> Result<LocatedResource> {
+            Ok(LocatedResource {
+                bytes: vec![1, 2, 3],
+                url: "test://test".to_string(),
+            })
+        }
+    }
+
+    #[test]
+    fn class_loader_default_find_resources() {
+        let loader = FailingLoader;
+
+        let resources = loader.find_resources("not_found").unwrap();
+        assert!(resources.is_empty());
+
+        assert!(loader.find_resources("io_error").is_err());
+
+        let succ = SucceedingLoader;
+        let res = succ.find_resources("test").unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0], vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn class_loader_default_find_resource_entries() {
+        let loader = FailingLoader;
+
+        let resources = loader.find_resource_entries("not_found").unwrap();
+        assert!(resources.is_empty());
+
+        assert!(loader.find_resource_entries("io_error").is_err());
+
+        let succ = SucceedingLoader;
+        let res = succ.find_resource_entries("test").unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].bytes, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn class_loader_default_service_configuration_files() {
+        let succ = SucceedingLoader;
+        let res = succ
+            .service_configuration_files("com.example.Service")
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0], vec![1, 2, 3]);
+    }
+
+    // -----------------------------------------------------------------------
     // DirectoryLoader
     // -----------------------------------------------------------------------
 

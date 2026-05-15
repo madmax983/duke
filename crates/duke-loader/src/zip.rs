@@ -1577,6 +1577,43 @@ mod tests {
         assert!(matches!(err, super::Error::ZipFormat { .. }));
         std::fs::remove_file(&tmp).ok();
     }
+
+    #[test]
+    fn test_zip_loader_resource_resolution() {
+        let zip_bytes = build_stored_zip("test.txt", b"hello world");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resources.jar");
+        std::fs::write(&tmp, &zip_bytes).unwrap();
+
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let res = loader
+            .find_resource("test.txt")
+            .expect("should find resource");
+        assert_eq!(res, b"hello world");
+
+        let res_multi = loader
+            .find_resources("test.txt")
+            .expect("should find resources");
+        assert_eq!(res_multi.len(), 1);
+        assert_eq!(res_multi[0], b"hello world");
+
+        let res_entry = loader
+            .find_resource_entry("test.txt")
+            .expect("should find entry");
+        assert_eq!(res_entry.bytes, b"hello world");
+        assert!(res_entry.url.contains("test.txt"));
+
+        let res_entries = loader
+            .find_resource_entries("test.txt")
+            .expect("should find entries");
+        assert_eq!(res_entries.len(), 1);
+        assert_eq!(res_entries[0].bytes, b"hello world");
+
+        assert!(loader.find_resource("missing.txt").is_err());
+        assert!(loader.find_resource_entry("missing.txt").is_err());
+
+        std::fs::remove_file(&tmp).ok();
+    }
 }
 
 #[cfg(test)]

@@ -391,4 +391,36 @@ mod tests {
                 || resources[1].url.ends_with("\\second\\sample.txt")
         );
     }
+
+    #[test]
+    fn test_classpath_entry_resource_delegation() {
+        let root = std::env::temp_dir().join("duke_test_cp_resources");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("test.txt"), b"directory").unwrap();
+
+        let entry = classpath_entry_for(&root).unwrap();
+        let resource = entry.find_resource("test.txt").unwrap();
+        assert_eq!(resource, b"directory");
+
+        let resources = entry.find_resources("test.txt").unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0], b"directory");
+
+        let entry_res = entry.find_resource_entry("test.txt").unwrap();
+        assert_eq!(entry_res.bytes, b"directory");
+
+        let entries = entry.find_resource_entries("test.txt").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].bytes, b"directory");
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn test_bootstrap_loader_missing_resources() {
+        let loader = BootstrapLoader::new_for_test(vec![]);
+
+        assert!(loader.find_resource("missing.txt").is_err());
+        assert!(loader.find_resource_entry("missing.txt").is_err());
+    }
 }
