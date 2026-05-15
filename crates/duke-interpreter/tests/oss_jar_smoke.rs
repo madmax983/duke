@@ -282,8 +282,7 @@ fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
         "expected explicit next missing capability, got: {rendered}"
     );
     assert_eq!(
-        rendered,
-        "Unsupported native: java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z",
+        rendered, "Unsupported native: java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z",
         "expected the next SLF4J blocker to stay explicit"
     );
 }
