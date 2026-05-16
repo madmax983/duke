@@ -388,7 +388,7 @@ mod tests {
                 Err(serde::de::Error::custom("err"))
             }
             fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-                Err(serde::de::Error::custom("err"))
+                Err(serde::de::Error::custom("seq err"))
             }
             fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
                 Err(serde::de::Error::custom("err"))
@@ -434,5 +434,6 @@ mod tests {
         set.insert("a".to_string());
         let res = super::ser_helpers::sorted_set(&set, FailingSerializer);
         assert!(res.is_err());
+        assert_eq!(res.unwrap_err().to_string(), "seq err");
     }
 }

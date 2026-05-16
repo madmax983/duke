@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2026-05-16 - Handling SerializeSeq errors
+**Learning:** Testing serialization failure paths on collections like `HashSet` requires mocking `SerializeSeq` errors instead of standard struct or value errors.
+**Action:** When testing serialization failures for Iterators/Sets/Maps mapped to Seqs or Maps, ensure the custom serializer correctly stubs out and returns custom errors on sequence/map bounds, e.g., `serialize_seq`.
