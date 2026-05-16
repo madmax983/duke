@@ -29396,7 +29396,7 @@ fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
 
 fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
     let fields = heap.get(props_ref)?.fields.clone();
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(fields.len().saturating_sub(PROPERTIES_ENTRIES_START) / 2);
     let mut idx = PROPERTIES_ENTRIES_START;
     while idx + 1 < fields.len() {
         entries.push((fields[idx], fields[idx + 1]));

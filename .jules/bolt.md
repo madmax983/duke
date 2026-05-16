@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Performance Optimization (Vec Capacity and Saturating Subtraction)**
+**Learning:** `Vec::new()` delays heap allocation until the first push. Replacing it with `Vec::with_capacity(1)` on fallible paths (e.g., zip loader lookups that often return empty) is a pessimization because it forces an immediate allocation that might go unused. Also, when pre-allocating capacity based on vector lengths and known start indices (e.g., `(fields.len() - START) / 2`), you must use `.saturating_sub(START)` to prevent integer underflow panics if the vector is smaller than the start index.
+**Action:** Only use `Vec::with_capacity` when items are strictly guaranteed to be pushed, or in loops where the exact required capacity can be safely calculated without underflow risk.
