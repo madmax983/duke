@@ -8,7 +8,7 @@ proptest! {
     /// DirectoryLoader must never panic and must never access files outside its root.
     #[test]
     fn fuzz_directory_loader_find_class(name in "\\w{1,10}(/\\w{1,10})*(\\.\\.|\\.|/|\\\\|C:|:\\w{1,5})?") {
-        let root = std::env::temp_dir().join("duke_loader_fuzz_tests");
+        let root = std::env::temp_dir().join(format!("duke_loader_fuzz_tests_{}", uuid::Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&root);
 
         let loader = DirectoryLoader::new(&root);
@@ -21,5 +21,17 @@ proptest! {
         }
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn havoc_directory_loader_resolve_child_path_panic(name in ".*") {
+        let root = std::env::temp_dir().join(format!("duke_loader_fuzz_tests_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&root);
+
+        let loader = DirectoryLoader::new(&root);
+        let _ = loader.find_class(&name);
+
+        let _ = std::fs::remove_dir_all(&root);
+        // This is mainly to just ensure it doesn't panic on ANY string input
     }
 }

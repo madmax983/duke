@@ -9,6 +9,7 @@ thiserror.workspace = true
 flate2.workspace = true
 
 [dev-dependencies]
+uuid = { version = "1.23.1", features = ["v4"] }
 duke-classfile = { path = "../duke-classfile" }
 proptest.workspace = true
 
