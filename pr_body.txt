@@ -1,16 +1,18 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
+Title: 🔭 Vantage: Spec for String.equalsIgnoreCase
+Description:
+👤 **User Story:** "As a Java Developer running libraries like SLF4J, I want the VM to natively support `java.lang.String.equalsIgnoreCase`, so that case-insensitive string comparisons function correctly without missing native method errors."
 
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
+❓ **So What?:** String manipulation is fundamental. `equalsIgnoreCase` is frequently used for configuration parsing, HTTP header checking, and file extensions. Currently, Duke is blocked on running `slf4j-simple` because this native method is missing. Implementing it unlocks the next milestone in OSS JAR compatibility.
 
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
+📈 **Metric Definition:** Success = `tests/oss_jar_smoke.rs` successfully progresses past the `String.equalsIgnoreCase` missing capability.
 
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+✅ **Acceptance Criteria:**
+- Must implement the native bridge for `java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z`.
+- Must handle null arguments correctly (returns false).
+- Must correctly compare two Java Strings ignoring case differences.
+
+🚫 **Out of Scope:** Full locale-dependent case folding (e.g. Turkish `i`).
+
+🔍 **Gap Analysis:**
+- Current State: Duke lacks the native bridge for `equalsIgnoreCase`.
+- The Gap: We need to implement the native method in `duke-interpreter` standard library bridge.
