@@ -1,16 +1,4 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
-
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
-
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
-
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+📖 Chapter: The `ConstantPool` and nested exports module.
+🔦 Insight: Fixed compiler errors by explicitly specifying types directly from the `duke_classfile` root instead of relying on the removed `types` submodule or invalid nested brace syntax in `duke/src/main.rs` and `duke/src/jar_diff.rs`.
+🧪 Example: N/A, internal refactoring fix to ensure correct test compilation.
+🖼️ Preview: N/A

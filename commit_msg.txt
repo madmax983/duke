@@ -1,6 +1,6 @@
-🛡️ Sentry: [test coverage improvement]
+🎸 Bard: [documentation update]
 
-🎯 Target: native_reentrant_read_write_lock_* and native_priorityqueue_peek in crates/duke-interpreter/src/native.rs.
-💣 Risk: These native implementations lacked unit test coverage. Changes or refactors to how the internal read/write lock instances are structured or initialized could fail without being caught by basic bytecode testing, breaking concurrency features.
-🧪 Strategy: Added specific inline unit tests covering the init, read_lock, and write_lock states of ReentrantReadWriteLock as well as the empty and non-empty scenarios for PriorityQueue.peek(). Added #[allow(clippy::unnecessary_wraps)] to the newly covered, previously unlinted methods since they adhere to an API signature that requires Result<Option<Slot>>.
-🔬 Verification: cargo test -p duke-interpreter
+📖 Chapter: The `ConstantPool` and nested exports module.
+🔦 Insight: Fixed compiler errors by explicitly specifying types directly from the `duke_classfile` root instead of relying on the removed `types` submodule or invalid nested brace syntax in `duke/src/main.rs` and `duke/src/jar_diff.rs`.
+🧪 Example: N/A, internal refactoring fix to ensure correct test compilation.
+🖼️ Preview: N/A

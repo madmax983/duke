@@ -36,3 +36,10 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-24 - [Nested Imports vs Re-exports]
+**Confusion:** The compiler threw `[E0432]: unresolved import` for nested imports `use duke_classfile::{..., types::{...}}` even though the items exist.
+**Clarification:** The `types` submodule is private and its items (`AttributeData`, `CpEntry`, `CpIndex`) are re-exported at the crate root. Code trying to access them through `types::` or nested braces `use duke_classfile::{..., {CpEntry}}` will fail to compile. They must be imported directly from the root `use duke_classfile::{AttributeData, CpEntry};`.
+
+## 2024-05-24 - [Type Inference in Closures]
+**Confusion:** The compiler threw `[E0282]: type annotations needed` on `.and_then(|slot| slot.as_ref())` when chained onto a `get` from a `Vec<Option<CpEntry>>`.
+**Clarification:** When chaining `Option` methods where the inner type is complex (like an enum), the compiler may fail to infer the reference type automatically. Explicitly typing the closure argument, e.g., `.and_then(|slot: &Option<CpEntry>| slot.as_ref())`, resolves the ambiguity.
