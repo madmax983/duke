@@ -1,16 +1,22 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
+🔭 Vantage: Spec for Thread Context ClassLoader
 
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
+👤 User Story:
+As a Java Framework Developer running my code on Duke, I want the VM to support Thread.getContextClassLoader(), so that my frameworks (like slf4j or Spring) can dynamically locate resources and isolate dependencies on a per-thread basis.
 
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
+❓ The "So What?"
+What business problem does this solve?
+It's a blocker for running slf4j-simple. Modern Java architectures heavily rely on Thread Context ClassLoaders for dependency injection and resource loading. Without it, Duke is limited to basic standalone apps.
 
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+📈 Metric Definition
+Success = slf4j-simple progresses past System.getSecurityManager() without crashing on Thread.getContextClassLoader() returning null or throwing an exception improperly.
+
+🔍 Gap Analysis
+Duke lacks the complete native bridge logic to properly expose and mutate the Thread Context ClassLoader. The fields exist internally (THREAD_CONTEXT_CLASS_LOADER_SLOT) but aren't fully integrated at thread creation for inheritance or fully exposed at the Java boundary for standard library usage across the VM lifecycle.
+
+✅ Acceptance Criteria
+Must implement native bridges for getContextClassLoader and setContextClassLoader.
+Must inherit the context classloader from the parent thread at thread creation.
+Must default to the system classloader if not explicitly set.
+
+🚫 Out of Scope
+Implementing full custom ClassLoaders. This is only about exposing the context classloader reference on the Thread.
