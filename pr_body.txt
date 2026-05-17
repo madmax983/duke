@@ -1,16 +1,9 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
+🗺️ Atlas: [architectural change]
 
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
+🕸️ Tangle: The file `duke/src/jar_diff.rs` incorrectly reached into a private module (`duke_classfile::types`) to import `AttributeData`, `CpEntry`, and `CpIndex`, causing a compilation error. This was a leaky abstraction violating the structural boundary of the `duke_classfile` crate.
 
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
+📐 Blueprint: Removed the nested `types::` module import. Refactored `duke/src/jar_diff.rs` to import the types directly from the `duke_classfile` crate root where they are properly exported. Also provided explicit type annotations (`&Option<CpEntry>`) to closures in `and_then` chains to resolve type inference errors resulting from the import change.
 
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+🧱 Stability: Enforced strict architectural boundaries between `duke` and `duke_classfile`. The dependency graph is restored and clean.
+
+🔬 Verification: The codebase compiles successfully. Ran `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace`, and `cargo fmt --all` ensuring no regressions.
