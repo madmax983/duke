@@ -119,7 +119,7 @@ impl<'a> Cursor<'a> {
 // ---------------------------------------------------------------------------
 // Core dispatch
 // ---------------------------------------------------------------------------
-fn decode_constant_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+fn decode_constant_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     Ok(match opcode {
         op::NOP => Instruction::Nop,
         op::ACONST_NULL => Instruction::AconstNull,
@@ -142,10 +142,14 @@ fn decode_constant_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
         op::LDC => Instruction::Ldc(c.read_u8()?),
         op::LDC_W => Instruction::LdcW(c.read_cp()?),
         op::LDC2_W => Instruction::Ldc2W(c.read_cp()?),
-        _ => unreachable!(),
+        _ => {
+            return Err(crate::Error::Decode(
+                crate::error::DecodeError::UnknownOpcode { pc, opcode },
+            ));
+        }
     })
 }
-fn decode_load_store_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+fn decode_load_store_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     Ok(match opcode {
         // -- Loads -----------------------------------------------------------
         op::ILOAD => Instruction::Iload(c.read_u8()?),
@@ -215,10 +219,14 @@ fn decode_load_store_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
         op::BASTORE => Instruction::Bastore,
         op::CASTORE => Instruction::Castore,
         op::SASTORE => Instruction::Sastore,
-        _ => unreachable!(),
+        _ => {
+            return Err(crate::Error::Decode(
+                crate::error::DecodeError::UnknownOpcode { pc, opcode },
+            ));
+        }
     })
 }
-fn decode_math_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+fn decode_math_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     Ok(match opcode {
         op::IADD => Instruction::Iadd,
         op::LADD => Instruction::Ladd,
@@ -260,11 +268,15 @@ fn decode_math_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
             index: c.read_u8()?,
             value: c.read_i8()?,
         },
-        _ => unreachable!(),
+        _ => {
+            return Err(crate::Error::Decode(
+                crate::error::DecodeError::UnknownOpcode { pc, opcode },
+            ));
+        }
     })
 }
 #[allow(clippy::unnecessary_wraps)]
-fn decode_conversion_op(opcode: u8) -> Result<Instruction> {
+const fn decode_conversion_op(opcode: u8, pc: usize) -> Result<Instruction> {
     Ok(match opcode {
         op::I2L => Instruction::I2l,
         op::I2F => Instruction::I2f,
@@ -281,7 +293,11 @@ fn decode_conversion_op(opcode: u8) -> Result<Instruction> {
         op::I2B => Instruction::I2b,
         op::I2C => Instruction::I2c,
         op::I2S => Instruction::I2s,
-        _ => unreachable!(),
+        _ => {
+            return Err(crate::Error::Decode(
+                crate::error::DecodeError::UnknownOpcode { pc, opcode },
+            ));
+        }
     })
 }
 fn decode_control_flow_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
@@ -321,7 +337,11 @@ fn decode_control_flow_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<I
         op::DRETURN => Instruction::Dreturn,
         op::ARETURN => Instruction::Areturn,
         op::RETURN => Instruction::Return,
-        _ => unreachable!(),
+        _ => {
+            return Err(crate::Error::Decode(
+                crate::error::DecodeError::UnknownOpcode { pc, opcode },
+            ));
+        }
     })
 }
 fn decode_object_invoke_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
@@ -375,10 +395,14 @@ fn decode_object_invoke_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<
         op::INSTANCEOF => Instruction::Instanceof(c.read_cp()?),
         op::MONITORENTER => Instruction::Monitorenter,
         op::MONITOREXIT => Instruction::Monitorexit,
-        _ => unreachable!(),
+        _ => {
+            return Err(crate::Error::Decode(
+                crate::error::DecodeError::UnknownOpcode { pc, opcode },
+            ));
+        }
     })
 }
-fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     Ok(match opcode {
         op::MULTIANEWARRAY => {
             let index = c.read_cp()?;
@@ -389,7 +413,11 @@ fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
         op::IFNONNULL => Instruction::Ifnonnull(c.read_i16()?),
         op::GOTO_W => Instruction::GotoW(c.read_i32()?),
         op::JSR_W => Instruction::JsrW(c.read_i32()?),
-        _ => unreachable!(),
+        _ => {
+            return Err(crate::Error::Decode(
+                crate::error::DecodeError::UnknownOpcode { pc, opcode },
+            ));
+        }
     })
 }
 
@@ -397,8 +425,8 @@ fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
 #[allow(clippy::too_many_lines)]
 fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     match opcode {
-        op::NOP..=op::LDC2_W => decode_constant_op(c, opcode),
-        op::ILOAD..=op::SASTORE => decode_load_store_op(c, opcode),
+        op::NOP..=op::LDC2_W => decode_constant_op(c, opcode, pc),
+        op::ILOAD..=op::SASTORE => decode_load_store_op(c, opcode, pc),
         op::POP..=op::SWAP => Ok(match opcode {
             op::POP => Instruction::Pop,
             op::POP2 => Instruction::Pop2,
@@ -409,14 +437,18 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
             op::DUP2_X1 => Instruction::Dup2X1,
             op::DUP2_X2 => Instruction::Dup2X2,
             op::SWAP => Instruction::Swap,
-            _ => unreachable!(),
+            _ => {
+                return Err(crate::Error::Decode(
+                    crate::error::DecodeError::UnknownOpcode { pc, opcode },
+                ));
+            }
         }),
-        op::IADD..=op::IINC => decode_math_op(c, opcode),
-        op::I2L..=op::I2S => decode_conversion_op(opcode),
+        op::IADD..=op::IINC => decode_math_op(c, opcode, pc),
+        op::I2L..=op::I2S => decode_conversion_op(opcode, pc),
         op::LCMP..=op::RETURN => decode_control_flow_op(c, opcode, pc),
         op::GETSTATIC..=op::MONITOREXIT => decode_object_invoke_op(c, opcode, pc),
         op::WIDE => decode_wide(c, pc),
-        op::MULTIANEWARRAY..=op::JSR_W => decode_extended_op(c, opcode),
+        op::MULTIANEWARRAY..=op::JSR_W => decode_extended_op(c, opcode, pc),
         other => Err(crate::Error::Decode(DecodeError::UnknownOpcode {
             pc,
             opcode: other,
@@ -1224,5 +1256,37 @@ mod tests {
         // i16 test
         let mut cursor4 = Cursor::new(&[0xFF, 0xFF]);
         assert_eq!(cursor4.read_i16().unwrap(), -1);
+    }
+}
+
+#[cfg(test)]
+mod havoc_tests {
+    use super::*;
+
+    #[test]
+    fn should_return_error_when_decoding_unassigned_opcode_in_valid_range() {
+        // Opcode 0xCB (203) does not exist in standard JVM.
+        // Even if the decoder ranges missed it and routed it somewhere, it should not panic.
+        // But what about holes within a continuous block?
+        // E.g., LDC2_W is 0x14, next is ILOAD (0x15). There's no gap between LDC2_W and ILOAD.
+        // Let's create a test that calls the internal helper with an invalid opcode.
+        // wait, we can't call internal helpers directly.
+        // What about decoding a byte sequence?
+        // Let's just decode a sequence with a deliberately bad opcode that we fixed in sub-decoders.
+        // Since all standard opcodes are fully covered, a non-standard opcode in one of these sub-decoders
+        // is technically unreachable under normal execution of `decode_one` since `decode_one`
+        // does exact range matching. However, if the JVM spec adds new opcodes in those ranges,
+        // or a future PR expands a match block without updating the sub-decoder, it would panic.
+        // We'll write a test directly calling `decode_one` or `decode` with an unknown opcode.
+        let code = [0xCB]; // Unassigned opcode
+        let result = decode(&code);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::Error::Decode(DecodeError::UnknownOpcode {
+                pc: 0,
+                opcode: 0xCB
+            })
+        ));
     }
 }

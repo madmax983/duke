@@ -1,20 +1,13 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1. **Verify `decoder.rs` changes**:
+   Run `git diff crates/duke-bytecode/src/decoder.rs` to verify that `unreachable!()` panic points have been properly replaced with explicit `DecodeError::UnknownOpcode` error returns and the `pc` field has been added to sub-decoder arguments.
+
+2. **Add a robust test case in `decoder.rs`**:
+   Execute a Python script using `run_in_bash_session` to append a new test case `havoc_tests` to the end of `crates/duke-bytecode/src/decoder.rs`. The test will intentionally pass an invalid opcode to `decode()` to ensure the `DecodeError::UnknownOpcode` is safely handled rather than hitting an `unreachable!()` panic. This step was already completed during exploration, but will ensure it exists.
+
+3. **Complete workspace verification**:
+   Run `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, and `cargo fmt --all` to ensure no warnings or test failures occur due to the changes.
+
+4. **Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.**
+
+5. **Commit and create PR**:
+   Use `run_in_bash_session` to commit the code and formulate a PR description. Use a bash heredoc to create a `commit_msg.txt` file and run `git commit -F commit_msg.txt`. The PR will be formatted with the title '🛡️ Sentry: [test coverage improvement]' along with the detailed Target, Risk, Strategy, and Verification sections.

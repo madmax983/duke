@@ -9759,7 +9759,7 @@ fn boot_archive_predicate_accepts(
                 Slot::Double(_) => "Double",
                 Slot::Reference(_) => "Reference",
                 Slot::ReturnAddress(_) => "ReturnAddress",
-                Slot::Int(_) => unreachable!(),
+                Slot::Int(_) => unreachable!("Slot::Int handled in outer match"),
             },
         }),
         None => Ok(false),
