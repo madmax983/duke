@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Telemetry Map Serialization and Printing
+**Learning:** Found uncovered branches in the failure scenarios for `Serialize` map components (like when `serialize_map` returns an error on `end()`) inside `helpers.rs`. Also missing coverage on the display strings generated for `print_dispatch_resolution`, `print_native_boundary`, etc, when testing populated objects.
+**Action:** Adding isolated mock `FailingSerializer` that fails on `.end()` execution ensures error path validation for custom wrappers, and initializing mock fields inside telemetry objects allows verification of specific text strings generated during output.

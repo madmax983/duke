@@ -598,4 +598,66 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "TargetClass", true);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo"));
+        assert!(s.contains("42"));
+        assert!(s.contains("calls=1"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String.intern"));
+    }
+
+    #[test]
+    fn test_markdown_object_lineage_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        let mut out = String::new();
+        store.markdown_object_lineage(&mut out);
+        assert!(out.contains("java/lang/String"));
+        assert!(out.contains("Foo"));
+        assert!(out.contains("10"));
+    }
+
+    #[test]
+    fn test_markdown_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "TargetClass", true);
+        let mut out = String::new();
+        store.markdown_dispatch_resolution(&mut out);
+        assert!(out.contains("Foo"));
+        assert!(out.contains("42"));
+    }
+
+    #[test]
+    fn test_markdown_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut out = String::new();
+        store.markdown_native_boundary(&mut out);
+        assert!(out.contains("java/lang/String.intern"));
+    }
 }

@@ -4,3 +4,4 @@ mutants.out.old/
 .claude/
 profile.json.gz
 output_html_dir/
+*.profraw

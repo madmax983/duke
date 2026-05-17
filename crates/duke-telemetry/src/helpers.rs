@@ -435,4 +435,172 @@ mod tests {
         let res = super::ser_helpers::sorted_set(&set, FailingSerializer);
         assert!(res.is_err());
     }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn test_keyed_map_error_end() {
+        struct FailingEndSerializer;
+        impl serde::Serializer for FailingEndSerializer {
+            type Ok = ();
+            type Error = serde::de::value::Error;
+            type SerializeSeq = serde::ser::Impossible<(), Self::Error>;
+            type SerializeTuple = serde::ser::Impossible<(), Self::Error>;
+            type SerializeTupleStruct = serde::ser::Impossible<(), Self::Error>;
+            type SerializeTupleVariant = serde::ser::Impossible<(), Self::Error>;
+            type SerializeMap = FailingEndMapSerializer;
+            type SerializeStruct = serde::ser::Impossible<(), Self::Error>;
+            type SerializeStructVariant = serde::ser::Impossible<(), Self::Error>;
+            fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_i32(self, _v: i32) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_i64(self, _v: i64) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_u8(self, _v: u8) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_f32(self, _v: f32) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_f64(self, _v: f64) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_str(self, _v: &str) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_some<T: ?Sized + Serialize>(
+                self,
+                _v: &T,
+            ) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_unit_variant(
+                self,
+                _n: &'static str,
+                _vi: u32,
+                _va: &'static str,
+            ) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_newtype_struct<T: ?Sized + Serialize>(
+                self,
+                _name: &'static str,
+                _v: &T,
+            ) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_newtype_variant<T: ?Sized + Serialize>(
+                self,
+                _n: &'static str,
+                _vi: u32,
+                _va: &'static str,
+                _v: &T,
+            ) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_tuple_struct(
+                self,
+                _name: &'static str,
+                _len: usize,
+            ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_tuple_variant(
+                self,
+                _n: &'static str,
+                _vi: u32,
+                _va: &'static str,
+                _len: usize,
+            ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+                Ok(FailingEndMapSerializer)
+            }
+            fn serialize_struct(
+                self,
+                _name: &'static str,
+                _len: usize,
+            ) -> Result<Self::SerializeStruct, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+            fn serialize_struct_variant(
+                self,
+                _n: &'static str,
+                _vi: u32,
+                _va: &'static str,
+                _len: usize,
+            ) -> Result<Self::SerializeStructVariant, Self::Error> {
+                Err(serde::de::Error::custom("err"))
+            }
+        }
+
+        struct FailingEndMapSerializer;
+        impl serde::ser::SerializeMap for FailingEndMapSerializer {
+            type Ok = ();
+            type Error = serde::de::value::Error;
+            fn serialize_key<T: ?Sized + Serialize>(
+                &mut self,
+                _key: &T,
+            ) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn serialize_value<T: ?Sized + Serialize>(
+                &mut self,
+                _value: &T,
+            ) -> Result<(), Self::Error> {
+                Ok(())
+            }
+            fn end(self) -> Result<Self::Ok, Self::Error> {
+                Err(serde::de::Error::custom("end err"))
+            }
+        }
+
+        let mut map = HashMap::new();
+        map.insert(
+            ("java/lang/String".to_string(), "intern".to_string(), 42),
+            Dummy { val: 1 },
+        );
+        let res = super::ser_helpers::site3(&map, FailingEndSerializer);
+        assert!(res.is_err());
+    }
 }
