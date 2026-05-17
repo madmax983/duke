@@ -1,16 +1,4 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
-
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
-
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
-
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+💡 What: Removed `.collect::<Vec<String>>()` and instead directly iterate over `ZipReader::entry_names()`.
+🎯 Why: Collecting into a vector requires allocating memory for every string and the vector itself, which is unnecessary when we only need to iterate over them and check file extensions.
+📊 Impact: Reduces heap allocations significantly when processing large JAR files.
+🔬 Measurement: Run the CLI `duke jar diff`, `duke jar search`, `duke jar audit`, etc., on large JAR files to see reduced memory usage.

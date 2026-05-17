@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Zero-cost ZipReader iteration**
+**Learning:** Using `.collect::<Vec<String>>()` or `.collect::<Vec<&str>>()` when iterating over `reader.entry_names()` just to filter and loop creates unnecessary allocations for every string and the backing vector.
+**Action:** When working with `.entry_names()`, perform the `.filter` inside the `for` loop body using `if !` checks to achieve zero-cost abstraction. If file extension string matching triggers lints, use `#[allow(clippy::case_sensitive_file_extension_comparisons)]`.

@@ -86,19 +86,15 @@ pub fn dump_jar_audit(jar_path: &str) {
     });
 
     let reader = loader.reader();
-    let class_entries: Vec<String> = reader
-        .entry_names()
-        .filter(|name| {
-            std::path::Path::new(name)
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("class"))
-        })
-        .map(std::string::ToString::to_string)
-        .collect();
-
     let mut findings = Vec::new();
 
-    for entry_name in class_entries {
+    for entry_name in reader.entry_names() {
+        if !std::path::Path::new(&entry_name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("class"))
+        {
+            continue;
+        }
         let class_name_internal = &entry_name[..entry_name.len() - 6];
         if let Ok(bytes) = loader.find_class(class_name_internal) {
             if let Ok(cf) = parse(&bytes) {
