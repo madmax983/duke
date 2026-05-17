@@ -270,7 +270,7 @@ impl TelemetryStore {
     pub fn to_markdown_report(&self) -> String {
         use std::fmt::Write;
         let mut out = String::new();
-        writeln!(&mut out, "# Duke VM Telemetry Report\n").unwrap();
+        let _ = writeln!(&mut out, "# Duke VM Telemetry Report\n");
 
         self.markdown_bytecode_cost(&mut out);
         self.markdown_object_lineage(&mut out);
@@ -284,22 +284,22 @@ impl TelemetryStore {
 
     fn markdown_bytecode_cost(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Bytecode Cost (Top 10)\n").unwrap();
-        writeln!(out, "| Opcode | Count | Time (ns) |").unwrap();
-        writeln!(out, "|--------|-------|-----------|").unwrap();
+        let _ = writeln!(out, "## Bytecode Cost (Top 10)\n");
+        let _ = writeln!(out, "| Opcode | Count | Time (ns) |");
+        let _ = writeln!(out, "|--------|-------|-----------|");
         let mut ops: Vec<_> = self.bytecode_cost.by_opcode.iter().collect();
         ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
         for (name, stat) in ops.iter().take(10) {
-            writeln!(out, "| `{name}` | {} | {} |", stat.count, stat.total_ns).unwrap();
+            let _ = writeln!(out, "| `{name}` | {} | {} |", stat.count, stat.total_ns);
         }
-        writeln!(out).unwrap();
+        let _ = writeln!(out);
     }
 
     fn markdown_object_lineage(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Object Lineage (Top 10 Allocation Sites)\n").unwrap();
-        writeln!(out, "| Location | Class Allocated | Count |").unwrap();
-        writeln!(out, "|----------|-----------------|-------|").unwrap();
+        let _ = writeln!(out, "## Object Lineage (Top 10 Allocation Sites)\n");
+        let _ = writeln!(out, "| Location | Class Allocated | Count |");
+        let _ = writeln!(out, "|----------|-----------------|-------|");
         let mut sites: Vec<_> = self.object_lineage.sites.iter().collect();
         sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
         for ((class, method, pc), site) in sites.iter().take(10) {
@@ -310,14 +310,14 @@ impl TelemetryStore {
             )
             .unwrap();
         }
-        writeln!(out).unwrap();
+        let _ = writeln!(out);
     }
 
     fn markdown_class_init_dag(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Class Initialization DAG\n").unwrap();
+        let _ = writeln!(out, "## Class Initialization DAG\n");
         if self.class_init_dag.events.is_empty() {
-            writeln!(out, "No class initialization events recorded.\n").unwrap();
+            let _ = writeln!(out, "No class initialization events recorded.\n");
         } else {
             writeln!(
                 out,
@@ -330,13 +330,13 @@ impl TelemetryStore {
 
     fn markdown_exception_flow(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Exception Flow\n").unwrap();
+        let _ = writeln!(out, "## Exception Flow\n");
         if self.exception_flow.events.is_empty() {
-            writeln!(out, "No exception flow events recorded.\n").unwrap();
+            let _ = writeln!(out, "No exception flow events recorded.\n");
             return;
         }
-        writeln!(out, "| Exception Class | Throw Site | Catch Site |").unwrap();
-        writeln!(out, "|-----------------|------------|------------|").unwrap();
+        let _ = writeln!(out, "| Exception Class | Throw Site | Catch Site |");
+        let _ = writeln!(out, "|-----------------|------------|------------|");
         for ev in &self.exception_flow.events {
             let throw = format!(
                 "{}::{} @{}",
@@ -346,16 +346,16 @@ impl TelemetryStore {
                 || "uncaught".to_string(),
                 |(c, m, pc)| format!("{c}::{m} @{pc}"),
             );
-            writeln!(out, "| `{}` | `{throw}` | `{catch}` |", ev.exception_class).unwrap();
+            let _ = writeln!(out, "| `{}` | `{throw}` | `{catch}` |", ev.exception_class);
         }
-        writeln!(out).unwrap();
+        let _ = writeln!(out);
     }
 
     fn markdown_dispatch_resolution(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Dispatch Resolution (Top 10 Virtual Call Sites)\n").unwrap();
-        writeln!(out, "| Caller | Calls | Targets | Hierarchy Walks |").unwrap();
-        writeln!(out, "|--------|-------|---------|-----------------|").unwrap();
+        let _ = writeln!(out, "## Dispatch Resolution (Top 10 Virtual Call Sites)\n");
+        let _ = writeln!(out, "| Caller | Calls | Targets | Hierarchy Walks |");
+        let _ = writeln!(out, "|--------|-------|---------|-----------------|");
         let mut dsites: Vec<_> = self.dispatch_resolution.by_site.iter().collect();
         dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
         for ((class, cp), stat) in dsites.iter().take(10) {
@@ -368,14 +368,14 @@ impl TelemetryStore {
             )
             .unwrap();
         }
-        writeln!(out).unwrap();
+        let _ = writeln!(out);
     }
 
     fn markdown_native_boundary(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Native Boundary (Top 10 by Call Count)\n").unwrap();
-        writeln!(out, "| Native Method | Calls | Errors | Time (ns) |").unwrap();
-        writeln!(out, "|---------------|-------|--------|-----------|").unwrap();
+        let _ = writeln!(out, "## Native Boundary (Top 10 by Call Count)\n");
+        let _ = writeln!(out, "| Native Method | Calls | Errors | Time (ns) |");
+        let _ = writeln!(out, "|---------------|-------|--------|-----------|");
         let mut natives: Vec<_> = self.native_boundary.by_method.iter().collect();
         natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
         for ((class, method), stat) in natives.iter().take(10) {
@@ -386,7 +386,7 @@ impl TelemetryStore {
             )
             .unwrap();
         }
-        writeln!(out).unwrap();
+        let _ = writeln!(out);
     }
 }
 

@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-17 - Testing Serde Error Propagation and Formatting
+**Learning:** `std::fmt::Write` macros like `writeln!` returning `Result` to a `String` buffer create implicit panic branches when combined with `.unwrap()`. These branches are not covered because `String` writes are virtually infallible. Also, coverage maps around generic functions returning `Result` (like those in `ser_helpers`) can report missing coverage on trailing braces `}` unless the explicit `Err` path is triggered via a mock object.
+**Action:** Use `.expect("Writing to String is infallible")` instead of `.unwrap()` to document invariants safely without creating untested panic branches. When testing deep serialization helpers, inject custom `FailingSerializer` mocks that explicitly return `serde::ser::Error::custom("err")` to guarantee 100% path coverage.
