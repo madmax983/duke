@@ -1,16 +1,7 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
+🕸️ Tangle: The module `types` inside `duke_classfile` is missing (or types are re-exported at the root instead of under a `types` submodule). The `duke` bin was incorrectly trying to import from `duke_classfile::types`. Additionally, the closures inside `jar_diff.rs` had ambiguous types that caused compiler errors (`E0282`).
 
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
+📐 Blueprint: Removed the `types::` prefix from the imports in `duke/src/jar_diff.rs`, importing `AttributeData`, `CpEntry`, and `CpIndex` directly from `duke_classfile`. Also added explicit type annotations (`&Option<CpEntry>`) to the closures to fix `E0282`.
 
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
+🧱 Stability: Fixed build errors allowing the `nova` feature and the root binary to compile successfully. Reduced coupling by not relying on a potentially non-existent submodule.
 
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+🔬 Verification: Ran `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, and `cargo fmt --all`. All tests pass and warnings are resolved.
