@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Removing Unwraps in Infallible String Formats
+**Learning:** Formatting into a `String` via `writeln!` or `write!` is practically infallible. However, using `.unwrap()` on the result creates implicit panic paths and leaves ticking time bombs that hurt coverage analyzers.
+**Action:** Replace `.unwrap()` with `.expect("Writing to String is infallible")` when using `std::fmt::Write` macros on strings.

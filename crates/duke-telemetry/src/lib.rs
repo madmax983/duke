@@ -128,9 +128,9 @@ impl TelemetryStore {
     /// let mut store = TelemetryStore::default();
     /// store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
     /// let mut buf = Vec::<u8>::new();
-    /// store.print_report(&mut buf).unwrap();
+    /// store.print_report(&mut buf).expect("Writing to String is infallible");
     ///
-    /// let output = String::from_utf8(buf).unwrap();
+    /// let output = String::from_utf8(buf).expect("Writing to String is infallible");
     /// assert!(output.contains("=== Duke VM Telemetry Report ==="));
     /// assert!(output.contains("iadd"));
     /// ```
@@ -270,7 +270,8 @@ impl TelemetryStore {
     pub fn to_markdown_report(&self) -> String {
         use std::fmt::Write;
         let mut out = String::new();
-        writeln!(&mut out, "# Duke VM Telemetry Report\n").unwrap();
+        writeln!(&mut out, "# Duke VM Telemetry Report\n")
+            .expect("Writing to String is infallible");
 
         self.markdown_bytecode_cost(&mut out);
         self.markdown_object_lineage(&mut out);
@@ -284,22 +285,26 @@ impl TelemetryStore {
 
     fn markdown_bytecode_cost(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Bytecode Cost (Top 10)\n").unwrap();
-        writeln!(out, "| Opcode | Count | Time (ns) |").unwrap();
-        writeln!(out, "|--------|-------|-----------|").unwrap();
+        writeln!(out, "## Bytecode Cost (Top 10)\n").expect("Writing to String is infallible");
+        writeln!(out, "| Opcode | Count | Time (ns) |").expect("Writing to String is infallible");
+        writeln!(out, "|--------|-------|-----------|").expect("Writing to String is infallible");
         let mut ops: Vec<_> = self.bytecode_cost.by_opcode.iter().collect();
         ops.sort_by_key(|b| std::cmp::Reverse(b.1.count));
         for (name, stat) in ops.iter().take(10) {
-            writeln!(out, "| `{name}` | {} | {} |", stat.count, stat.total_ns).unwrap();
+            writeln!(out, "| `{name}` | {} | {} |", stat.count, stat.total_ns)
+                .expect("Writing to String is infallible");
         }
-        writeln!(out).unwrap();
+        writeln!(out).expect("Writing to String is infallible");
     }
 
     fn markdown_object_lineage(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Object Lineage (Top 10 Allocation Sites)\n").unwrap();
-        writeln!(out, "| Location | Class Allocated | Count |").unwrap();
-        writeln!(out, "|----------|-----------------|-------|").unwrap();
+        writeln!(out, "## Object Lineage (Top 10 Allocation Sites)\n")
+            .expect("Writing to String is infallible");
+        writeln!(out, "| Location | Class Allocated | Count |")
+            .expect("Writing to String is infallible");
+        writeln!(out, "|----------|-----------------|-------|")
+            .expect("Writing to String is infallible");
         let mut sites: Vec<_> = self.object_lineage.sites.iter().collect();
         sites.sort_by_key(|b| std::cmp::Reverse(b.1.count));
         for ((class, method, pc), site) in sites.iter().take(10) {
@@ -308,35 +313,39 @@ impl TelemetryStore {
                 "| `{class}::{method}` @{pc} | `{}` | {} |",
                 site.class_allocated, site.count
             )
-            .unwrap();
+            .expect("Writing to String is infallible");
         }
-        writeln!(out).unwrap();
+        writeln!(out).expect("Writing to String is infallible");
     }
 
     fn markdown_class_init_dag(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Class Initialization DAG\n").unwrap();
+        writeln!(out, "## Class Initialization DAG\n").expect("Writing to String is infallible");
         if self.class_init_dag.events.is_empty() {
-            writeln!(out, "No class initialization events recorded.\n").unwrap();
+            writeln!(out, "No class initialization events recorded.\n")
+                .expect("Writing to String is infallible");
         } else {
             writeln!(
                 out,
                 "```mermaid\n{}```\n",
                 self.class_init_dag.to_mermaid().trim()
             )
-            .unwrap();
+            .expect("Writing to String is infallible");
         }
     }
 
     fn markdown_exception_flow(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Exception Flow\n").unwrap();
+        writeln!(out, "## Exception Flow\n").expect("Writing to String is infallible");
         if self.exception_flow.events.is_empty() {
-            writeln!(out, "No exception flow events recorded.\n").unwrap();
+            writeln!(out, "No exception flow events recorded.\n")
+                .expect("Writing to String is infallible");
             return;
         }
-        writeln!(out, "| Exception Class | Throw Site | Catch Site |").unwrap();
-        writeln!(out, "|-----------------|------------|------------|").unwrap();
+        writeln!(out, "| Exception Class | Throw Site | Catch Site |")
+            .expect("Writing to String is infallible");
+        writeln!(out, "|-----------------|------------|------------|")
+            .expect("Writing to String is infallible");
         for ev in &self.exception_flow.events {
             let throw = format!(
                 "{}::{} @{}",
@@ -346,16 +355,20 @@ impl TelemetryStore {
                 || "uncaught".to_string(),
                 |(c, m, pc)| format!("{c}::{m} @{pc}"),
             );
-            writeln!(out, "| `{}` | `{throw}` | `{catch}` |", ev.exception_class).unwrap();
+            writeln!(out, "| `{}` | `{throw}` | `{catch}` |", ev.exception_class)
+                .expect("Writing to String is infallible");
         }
-        writeln!(out).unwrap();
+        writeln!(out).expect("Writing to String is infallible");
     }
 
     fn markdown_dispatch_resolution(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Dispatch Resolution (Top 10 Virtual Call Sites)\n").unwrap();
-        writeln!(out, "| Caller | Calls | Targets | Hierarchy Walks |").unwrap();
-        writeln!(out, "|--------|-------|---------|-----------------|").unwrap();
+        writeln!(out, "## Dispatch Resolution (Top 10 Virtual Call Sites)\n")
+            .expect("Writing to String is infallible");
+        writeln!(out, "| Caller | Calls | Targets | Hierarchy Walks |")
+            .expect("Writing to String is infallible");
+        writeln!(out, "|--------|-------|---------|-----------------|")
+            .expect("Writing to String is infallible");
         let mut dsites: Vec<_> = self.dispatch_resolution.by_site.iter().collect();
         dsites.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
         for ((class, cp), stat) in dsites.iter().take(10) {
@@ -366,16 +379,19 @@ impl TelemetryStore {
                 stat.unique_targets.len(),
                 stat.hierarchy_walks
             )
-            .unwrap();
+            .expect("Writing to String is infallible");
         }
-        writeln!(out).unwrap();
+        writeln!(out).expect("Writing to String is infallible");
     }
 
     fn markdown_native_boundary(&self, out: &mut String) {
         use std::fmt::Write;
-        writeln!(out, "## Native Boundary (Top 10 by Call Count)\n").unwrap();
-        writeln!(out, "| Native Method | Calls | Errors | Time (ns) |").unwrap();
-        writeln!(out, "|---------------|-------|--------|-----------|").unwrap();
+        writeln!(out, "## Native Boundary (Top 10 by Call Count)\n")
+            .expect("Writing to String is infallible");
+        writeln!(out, "| Native Method | Calls | Errors | Time (ns) |")
+            .expect("Writing to String is infallible");
+        writeln!(out, "|---------------|-------|--------|-----------|")
+            .expect("Writing to String is infallible");
         let mut natives: Vec<_> = self.native_boundary.by_method.iter().collect();
         natives.sort_by_key(|b| std::cmp::Reverse(b.1.calls));
         for ((class, method), stat) in natives.iter().take(10) {
@@ -384,9 +400,9 @@ impl TelemetryStore {
                 "| `{class}.{method}` | {} | {} | {} |",
                 stat.calls, stat.errors, stat.total_ns
             )
-            .unwrap();
+            .expect("Writing to String is infallible");
         }
-        writeln!(out).unwrap();
+        writeln!(out).expect("Writing to String is infallible");
     }
 }
 
