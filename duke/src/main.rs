@@ -794,15 +794,11 @@ fn run_main(
     let mut heap = Heap::new();
     bootstrap_stdlib(&mut registry, &mut heap);
 
-    // Build String[] args array on the heap.
-    let mut arg_refs: Vec<Slot> = Vec::new();
-    for arg in &string_args {
-        let r = heap.allocate_string((*arg).to_string());
-        arg_refs.push(Slot::Reference(Some(r)));
-    }
+    // Build String[] args array on the heap without intermediate Vec allocation.
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
-    for (i, slot) in arg_refs.into_iter().enumerate() {
-        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
+    for (i, arg) in string_args.iter().enumerate() {
+        let r = heap.allocate_string((*arg).to_string());
+        heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Reference(Some(r));
     }
 
     let main_args = vec![Slot::Reference(Some(arr_ref))];
@@ -888,15 +884,11 @@ fn run_jar(
         process::exit(1);
     }
 
-    // Build String[] args array on the heap.
-    let mut arg_refs: Vec<Slot> = Vec::new();
-    for arg in string_args {
-        let r = heap.allocate_string((*arg).to_string());
-        arg_refs.push(Slot::Reference(Some(r)));
-    }
+    // Build String[] args array on the heap without intermediate Vec allocation.
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
-    for (i, slot) in arg_refs.into_iter().enumerate() {
-        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
+    for (i, arg) in string_args.into_iter().enumerate() {
+        let r = heap.allocate_string(arg.to_string());
+        heap.get_mut(arr_ref).unwrap().fields[i] = Slot::Reference(Some(r));
     }
     let main_args = vec![Slot::Reference(Some(arr_ref))];
 

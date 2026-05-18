@@ -1,0 +1,7 @@
+💡 **What:** Eliminated intermediate vector allocations when creating Java string arrays from command-line arguments and mapping set differences during JAR bytecode comparison.
+
+🎯 **Why:** Creating an intermediate `Vec<Slot>` via `Vec::new().push()` and later iterating it again to write into a pre-allocated heap structure involves redundant allocations and an O(N) memory overhead that can be optimized away.
+
+📊 **Impact:** Reduces redundant heap allocations in the hot path of the VM argument array setup and improves iteration speed.
+
+🔬 **Measurement:** Verify tests run successfully using `cargo test`.

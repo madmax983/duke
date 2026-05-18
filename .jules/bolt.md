@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Flattening Nested Imports in Rust**
+**Learning:** Automatically flattening nested imports (e.g. `duke_classfile::types::{...}` to `duke_classfile::{...}`) without checking for re-exports will break the build with an unresolved import error.
+**Action:** When making automated string replacements for imports, carefully maintain existing nested module scopes and trust the existing module paths unless verified otherwise.
