@@ -981,7 +981,10 @@ fn dump_html(path: &str, output_path: Option<&str>) {
     }
 }
 
-fn dump_cfg(path: &str, method_name: &str) {
+fn extract_method_instructions(
+    path: &str,
+    method_name: &str,
+) -> Vec<(usize, duke_bytecode::Instruction)> {
     let bytes = std::fs::read(path).unwrap_or_else(|e| {
         eprintln!("duke: cannot read '{path}': {e}");
         process::exit(1);
@@ -1011,51 +1014,22 @@ fn dump_cfg(path: &str, method_name: &str) {
                 eprintln!("duke: decode error: {e}");
                 process::exit(1);
             });
-            println!("{}", generate_mermaid_cfg(&instructions));
-            return;
+            return instructions;
         }
     }
     eprintln!("duke: method '{method_name}' has no code attribute");
     process::exit(1);
 }
 
+fn dump_cfg(path: &str, method_name: &str) {
+    let instructions = extract_method_instructions(path, method_name);
+    println!("{}", generate_mermaid_cfg(&instructions));
+}
+
 fn dump_bbcfg(path: &str, method_name: &str) {
-    let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{path}': {e}");
-        process::exit(1);
-    });
-    let cf = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error: {e}");
-        process::exit(1);
-    });
-
-    let target = cf
-        .methods
-        .iter()
-        .find(|m| {
-            let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(m.name_index.0 as usize) else {
-                return false;
-            };
-            s.as_str() == method_name
-        })
-        .unwrap_or_else(|| {
-            eprintln!("duke: method '{method_name}' not found");
-            process::exit(1);
-        });
-
-    for attr in &target.attributes {
-        if let AttributeData::Code(code) = &attr.data {
-            let instructions = decode(&code.code).unwrap_or_else(|e| {
-                eprintln!("duke: decode error: {e}");
-                process::exit(1);
-            });
-            let blocks = build_basic_blocks(&instructions);
-            println!("{}", generate_basic_block_cfg(&blocks));
-            return;
-        }
-    }
-    eprintln!("duke: method '{method_name}' has no code attribute");
-    process::exit(1);
+    let instructions = extract_method_instructions(path, method_name);
+    let blocks = build_basic_blocks(&instructions);
+    println!("{}", generate_basic_block_cfg(&blocks));
 }
 
 fn dump_cg(path: &str) {
