@@ -85,3 +85,9 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**[Refactoring jar_diff.rs]
+**Learning:** The  script was using deeply nested closures () instead of simpler early returns via  operator. It was also accessing nested struct properties via tuple destructuring that were cleaner via guards.
+**Action:** Replaced closures with  where possible, reducing nesting. Also replaced explicit type import errors for  due to lack of a  block by importing types directly from the root namespace.
+**[Refactoring jar_diff.rs]**
+**Learning:** The `jar_diff.rs` script had compilation errors because it tried to import from a nonexistent `types` submodule. In addition, it was using deeply nested closures (`and_then`) instead of simpler early returns via `?` operator, and had large blocks of unflattened iterator code.
+**Action:** Replaced closures with `?` and guard clauses `else { return; }` where possible, reducing nesting. Fixed compiler errors by correcting the imports.

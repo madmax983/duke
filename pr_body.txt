@@ -1,16 +1,7 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
+**Smell:** The `jar_diff.rs` script was highly nested, using large iterator loops (like `for k in keys2.difference(&keys1)` with multi-line bodies to push elements), deeply nested functional map chains (`and_then` returning options in options instead of early-return guards), and duplicate loops. It also incorrectly referenced `duke_classfile::types::{...}` which triggered compiler errors since the structs are exposed at the crate root instead of `types`.
 
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
+**Solution:** I have flattened the functional map chains and used `?` operator early returns in `cp_str`, removed `types::` from import paths, and refactored the complex collection diff operations to leverage clean `difference().copied().cloned().collect()` chained operators instead of multi-line procedural `for` loop pushes. I also extracted duplicate list-printing logic into a reusable `print_method_list` helper method.
 
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
+**Benefit:** Greatly reduces cognitive load. Functional style is cleaner and less error-prone. Re-uses standard library operations to perform iterator mutations. Code now compiles.
 
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+**Verification:** Ran `cargo clippy`, `cargo fmt`, and `cargo test` and all checks passed. No functional logic was changed.
