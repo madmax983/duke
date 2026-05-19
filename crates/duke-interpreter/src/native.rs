@@ -9587,7 +9587,7 @@ pub(crate) fn native_posix_file_permissions_as_file_attribute(
 }
 
 fn manifest_attribute_value(manifest_bytes: &[u8], key: &str) -> Option<String> {
-    let text = std::str::from_utf8(manifest_bytes).ok()?;
+    let text = String::from_utf8_lossy(manifest_bytes);
     for line in text.lines() {
         if let Some(value) = line.strip_prefix(key)
             && let Some(value) = value.strip_prefix(':')
@@ -24760,12 +24760,10 @@ fn service_configuration_files_via_resources(
     read_resource_enumeration_bytes(enum_ref, heap)
 }
 
-fn parse_service_provider_names(files: Vec<Vec<u8>>) -> Result<Vec<String>> {
+fn parse_service_provider_names(files: Vec<Vec<u8>>) -> Vec<String> {
     let mut names = Vec::new();
     for bytes in files {
-        let text = String::from_utf8(bytes).map_err(|_| Error::JavaException {
-            class_name: "java/util/ServiceConfigurationError".to_string(),
-        })?;
+        let text = String::from_utf8_lossy(&bytes);
         for line in text.lines() {
             let live = line
                 .split_once('#')
@@ -24776,7 +24774,7 @@ fn parse_service_provider_names(files: Vec<Vec<u8>>) -> Result<Vec<String>> {
             }
         }
     }
-    Ok(names)
+    names
 }
 
 fn service_loader_cause_type(err: &Error) -> &'static str {
@@ -24824,7 +24822,7 @@ fn allocate_service_loader(
         });
     };
     let files = service_configuration_files_via_resources(heap, ops, loader_ref, &service_binary_name)?;
-    let provider_names = parse_service_provider_names(files)?;
+    let provider_names = parse_service_provider_names(files);
     let loader_ref = heap.allocate(
         "java/util/ServiceLoader".to_string(),
         SERVICE_LOADER_PROVIDERS_START + provider_names.len(),

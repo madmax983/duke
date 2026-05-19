@@ -510,7 +510,7 @@ fn read_str(data: &[u8], str_offset: usize, idx: u64) -> &str {
         .iter()
         .position(|&b| b == 0)
         .map_or(data.len(), |p| start + p);
-    std::str::from_utf8(&data[start..end]).unwrap_or("")
+    std::str::from_utf8(&data[start..end]).unwrap_or_default()
 }
 
 /// Read up to 8 bytes as a big-endian u64.

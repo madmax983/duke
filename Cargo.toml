@@ -8,7 +8,7 @@ members = [
     "crates/duke-runtime",
     "crates/duke-gc",
     "crates/duke-interpreter",
-    "crates/duke-telemetry",
+    "crates/duke-telemetry", "fuzz",
 ]
 
 [workspace.package]
