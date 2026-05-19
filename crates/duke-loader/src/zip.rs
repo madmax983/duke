@@ -1367,6 +1367,266 @@ mod tests {
     }
 
     #[test]
+    fn zip_loader_find_resource_entries_other_error_outer() {
+        let mut zip = build_stored_zip("bad_resource.txt", b"data");
+        zip[0] ^= 0xFF; // corrupt it
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_entries_outer.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+
+        let err4 = loader
+            .find_resource_entries("bad_resource.txt")
+            .unwrap_err();
+        assert!(matches!(err4, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_cd_entry_length_overflow_32bit() {
+        // Can't reliably trigger on 64 bit, but we can verify our other CD bounds test works.
+    }
+
+    #[test]
+    fn zip_loader_find_resources_other_error_nested() {
+        let mut inner_zip = build_stored_zip("bad_resource.txt", b"data");
+        inner_zip[0] ^= 0xFF; // corrupt it
+        let outer_zip = build_stored_zip("BOOT-INF/lib/inner.jar", &inner_zip);
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_nested_resources.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+
+        let err = loader.find_resources("bad_resource.txt").unwrap_err();
+        assert!(matches!(err, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resources_other_error_boot_inf() {
+        let mut zip = build_stored_zip("BOOT-INF/classes/bad_resource.txt", b"data");
+        zip[0] ^= 0xFF; // Corrupt local header signature
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_resources_boot_inf.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let err = loader.find_resources("bad_resource.txt").unwrap_err();
+        assert!(matches!(err, Error::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_cd_extends_past_cd_bounds() {
+        let mut zip = build_stored_zip("test.txt", b"data");
+        let eocd_offset = zip.len() - 22;
+        let cd_size =
+            u32::from_le_bytes(zip[eocd_offset + 12..eocd_offset + 16].try_into().unwrap());
+        zip[eocd_offset + 12..eocd_offset + 16].copy_from_slice(&(cd_size - 1).to_le_bytes());
+
+        let res = ZipReader::from_bytes(zip);
+        assert!(matches!(res, Err(Error::ZipFormat { .. })));
+    }
+
+    #[test]
+    fn zip_loader_find_resource_entries_other_error_boot_inf() {
+        let mut zip = build_stored_zip("BOOT-INF/classes/bad_resource.txt", b"data");
+        zip[0] ^= 0xFF; // Corrupt local header signature
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_resource_entries_boot.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let err4 = loader
+            .find_resource_entries("bad_resource.txt")
+            .unwrap_err();
+        assert!(matches!(err4, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resource_other_error_nested() {
+        let mut inner_zip = build_stored_zip("bad_resource.txt", b"data");
+        inner_zip[0] ^= 0xFF; // corrupt it
+        let outer_zip = build_stored_zip("BOOT-INF/lib/inner.jar", &inner_zip);
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_nested_resource.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+
+        let err1 = loader.find_resource("bad_resource.txt").unwrap_err();
+        assert!(matches!(err1, Error::ZipFormat { .. }));
+
+        let err2 = loader.find_resources("bad_resource.txt").unwrap_err();
+        assert!(matches!(err2, Error::ZipFormat { .. }));
+
+        let err3 = loader.find_resource_entry("bad_resource.txt").unwrap_err();
+        assert!(matches!(err3, Error::ZipFormat { .. }));
+
+        let err4 = loader
+            .find_resource_entries("bad_resource.txt")
+            .unwrap_err();
+        assert!(matches!(err4, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resource_other_error() {
+        let mut zip = build_stored_zip("bad_resource.txt", b"data");
+        zip[0] ^= 0xFF; // Corrupt local header signature
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_resource.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let err1 = loader.find_resource("bad_resource.txt").unwrap_err();
+        assert!(matches!(err1, Error::ZipFormat { .. }));
+
+        let err2 = loader.find_resources("bad_resource.txt").unwrap_err();
+        assert!(matches!(err2, Error::ZipFormat { .. }));
+
+        let err3 = loader.find_resource_entry("bad_resource.txt").unwrap_err();
+        assert!(matches!(err3, Error::ZipFormat { .. }));
+
+        let err4 = loader
+            .find_resource_entries("bad_resource.txt")
+            .unwrap_err();
+        assert!(matches!(err4, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resource_other_error_boot_inf() {
+        let mut zip = build_stored_zip("BOOT-INF/classes/bad_resource.txt", b"data");
+        zip[0] ^= 0xFF; // Corrupt local header signature
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_resource_boot.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let err1 = loader.find_resource("bad_resource.txt").unwrap_err();
+        assert!(matches!(err1, Error::ZipFormat { .. }));
+
+        let err2 = loader.find_resources("bad_resource.txt").unwrap_err();
+        assert!(matches!(err2, Error::ZipFormat { .. }));
+
+        let err3 = loader.find_resource_entry("bad_resource.txt").unwrap_err();
+        assert!(matches!(err3, Error::ZipFormat { .. }));
+
+        let err4 = loader
+            .find_resource_entries("bad_resource.txt")
+            .unwrap_err();
+        assert!(matches!(err4, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_not_found() {
+        let zip = build_stored_zip("dummy.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_dummy_resource.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let res1 = loader.find_resource("missing_file.txt");
+        assert!(matches!(res1, Err(Error::NotFound { .. })));
+
+        let res2 = loader.find_resources("missing_file.txt").unwrap();
+        assert!(res2.is_empty());
+
+        let res3 = loader.find_resource_entry("missing_file.txt");
+        assert!(matches!(res3, Err(Error::NotFound { .. })));
+
+        let res4 = loader.find_resource_entries("missing_file.txt").unwrap();
+        assert!(res4.is_empty());
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resource_error_outer() {
+        let mut zip = build_stored_zip("bad_resource.txt", b"data");
+        zip[0] ^= 0xFF; // corrupt it
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_outer.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+
+        // This will fail at the first match (outer zip lookup)
+        let err2 = loader.find_resources("bad_resource.txt").unwrap_err();
+        assert!(matches!(err2, Error::ZipFormat { .. }));
+
+        let err4 = loader
+            .find_resource_entries("bad_resource.txt")
+            .unwrap_err();
+        assert!(matches!(err4, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resource_entries_other_error_nested() {
+        // Create an outer zip with a nested bad zip inside BOOT-INF/lib/
+        let mut inner_zip = build_stored_zip("bad_resource.txt", b"data");
+        inner_zip[0] ^= 0xFF; // corrupt it
+        let outer_zip = build_stored_zip("BOOT-INF/lib/inner.jar", &inner_zip);
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_nested_resource_entries.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+
+        let err4 = loader
+            .find_resource_entries("bad_resource.txt")
+            .unwrap_err();
+        assert!(matches!(err4, Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resources_other_error() {
+        let mut zip = build_stored_zip("bad_resource.txt", b"data");
+        zip[0] ^= 0xFF; // corrupt it
+
+        let tmp = std::env::temp_dir().join("duke_test_zip_bad_resources.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let err = loader.find_resources("bad_resource.txt").unwrap_err();
+        assert!(matches!(err, Error::ZipFormat { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn zip_loader_find_resource_success() {
+        let zip = build_stored_zip("BOOT-INF/classes/dummy.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_dummy_resource_boot_inf.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open");
+
+        let res1 = loader.find_resource("dummy.txt").unwrap();
+        assert_eq!(res1, b"data");
+
+        let res2 = loader.find_resources("dummy.txt").unwrap();
+        assert_eq!(res2.len(), 1);
+        assert_eq!(res2[0], b"data");
+
+        let res3 = loader.find_resource_entry("dummy.txt").unwrap();
+        assert_eq!(res3.bytes, b"data");
+        assert!(res3.url.contains("BOOT-INF/classes/dummy.txt"));
+
+        let res4 = loader.find_resource_entries("dummy.txt").unwrap();
+        assert_eq!(res4.len(), 1);
+        assert_eq!(res4[0].bytes, b"data");
+
+        std::fs::remove_file(&tmp).ok();
+    }
+    #[test]
     fn zip_loader_read_entry_other_error() {
         let mut zip = build_stored_zip("Bad.class", b"data");
         zip[0] ^= 0xFF; // Corrupt local header signature

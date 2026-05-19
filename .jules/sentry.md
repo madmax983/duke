@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2026-05-19 - Testing Zip Archive Corruption Paths
+**Learning:** Testing error propagation of nested zip files requires mocking or constructing a zip file that successfully opens but contains corrupted inner components to bypass initial validation but trigger errors during entry reads.
+**Action:** Construct multi-layer byte arrays using `build_stored_zip` with deliberately corrupted inner data to hit nested IO/Format error paths.
