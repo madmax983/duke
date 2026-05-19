@@ -7,3 +7,7 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+
+**[duke-gc: Extract Concurrency State from Heap Module]
+**Tangle:** The `duke-gc/src/lib.rs` file had grown to over 2500 lines ("The Bloat"), heavily mixing core generational GC/heap logic with synthetic Java concurrency states (`ReentrantLockState`, `ConditionState`, `AtomicPayload`, etc.). This obscured domain boundaries.
+**Blueprint:** Extracted all concurrency synchronization structs and their logic into a dedicated `sync` module (`crates/duke-gc/src/sync.rs`) and re-exported them from the crate root. This created clear physical and semantic boundaries between memory allocation and thread synchronization, paying off significant structural debt.

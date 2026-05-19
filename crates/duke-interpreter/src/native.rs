@@ -20722,7 +20722,7 @@ fn prepare_executor_invocation(
     loader: &dyn ClassLoader,
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
-    task: duke_gc::ExecutorTask,
+    task: &duke_gc::ExecutorTask,
 ) -> Result<ExecutorInvocation> {
     let (method, descriptor) = executor_task_signature(task.kind);
     if let Some(invocation) =
@@ -20821,7 +20821,7 @@ fn store_future_failure(
 
 fn store_future_success(
     heap: &mut duke_gc::Heap,
-    task: duke_gc::ExecutorTask,
+    task: &duke_gc::ExecutorTask,
     result: Option<Slot>,
     impl_desc: Option<&str>,
     sam_desc: Option<&str>,
@@ -20847,7 +20847,7 @@ fn store_future_success(
 }
 
 fn run_executor_task(
-    task: duke_gc::ExecutorTask,
+    task: &duke_gc::ExecutorTask,
     shared: &std::sync::Arc<std::sync::Mutex<CompletionVm>>,
     runtime: &std::sync::Arc<std::sync::Mutex<CompletionRuntime>>,
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
@@ -20948,7 +20948,7 @@ fn run_executor_worker(
             }
         };
 
-        let result = run_executor_task(task, shared, runtime, loader);
+        let result = run_executor_task(&task, shared, runtime, loader);
         {
             let mut guard = executor
                 .state

@@ -10454,8 +10454,8 @@ fn heap_object_to_string_integer_field() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Integer".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(42);
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "42");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "42");
 }
 
 #[test]
@@ -10463,8 +10463,8 @@ fn heap_object_to_string_long_field() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Long".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Long(999_000_000_000_i64);
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "999000000000");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "999000000000");
 }
 
 #[test]
@@ -10472,8 +10472,8 @@ fn heap_object_to_string_double_field() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Double".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Double(std::f64::consts::PI);
-    let obj = heap.get(r).unwrap().clone();
-    let s = heap_object_to_string(&obj, r);
+    let obj = heap.get(r).unwrap();
+    let s = heap_object_to_string(obj, r);
     assert!(s.contains("3.14"), "expected '3.14' in '{s}'");
 }
 
@@ -10482,8 +10482,8 @@ fn heap_object_to_string_float_field() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Float".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Float(1.5_f32);
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "1.5");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "1.5");
 }
 
 #[test]
@@ -10491,8 +10491,8 @@ fn heap_object_to_string_boolean_true() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Boolean".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(1);
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "true");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "true");
 }
 
 #[test]
@@ -10500,8 +10500,8 @@ fn heap_object_to_string_boolean_false() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Boolean".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(0);
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "false");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "false");
 }
 
 #[test]
@@ -10509,8 +10509,8 @@ fn heap_object_to_string_boolean_nonzero_is_true() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Boolean".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int(7);
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "true");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "true");
 }
 
 #[test]
@@ -10518,24 +10518,24 @@ fn heap_object_to_string_character_field() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Character".to_string(), 1);
     heap.get_mut(r).unwrap().fields[0] = Slot::Int('A' as i32);
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "A");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "A");
 }
 
 #[test]
 fn heap_object_to_string_string_value_takes_priority() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate_string("hello".to_string());
-    let obj = heap.get(r).unwrap().clone();
-    assert_eq!(heap_object_to_string(&obj, r), "hello");
+    let obj = heap.get(r).unwrap();
+    assert_eq!(heap_object_to_string(obj, r), "hello");
 }
 
 #[test]
 fn heap_object_to_string_opaque_object_uses_class_at_hex() {
     let mut heap = duke_gc::Heap::new();
     let r = heap.allocate("java/lang/Object".to_string(), 0);
-    let obj = heap.get(r).unwrap().clone();
-    let s = heap_object_to_string(&obj, r);
+    let obj = heap.get(r).unwrap();
+    let s = heap_object_to_string(obj, r);
     assert!(
         s.starts_with("java/lang/Object@"),
         "expected 'java/lang/Object@...' but got '{s}'"
