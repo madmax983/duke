@@ -1,6 +1,6 @@
-🛡️ Sentry: [test coverage improvement]
+🎻 Bard: [documentation update]
 
-🎯 Target: native_reentrant_read_write_lock_* and native_priorityqueue_peek in crates/duke-interpreter/src/native.rs.
-💣 Risk: These native implementations lacked unit test coverage. Changes or refactors to how the internal read/write lock instances are structured or initialized could fail without being caught by basic bytecode testing, breaking concurrency features.
-🧪 Strategy: Added specific inline unit tests covering the init, read_lock, and write_lock states of ReentrantReadWriteLock as well as the empty and non-empty scenarios for PriorityQueue.peek(). Added #[allow(clippy::unnecessary_wraps)] to the newly covered, previously unlinted methods since they adhere to an API signature that requires Result<Option<Slot>>.
-🔬 Verification: cargo test -p duke-interpreter
+📖 Chapter: `duke` bin crate and `jar_diff` module.
+🔦 Insight: The bin crate was completely undocumented, preventing `cargo doc` from running successfully without `--no-deps`. Fixed the types resolution bug in `jar_diff.rs`, and fully cleared out warnings.
+🧪 Example: Clean build on `cargo doc`.
+🖼️ Preview: All undocumented functions have been fully documented or safely allowed.

@@ -1,11 +1,14 @@
+//! Provides tools to compute and output the difference between two Java Archives (JARs) by comparing their method signatures and bytecode.
+//!
+//! This module analyzes two given JAR files, unpacks them, extracts `.class` files, parses their method signatures
+//! along with their constant pools, and determines the set of methods that have been added, removed, modified, or left unchanged.
+//! It is incredibly useful for spotting unintended changes or verifying bug fixes without the need to decompile everything manually.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -15,10 +18,11 @@ use std::path::Path;
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
+/// Resolves a constant pool entry at `idx` directly to a string if it represents a UTF-8 token.
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -31,6 +35,10 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
+/// Computes the textual representation of a class's name from its `CpIndex`.
+///
+/// It follows the `Class` reference in the constant pool to the actual UTF-8 representation of the class's fully-qualified name.
+/// Returns `<none>` or other invalid states to gracefully handle invalid bytecode gracefully.
 fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     if idx.0 == 0 {
         return "<none>".to_string();
@@ -38,7 +46,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<duke_classfile::CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -56,6 +64,14 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Analyzes two JAR files and outputs a statistical report showing methods added, removed, or modified.
+///
+/// ## Examples
+///
+/// ```rust,no_run
+/// use duke::jar_diff::dump_jar_diff;
+/// dump_jar_diff("path/to/old.jar", "path/to/new.jar");
+/// ```
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);
@@ -105,7 +121,7 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
             println!("  + {m}");
         }
         if added.len() > 10 {
-            println!("  ... and {} more", added.len() - 10);
+            println!("  ... and {} more", added.len().saturating_sub(10));
         }
         println!();
     }
@@ -116,7 +132,7 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
             println!("  - {m}");
         }
         if removed.len() > 10 {
-            println!("  ... and {} more", removed.len() - 10);
+            println!("  ... and {} more", removed.len().saturating_sub(10));
         }
         println!();
     }
@@ -127,7 +143,7 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
             println!("  ~ {m}");
         }
         if modified.len() > 10 {
-            println!("  ... and {} more", modified.len() - 10);
+            println!("  ... and {} more", modified.len().saturating_sub(10));
         }
         println!();
     }
@@ -136,6 +152,7 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
+/// Loads all the methods from a given JAR file mapped to a cryptographic hash of their bytecode and properties.
 fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
     let Ok(loader) = ZipLoader::open(Path::new(jar_path)) else {
         return HashMap::new(); // If we cannot load, treat as empty
