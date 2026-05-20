@@ -21194,7 +21194,7 @@ fn spawn_java_thread(
         }
         let _ = runtime_clone
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .threads
             .mark_finished_by_java_ref(thread_ref);
         unregister_java_host_thread(host_key);
