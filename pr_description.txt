@@ -1,0 +1,4 @@
+🚮 Smell: The `decode_one` function in `decoder.rs` and the `read_entry_info` function in `zip.rs` both suffered from "Pyramid of Doom" nesting. They contained inline blocks for opcode matching and deflation decompression respectively, violating clarity and causing excessive rightward drift.
+✨ Solution: Extracted the `op::POP..=op::SWAP` match block into a `decode_stack_op` function. Extracted the `METHOD_DEFLATED` decompression block into a `decompress_deflated` helper function.
+🧼 Benefit: Reduces cognitive load and strictly flattens the execution flow by replacing large inline blocks with named method calls, making the parent functions significantly easier to understand.
+🛡️ Verification: Tests passed. No logic changed. All changes verified by `cargo test`, `cargo clippy`, and `cargo fmt`.
