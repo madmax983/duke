@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +15,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +35,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -56,6 +53,27 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Analyzes two JAR files and dumps a summary of the differences between their methods.
+///
+/// This function is useful for comparing the bytecode of two different builds or versions
+/// of the same library to see what has changed. It compares methods by hashing their
+/// `Code` attributes, identifying methods that have been added, removed, or modified.
+///
+/// ## Panics
+///
+/// This function does not panic on invalid JARs, it simply returns empty results.
+///
+/// ## Examples
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "nova")]
+/// # {
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// // Diff two JAR files to see what methods changed
+/// dump_jar_diff("old_app.jar", "new_app.jar");
+/// # }
+/// ```
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);
