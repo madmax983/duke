@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-20 - Telemetry Output Coverage
+**Learning:** Some serialization and string-formatting logic in `duke-telemetry` lacked unit test coverage. This isn't immediately caught by tests focused strictly on internal struct updating logic. Deeply-nested structure mock serialization needed `SerializeSeq` errors stubbed out to properly exercise the failure path.
+**Action:** When auditing simple metric or state collection crates, pay close attention to output formatters (`print`, `to_markdown`) and intermediate wrapper serialization logic, as they are often overlooked. Use custom failing mock serializers to explicitly hit `is_err()` arms in `Result` handlers during serialization.

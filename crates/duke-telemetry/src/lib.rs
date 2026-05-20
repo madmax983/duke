@@ -598,4 +598,98 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String.intern"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_report_with_failing_writer() {
+        struct FailingWriter;
+        impl std::io::Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("disk full"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+
+        let mut w = FailingWriter;
+        let res = store.print_report(&mut w);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_report_with_uncaught_exception() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("uncaught"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_report_populated_data() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let idx = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store.exception_flow.record_catch(idx, "Foo", "bar", 20);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("=== Duke VM Telemetry Report ==="));
+        assert!(s.contains("iadd"));
+        assert!(s.contains("allocs"));
+        assert!(s.contains("java/lang/String"));
+        assert!(s.contains("java/lang/System"));
+        assert!(s.contains("java/lang/Exception"));
+        assert!(s.contains("Foo"));
+        assert!(s.contains("java/lang/String.intern"));
+    }
 }
