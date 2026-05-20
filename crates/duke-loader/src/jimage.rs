@@ -312,14 +312,14 @@ fn parse_header(data: &[u8]) -> Result<(u32, u32, u32, u32)> {
         });
     }
 
-    let magic = read_u32_le(data, 0);
+    let magic = read_u32_le(data, 0)?;
     if magic != JIMAGE_MAGIC {
         return Err(Error::JImageFormat {
             msg: format!("bad magic: {magic:#010x} (expected {JIMAGE_MAGIC:#010x})"),
         });
     }
 
-    let version = read_u32_le(data, 4);
+    let version = read_u32_le(data, 4)?;
     if version != JIMAGE_VERSION {
         return Err(Error::JImageFormat {
             msg: format!("unsupported jimage version: {version:#010x}"),
@@ -327,10 +327,10 @@ fn parse_header(data: &[u8]) -> Result<(u32, u32, u32, u32)> {
     }
 
     Ok((
-        read_u32_le(data, 12), // resource_count
-        read_u32_le(data, 16), // table_length
-        read_u32_le(data, 20), // locations_size
-        read_u32_le(data, 24), // strings_size
+        read_u32_le(data, 12)?, // resource_count
+        read_u32_le(data, 16)?, // table_length
+        read_u32_le(data, 20)?, // locations_size
+        read_u32_le(data, 24)?, // strings_size
     ))
 }
 
@@ -521,8 +521,11 @@ fn read_be_u64(bytes: &[u8]) -> u64 {
     u64::from_be_bytes(buf)
 }
 
-fn read_u32_le(data: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(data[offset..offset + 4].try_into().expect("4 bytes"))
+fn read_u32_le(data: &[u8], offset: usize) -> Result<u32> {
+    let slice = data.get(offset..offset + 4).ok_or_else(|| Error::JImageFormat {
+        msg: format!("truncated read at offset {offset}"),
+    })?;
+    Ok(u32::from_le_bytes(slice.try_into().expect("4 bytes")))
 }
 
 #[cfg(test)]

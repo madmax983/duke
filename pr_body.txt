@@ -1,16 +1,6 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
+👺 Havoc: Fix out-of-bounds panic in JImage parser
 
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
-
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
-
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+🧨 **The Trigger:** Providing a truncated jimage file with invalid offset pointers causes an out of bounds slice access.
+📉 **The Stack Trace:** `thread 'main' panicked at '4 bytes': TryFromSliceError`
+🧪 **Reproduction:** Run `cargo test --package duke-loader --test havoc_jimage_fuzz` with a malformed table length.
+😈 **Comment:** You assumed the buffer would never be larger than RAM. You were wrong.
