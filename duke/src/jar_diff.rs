@@ -1,11 +1,22 @@
+//! # JAR Bytecode Diff Analysis
+//!
+//! This module provides tools for comparing the contents of two Java Archive (JAR) files.
+//! It determines exactly which methods were added, removed, or modified between two versions
+//! of a library or application.
+//!
+//! By parsing the underlying `ClassFile` definitions and hashing the raw bytecode within
+//! the `Code` attributes of every method, we can determine semantic differences rather
+//! than relying simply on classfile timestamps or file sizes.
+//!
+//! ## Usage
+//! The primary entrypoint is `dump_jar_diff`, which takes paths to two JARs and
+//! prints a detailed report to standard output.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +29,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +49,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<duke_classfile::CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -48,6 +59,29 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     }
 }
 
+/// Analyzes two JAR files and prints a comparative report of their methods.
+///
+/// This function loads all classes from both JARs, parses their structure, and compares
+/// the signatures and bytecode hashes of their methods. It then prints a report detailing
+/// the total number of added, removed, modified, and unchanged methods, along with the
+/// top 10 methods in each category.
+///
+/// ## Examples
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "nova")]
+/// # {
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// // Compare an old library version with a new one
+/// dump_jar_diff("lib-v1.jar", "lib-v2.jar");
+/// # }
+/// ```
+///
+/// ## Panics
+///
+/// This function does not panic on invalid JARs or malformed classes; it simply ignores
+/// files that cannot be read or parsed and treats them as empty sets.
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(
