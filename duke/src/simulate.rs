@@ -1,3 +1,7 @@
+//! Executes a dry-run instruction trace for a specific method without spinning up the full JVM.
+//!
+//! **Why it exists:** Sometimes you just want to see the sequence of instructions a method *would* execute, without allocating a full heap or resolving dependencies. This provides a lightweight interpreter loop for static analysis.
+
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;
 #[cfg(feature = "nova")]

@@ -1,3 +1,7 @@
+//! Detects uncalled and potentially dead methods within a class or JAR.
+//!
+//! **Why it exists:** Over time, codebases accumulate unused methods that bloat archives and slow down verification. This module performs a static reachability pass to identify code that can be safely pruned.
+
 use duke_bytecode::{Instruction, decode};
 use duke_classfile::{
     ClassFile, {AttributeData, CpEntry, CpIndex},

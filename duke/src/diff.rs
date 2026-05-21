@@ -1,3 +1,7 @@
+//! Text-based difference generator for bytecode methods.
+//!
+//! **Why it exists:** When a class file is modified, it's difficult to see exactly what changed at the instruction level. This module provides a human-readable diff of the decoded bytecode, making regressions and compiler optimizations visible.
+
 
     #[test]
     fn test_dump_diff_handles_files() {

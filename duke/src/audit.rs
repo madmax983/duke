@@ -1,3 +1,7 @@
+//! Provides a security audit utility to detect dangerous API calls in JARs.
+//!
+//! **Why it exists:** Before running an untrusted Java archive, developers need to know if it attempts to execute shell commands, exit the VM unexpectedly, or use deep reflection. This module traces the bytecode to expose those behaviors before they run.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::Instruction;

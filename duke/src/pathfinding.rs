@@ -1,3 +1,7 @@
+//! Graph-based reachability and shortest path analysis for JVM bytecode.
+//!
+//! **Why it exists:** When diagnosing control-flow bugs, it's helpful to see the exact sequence of basic blocks required to reach a specific `PC` offset. This module calculates the shortest execution path to a target instruction.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::{build_basic_blocks, decode, find_shortest_path};

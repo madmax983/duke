@@ -1,3 +1,7 @@
+//! Basic static purity analysis to detect if a method causes side-effects.
+//!
+//! **Why it exists:** Identifying side-effect-free (pure) methods allows the VM to potentially elide repeated calls or parallelize execution safely. This module scans for field writes and native boundary crossings.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;

@@ -1,3 +1,7 @@
+//! Recursively searches for specific bytecode instructions across all classes in a JAR.
+//!
+//! **Why it exists:** When debugging, you might need to find every place a specific opcode (like `invokedynamic` or `monitorenter`) is used across thousands of classes. This provides a lightning-fast `grep` for JVM operations.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;

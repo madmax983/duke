@@ -1,3 +1,7 @@
+//! Bare-bones implementation of the Java Debug Wire Protocol (JDWP).
+//!
+//! **Why it exists:** To allow standard debuggers (like `IntelliJ` or Eclipse) to attach to the Duke JVM and step through execution. It manages the TCP handshake and packet routing for the debugging session.
+
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
