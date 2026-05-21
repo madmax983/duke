@@ -47,6 +47,11 @@ impl DirectoryLoader {
         }
     }
 
+    fn read_file(path: &Path, name: &str) -> Result<Vec<u8>> {
+        std::fs::read(path).map_err(|_| Error::NotFound {
+            name: name.to_string(),
+        })
+    }
     fn resolve_child_path(&self, name: &str) -> Result<PathBuf> {
         if name.contains("..")
             || name.starts_with('/')
@@ -81,16 +86,12 @@ impl ClassLoader for DirectoryLoader {
         let mut path = self.resolve_child_path(name)?;
         path.set_extension("class");
 
-        std::fs::read(&path).map_err(|_| Error::NotFound {
-            name: name.to_string(),
-        })
+        Self::read_file(&path, name)
     }
 
     fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
         let path = self.resolve_child_path(name)?;
-        std::fs::read(&path).map_err(|_| Error::NotFound {
-            name: name.to_string(),
-        })
+        Self::read_file(&path, name)
     }
 
     fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {

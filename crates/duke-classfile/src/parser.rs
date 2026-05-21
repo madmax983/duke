@@ -424,7 +424,7 @@ pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>])
 
 fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
     let mut c = Cursor::new(raw);
-    let data = match name {
+    Ok(match name {
         "ConstantValue" => AttributeData::ConstantValue {
             constant_value_index: decode_constant_value(&mut c)?,
         },
@@ -445,8 +445,7 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
         }
         "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c, 0)?),
         _ => AttributeData::Raw(raw.to_vec()),
-    };
-    Ok(data)
+    })
 }
 
 fn decode_constant_value(c: &mut Cursor<'_>) -> Result<CpIndex> {

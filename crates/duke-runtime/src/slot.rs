@@ -60,14 +60,13 @@ impl Slot {
     /// assert!(s.as_int().is_err());
     /// ```
     pub const fn as_int(&self) -> Result<i32> {
-        if let Self::Int(v) = self {
-            Ok(*v)
-        } else {
-            Err(Error::TypeMismatch {
+        let Self::Int(v) = self else {
+            return Err(Error::TypeMismatch {
                 expected: "int",
                 got: self.type_name(),
-            })
-        }
+            });
+        };
+        Ok(*v)
     }
 
     /// Extract as `i64`, or return a `TypeMismatch` error.
@@ -87,14 +86,13 @@ impl Slot {
     /// assert!(s.as_long().is_err());
     /// ```
     pub const fn as_long(&self) -> Result<i64> {
-        if let Self::Long(v) = self {
-            Ok(*v)
-        } else {
-            Err(Error::TypeMismatch {
+        let Self::Long(v) = self else {
+            return Err(Error::TypeMismatch {
                 expected: "long",
                 got: self.type_name(),
-            })
-        }
+            });
+        };
+        Ok(*v)
     }
 
     /// Extract as `f32`, or return a `TypeMismatch` error.
@@ -114,14 +112,13 @@ impl Slot {
     /// assert!(s.as_float().is_err());
     /// ```
     pub const fn as_float(&self) -> Result<f32> {
-        if let Self::Float(v) = self {
-            Ok(*v)
-        } else {
-            Err(Error::TypeMismatch {
+        let Self::Float(v) = self else {
+            return Err(Error::TypeMismatch {
                 expected: "float",
                 got: self.type_name(),
-            })
-        }
+            });
+        };
+        Ok(*v)
     }
 
     /// Extract as `f64`, or return a `TypeMismatch` error.
@@ -141,14 +138,13 @@ impl Slot {
     /// assert!(s.as_double().is_err());
     /// ```
     pub const fn as_double(&self) -> Result<f64> {
-        if let Self::Double(v) = self {
-            Ok(*v)
-        } else {
-            Err(Error::TypeMismatch {
+        let Self::Double(v) = self else {
+            return Err(Error::TypeMismatch {
                 expected: "double",
                 got: self.type_name(),
-            })
-        }
+            });
+        };
+        Ok(*v)
     }
 
     /// If this slot is a non-null reference, return the heap index. Otherwise `None`.
@@ -169,11 +165,10 @@ impl Slot {
     /// ```
     #[must_use]
     pub const fn as_reference(&self) -> Option<u64> {
-        if let Self::Reference(Some(r)) = self {
-            Some(*r)
-        } else {
-            None
-        }
+        let Self::Reference(Some(r)) = self else {
+            return None;
+        };
+        Some(*r)
     }
 
     /// Get the JVM type name for this slot's contents.
