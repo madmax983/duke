@@ -1,0 +1,6 @@
+I have successfully identified and neutralized multiple Out of Memory panics caused by malicious payload allocations in bytecode `tableswitch`/`lookupswitch` operations and classfile components (e.g. `attributes`, `methods`, `fields`).
+
+🧨 The Trigger: Constructing an archive or classfile which sets capacities (like `npairs` or attributes count) to `0x3FFFFFFF` while providing extremely short payload size.
+📉 The Stack Trace: `memory allocation of 1073741820 bytes failed` (OOM Panic)
+🧪 Reproduction: Run `cargo test -p duke-classfile --test havoc_classfile_oom` and `cargo test -p duke-bytecode --test havoc_bytecode_oom`.
+😈 Comment: Never trust capacities read directly from parsed headers without bounding them to actual remaining buffer sizes.
