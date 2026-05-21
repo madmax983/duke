@@ -1,0 +1,9 @@
+👺 Havoc: Add fuzzing harnesses for loader, bytecode, and classfile
+
+🧨 The Trigger: To proactively hunt for fragility and panics, new continuous fuzzing harnesses are required for the `duke-loader`, `duke-bytecode`, and `duke-classfile` components.
+
+📉 The Stack Trace: (Found via code review, establishing fuzzers for future CI).
+
+🧪 Reproduction: Run `cargo fuzz` for any target under the respective crates.
+
+😈 Comment: You assumed the buffer would never be larger than RAM. You were wrong.

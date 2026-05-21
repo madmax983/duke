@@ -249,7 +249,8 @@ fn parse_cp_entry(c: &mut Cursor<'_>, tag: u8, i: usize) -> Result<CpEntry> {
         1 => {
             let len = c.read_u16()? as usize;
             let bytes = c.read_bytes(len)?;
-            let s = String::from_utf8(bytes.to_vec())?;
+            let s =
+                String::from_utf8(bytes.to_vec()).map_err(|e| Error::InvalidUtf8 { source: e })?;
             Ok(CpEntry::Utf8(s))
         }
         3 => Ok(CpEntry::Integer(c.read_i32()?)),

@@ -20,7 +20,7 @@
 /// ```
 #[must_use]
 pub fn parse_main_class(manifest_bytes: &[u8]) -> Option<String> {
-    let text = std::str::from_utf8(manifest_bytes).ok()?;
+    let text = String::from_utf8_lossy(manifest_bytes);
     for line in text.lines() {
         if let Some(value) = line.strip_prefix("Main-Class:") {
             return Some(value.trim().replace('.', "/"));

@@ -1,0 +1,24 @@
+[package]
+name = "duke-classfile-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.duke-classfile]
+path = ".."
+
+[[bin]]
+name = "parse_classfile"
+path = "fuzz_targets/parse_classfile.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
