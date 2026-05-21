@@ -1,16 +1,9 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
+🔭 Vantage: Spec for String.equalsIgnoreCase
 
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
-
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
-
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+👤 **User Story:** "As an end-user of the JVM, I want String.equalsIgnoreCase implemented natively, so that my Java applications (like slf4j) can compare strings case-insensitively without crashing due to unsupported natives."
+✅ **Acceptance Criteria:**
+  - Must implement the native method String.equalsIgnoreCase(String) -> boolean.
+  - Must return true if strings are equal ignoring case, false otherwise.
+  - Must handle null arguments gracefully (return false if the argument is null).
+  - Must progress the slf4j smoke test past the String.equalsIgnoreCase blocker.
+🚫 **Out of Scope:** Full locale-dependent case folding. Simple ASCII case folding is sufficient for Phase 1.

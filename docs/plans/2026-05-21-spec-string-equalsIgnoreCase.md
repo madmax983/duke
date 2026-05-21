@@ -1,0 +1,13 @@
+# Spec for java/lang/String.equalsIgnoreCase
+
+## User Story
+As an end-user of the JVM, I want `java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z` implemented natively, so that my Java applications (like slf4j) can compare strings case-insensitively without crashing due to unsupported natives.
+
+## Acceptance Criteria
+- Must implement the native method `String.equalsIgnoreCase(String) -> boolean`.
+- Must return true if strings are equal ignoring case, false otherwise.
+- Must handle null arguments gracefully (return false if the argument is null).
+- Must progress the `slf4j` smoke test past the `String.equalsIgnoreCase` blocker.
+
+## Out of Scope
+- Full locale-dependent case folding. Simple ASCII case folding is sufficient for Phase 1.
