@@ -248,6 +248,19 @@ mod tests {
     }
 
     #[test]
+    fn test_keyed_map_empty() {
+        let _map: HashMap<i32, i32> = HashMap::new();
+        let s2 = serde_json::to_string(&super::tests::Site2Wrapper { map: HashMap::new() }).unwrap();
+        assert_eq!(s2, "{\"map\":{}}");
+        let s3 = serde_json::to_string(&super::tests::Site3Wrapper { map: HashMap::new() }).unwrap();
+        assert_eq!(s3, "{\"map\":{}}");
+        let pair = serde_json::to_string(&super::tests::PairWrapper { map: HashMap::new() }).unwrap();
+        assert_eq!(pair, "{\"map\":{}}");
+        let set = serde_json::to_string(&super::tests::SetWrapper { set: std::collections::HashSet::new() }).unwrap();
+        assert_eq!(set, "{\"set\":[]}");
+    }
+
+    #[test]
     fn test_keyed_map_error() {
         let mut map = HashMap::new();
         map.insert(

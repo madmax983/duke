@@ -598,4 +598,73 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_bytecode_cost_top_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store.bytecode_cost.record(
+                Box::leak(format!("op{i}").into_boxed_str()),
+                "Foo",
+                "bar",
+                10,
+                i * 10,
+            );
+        }
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        let count = s.matches("count=").count();
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn test_print_object_lineage_top_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            let class_name = Box::leak(format!("Class{i}").into_boxed_str());
+            for _ in 0..i {
+                store.object_lineage.record(class_name, "Foo", 10, "bar");
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        let count = s.matches("allocs").count();
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn test_print_dispatch_resolution_top_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            for _ in 0..i {
+                store
+                    .dispatch_resolution
+                    .record("Foo", i as u16, "Target", true);
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        let count = s.matches("calls=").count();
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn test_print_native_boundary_top_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            let method = Box::leak(format!("method{i}").into_boxed_str());
+            for _ in 0..i {
+                store.native_boundary.record_call("Foo", method, 10, false);
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        let count = s.matches("calls=").count();
+        assert_eq!(count, 10);
+    }
 }

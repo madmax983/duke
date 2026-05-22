@@ -47,3 +47,10 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Telemetry Map Serializers
+**Learning:** Testing map serialization utilities, like `keyed_map`, with empty `HashMap` objects is essential. Additionally, formatting these tests properly requires validating the specific output string bounds (e.g. `{"map":{}}`), otherwise the code behaves correctly but without verification.
+**Action:** Always include assertions around empty structure serialization strings when increasing coverage for Serde helpers.
+
+## 2024-05-24 - Retaining Telemetry Tests
+**Learning:** When using Python string replacement scripts to append tests to a `mod tests { ... }` block, it is easy to accidentally truncate or overwrite existing tests (e.g. `test_print_exception_flow_populated`).
+**Action:** When adding tests using scripts, explicitly append the new test logic to the file before the final closing brace, ensuring existing test coverage remains intact.
