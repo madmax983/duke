@@ -1,4 +1,8 @@
-#![allow(missing_docs)]
+//! Integration test for `jar-analyze` and `jar-scan` commands.
+//!
+//! This module contains tests to verify that the CLI correctly processes
+//! JAR files and outputs the expected analysis and security scan reports.
+
 use std::process::Command;
 use std::path::PathBuf;
 

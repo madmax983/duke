@@ -1,16 +1,4 @@
-🧨 **The Trigger:**
-Concurrent threads throwing Java exceptions with the same class name (e.g. `java/lang/IllegalArgumentException`) clobbered each other's pending state.
-
-📉 **The Stack Trace:**
-```
-thread 'test_pending_exception_state_leak' panicked at crates/duke-interpreter/tests/havoc_pending_exceptions_loom.rs:33:9:
-assertion `left == right` failed: Thread 1 received wrong exception message!
-  left: "thread2_error"
- right: "thread1_error"
-```
-
-🧪 **Reproduction:**
-Run `cargo test --test havoc_pending_exceptions_loom` (added in this PR).
-
-😈 **Comment:**
-You assumed exceptions in a multi-threaded VM wouldn't race. You put them in a global `HashMap` keyed only by the `class_name`. You were wrong. They are now scoped by `(std::thread::ThreadId, class_name)`.
+📖 Chapter: The test_jar_analyze_scan.rs module and duke_classfile imports
+🔦 Insight: The test_jar_analyze_scan.rs integration test contained a global suppression for allow(missing_docs). This suppression was removed, and proper module-level //! documentation was added to describe its purpose. Additionally, fixed an unresolved import error (duke_classfile::types) by importing types directly from the crate root and adding explicit closure argument types (|slot: &Option<CpEntry>|) to resolve compiler inference errors ([E0282]), addressing broken code that prevented doc generation.
+🧪 Example: N/A
+🖼️ Preview: N/A
