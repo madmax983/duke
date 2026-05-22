@@ -1,0 +1,7 @@
+🔭 Vantage: Spec for java.lang.String.equalsIgnoreCase
+
+* 👤 **User Story:** As a Java Application Developer running on Duke, I want the VM to natively support java.lang.String.equalsIgnoreCase, so that my applications and dependencies can parse configurations and standard formats seamlessly without crashing.
+* ✅ **Acceptance Criteria:**
+  - Must return true if strings match ignoring case.
+  - Must return false if null or lengths differ.
+* 🚫 **Out of Scope:** Full locale-dependent Unicode case folding.
