@@ -1,0 +1,6 @@
+🗺️ Atlas: Encapsulate module facades and fix broken imports
+
+🕸️ Tangle: The `duke_classfile` and `duke-telemetry` APIs exposed internal module structures. `jar_diff.rs` had broken imports and type inferences due to previous incomplete refactoring.
+📐 Blueprint: Fixed the `jar_diff.rs` imports and type inference issues. Changed `pub mod ser_helpers` to `pub(crate) mod ser_helpers` in `duke-telemetry`.
+🧱 Stability: Reduced coupling, enforced encapsulation, and fixed build errors.
+🔬 Verification: Builds successfully, strict separation enforced.
