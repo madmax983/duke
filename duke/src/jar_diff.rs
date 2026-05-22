@@ -1,11 +1,15 @@
+//! The `jar_diff` module provides utilities for comparing the bytecode contents of two Java `ARchive` (JAR) files.
+//!
+//! This module is primarily used as a diagnostic tool to understand how Java libraries evolve.
+//! It opens two JAR files, parses all contained `.class` files, extracts the raw `Code` attributes
+//! for each method, and calculates a hash. By comparing these hashes, it can definitively tell you
+//! which methods were added, removed, or had their implementation changed.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +22,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +42,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -48,6 +52,29 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     }
 }
 
+/// Analyzes and prints the differences between two JAR files to standard output.
+///
+/// This function computes the structural difference between `jar1_path` and `jar2_path`
+/// by evaluating the methods present in their respective `.class` files. It identifies
+/// methods that have been added, removed, or modified (based on bytecode hashing) and
+/// prints a human-readable summary.
+///
+/// # Panics
+///
+/// This function currently does not panic, as it gracefully falls back to empty hash maps
+/// if either JAR file cannot be opened or parsed.
+///
+/// # Examples
+///
+/// ```no_run
+/// # #[cfg(feature = "nova")]
+/// # {
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// // Compare two versions of a library to see what changed
+/// dump_jar_diff("v1.jar", "v2.jar");
+/// # }
+/// ```
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(

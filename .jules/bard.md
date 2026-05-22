@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [jar_diff Documentation]
+**Confusion:** The `duke/src/jar_diff.rs` module lacked both module-level and function-level documentation, making it unclear what its purpose was and how to use it. Additionally, there was a missing backtick around "ARchive" which caused a clippy `doc_markdown` warning.
+**Clarification:** Added module-level documentation (`//!`) explaining its role as a diagnostic tool. Added detailed function-level documentation (`///`) for `dump_jar_diff`, including an `## Examples` section and a `## Panics` section. Fixed the `doc_markdown` warning by ensuring proper formatting.
