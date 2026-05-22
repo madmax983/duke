@@ -47,15 +47,18 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
     for (i, (pc, instr)) in instructions.iter().enumerate() {
         let mnemonic = instr.mnemonic();
         // Add node
-        let _ = writeln!(cfg, "    node{pc}[\"{pc}: {mnemonic}\"]");
+        writeln!(cfg, "    node{pc}[\"{pc}: {mnemonic}\"]")
+            .expect("Writing to String is infallible");
 
         // Add edges
         let next_pc = instructions.get(i + 1).map(|(p, _)| *p);
         for (target, label) in instr.control_flow_edges(*pc, next_pc) {
             if let Some(label) = label {
-                let _ = writeln!(cfg, "    node{pc} -->|{label}| node{target}");
+                writeln!(cfg, "    node{pc} -->|{label}| node{target}")
+                    .expect("Writing to String is infallible");
             } else {
-                let _ = writeln!(cfg, "    node{pc} --> node{target}");
+                writeln!(cfg, "    node{pc} --> node{target}")
+                    .expect("Writing to String is infallible");
             }
         }
     }
@@ -400,13 +403,15 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
 
         // Node definition
         let mut node_label = String::with_capacity(32 + block.instructions.len() * 16);
-        let _ = writeln!(node_label, "Block {block_id}");
+        writeln!(node_label, "Block {block_id}").expect("Writing to String is infallible");
         for (pc, instr) in &block.instructions {
-            let _ = writeln!(node_label, "{}: {}", pc, instr.mnemonic());
+            writeln!(node_label, "{}: {}", pc, instr.mnemonic())
+                .expect("Writing to String is infallible");
         }
         // Escape quotes
         let node_label = node_label.replace('"', "\\\"");
-        let _ = writeln!(cfg, "    block{block_id}[\"{node_label}\"]");
+        writeln!(cfg, "    block{block_id}[\"{node_label}\"]")
+            .expect("Writing to String is infallible");
 
         // Edge definition based on the last instruction
         if let Some((last_pc, last_instr)) = block.instructions.last() {
@@ -418,9 +423,11 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
             };
             for (target, label) in last_instr.control_flow_edges(*last_pc, next_pc) {
                 if let Some(label) = label {
-                    let _ = writeln!(cfg, "    block{block_id} -->|{label}| block{target}");
+                    writeln!(cfg, "    block{block_id} -->|{label}| block{target}")
+                        .expect("Writing to String is infallible");
                 } else {
-                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
+                    writeln!(cfg, "    block{block_id} --> block{target}")
+                        .expect("Writing to String is infallible");
                 }
             }
         }

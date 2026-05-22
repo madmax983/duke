@@ -148,7 +148,7 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
 
     // Output unique edges
     for edge in edges {
-        let _ = writeln!(cg, "{edge}");
+        writeln!(cg, "{edge}").expect("Writing to String is infallible");
     }
 
     cg
