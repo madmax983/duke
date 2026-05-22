@@ -267,28 +267,7 @@ impl ZipReader {
 
         let decompressed = match info.compression_method {
             METHOD_STORED => compressed.to_vec(),
-            METHOD_DEFLATED => {
-                let decoder = flate2::read::DeflateDecoder::new(compressed);
-                let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
-                let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
-                if cap > max_size {
-                    return Err(Error::ZipFormat {
-                        msg: format!(
-                            "entry '{}' uncompressed size {} exceeds limit {}",
-                            info.name, cap, max_size
-                        ),
-                    });
-                }
-                let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
-                decoder
-                    .take(max_size as u64)
-                    .read_to_end(&mut buf)
-                    .map_err(|_| Error::ZipFormat {
-                        msg: format!("failed to deflate entry '{}'", info.name),
-                    })?;
-
-                buf
-            }
+            METHOD_DEFLATED => decompress_deflated(compressed, info)?,
             other => {
                 return Err(Error::ZipFormat {
                     msg: format!(
@@ -1611,4 +1590,26 @@ mod proptests {
             let _ = reader.read_entry_info(&info);
         }
     }
+}
+
+fn decompress_deflated(compressed: &[u8], info: &ZipEntryInfo) -> Result<Vec<u8>> {
+    let decoder = flate2::read::DeflateDecoder::new(compressed);
+    let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
+    let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+    if cap > max_size {
+        return Err(Error::ZipFormat {
+            msg: format!(
+                "entry '{}' uncompressed size {} exceeds limit {}",
+                info.name, cap, max_size
+            ),
+        });
+    }
+    let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
+    decoder
+        .take(max_size as u64)
+        .read_to_end(&mut buf)
+        .map_err(|_| Error::ZipFormat {
+            msg: format!("failed to deflate entry '{}'", info.name),
+        })?;
+    Ok(buf)
 }
