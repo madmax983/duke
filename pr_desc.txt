@@ -1,0 +1,8 @@
+🔭 Vantage: Spec for String.equalsIgnoreCase
+
+* 👤 **User Story:** "As a Java Framework Developer, I want the VM to support `java.lang.String.equalsIgnoreCase`, so that my applications can perform case-insensitive string comparisons correctly."
+* ✅ **Acceptance Criteria:**
+  - Must implement the native bridge for `java.lang.String.equalsIgnoreCase(Ljava/lang/String;)Z`.
+  - Must handle `null` references gracefully.
+  - Must compare strings ignoring case.
+* 🚫 **Out of Scope:** Full locale-dependent case folding.
