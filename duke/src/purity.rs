@@ -2,9 +2,7 @@
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse, {AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 use std::process;
 
 #[cfg(feature = "nova")]
@@ -13,7 +11,7 @@ use std::process;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())

@@ -2,9 +2,7 @@
 #[cfg(feature = "nova")]
 use duke_bytecode::{build_basic_blocks, decode, find_shortest_path};
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse, {AttributeData, CpEntry},
-};
+use duke_classfile::{AttributeData, CpEntry, parse};
 use std::process;
 
 #[cfg(feature = "nova")]

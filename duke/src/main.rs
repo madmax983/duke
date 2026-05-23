@@ -37,9 +37,7 @@ use duke_bytecode::{
     build_basic_blocks, decode, generate_basic_block_cfg, generate_mermaid_call_graph,
     generate_mermaid_cfg,
 };
-use duke_classfile::{
-    ClassFile, MethodAccessFlags, parse, {AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, ClassFile, CpEntry, CpIndex, MethodAccessFlags, parse};
 use duke_gc::Heap;
 use duke_interpreter::{
     ClassRegistry, bootstrap_stdlib, build_class_context, execute_class_to_completion,
@@ -1359,7 +1357,7 @@ fn dump_class_file(cf: &ClassFile) {
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -1376,7 +1374,7 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<duke_classfile::CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
     } else {
