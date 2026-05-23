@@ -1,0 +1,11 @@
+👺 Havoc: JDWP Server OOM via Malicious ObjectReference/StackFrame.GetValues
+
+🧨 **The Trigger:** The JDWP Server `dispatch_command` reads the `count` of items requested directly from the payload `payload[8..12]` without any upper bound validation, and uses it to construct a `Vec` and then push `count` elements in a `for` loop. An attacker can supply a malicious count like `0x3FFFFFFF` (1 billion) to force the host JVM to allocate huge amounts of memory and crash with an Out Of Memory panic.
+📉 **The Stack Trace:**
+```
+memory allocation of 10737418240 bytes failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Aborted
+```
+🧪 **Reproduction:** Run `cargo test -p duke --test havoc_jdwp_oom` (Added a test that spins up the duke JDWP agent, attaches via TCP, and sends a malicious request with a massive `count`, verifying the JVM crashes).
+😈 **Comment:** "You trusted the network payload size without question. Now your server is dead."
