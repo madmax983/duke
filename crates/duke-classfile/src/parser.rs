@@ -129,6 +129,10 @@ impl<'a> Cursor<'a> {
 /// Returns an error if the input is truncated, has an invalid magic number,
 /// an unsupported version, or any structural inconsistency.
 ///
+/// # Panics
+///
+/// This function is designed to be completely panic-free on arbitrary input.
+///
 /// # Examples
 ///
 /// ```
@@ -410,6 +414,32 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 ///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
+///
+/// # Errors
+///
+/// Returns an error if an attribute name cannot be found in the constant pool,
+/// or if an attribute's data is malformed.
+///
+/// # Panics
+///
+/// This function does not panic.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{AttributeInfo, AttributeData, CpIndex, CpEntry};
+/// use duke_classfile::resolve_attributes;
+///
+/// let mut attrs = vec![
+///     AttributeInfo {
+///         name_index: CpIndex(1),
+///         data: AttributeData::Raw(vec![]),
+///     }
+/// ];
+/// let pool = vec![None, Some(CpEntry::Utf8("UnknownAttribute".to_string()))];
+/// let result = resolve_attributes(&mut attrs, &pool);
+/// assert!(result.is_ok()); // Unknown attributes remain raw.
+/// ```
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
@@ -615,6 +645,27 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
+///
+/// # Errors
+///
+/// Returns `Error::CpIndexZero` if index is 0.
+/// Returns `Error::CpPhantomSlot` if index points to a phantom slot (after Long/Double).
+/// Returns `Error::CpIndexOutOfBounds` if the index is out of bounds or not a Utf8 entry.
+///
+/// # Panics
+///
+/// This function is safe and does not panic.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{CpIndex, CpEntry, Error};
+/// use duke_classfile::cp_utf8;
+///
+/// let pool = vec![None, Some(CpEntry::Utf8("Hello".to_string()))];
+/// let result = cp_utf8(&pool, CpIndex(1));
+/// assert_eq!(result.unwrap(), "Hello");
+/// ```
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {
