@@ -7,8 +7,29 @@ pub mod ser_helpers {
 
     /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.
     ///
+    /// This allows serialization of complex map keys that serde does not support natively,
+    /// by transforming the key into a formatted string on-the-fly.
+    ///
     /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
     /// collection, avoiding heap allocations and hashing overhead during telemetry generation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde::Serialize;
+    /// use duke_telemetry::ser_helpers::keyed_map;
+    ///
+    /// #[derive(Serialize)]
+    /// struct MyWrapper {
+    ///     #[serde(serialize_with = "custom_ser")]
+    ///     map: HashMap<(i32, i32), String>,
+    /// }
+    ///
+    /// fn custom_ser<S: serde::Serializer>(map: &HashMap<(i32, i32), String>, ser: S) -> Result<S::Ok, S::Error> {
+    ///     keyed_map(map, ser, |(k1, k2)| format!("{}|{}", k1, k2))
+    /// }
+    /// ```
     pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
     where
         K: Eq + std::hash::Hash,
@@ -23,7 +44,23 @@ pub mod ser_helpers {
         map_ser.end()
     }
 
-    /// `HashMap<(class, method, pc), V>` → `"class::method@pc"`.
+    /// Serializes a `HashMap<(String, String, usize), V>` into a map with keys formatted as `"class::method@pc"`.
+    ///
+    /// Used for execution sites in telemetry data (e.g. tracking exceptions thrown at a specific instruction).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde::Serialize;
+    /// use duke_telemetry::ser_helpers::site3;
+    ///
+    /// #[derive(Serialize)]
+    /// struct SiteWrapper {
+    ///     #[serde(serialize_with = "site3")]
+    ///     map: HashMap<(String, String, usize), i32>,
+    /// }
+    /// ```
     pub fn site3<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String, usize), V>,
         ser: S,
@@ -31,7 +68,23 @@ pub mod ser_helpers {
         keyed_map(map, ser, |(c, m, pc)| format!("{c}::{m}@{pc}"))
     }
 
-    /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
+    /// Serializes a `HashMap<(String, u16), V>` into a map with keys formatted as `"class@cp"`.
+    ///
+    /// Used for constant pool resolution telemetry (e.g. tracking when a class resolves a specific CP index).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde::Serialize;
+    /// use duke_telemetry::ser_helpers::site2_u16;
+    ///
+    /// #[derive(Serialize)]
+    /// struct CpWrapper {
+    ///     #[serde(serialize_with = "site2_u16")]
+    ///     map: HashMap<(String, u16), String>,
+    /// }
+    /// ```
     pub fn site2_u16<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, u16), V>,
         ser: S,
@@ -39,7 +92,23 @@ pub mod ser_helpers {
         keyed_map(map, ser, |(c, cp)| format!("{c}@{cp}"))
     }
 
-    /// `HashMap<(class, method), V>` → `"class::method"`.
+    /// Serializes a `HashMap<(String, String), V>` into a map with keys formatted as `"class::method"`.
+    ///
+    /// Used for method-level telemetry (e.g. tracking native boundary calls).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde::Serialize;
+    /// use duke_telemetry::ser_helpers::pair_str;
+    ///
+    /// #[derive(Serialize)]
+    /// struct MethodWrapper {
+    ///     #[serde(serialize_with = "pair_str")]
+    ///     map: HashMap<(String, String), i32>,
+    /// }
+    /// ```
     pub fn pair_str<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String), V>,
         ser: S,
@@ -47,7 +116,24 @@ pub mod ser_helpers {
         keyed_map(map, ser, |(c, m)| format!("{c}::{m}"))
     }
 
-    /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
+    /// Serializes a `HashSet<String>` as a sorted `Vec<String>`.
+    ///
+    /// Ensures deterministic JSON output for telemetry reporting, which is critical for
+    /// snapshot testing and diffing.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    /// use serde::Serialize;
+    /// use duke_telemetry::ser_helpers::sorted_set;
+    ///
+    /// #[derive(Serialize)]
+    /// struct SetWrapper {
+    ///     #[serde(serialize_with = "sorted_set")]
+    ///     set: HashSet<String>,
+    /// }
+    /// ```
     pub fn sorted_set<S: serde::Serializer>(
         set: &std::collections::HashSet<String>,
         ser: S,

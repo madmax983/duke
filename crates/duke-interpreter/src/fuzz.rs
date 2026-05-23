@@ -1,3 +1,4 @@
+//! Fuzzing utilities and hooks.
 #[cfg(test)]
 mod tests {
     #![allow(clippy::large_stack_arrays)]

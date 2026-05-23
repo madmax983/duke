@@ -1,0 +1,6 @@
+🎻 Bard: [documentation update]
+
+📖 Chapter: duke-telemetry ser_helpers
+🔦 Insight: Clarified undocumented serialization helpers and fuzzing modules
+🧪 Example: Added executable doctests for keyed_map and others
+🖼️ Preview: Generated docs successfully

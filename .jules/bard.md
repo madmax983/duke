@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-24 - [ser_helpers Module Missing Docs]
+**Confusion:** The helper functions in `duke-telemetry/src/helpers.rs` like `site3`, `pair_str`, and `sorted_set` were completely undocumented. This made it difficult for developers to understand how complex telemetry map keys are serialized without hitting heap allocations.
+**Clarification:** Added complete rustdocs including explanations for why they exist and executable doctests demonstrating how to use them with `serde::Serialize`.

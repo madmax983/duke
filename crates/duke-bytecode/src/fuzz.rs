@@ -1,3 +1,4 @@
+//! Fuzzing utilities and hooks.
 #[cfg(test)]
 mod tests {
     use crate::decoder::decode;
