@@ -1,0 +1,4 @@
+📖 Chapter: The `jar_diff` module.
+🔦 Insight: Explained how the cartographer `jar_diff` parses structural `Code` hashes to find true bytecode changes between archives.
+🧪 Example: Added an executable doctest demonstrating usage with `dump_jar_diff`.
+🖼️ Preview: The documentation explicitly lists panic behaviors and avoids mere repetition.

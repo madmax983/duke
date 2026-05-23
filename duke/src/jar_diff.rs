@@ -1,10 +1,25 @@
+//! The `jar_diff` module: A Tale of Two Archives.
+//!
+//! # The Story
+//!
+//! Imagine two massive, sprawling cities of bytecode—one built yesterday, one built today.
+//! How do you find what changed? The `jar_diff` module is our cartographer. It takes two
+//! JAR files and meticulously compares every single class and method within them,
+//! revealing exactly what was added, removed, or subtly modified in the bytecode.
+//!
+//! # The Magic
+//!
+//! Rather than relying on simple file sizes or timestamps, `jar_diff` parses the raw `.class`
+//! files using `duke_classfile` and computes a structural hash of the `Code` attributes. This
+//! means it only flags a method as modified if the actual executable instructions have changed,
+//! ignoring metadata noise.
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
 use duke_classfile::{
     parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    {AttributeData, CpEntry, CpIndex},
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
@@ -18,7 +33,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +53,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<duke_classfile::CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -56,6 +71,19 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Calculates the symmetric difference of methods across two JAR versions.
+///
+/// # Examples
+/// ```no_run
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// // Analyze the differences between v1 and v2 of a library.
+/// dump_jar_diff("old_app.jar", "new_app.jar");
+/// ```
+///
+/// # Panics
+/// The function gracefully skips invalid JARs and unreadable files, returning an empty set of changes.
+/// It does not intentionally panic.
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);

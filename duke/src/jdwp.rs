@@ -1,3 +1,8 @@
+//! Java Debug Wire Protocol (JDWP) server implementation.
+//!
+//! Handles debugging connections, packet parsing, and command execution
+//! for IDEs like `IntelliJ` or Eclipse to connect to the Duke JVM.
+
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
