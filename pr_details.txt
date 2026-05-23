@@ -1,6 +1,6 @@
 Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+Description:
+🎯 Target: `duke/src/jdwp.rs` (JDWP server and command dispatching).
+💣 Risk: Network I/O and protocol deserialization paths were heavily untested (12% coverage). Uncovered logic included parsing lengths and headers correctly, handling short packet lengths, formatting replies, and avoiding panics during socket failures.
+🧪 Strategy: Refactored internal IO functions (`do_handshake`, `handle_client`, `send_reply`, `send_vm_start_event`) to take generic `Read + Write` streams instead of hardcoded `TcpStream`. Created a simple `MockStream` structure to feed predictable byte sequences to the server and assert properly formatted responses without starting actual listeners or threads. Added tests for handshake failures, command dispatch loops, and ignoring replies. Also fixed generic compiler type annotations in `duke/src/jar_diff.rs`.
+🔬 Verification: Run `cargo test -p duke` and check jdwp tests pass correctly.

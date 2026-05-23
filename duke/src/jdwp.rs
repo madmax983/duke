@@ -1,5 +1,4 @@
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, mpsc};
 
@@ -89,7 +88,7 @@ pub fn start(config: &JdwpConfig) -> std::io::Result<JdwpServer> {
     Ok(JdwpServer { attached_rx })
 }
 
-fn do_handshake(stream: &mut TcpStream) -> std::io::Result<bool> {
+fn do_handshake<S: std::io::Read + std::io::Write>(stream: &mut S) -> std::io::Result<bool> {
     let mut buf = [0u8; 14];
     stream.read_exact(&mut buf)?;
     if buf != HANDSHAKE {
@@ -99,8 +98,8 @@ fn do_handshake(stream: &mut TcpStream) -> std::io::Result<bool> {
     Ok(true)
 }
 
-fn handle_client(
-    stream: &mut TcpStream,
+fn handle_client<S: std::io::Read + std::io::Write>(
+    stream: &mut S,
     next_request_id: &AtomicI32,
     vm_suspended: &AtomicBool,
 ) -> std::io::Result<()> {
@@ -204,7 +203,12 @@ fn dispatch_command(
     }
 }
 
-fn send_reply(stream: &mut TcpStream, id: i32, err: u16, data: &[u8]) -> std::io::Result<()> {
+fn send_reply<S: std::io::Read + std::io::Write>(
+    stream: &mut S,
+    id: i32,
+    err: u16,
+    data: &[u8],
+) -> std::io::Result<()> {
     let len = 11_u32 + to_u32_len(data.len());
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(&id.to_be_bytes())?;
@@ -213,7 +217,10 @@ fn send_reply(stream: &mut TcpStream, id: i32, err: u16, data: &[u8]) -> std::io
     stream.write_all(data)
 }
 
-fn send_vm_start_event(stream: &mut TcpStream, suspended: bool) -> std::io::Result<()> {
+fn send_vm_start_event<S: std::io::Read + std::io::Write>(
+    stream: &mut S,
+    suspended: bool,
+) -> std::io::Result<()> {
     let mut data = Vec::new();
     data.push(if suspended { 2 } else { 0 });
     data.extend_from_slice(&1_u32.to_be_bytes());
@@ -386,4 +393,170 @@ mod tests {
         assert_eq!(out[0..4], 5_u32.to_be_bytes());
         assert_eq!(&out[4..], b"hello");
     }
+}
+
+#[cfg(test)]
+struct MockStream {
+    read_data: Vec<u8>,
+    written_data: Vec<u8>,
+}
+
+#[cfg(test)]
+impl std::io::Read for MockStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = std::cmp::min(self.read_data.len(), buf.len());
+        if len == 0 {
+            return Ok(0);
+        }
+        buf[..len].copy_from_slice(&self.read_data[..len]);
+        self.read_data = self.read_data[len..].to_vec();
+        Ok(len)
+    }
+}
+
+#[cfg(test)]
+impl std::io::Write for MockStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.written_data.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_do_handshake() {
+    let mut stream = MockStream {
+        read_data: HANDSHAKE.to_vec(),
+        written_data: Vec::new(),
+    };
+    let result = do_handshake(&mut stream).unwrap();
+    assert!(result);
+    assert_eq!(stream.written_data, HANDSHAKE);
+}
+
+#[test]
+fn test_do_handshake_fail() {
+    let mut stream = MockStream {
+        read_data: b"INVALID-HANDSH".to_vec(),
+        written_data: Vec::new(),
+    };
+    let result = do_handshake(&mut stream).unwrap();
+    assert!(!result);
+    assert!(stream.written_data.is_empty());
+}
+
+#[test]
+fn test_send_reply() {
+    let mut stream = MockStream {
+        read_data: Vec::new(),
+        written_data: Vec::new(),
+    };
+    send_reply(&mut stream, 1, 0, &[1, 2, 3]).unwrap();
+    // len is 11 + 3 = 14
+    let expected_len = 14_u32.to_be_bytes();
+    assert_eq!(&stream.written_data[0..4], &expected_len);
+    assert_eq!(&stream.written_data[4..8], &1_i32.to_be_bytes()); // id
+    assert_eq!(stream.written_data[8], REPLY_FLAG); // flags
+    assert_eq!(&stream.written_data[9..11], &0_u16.to_be_bytes()); // err
+    assert_eq!(&stream.written_data[11..], &[1, 2, 3]); // data
+}
+
+#[test]
+fn test_handle_client() {
+    // Mock client sending a command: length (4), id (4), flags (1), cmd_set (1), cmd (1)
+    let id = 123_i32.to_be_bytes();
+    let mut req = Vec::new();
+    req.extend_from_slice(&11_u32.to_be_bytes()); // length
+    req.extend_from_slice(&id);
+    req.push(0); // flags (not a reply)
+    req.push(1); // cmd_set = 1
+    req.push(1); // cmd = 1 (vm_version)
+
+    let mut stream = MockStream {
+        read_data: req,
+        written_data: Vec::new(),
+    };
+
+    let next_request_id = AtomicI32::new(1);
+    let vm_suspended = AtomicBool::new(false);
+    handle_client(&mut stream, &next_request_id, &vm_suspended).unwrap();
+
+    // Wait, handle_client loops until it can't read... so we should check what's written.
+    assert!(!stream.written_data.is_empty());
+    let written_len = u32::from_be_bytes([
+        stream.written_data[0],
+        stream.written_data[1],
+        stream.written_data[2],
+        stream.written_data[3],
+    ]);
+    assert_eq!(written_len as usize, stream.written_data.len());
+    assert_eq!(&stream.written_data[4..8], &id);
+}
+#[test]
+fn test_handle_client_no_reply() {
+    // Test when client sends a reply packet, it shouldn't be processed.
+    let id = 124_i32.to_be_bytes();
+    let mut req = Vec::new();
+    req.extend_from_slice(&11_u32.to_be_bytes()); // length
+    req.extend_from_slice(&id);
+    req.push(REPLY_FLAG); // reply flag
+    req.push(1); // cmd_set
+    req.push(1); // cmd
+
+    let mut stream = MockStream {
+        read_data: req,
+        written_data: Vec::new(),
+    };
+
+    let next_request_id = AtomicI32::new(1);
+    let vm_suspended = AtomicBool::new(false);
+    handle_client(&mut stream, &next_request_id, &vm_suspended).unwrap();
+
+    // It should have just ignored it and looped, then failed to read (0 bytes returned by MockStream) and returned Ok(())
+    assert!(stream.written_data.is_empty());
+}
+
+#[test]
+fn test_handle_client_short_length() {
+    // Test length < 11
+    let id = 125_i32.to_be_bytes();
+    let mut req = Vec::new();
+    req.extend_from_slice(&10_u32.to_be_bytes()); // length
+    req.extend_from_slice(&id);
+    req.push(0); // flags
+    req.push(1); // cmd_set
+    req.push(1); // cmd
+
+    let mut stream = MockStream {
+        read_data: req,
+        written_data: Vec::new(),
+    };
+
+    let next_request_id = AtomicI32::new(1);
+    let vm_suspended = AtomicBool::new(false);
+    handle_client(&mut stream, &next_request_id, &vm_suspended).unwrap();
+    assert!(stream.written_data.is_empty());
+}
+
+#[test]
+fn test_send_vm_start_event() {
+    let mut stream = MockStream {
+        read_data: Vec::new(),
+        written_data: Vec::new(),
+    };
+    send_vm_start_event(&mut stream, true).unwrap();
+
+    assert!(!stream.written_data.is_empty());
+    let len = u32::from_be_bytes([
+        stream.written_data[0],
+        stream.written_data[1],
+        stream.written_data[2],
+        stream.written_data[3],
+    ]);
+    assert_eq!(len as usize, stream.written_data.len());
+    // suspended = true -> suspend policy is 2
+    assert_eq!(stream.written_data[11], 2);
 }

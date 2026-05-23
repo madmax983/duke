@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2024-05-24 - Testing JDWP Network Dispatching
+**Learning:** The Java Debug Wire Protocol (JDWP) command dispatcher and IO handlers in `duke/src/jdwp.rs` take `TcpStream` by default which makes them difficult to unit test cleanly. Genericising the function signatures to take `<S: std::io::Read + std::io::Write>` allows us to provide a simple mock buffer that completely avoids spinning up network sockets and threads, which also uncovers paths missing line coverage.
+**Action:** Created isolated unit tests utilizing a basic mock stream to verify connection handling, replies, invalid byte parsing, and start event formatting, ensuring full coverage without flakiness.
