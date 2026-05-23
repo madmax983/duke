@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Refactoring `clippy` Closure Warnings**
+**Learning:** `clippy` occasionally flags closure inputs inside standard methods like `.and_then()` with `E0282: type annotations needed`. Adding explicit types (like `&Option<CpEntry>`) manually can lead to mismatched type signatures with standard library methods. The issue wasn't the closure itself, but rather `clippy` struggling because the previous `import` failure masked type resolution.
+**Action:** When seeing `E0282` in closures inside `.and_then()`, verify the surrounding imports and variable types are fully resolving first. Do not blindly add `|var: &Type|` explicit annotations, as they usually conflict with the standard method signature. Ensure all imports are correct, then the compiler can infer closure types automatically.

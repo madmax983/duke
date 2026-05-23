@@ -1,0 +1,7 @@
+Title: ⚒️ Forge: Refactored jar_diff.rs nesting and variable naming
+
+Description:
+🚮 Smell: The `duke/src/jar_diff.rs` had deep `if let` and `.and_then` nesting inside `cp_str`, `resolve_class_name`, and `load_jar_methods`, combined with slightly ambiguous closures. `clippy` flagged that type annotations were needed for closures.
+✨ Solution: I flattened the `if let` pyramids using `else { return ...; }` Guard Clauses, avoiding multiple nested scopes. Replaced type closures in `.and_then` with explicitly typed parameters `|slot: &Option<duke_classfile::CpEntry>|` and simplified the return paths. Corrected unresolved import paths.
+🧼 Benefit: Reduced cognitive load by removing nesting. Early returns clarify exactly when things fail.
+🛡️ Verification: Tests passed. No logic changed. Checked with `cargo check`, `cargo clippy`, and `cargo test`.
