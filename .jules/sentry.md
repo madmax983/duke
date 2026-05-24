@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Avoid Dirtying lib.rs for Output Formatting Tests
+**Learning:** Testing `print` formatting loops that return `Ok(())` upon successful iteration and propagating errors requires full integration testing with mock `Write` streams. Attempting to inline these inside `src/lib.rs` causes `clippy::items_after_statements` violations and duplicate name errors.
+**Action:** Extract format testing and complex mock struct declarations (e.g., `FailingWriter`) into dedicated files inside the `tests/` directory (like `tests/additional_coverage.rs`) to cleanly boost module coverage without littering production source files with `#[allow]` attributes.
