@@ -428,7 +428,7 @@ fn build_index(
         let ext_str = read_str(data, str_offset, attrs.extension);
 
         path_buf.clear();
-        build_jimage_path(&mut path_buf, mod_str, par_str, base_str, ext_str);
+        build_jimage_path(&mut path_buf, &mod_str, &par_str, &base_str, &ext_str);
         if !path_buf.is_empty() {
             index.insert(
                 path_buf.clone(),
@@ -496,21 +496,21 @@ fn split_class_name(name: &str) -> (&str, &str) {
 }
 
 /// Read a null-terminated UTF-8 string from the string table.
-fn read_str(data: &[u8], str_offset: usize, idx: u64) -> &str {
+fn read_str(data: &[u8], str_offset: usize, idx: u64) -> String {
     let Ok(idx_usize) = usize::try_from(idx) else {
-        return "";
+        return String::new();
     };
     let Some(start) = str_offset.checked_add(idx_usize) else {
-        return "";
+        return String::new();
     };
     if start >= data.len() {
-        return "";
+        return String::new();
     }
     let end = data[start..]
         .iter()
         .position(|&b| b == 0)
         .map_or(data.len(), |p| start + p);
-    std::str::from_utf8(&data[start..end]).unwrap_or("")
+    String::from_utf8_lossy(&data[start..end]).into_owned()
 }
 
 /// Read up to 8 bytes as a big-endian u64.

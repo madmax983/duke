@@ -11572,10 +11572,12 @@ fn register_java_host_thread(host_key: i32, host_thread_id: std::thread::ThreadI
 }
 
 fn unregister_java_host_thread(host_key: i32) {
-    let removed_host_thread = java_thread_hosts()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&host_key);
+    let removed_host_thread = {
+        java_thread_hosts()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&host_key)
+    };
     if let Some(host_thread_id) = removed_host_thread {
         interrupted_host_threads()
             .write()
