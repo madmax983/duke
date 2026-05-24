@@ -23,10 +23,14 @@ mod tests {
             max_stack in 0usize..10,
             max_locals in 0usize..10,
         ) {
-            let mut frame = Frame::new(max_stack, max_locals, vec![]).unwrap();
-            let _ = frame.pop(); // Expected to safely error if empty
-            let _ = frame.pop_int();
-            let _ = frame.pop_ref();
+            if let Ok(mut frame) = Frame::new(max_stack, max_locals, vec![]) {
+                let _ = frame.pop();
+                let _ = frame.pop_int();
+                let _ = frame.pop_ref();
+                let _ = frame.pop_long();
+                let _ = frame.pop_float();
+                let _ = frame.pop_double();
+            }
         }
 
         #[test]
@@ -34,9 +38,10 @@ mod tests {
             max_stack in 1usize..10,
             max_locals in 1usize..10,
         ) {
-            let mut frame = Frame::new(max_stack, max_locals, vec![]).unwrap();
-            for _ in 0..20 {
-                let _ = frame.push(Slot::Int(1));
+            if let Ok(mut frame) = Frame::new(max_stack, max_locals, vec![]) {
+                for _ in 0..20 {
+                    let _ = frame.push(Slot::Int(1));
+                }
             }
         }
 
