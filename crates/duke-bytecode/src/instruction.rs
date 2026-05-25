@@ -751,6 +751,25 @@ impl Instruction {
     /// ⚡ Bolt: By returning an iterator instead of allocating and collecting into
     /// a new `Vec`, we eliminate heap allocations during CFG generation and
     /// complexity calculation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::Instruction;
+    ///
+    /// let instr = Instruction::Tableswitch {
+    ///     default: 10,
+    ///     low: 0,
+    ///     high: 1,
+    ///     offsets: vec![20, 30],
+    /// };
+    ///
+    /// if let Some((default_target, mut targets)) = instr.switch_targets() {
+    ///     assert_eq!(default_target, 10);
+    ///     assert_eq!(targets.next(), Some((0, 20)));
+    ///     assert_eq!(targets.next(), Some((1, 30)));
+    /// }
+    /// ```
     #[must_use]
     pub fn switch_targets(&self) -> Option<(i32, SwitchTargets<'_>)> {
         match self {
@@ -799,6 +818,16 @@ impl Instruction {
 
     /// Returns all possible control flow targets (next PC values) from this instruction,
     /// including fall-through if applicable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::Instruction;
+    ///
+    /// let instr = Instruction::Ifeq(10); // Branch offset 10
+    /// let targets = instr.control_flow_targets(5, Some(8)); // Current PC 5, next PC 8
+    /// assert_eq!(targets, vec![15, 8]); // Target (5+10) and fallthrough (8)
+    /// ```
     #[allow(
         clippy::cast_possible_wrap,
         clippy::cast_sign_loss,
@@ -841,6 +870,19 @@ impl Instruction {
 
     /// Returns a list of target PCs and their optional edge labels (e.g., `"true"`, `"false"`, `"default"`)
     /// for control flow graph generation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::Instruction;
+    ///
+    /// let instr = Instruction::Ifeq(10);
+    /// let edges = instr.control_flow_edges(5, Some(8));
+    /// assert_eq!(edges[0].0, 15);
+    /// assert_eq!(edges[0].1, Some("true".to_string()));
+    /// assert_eq!(edges[1].0, 8);
+    /// assert_eq!(edges[1].1, Some("false".to_string()));
+    /// ```
     #[must_use]
     #[allow(
         clippy::cast_possible_wrap,

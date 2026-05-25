@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-25 - The "Missing" Link and "The Ghost" Params
+**Confusion:** Some core parsing and resolution functions in `duke-classfile` and `duke-bytecode` were missing clear code examples, causing confusion about how to use them safely without panicking.
+**Clarification:** Added executable `/// # Examples` tests to `cp_utf8`, `resolve_attributes` in `parser.rs`, and `control_flow_targets`, `control_flow_edges`, and `switch_targets` in `instruction.rs` to clearly demonstrate API usage and error handling.

@@ -410,6 +410,36 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 ///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{resolve_attributes, AttributeInfo, AttributeData, CpEntry, CpIndex};
+///
+/// let pool = vec![
+///     None, // 0 is reserved
+///     Some(CpEntry::Utf8("SourceFile".to_string())), // index 1
+/// ];
+/// let mut attrs = vec![
+///     AttributeInfo {
+///         name_index: CpIndex(1),
+///         data: AttributeData::Raw(vec![0x00, 0x01]),
+///     }
+/// ];
+///
+/// let result = resolve_attributes(&mut attrs, &pool);
+/// // The raw bytes 0x00, 0x01 will be interpreted as cp_index 1 for SourceFile attribute, so it parses successfully.
+/// assert!(result.is_ok());
+/// if let AttributeData::SourceFile { sourcefile_index } = attrs[0].data {
+///     assert_eq!(sourcefile_index, CpIndex(1));
+/// } else {
+///     panic!("Expected SourceFile attribute");
+/// }
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if the attribute name is not found in the constant pool or if decoding fails.
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
@@ -615,6 +645,23 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{cp_utf8, CpEntry, CpIndex};
+///
+/// let pool = vec![
+///     None, // index 0 is reserved
+///     Some(CpEntry::Utf8("Hello".to_string())),
+/// ];
+/// assert_eq!(cp_utf8(&pool, CpIndex(1)).unwrap(), "Hello");
+/// assert!(cp_utf8(&pool, CpIndex(0)).is_err()); // index 0 is an error
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if the index is zero or out of bounds, or if the entry is not a Utf8 string.
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {

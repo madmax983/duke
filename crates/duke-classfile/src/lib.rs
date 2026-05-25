@@ -27,7 +27,7 @@ pub use crate::class::*;
 pub use crate::constant_pool::*;
 pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, Result};
-pub use parser::parse;
+pub use parser::{parse, resolve_attributes, cp_utf8};
 
 #[cfg(test)]
 mod tests {
