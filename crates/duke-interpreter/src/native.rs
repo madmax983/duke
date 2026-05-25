@@ -11572,11 +11572,10 @@ fn register_java_host_thread(host_key: i32, host_thread_id: std::thread::ThreadI
 }
 
 fn unregister_java_host_thread(host_key: i32) {
-    let removed_host_thread = java_thread_hosts()
+    let mut hosts_write = java_thread_hosts()
         .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&host_key);
-    if let Some(host_thread_id) = removed_host_thread {
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(host_thread_id) = hosts_write.remove(&host_key) {
         interrupted_host_threads()
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -11601,11 +11600,16 @@ fn java_host_key_for_current_host() -> Option<i32> {
         .find_map(|(host_key, mapped_host)| (*mapped_host == host_thread_id).then_some(*host_key))
 }
 
-fn interrupt_host_thread(host_thread_id: std::thread::ThreadId) {
-    interrupted_host_threads()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(host_thread_id);
+fn interrupt_host_thread_by_key(host_key: i32) {
+    let hosts_read = java_thread_hosts()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(&host_thread_id) = hosts_read.get(&host_key) {
+        interrupted_host_threads()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(host_thread_id);
+    }
 }
 
 fn current_host_thread_is_interrupted() -> bool {
@@ -13323,9 +13327,7 @@ pub(crate) fn native_thread_interrupt(
         _ => -1,
     };
     heap.write_field(thread_ref, THREAD_INTERRUPTED_SLOT, Slot::Int(1))?;
-    if let Some(host_thread_id) = host_thread_for_java_thread(host_key) {
-        interrupt_host_thread(host_thread_id);
-    }
+    interrupt_host_thread_by_key(host_key);
     Ok(None)
 }
 
@@ -21185,7 +21187,7 @@ fn spawn_java_thread(
             )
         };
         if interrupted_before_start {
-            interrupt_host_thread(host_thread_id);
+            interrupt_host_thread_by_key(host_key);
         }
         let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
         {
