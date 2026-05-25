@@ -292,6 +292,9 @@ impl TelemetryStore {
         for (name, stat) in ops.iter().take(10) {
             writeln!(out, "| `{name}` | {} | {} |", stat.count, stat.total_ns).unwrap();
         }
+        if self.bytecode_cost.by_opcode.is_empty() {
+            writeln!(out, "| (none) | 0 | 0 |").unwrap();
+        }
         writeln!(out).unwrap();
     }
 
@@ -309,6 +312,9 @@ impl TelemetryStore {
                 site.class_allocated, site.count
             )
             .unwrap();
+        }
+        if self.object_lineage.sites.is_empty() {
+            writeln!(out, "| (none) | (none) | 0 |").unwrap();
         }
         writeln!(out).unwrap();
     }
@@ -368,6 +374,9 @@ impl TelemetryStore {
             )
             .unwrap();
         }
+        if self.dispatch_resolution.by_site.is_empty() {
+            writeln!(out, "| (none) | 0 | 0 | 0 |").unwrap();
+        }
         writeln!(out).unwrap();
     }
 
@@ -385,6 +394,9 @@ impl TelemetryStore {
                 stat.calls, stat.errors, stat.total_ns
             )
             .unwrap();
+        }
+        if self.native_boundary.by_method.is_empty() {
+            writeln!(out, "| (none) | 0 | 0 | 0 |").unwrap();
         }
         writeln!(out).unwrap();
     }
@@ -417,6 +429,17 @@ mod tests {
         ));
         assert!(md.contains("\"java/lang/System\" -->|500ns| \"java/lang/String\";"));
         assert!(md.contains("```"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn telemetry_store_to_markdown_report_empty() {
+        let store = TelemetryStore::default();
+        let md = store.to_markdown_report();
+        assert!(md.contains("| (none) | 0 | 0 |"));
+        assert!(md.contains("No class initialization events recorded."));
+        assert!(md.contains("No exception flow events recorded."));
+        assert!(md.contains("| (none) | 0 | 0 | 0 |"));
     }
 
     #[test]

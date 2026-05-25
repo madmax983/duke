@@ -1,0 +1,9 @@
+🛡️ Sentry: [test coverage improvement]
+
+🎯 Target: `duke-telemetry::lib::TelemetryStore::to_markdown_report`
+
+💣 Risk: Incomplete or empty data can cause issues with markdown output or render non-descriptive empty sections. By adding conditional branches handling empty states for missing report categories (`bytecode_cost`, `object_lineage`, `dispatch_resolution`, `native_boundary`), we ensure proper degradation. Also tests the default branch in `to_markdown_report` properly.
+
+🧪 Strategy: Updated `markdown_*` functions inside `TelemetryStore` to emit an explicit empty row `| (none) | 0 | ... |` if their respective maps are empty. This ensures the table structure in markdown remains valid even if no events of that type were collected. Added test `telemetry_store_to_markdown_report_empty` to ensure it formats an empty store correctly.
+
+🔬 Verification: `cargo test -p duke-telemetry` && `cargo tarpaulin --packages duke-telemetry`
