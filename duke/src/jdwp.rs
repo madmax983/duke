@@ -7,6 +7,7 @@ const HANDSHAKE: &[u8] = b"JDWP-Handshake";
 const REPLY_FLAG: u8 = 0x80;
 const ERR_NONE: u16 = 0;
 const ERR_NOT_IMPLEMENTED: u16 = 99;
+const ERR_OUT_OF_MEMORY: u16 = 110;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JdwpConfig {
@@ -171,6 +172,9 @@ fn dispatch_command(
             let count = payload
                 .get(8..12)
                 .map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+            if count > 65535 {
+                return (ERR_OUT_OF_MEMORY, vec![], false);
+            }
             let mut out = Vec::new();
             out.extend_from_slice(&count.to_be_bytes());
             for _ in 0..count {
@@ -185,6 +189,9 @@ fn dispatch_command(
             let slots = payload
                 .get(8..12)
                 .map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+            if slots > 65535 {
+                return (ERR_OUT_OF_MEMORY, vec![], false);
+            }
             let mut out = Vec::new();
             out.extend_from_slice(&slots.to_be_bytes());
             for _ in 0..slots {
@@ -385,5 +392,25 @@ mod tests {
         write_string(&mut out, "hello");
         assert_eq!(out[0..4], 5_u32.to_be_bytes());
         assert_eq!(&out[4..], b"hello");
+    }
+}
+
+#[cfg(test)]
+mod havoc_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicI32};
+
+    #[test]
+    fn havoc_jdwp_oom_object_reference_get_values() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+        let mut payload = vec![0; 12];
+        payload[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+
+        let (err, _, _) = dispatch_command(9, 2, &payload, &req_id, &suspended);
+        assert_eq!(err, super::ERR_OUT_OF_MEMORY);
+
+        let (err, _, _) = dispatch_command(16, 1, &payload, &req_id, &suspended);
+        assert_eq!(err, super::ERR_OUT_OF_MEMORY);
     }
 }
