@@ -281,4 +281,24 @@ mod tests {
         // Unreachable
         assert!(find_shortest_path(&blocks, 0, 6).is_none());
     }
+    #[test]
+    fn test_find_shortest_path_empty_blocks() {
+        let blocks = vec![];
+        let path = find_shortest_path(&blocks, 0, 10);
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn test_find_dead_blocks_empty_blocks() {
+        let blocks = vec![];
+        let dead = find_dead_blocks(&blocks, 0);
+        assert!(dead.is_empty());
+    }
+
+    #[test]
+    fn test_find_shortest_path_invalid_start_pc() {
+        let instructions = vec![(0, Instruction::Ireturn)];
+        let blocks = build_basic_blocks(&instructions);
+        assert!(find_shortest_path(&blocks, 1, 0).is_none());
+    }
 }

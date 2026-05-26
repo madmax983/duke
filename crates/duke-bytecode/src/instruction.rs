@@ -1567,4 +1567,38 @@ mod tests {
         assert!(!Instruction::Ifeq(0).is_unconditional_jump());
         assert!(!Instruction::Nop.is_unconditional_jump());
     }
+    #[test]
+    fn test_is_return_all() {
+        let return_instructions = [
+            Instruction::Ireturn,
+            Instruction::Lreturn,
+            Instruction::Freturn,
+            Instruction::Dreturn,
+            Instruction::Areturn,
+            Instruction::Return,
+            Instruction::Athrow,
+        ];
+        for instr in return_instructions {
+            assert!(instr.is_return());
+        }
+    }
+
+    #[test]
+    fn test_control_flow_targets() {
+        assert_eq!(Instruction::Return.control_flow_targets(0, Some(1)), vec![]);
+        assert_eq!(Instruction::Goto(10).control_flow_targets(5, Some(8)), vec![15]);
+        assert_eq!(Instruction::Jsr(10).control_flow_targets(5, Some(8)), vec![15, 8]);
+        assert_eq!(Instruction::Ifeq(10).control_flow_targets(5, Some(8)), vec![15, 8]);
+        assert_eq!(Instruction::Ifeq(10).control_flow_targets(5, None), vec![15]);
+
+        assert_eq!(Instruction::Tableswitch {
+            default: 10,
+            low: 0,
+            high: 1,
+            offsets: vec![20, 30],
+        }.control_flow_targets(5, Some(8)), vec![15, 25, 35]);
+
+        assert_eq!(Instruction::Nop.control_flow_targets(5, Some(8)), vec![8]);
+        assert_eq!(Instruction::Nop.control_flow_targets(5, None), vec![]);
+    }
 }

@@ -1225,4 +1225,11 @@ mod tests {
         let mut cursor4 = Cursor::new(&[0xFF, 0xFF]);
         assert_eq!(cursor4.read_i16().unwrap(), -1);
     }
+    #[test]
+    fn test_cursor_unexpected_eof() {
+        let mut cursor = Cursor::new(&[0x01]);
+        assert!(cursor.read_u16().is_err());
+        let mut cursor = Cursor::new(&[0x01, 0x02, 0x03]);
+        assert!(cursor.read_u32().is_err());
+    }
 }

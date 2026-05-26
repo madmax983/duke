@@ -1,6 +1,26 @@
 🛡️ Sentry: [test coverage improvement]
 
-🎯 Target: native_reentrant_read_write_lock_* and native_priorityqueue_peek in crates/duke-interpreter/src/native.rs.
-💣 Risk: These native implementations lacked unit test coverage. Changes or refactors to how the internal read/write lock instances are structured or initialized could fail without being caught by basic bytecode testing, breaking concurrency features.
-🧪 Strategy: Added specific inline unit tests covering the init, read_lock, and write_lock states of ReentrantReadWriteLock as well as the empty and non-empty scenarios for PriorityQueue.peek(). Added #[allow(clippy::unnecessary_wraps)] to the newly covered, previously unlinted methods since they adhere to an API signature that requires Result<Option<Slot>>.
-🔬 Verification: cargo test -p duke-interpreter
+🎯 Target:
+- duke-bytecode/src/instruction.rs
+- duke-classfile/src/parser.rs
+- duke-bytecode/src/reachability.rs
+- duke-bytecode/src/decoder.rs
+
+💣 Risk:
+- Unverified error returns on unknown opcode parsing, unexpected eofs, limits recursion out of bounds.
+- Missing path verification for zero-length paths in find_shortest_path and find_dead_blocks
+- Untested Return checks, control_flow_targets, and conditional jumps in instruction decoding and analysis.
+- Unhandled constant pool parser flows (like Module/Package info, Float, and recursive annotations decoding).
+
+🧪 Strategy:
+- Added test_is_return_all to verify Instruction::is_return() returns true for all Return type instructions.
+- Added test_control_flow_targets to verify branch target logic under all different branch setups.
+- Added explicit boundary condition checks for empty graphs in reachability.
+- Added mock data tests (test_parse_module_and_package, test_float_constant_pool, test_code_attribute_exception_table) to directly test private parser internals on isolated byte payloads.
+- Added explicit test_annotation_recursion_limit tests to verify RecursionLimitExceeded logic works as intended and does not panic or infinitely loop.
+- Tested UnexpectedEof bounds logic in decoder with manual byte slices.
+
+🔬 Verification:
+- cargo test -p duke-classfile --lib parser
+- cargo test -p duke-bytecode --lib instruction
+- cargo test -p duke-bytecode --lib reachability

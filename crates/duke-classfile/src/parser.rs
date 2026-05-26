@@ -773,4 +773,124 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+    #[test]
+    fn test_parse_module_and_package() {
+        let code: Vec<u8> = vec![
+            0xCA, 0xFE, 0xBA, 0xBE, // magic
+            0x00, 0x00, // minor
+            0x00, 0x3D, // major (61)
+            0x00, 0x04, // cp_count = 4
+            // entry 1: Module (tag 19)
+            19,
+            0x00, 0x03, // name_index = 3
+            // entry 2: Package (tag 20)
+            20,
+            0x00, 0x03, // name_index = 3
+            // entry 3: Utf8
+            1,
+            0x00, 0x03, // length = 3
+            b'f', b'o', b'o',
+            0x00, 0x01, // access flags
+            0x00, 0x00, // this_class
+            0x00, 0x00, // super_class
+            0x00, 0x00, // interfaces count
+            0x00, 0x00, // fields count
+            0x00, 0x00, // methods count
+            0x00, 0x00, // attributes count
+        ];
+
+        let cf = parse(&code).unwrap();
+        assert!(matches!(cf.constant_pool[1], Some(CpEntry::Module { name_index: CpIndex(3) })));
+        assert!(matches!(cf.constant_pool[2], Some(CpEntry::Package { name_index: CpIndex(3) })));
+    }
+
+    #[test]
+    fn test_annotation_recursion_limit() {
+        let mut raw = vec![];
+        for _ in 0..17 {
+            raw.push(b'@'); // annotation tag
+            raw.push(0); raw.push(1); // type_index
+            raw.push(0); raw.push(1); // num_pairs = 1
+            raw.push(0); raw.push(2); // element_name_index
+        }
+        let mut cursor = Cursor::new(&raw);
+        let res = decode_annotation(&mut cursor, 17);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_element_value_recursion_limit() {
+        let mut raw = vec![];
+        for _ in 0..17 {
+            raw.push(b'['); // array tag
+            raw.push(0); raw.push(1); // num_values = 1
+        }
+        let mut cursor = Cursor::new(&raw);
+        let res = decode_element_value(&mut cursor, 17);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_invalid_annotation_element_value_tag() {
+        let raw = vec![b'X'];
+        let mut cursor = Cursor::new(&raw);
+        let res = decode_element_value(&mut cursor, 0);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_float_constant_pool() {
+        let code: Vec<u8> = vec![
+            0xCA, 0xFE, 0xBA, 0xBE, // magic
+            0x00, 0x00, // minor
+            0x00, 0x3D, // major (61)
+            0x00, 0x02, // cp_count = 2
+            // entry 1: Float (tag 4)
+            4,
+            0x40, 0x48, 0xF5, 0xC3, // 3.5
+            0x00, 0x01, // access flags
+            0x00, 0x00, // this_class
+            0x00, 0x00, // super_class
+            0x00, 0x00, // interfaces count
+            0x00, 0x00, // fields count
+            0x00, 0x00, // methods count
+            0x00, 0x00, // attributes count
+        ];
+
+        let cf = parse(&code).unwrap();
+        assert!(matches!(cf.constant_pool[1], Some(CpEntry::Float(f)) if (f - 3.5).abs() < f32::EPSILON));
+    }
+
+    #[test]
+    fn test_code_attribute_exception_table() {
+        let mut raw = vec![];
+        // max_stack
+        raw.extend_from_slice(&2u16.to_be_bytes());
+        // max_locals
+        raw.extend_from_slice(&2u16.to_be_bytes());
+        // code_length
+        raw.extend_from_slice(&1u32.to_be_bytes());
+        // code
+        raw.push(0x00);
+        // exception_table_length
+        raw.extend_from_slice(&1u16.to_be_bytes());
+        // exception_table entry 1
+        raw.extend_from_slice(&0u16.to_be_bytes()); // start_pc
+        raw.extend_from_slice(&1u16.to_be_bytes()); // end_pc
+        raw.extend_from_slice(&2u16.to_be_bytes()); // handler_pc
+        raw.extend_from_slice(&3u16.to_be_bytes()); // catch_type
+        // attributes_count
+        raw.extend_from_slice(&0u16.to_be_bytes());
+
+        let decoded = decode_known_attribute("Code", &raw).unwrap();
+        if let AttributeData::Code(code) = decoded {
+            assert_eq!(code.exception_table.len(), 1);
+            assert_eq!(code.exception_table[0].start_pc, 0);
+            assert_eq!(code.exception_table[0].end_pc, 1);
+            assert_eq!(code.exception_table[0].handler_pc, 2);
+            assert_eq!(code.exception_table[0].catch_type.0, 3);
+        } else {
+            panic!("Expected Code attribute");
+        }
+    }
 }
