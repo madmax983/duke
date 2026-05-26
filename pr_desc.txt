@@ -1,0 +1,4 @@
+🎯 Target: `duke/src/jdwp.rs` (JDWP server protocol command dispatching)
+💣 Risk: Network protocol dispatching and formatting paths were lacking tests, which could hide serialization regressions or panics on malformed messages. Testing actual sockets directly is also extremely flaky.
+🧪 Strategy: Extracted the central dispatching and handshake operations into generic `<S: Read + Write>` handlers. This allows passing `std::io::Cursor` slices to mock networking streams, testing multiple commands such as `StackFrame.GetValues`, `ObjectReference.GetValues`, class paths, and proper connection closure flows safely in memory.
+🔬 Verification: Run `cargo test --package duke jdwp`

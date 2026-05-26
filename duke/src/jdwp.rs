@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -89,7 +90,7 @@ pub fn start(config: &JdwpConfig) -> std::io::Result<JdwpServer> {
     Ok(JdwpServer { attached_rx })
 }
 
-fn do_handshake(stream: &mut TcpStream) -> std::io::Result<bool> {
+fn do_handshake<S: std::io::Read + std::io::Write>(stream: &mut S) -> std::io::Result<bool> {
     let mut buf = [0u8; 14];
     stream.read_exact(&mut buf)?;
     if buf != HANDSHAKE {
@@ -101,6 +102,14 @@ fn do_handshake(stream: &mut TcpStream) -> std::io::Result<bool> {
 
 fn handle_client(
     stream: &mut TcpStream,
+    next_request_id: &AtomicI32,
+    vm_suspended: &AtomicBool,
+) -> std::io::Result<()> {
+    dispatch_loop(stream, next_request_id, vm_suspended)
+}
+
+pub fn dispatch_loop<S: std::io::Read + std::io::Write>(
+    stream: &mut S,
     next_request_id: &AtomicI32,
     vm_suspended: &AtomicBool,
 ) -> std::io::Result<()> {
@@ -204,7 +213,7 @@ fn dispatch_command(
     }
 }
 
-fn send_reply(stream: &mut TcpStream, id: i32, err: u16, data: &[u8]) -> std::io::Result<()> {
+fn send_reply<S: std::io::Read + std::io::Write>(stream: &mut S, id: i32, err: u16, data: &[u8]) -> std::io::Result<()> {
     let len = 11_u32 + to_u32_len(data.len());
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(&id.to_be_bytes())?;
@@ -213,7 +222,7 @@ fn send_reply(stream: &mut TcpStream, id: i32, err: u16, data: &[u8]) -> std::io
     stream.write_all(data)
 }
 
-fn send_vm_start_event(stream: &mut TcpStream, suspended: bool) -> std::io::Result<()> {
+fn send_vm_start_event<S: std::io::Read + std::io::Write>(stream: &mut S, suspended: bool) -> std::io::Result<()> {
     let mut data = Vec::new();
     data.push(if suspended { 2 } else { 0 });
     data.extend_from_slice(&1_u32.to_be_bytes());
@@ -377,6 +386,149 @@ mod tests {
         assert_eq!(err, ERR_NOT_IMPLEMENTED);
         assert!(data.is_empty());
         assert!(!close);
+    }
+
+
+    #[test]
+    fn test_dispatch_command_object_and_stack_values() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+
+        let mut payload = vec![0; 12];
+        payload[8] = 0; payload[9] = 0; payload[10] = 0; payload[11] = 2; // count = 2
+
+        // 9, 2 (ObjectReference.GetValues)
+        let (err, data, close) = super::dispatch_command(9, 2, &payload, &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert!(!close);
+        // count (4) + 2 * (1 + 8) = 22
+        assert_eq!(data.len(), 22);
+
+        // 16, 1 (StackFrame.GetValues)
+        let (err, data, close) = super::dispatch_command(16, 1, &payload, &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert!(!close);
+        // count (4) + 2 * (1 + 4) = 14
+        assert_eq!(data.len(), 14);
+
+        // Payload too short for count
+        let short_payload = vec![0; 4];
+        let (err, data, _) = super::dispatch_command(9, 2, &short_payload, &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert_eq!(data.len(), 4); // count=0
+
+        let (err, data, _) = super::dispatch_command(16, 1, &short_payload, &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert_eq!(data.len(), 4); // count=0
+    }
+
+    #[test]
+    fn test_do_handshake_flow() {
+        // Simulate successful handshake
+        let mut cursor = std::io::Cursor::new(b"JDWP-Handshake".to_vec());
+        assert!(super::do_handshake(&mut cursor).unwrap());
+
+        // Simulate failed handshake (bad bytes)
+        let mut cursor = std::io::Cursor::new(b"BAD-HANDSHAKE!".to_vec());
+        assert!(!super::do_handshake(&mut cursor).unwrap());
+    }
+
+    #[test]
+    fn test_send_vm_start_event() {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        super::send_vm_start_event(&mut cursor, false).unwrap();
+        assert!(cursor.into_inner().len() > 10);
+
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        super::send_vm_start_event(&mut cursor, true).unwrap();
+        assert!(cursor.into_inner().len() > 10);
+    }
+
+    #[test]
+    fn test_send_reply() {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        super::send_reply(&mut cursor, 42, 0, &[1, 2, 3]).unwrap();
+        assert!(cursor.into_inner().len() > 10);
+    }
+
+    #[test]
+    fn test_helpers() {
+        assert_eq!(super::to_u32_len(100), 100);
+        assert_eq!(super::to_u32_len(usize::MAX), u32::MAX);
+
+        let method_table = super::method_line_table();
+        assert_eq!(method_table.len(), 20); // 8 + 8 + 4
+
+        let class_path = super::class_paths();
+        assert!(class_path.len() > 8);
+
+        let sig = super::signature_placeholder();
+        assert!(sig.len() > 4);
+
+        let id_size_buf = super::id_sizes();
+        assert_eq!(id_size_buf.len(), 20);
+
+        let version = super::vm_version();
+        assert!(version.len() > 10);
+
+        let thread_list = super::one_thread_list();
+        assert_eq!(thread_list.len(), 12);
+
+        let frame = super::one_frame();
+        assert_eq!(frame.len(), 37);
+    }
+
+    #[test]
+    fn test_dispatch_command_class_paths_and_others() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+
+        let (err, data, close) = super::dispatch_command(1, 13, &[], &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert!(!close);
+        assert!(data.len() > 8);
+
+        let (err, data, close) = super::dispatch_command(1, 4, &[], &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert!(!close);
+        assert_eq!(data.len(), 12);
+
+        let (err, data, close) = super::dispatch_command(1, 7, &[], &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert!(!close);
+        assert_eq!(data.len(), 20);
+
+        let (err, data, close) = super::dispatch_command(2, 1, &[], &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert!(!close);
+        assert!(data.len() > 4);
+
+        let (err, data, close) = super::dispatch_command(11, 6, &[], &req_id, &suspended);
+        assert_eq!(err, super::ERR_NONE);
+        assert!(!close);
+        assert_eq!(data.len(), 37);
+    }
+
+    #[test]
+    fn test_dispatch_loop_closes() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+
+        // Construct a command: 1, 6 (Dispose) which returns should_close = true
+        let req = [
+            0, 0, 0, 11, // length
+            0, 0, 0, 1,  // id
+            0,           // flags
+            1,           // cmd_set
+            6,           // cmd
+        ];
+
+        let mut stream = std::io::Cursor::new(req.to_vec());
+        let result = super::dispatch_loop(&mut stream, &req_id, &suspended);
+        assert!(result.is_ok());
+
+        let output = stream.into_inner();
+        assert!(output.len() > 11);
     }
 
     #[test]
