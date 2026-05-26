@@ -1,0 +1,5 @@
+🔭 Vantage: Spec for String.equalsIgnoreCase
+
+- 👤 User Story: As a Developer running third-party JARs (like SLF4J), I want `java/lang/String.equalsIgnoreCase` to be supported so that my application can initialize and execute string comparisons without crashing due to unsupported native methods.
+- ✅ Acceptance Criteria: Must provide a native method implementation for `java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z`. Must handle null arguments gracefully. Must perform a case-insensitive string comparison.
+- 🚫 Out of Scope: Full Unicode case-folding algorithms.
