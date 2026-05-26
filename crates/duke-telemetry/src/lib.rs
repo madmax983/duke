@@ -598,4 +598,50 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo[cp42]"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String.intern"));
+    }
+
+    #[test]
+    fn test_markdown_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let output = store.to_markdown_report();
+        assert!(output.contains("## Dispatch Resolution (Top 10 Virtual Call Sites)"));
+        assert!(output.contains("Foo"));
+    }
+
+    #[test]
+    fn test_markdown_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let output = store.to_markdown_report();
+        assert!(output.contains("## Native Boundary (Top 10 by Call Count)"));
+        assert!(output.contains("java/lang/String.intern"));
+    }
 }

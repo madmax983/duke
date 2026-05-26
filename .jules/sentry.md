@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Format and Serialization Output Gaps
+**Learning:** `unwrap()` is a ticking time bomb—test the explosion or remove the fuse. We've replaced `expect()` and `.unwrap()` in tests with safe fallback checks. In cases like parsing zip files with potentially corrupted EOCDs, passing unverified counts to `HashMap::with_capacity` is bad.
+**Action:** Add table-driven proptests that cover capacity constraints and `min(size, limit)`.
