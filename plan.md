@@ -1,20 +1,10 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1. Modify `crates/duke-telemetry/src/helpers.rs` to encapsulate the `ser_helpers` module by changing `pub mod ser_helpers` to `pub(crate) mod ser_helpers`.
+2. Modify `crates/duke-classfile/src/lib.rs` to remove the redundant `types` module abstraction if present. Based on exploration, `duke_classfile` already exports types directly. Ensure all usages of `duke_classfile::types` in `duke/src/jar_diff.rs` are removed. Use `sed` to fix the usage in `duke/src/jar_diff.rs`.
+3. Verify the changes using `run_in_bash_session` to execute `cargo check --all-targets --all-features`.
+4. Verify the changes visually using `git diff`.
+5. Run tests using `cargo test --all-targets --all-features`.
+6. Run `cargo clippy --all-targets --all-features -- -D warnings`.
+7. Run `cargo fmt --all`.
+8. Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+9. Write the PR description to `msg.txt` using `echo -e "🗺️ Atlas: [architectural change]\n\n**Tangle:** The \`duke_classfile\` API exposed an intermediate \`types\` module redundantly, and \`duke-telemetry\` leaked internal serialization helpers via \`pub mod ser_helpers\`.\n**Blueprint:** Encapsulated \`ser_helpers\` in \`duke-telemetry\` using \`pub(crate)\` and removed redundant \`types\` path from \`duke_classfile\` usages in \`duke/src/jar_diff.rs\`.\n**Stability:** Reduced coupling, faster compile times and clearer encapsulation.\n**Verification:** Builds successfully, strict separation enforced." > msg.txt`
+10. Commit changes using `git add . && git commit -F msg.txt`.

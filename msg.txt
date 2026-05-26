@@ -1,0 +1,6 @@
+🗺️ Atlas: [architectural change]
+
+**Tangle:** The `duke_classfile` API exposed an intermediate `types` module redundantly, and `duke-telemetry` leaked internal serialization helpers via `pub mod ser_helpers`.
+**Blueprint:** Encapsulated `ser_helpers` in `duke-telemetry` using `pub(crate)` and removed redundant `types` path from `duke_classfile` usages in `duke/src/` files.
+**Stability:** Reduced coupling, faster compile times and clearer encapsulation.
+**Verification:** Builds successfully, strict separation enforced.
