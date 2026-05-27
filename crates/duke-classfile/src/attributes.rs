@@ -51,6 +51,18 @@ pub struct AttributeInfo {
 }
 
 /// Single entry in the `BootstrapMethods` attribute (§4.7.23).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{BootstrapMethodEntry, CpIndex};
+///
+/// let bme = BootstrapMethodEntry {
+///     method_ref: CpIndex(1),
+///     arguments: vec![CpIndex(2)],
+/// };
+/// assert_eq!(bme.method_ref.0, 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct BootstrapMethodEntry {
     /// CP index pointing to a `CONSTANT_MethodHandle`.
@@ -60,6 +72,18 @@ pub struct BootstrapMethodEntry {
 }
 
 /// One parsed runtime annotation instance (§4.7.16.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{Annotation, CpIndex};
+///
+/// let ann = Annotation {
+///     type_index: CpIndex(1),
+///     element_value_pairs: vec![],
+/// };
+/// assert_eq!(ann.type_index.0, 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct Annotation {
     /// Type descriptor of the annotation (`type_index` in the class file).
@@ -69,6 +93,18 @@ pub struct Annotation {
 }
 
 /// One `name=value` pair in an annotation usage (§4.7.16.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ElementValuePair, ElementValue, CpIndex};
+///
+/// let evp = ElementValuePair {
+///     element_name_index: CpIndex(1),
+///     value: ElementValue::ConstValueIndex(CpIndex(2)),
+/// };
+/// assert_eq!(evp.element_name_index.0, 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ElementValuePair {
     /// Constant pool index of the element (method) name in the annotation interface.
@@ -78,6 +114,17 @@ pub struct ElementValuePair {
 }
 
 /// Encoded annotation element value (§4.7.16.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ElementValue, CpIndex};
+///
+/// let ev = ElementValue::ConstValueIndex(CpIndex(1));
+/// if let ElementValue::ConstValueIndex(idx) = ev {
+///     assert_eq!(idx.0, 1);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub enum ElementValue {
     /// Primitive/String constant pool reference.
@@ -98,6 +145,17 @@ pub enum ElementValue {
 }
 
 /// Typed attribute payload.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{AttributeData, CpIndex};
+///
+/// let data = AttributeData::ConstantValue { constant_value_index: CpIndex(1) };
+/// if let AttributeData::ConstantValue { constant_value_index } = data {
+///     assert_eq!(constant_value_index.0, 1);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub enum AttributeData {
     /// Code attribute (§4.7.3) — method bytecode.
@@ -132,6 +190,21 @@ pub enum AttributeData {
 }
 
 /// Code attribute payload (§4.7.3).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::CodeAttribute;
+///
+/// let ca = CodeAttribute {
+///     max_stack: 2,
+///     max_locals: 1,
+///     code: vec![0xb1], // return
+///     exception_table: vec![],
+///     attributes: vec![],
+/// };
+/// assert_eq!(ca.max_stack, 2);
+/// ```
 #[derive(Debug, Clone)]
 pub struct CodeAttribute {
     /// Maximum depth of the operand stack of this method at any point during execution.
@@ -147,6 +220,20 @@ pub struct CodeAttribute {
 }
 
 /// Exception handler entry within Code attribute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ExceptionTableEntry, CpIndex};
+///
+/// let ete = ExceptionTableEntry {
+///     start_pc: 0,
+///     end_pc: 4,
+///     handler_pc: 8,
+///     catch_type: CpIndex(1),
+/// };
+/// assert_eq!(ete.handler_pc, 8);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ExceptionTableEntry {
     /// The start of the range in the `code` array at which the exception handler is active.
@@ -160,6 +247,18 @@ pub struct ExceptionTableEntry {
 }
 
 /// Single entry in a `LineNumberTable` attribute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::LineNumberEntry;
+///
+/// let lne = LineNumberEntry {
+///     start_pc: 0,
+///     line_number: 10,
+/// };
+/// assert_eq!(lne.line_number, 10);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LineNumberEntry {
     /// The index into the `code` array at which the code for a new line in the original source file begins.
@@ -169,6 +268,21 @@ pub struct LineNumberEntry {
 }
 
 /// Single entry in a `LocalVariableTable` attribute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{LocalVariableEntry, CpIndex};
+///
+/// let lve = LocalVariableEntry {
+///     start_pc: 0,
+///     length: 10,
+///     name_index: CpIndex(1),
+///     descriptor_index: CpIndex(2),
+///     index: 0,
+/// };
+/// assert_eq!(lve.length, 10);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LocalVariableEntry {
     /// The index into the `code` array at which the local variable must have a value.
