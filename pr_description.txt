@@ -1,0 +1,4 @@
+🧨 **The Trigger:** "Sending a JDWP `ObjectReference.GetValues` or `StackFrame.GetValues` packet with a `count`/`slots` field of `u32::MAX` causes a huge `for` loop to allocate until Out-Of-Memory."
+📉 **The Stack Trace:** "(OOM Process Abort)"
+🧪 **Reproduction:** "Run tests `test_jdwp_object_reference_get_values_oom_protection` and `test_jdwp_stack_frame_get_values_oom_protection`."
+😈 **Comment:** "You assumed network packets would never lie about their size. You were wrong."

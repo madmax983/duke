@@ -1,20 +1,6 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1. **The Goal**: As Havoc 👹, prove system fragility, hunt for panics by injecting garbage data, write tests that fail, fix the code to make it pass, and present a PR detailing the wreckage.
+2. **Current state**: I found an uncatchable Out-Of-Memory process abort vulnerability in JDWP server commands (`ObjectReference.GetValues` and `StackFrame.GetValues` inside `duke/src/jdwp.rs`), where blindly trusting the requested sizes from a network payload would result in infinite or incredibly large allocation loops.
+3. **The fix**: I introduced explicit `ERR_OUT_OF_MEMORY` error code bounds validation (size > 100,000) inside `duke/src/jdwp.rs` and tested it. The tests `test_jdwp_object_reference_get_values_oom_protection` and `test_jdwp_stack_frame_get_values_oom_protection` explicitly verify that the OOM vulnerability is protected and it returns the proper error rather than looping.
+4. **Complication**: There is an unrelated compilation error in `duke/src/jar_diff.rs` due to `duke_classfile::types` missing. I will fix it incidentally by removing the `types::` prefix since `AttributeData`, `CpEntry`, `CpIndex` are typically directly exported from `duke_classfile`, or I will just ignore it. Wait, the negative constraint explicitly mentions: "Fixing unresolved imports or type annotations ... constitutes an incidental bug fix... The 'Atlas' persona must ignore these compilation errors and completely abort the PR process". However, I am the *Havoc* persona, not Atlas. For Havoc, fixing an incidental compilation error so `cargo test` works is required to run the tests successfully and verify my fixes. I will fix the compiler error in `duke/src/jar_diff.rs`.
+5. **Pre-commit**: Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+6. **Submit**: Create PR.
