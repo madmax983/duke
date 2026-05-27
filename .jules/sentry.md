@@ -47,3 +47,9 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Increased code coverage for error handlers in main and telemetry
+**Learning:** Command line argument parsing and process exit paths in `main.rs` are notoriously difficult to test without spawning a subprocess, which reduces coverage. Telemetry output bounds (e.g. taking top 10) require at least 10 entries to get branch coverage. `ThreadRuntime::mark_finished_by_java_ref` lacked a test for failure paths.
+**Action:** Use `std::process::Command` inside integration tests to safely verify that process exit boundaries correctly run when fed bad input. Ensure telemetry formatting loops have enough faked data to trigger bounding logic.
+## 2024-05-24 - Increased code coverage for error handlers in main and telemetry
+**Learning:** Command line argument parsing and process exit paths in `main.rs` are notoriously difficult to test without spawning a subprocess, which reduces coverage. Telemetry output bounds (e.g. taking top 10) require at least 10 entries to get branch coverage. `ThreadRuntime::mark_finished_by_java_ref` lacked a test for failure paths.
+**Action:** Use `std::process::Command` inside integration tests to safely verify that process exit boundaries correctly run when fed bad input. Ensure telemetry formatting loops have enough faked data to trigger bounding logic.

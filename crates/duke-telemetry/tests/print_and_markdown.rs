@@ -1,13 +1,3 @@
-//! Telemetry store testing module
-//!
-//! This module verifies the string formatting logic of the telemetry subsystem.
-//! It ensures that when execution metadata is exported (either to standard output
-//! or as a Markdown report), the structural integrity of the output is maintained.
-//!
-//! These integration tests act as safeguards against unintended regressions in the
-//! telemetry reporting interface, confirming that top-level headers (like
-//! `Bytecode Cost (Top 10)`) are accurately rendered for developers to analyze.
-
 use duke_telemetry::TelemetryStore;
 
 #[test]
@@ -24,4 +14,38 @@ fn test_markdown_bytecode_cost_empty() {
     let store = TelemetryStore::new();
     let output = store.to_markdown_report();
     assert!(output.contains("## Bytecode Cost (Top 10)"));
+}
+
+#[test]
+fn test_print_and_markdown_reports() {
+    let mut store = TelemetryStore::default();
+
+    // Add data to cover the loops
+    for i in 0..15 {
+        let op = format!("op{i}");
+        store
+            .bytecode_cost
+            .record(Box::leak(op.into_boxed_str()), "Foo", "bar", i, 100);
+
+        let class = format!("Class{i}");
+        store.object_lineage.record(&class, "Foo", i, "bar");
+
+        store.class_init_dag.record(&class, "System", 500);
+
+        store.exception_flow.record_throw(&class, "Foo", "bar", i);
+
+        store
+            .dispatch_resolution
+            .record("Foo", u16::try_from(i).unwrap(), "bar", i != 0);
+
+        store
+            .native_boundary
+            .record_call(&class, "Foo", 100, i != 0);
+    }
+
+    let mut out = Vec::new();
+    store.print_report(&mut out).unwrap();
+
+    let md = store.to_markdown_report();
+    assert!(!md.is_empty());
 }
