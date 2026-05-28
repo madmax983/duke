@@ -1,0 +1,10 @@
+🔭 Vantage: Spec for String.equalsIgnoreCase
+
+👤 User Story: "As a Library Developer running my code on Duke, I want java.lang.String.equalsIgnoreCase to be supported natively, so that my configuration parsing and protocol logic can compare strings robustly without being broken by case sensitivity."
+
+✅ Acceptance Criteria:
+- Must natively implement `java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z`.
+- Must return `true` if strings have matching characters regardless of case.
+- Must return `false` for mismatched or differently sized strings, or if the argument is `null`.
+
+🚫 Out of Scope: Full Unicode case-folding completeness (e.g., Turkish 'I' or complex ligature rules) if basic ASCII/Latin-1 case-insensitivity covers immediate needs.
