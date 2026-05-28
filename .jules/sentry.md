@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Exhaustive Formatting Testing
+**Learning:** Display and string formatting routines (like markdown exporters) are often overlooked in test coverage but can easily panic if they make assumptions about telemetry data arrays being populated or `.unwrap()` calls without validating empty state logic.
+**Action:** Added exhaustive table-driven tests for every individual `print_*` and `markdown_*` routine, covering both zero-state (empty) and populated metrics logic to ensure the `to_markdown_report` acts as a solid shield.

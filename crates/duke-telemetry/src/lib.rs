@@ -598,4 +598,184 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_bytecode_cost_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("bytecode_cost"));
+    }
+
+    #[test]
+    fn test_markdown_bytecode_cost_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_bytecode_cost(&mut s);
+        assert!(s.contains("Bytecode Cost"));
+    }
+
+    #[test]
+    fn test_print_object_lineage_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("object_lineage"));
+    }
+
+    #[test]
+    fn test_markdown_object_lineage_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_object_lineage(&mut s);
+        assert!(s.contains("Object Lineage"));
+    }
+
+    #[test]
+    fn test_print_class_init_dag_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_class_init_dag(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("No class initialization events"));
+    }
+
+    #[test]
+    fn test_markdown_class_init_dag_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_class_init_dag(&mut s);
+        assert!(s.contains("No class initialization events"));
+    }
+
+    #[test]
+    fn test_print_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_exception_flow(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("No exception flow events"));
+    }
+
+    #[test]
+    fn test_markdown_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_exception_flow(&mut s);
+        assert!(s.contains("No exception flow events"));
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("dispatch_resolution"));
+    }
+
+    #[test]
+    fn test_markdown_dispatch_resolution_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_dispatch_resolution(&mut s);
+        assert!(s.contains("Dispatch Resolution"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("native_boundary"));
+    }
+
+    #[test]
+    fn test_markdown_native_boundary_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_native_boundary(&mut s);
+        assert!(s.contains("Native Boundary"));
+    }
+
+    #[test]
+    fn test_markdown_exception_flow_populated() {
+        let mut store = crate::TelemetryStore::default();
+        let ev = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store.exception_flow.record_catch(ev, "Foo", "baz", 20);
+        let mut s = String::new();
+        store.markdown_exception_flow(&mut s);
+        assert!(s.contains("java/lang/Exception"));
+        assert!(s.contains("Foo::baz @20"));
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 10, "java/lang/String", true);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo"));
+    }
+
+    #[test]
+    fn test_markdown_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 10, "java/lang/String", true);
+        let mut s = String::new();
+        store.markdown_dispatch_resolution(&mut s);
+        assert!(s.contains("Foo"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store.native_boundary.record_call("Foo", "bar", 100, false);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo.bar"));
+    }
+
+    #[test]
+    fn test_markdown_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store.native_boundary.record_call("Foo", "bar", 100, false);
+        let mut s = String::new();
+        store.markdown_native_boundary(&mut s);
+        assert!(s.contains("Foo"));
+    }
+
+    #[test]
+    fn test_failing_writer() {
+        struct FailingWriter;
+        impl std::io::Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("write error"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::other("flush error"))
+            }
+        }
+
+        let store = crate::TelemetryStore::default();
+        let mut fail = FailingWriter;
+        assert!(store.print_report(&mut fail).is_err());
+        assert!(store.print_bytecode_cost(&mut fail).is_err());
+        assert!(store.print_object_lineage(&mut fail).is_err());
+        assert!(store.print_class_init_dag(&mut fail).is_err());
+        assert!(store.print_exception_flow(&mut fail).is_err());
+        assert!(store.print_dispatch_resolution(&mut fail).is_err());
+        assert!(store.print_native_boundary(&mut fail).is_err());
+    }
 }
