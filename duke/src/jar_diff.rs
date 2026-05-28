@@ -1,11 +1,15 @@
+//! JAR Bytecode Diff Analysis
+//!
+//! This module provides functionality to compare the bytecode contents of two JAR files.
+//! It analyzes the `.class` files inside the JARs, parsing their constant pools and methods
+//! to compute hashes of their bytecode, which are then used to detect added, removed,
+//! or modified methods.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -48,6 +52,27 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     }
 }
 
+/// Analyzes the bytecode differences between two JAR files and prints a report to standard output.
+///
+/// This function opens both JAR files, extracts all `.class` entries, computes hashes of
+/// the bytecode for each method, and compares the two sets of methods to identify:
+/// - Added methods (present in the second JAR but not the first)
+/// - Removed methods (present in the first JAR but not the second)
+/// - Modified methods (present in both, but with differing bytecode)
+/// - Unchanged methods
+///
+/// # Examples
+///
+/// ```
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// // Diffing two non-existent files gracefully treats them as empty and prints a diff of 0 methods.
+/// dump_jar_diff("dummy1.jar", "dummy2.jar");
+/// ```
+///
+/// # Panics
+///
+/// This function does not panic on missing or invalid JAR files; it simply treats them as empty.
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(
