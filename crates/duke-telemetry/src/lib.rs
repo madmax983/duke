@@ -392,6 +392,87 @@ impl TelemetryStore {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_report_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("java/lang/String", 42, "intern", true);
+        store
+            .native_boundary
+            .record_call("java/lang/System", "currentTimeMillis", 100, false);
+
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+
+        assert!(s.contains("=== Duke VM Telemetry Report ==="));
+        assert!(s.contains("iadd"));
+        assert!(s.contains("java/lang/String"));
+        assert!(s.contains("currentTimeMillis"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_to_markdown_report_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("java/lang/String", 42, "intern", true);
+        store
+            .native_boundary
+            .record_call("java/lang/System", "currentTimeMillis", 100, false);
+
+        let md = store.to_markdown_report();
+
+        assert!(md.contains("# Duke VM Telemetry Report"));
+        assert!(md.contains("iadd"));
+        assert!(md.contains("java/lang/String"));
+        assert!(md.contains("currentTimeMillis"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_class_init_dag_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_class_init_dag(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("No class initialization events recorded."));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_exception_flow(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("No exception flow events recorded."));
+    }
+
     #[cfg(feature = "telemetry")]
     use crate::TelemetryStore;
 
@@ -554,6 +635,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "telemetry")]
     fn test_print_bytecode_cost_with_less_than_10() {
         let mut store = crate::TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
@@ -564,6 +646,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "telemetry")]
     fn test_print_object_lineage_with_less_than_10() {
         let mut store = crate::TelemetryStore::default();
         store
@@ -576,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "telemetry")]
     fn test_print_class_init_dag_populated() {
         let mut store = crate::TelemetryStore::default();
         store
@@ -588,6 +672,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "telemetry")]
     fn test_print_exception_flow_populated() {
         let mut store = crate::TelemetryStore::default();
         store
