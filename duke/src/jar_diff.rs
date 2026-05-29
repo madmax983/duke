@@ -1,11 +1,15 @@
+//! Utility for analyzing and comparing the bytecode contents of two JAR files.
+//!
+//! This module provides tools to track methods added, removed, or modified between
+//! two versions of a JAR. It determines modification by hashing the raw bytecode
+//! of every method. This is invaluable when diagnosing unexpected behavior changes
+//! in third-party dependencies or validating backward compatibility.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -56,6 +60,24 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Analyzes the bytecode differences between two JAR files and prints a summary to standard output.
+///
+/// This function loads all classes from both provided JAR paths and compares
+/// each method's `Code` attribute hash. It categorizes methods into added, removed,
+/// modified, and unchanged, and prints the top 10 methods in each category.
+///
+/// # Examples
+/// ```no_run
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// // Compare an old library version with a new one
+/// dump_jar_diff("lib-v1.jar", "lib-v2.jar");
+/// ```
+///
+/// # Panics
+/// This function handles missing or malformed JARs gracefully and will not panic.
+/// It treats unreadable JAR files as empty, resulting in all methods appearing as
+/// added or removed relative to a valid JAR.
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);

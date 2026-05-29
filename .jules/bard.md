@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-29 - [JarDiff Documentation and Cascading Types]
+**Confusion:** The `duke/src/jar_diff.rs` module lacked documentation, obscuring its purpose of comparing JAR bytecodes. In addition, an unresolved import of `CpEntry` caused cascading type inference errors (`E0282`) on closures, confusing the real issue.
+**Clarification:** Documented the module and `dump_jar_diff` to explain how it tracks structural changes. Resolved the `E0432` import error, which automatically fixed the closure type inference errors, proving that fixing unresolved imports should always precede adding explicit types.
