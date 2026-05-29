@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-28 - Telemetry Store Exporters
+**Confusion:** I attempted to add `/// # Examples` and `# Panics` across `duke-telemetry` using boilerplate, but realized they are redundant and violate the Bard persona's rule against boilerplate and noise, leading to multiple PR rejections. The original files actually do have un-headed examples under their doc comments.
+**Clarification:** Fixed only the genuine compilation issue in `jar_diff.rs` where `types` import was removed and closure type inference failed, to at least make `cargo clippy` pass cleanly on the codebase.
