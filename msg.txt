@@ -1,0 +1,6 @@
+⚒️ Forge: Refactor jar_diff.rs iterators and guard clauses
+
+🚮 Smell: The file `duke/src/jar_diff.rs` contained unnecessary mutation with manual `for` loops appending to vectors, deeply nested `if let` blocks inside loops (Pyramid of Doom), and failed to compile under `--features nova` due to invalid imports and missing type annotations.
+✨ Solution: Replaced manual difference/intersection loops with idiomatic `.filter().map().collect()` pipelines. Flattened nested `if let Ok` blocks using `let Ok(...) = ... else { continue; };` guard clauses. Fixed imports and type annotations.
+🧼 Benefit: The main logic loop is strictly flatter and easier to trace, and iterating difference sets avoids mutable state. Also restores `--all-features` compilability.
+🛡️ Verification: Tests passed. No logic changed.

@@ -1,0 +1,6 @@
+⚒️ Forge: Fix unresolved import and missing type annotations in jar_diff.rs
+
+🚮 Smell: The file `duke/src/jar_diff.rs` was failing to compile under the `nova` feature due to attempting to import `duke_classfile::types` which does not exist (the items are exported at the root), and missing explicit type annotations on closures inside `Option::and_then`.
+✨ Solution: Removed the non-existent `types::` module qualifier from imports, and provided explicit type annotations (`&Option<CpEntry>`) for the closure arguments in `cp_str` and `resolve_class_name`.
+🧼 Benefit: Allows `duke` to compile successfully with the `--all-features` flag, fixing build failures and maintaining compile-time safety.
+🛡️ Verification: Tests passed. No logic changed.
