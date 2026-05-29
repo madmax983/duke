@@ -8,7 +8,7 @@ use duke_classfile::{
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
@@ -60,27 +60,27 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);
 
-    let keys1: HashSet<_> = map1.keys().collect();
-    let keys2: HashSet<_> = map2.keys().collect();
-
+    /// ⚡ Bolt: Removed intermediate HashSet allocations by iterating directly over HashMaps.
     let mut added = Vec::new();
     let mut removed = Vec::new();
     let mut modified = Vec::new();
     let mut unchanged = 0;
 
-    for k in keys2.difference(&keys1) {
-        added.push((*k).clone());
-    }
-
-    for k in keys1.difference(&keys2) {
-        removed.push((*k).clone());
-    }
-
-    for k in keys1.intersection(&keys2) {
-        if map1.get(*k) == map2.get(*k) {
-            unchanged += 1;
+    for (k, v2) in &map2 {
+        if let Some(v1) = map1.get(k) {
+            if v1 == v2 {
+                unchanged += 1;
+            } else {
+                modified.push(k.clone());
+            }
         } else {
-            modified.push((*k).clone());
+            added.push(k.clone());
+        }
+    }
+
+    for k in map1.keys() {
+        if !map2.contains_key(k) {
+            removed.push(k.clone());
         }
     }
 

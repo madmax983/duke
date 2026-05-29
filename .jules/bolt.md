@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Removed intermediate HashSet allocations in jar_diff**
+**Learning:** Intermediate collections like `.collect::<HashSet<_>>()` used just for computing set differences create unnecessary heap allocations. We can avoid this entirely by directly iterating over the keys of the HashMaps and checking for containment in the other.
+**Action:** When finding differences or intersections between two HashMaps, avoid allocating temporary `HashSet`s. Instead, directly iterate over the maps and use `.contains_key()` or `.get()`.

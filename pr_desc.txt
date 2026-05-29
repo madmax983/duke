@@ -1,0 +1,4 @@
+💡 What: Replaced intermediate `HashSet` allocations with direct `HashMap` iteration when diffing jars.
+🎯 Why: Creating two full `HashSet`s of keys from both HashMaps was an unnecessary memory allocation bottleneck on the hot path just to compute the difference and intersection.
+📊 Impact: Removes two O(N) heap allocations (one for each map) per jar diff operation.
+🔬 Measurement: Run `cargo test` to verify logic correctness, and bench `dump_jar_diff` to see the win.
