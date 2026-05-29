@@ -1384,6 +1384,23 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn test_instruction_conversions_mnemonic() {
+        assert_eq!(Instruction::I2b.mnemonic(), "i2b");
+        assert_eq!(Instruction::I2c.mnemonic(), "i2c");
+        assert_eq!(Instruction::I2s.mnemonic(), "i2s");
+    }
+
+    #[test]
+    fn test_instruction_comparisons_mnemonic() {
+        assert_eq!(Instruction::IfIcmplt(0).mnemonic(), "if_icmplt");
+        assert_eq!(Instruction::IfIcmpge(0).mnemonic(), "if_icmpge");
+        assert_eq!(Instruction::IfIcmpgt(0).mnemonic(), "if_icmpgt");
+        assert_eq!(Instruction::IfIcmple(0).mnemonic(), "if_icmple");
+        assert_eq!(Instruction::IfAcmpeq(0).mnemonic(), "if_acmpeq");
+        assert_eq!(Instruction::IfAcmpne(0).mnemonic(), "if_acmpne");
+    }
     #[test]
     fn test_is_conditional_branch() {
         assert!(Instruction::Ifeq(5).is_conditional_branch());

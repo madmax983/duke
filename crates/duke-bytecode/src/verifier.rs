@@ -795,6 +795,17 @@ mod tests {
         assert!(res_w_valid.is_ok());
     }
 
+
+    #[test]
+    fn test_is_return_helper() {
+        assert!(is_return(&Instruction::Return));
+        assert!(is_return(&Instruction::Ireturn));
+        assert!(is_return(&Instruction::Lreturn));
+        assert!(is_return(&Instruction::Freturn));
+        assert!(is_return(&Instruction::Dreturn));
+        assert!(is_return(&Instruction::Areturn));
+        assert!(!is_return(&Instruction::Iconst0));
+    }
     #[test]
     fn test_verifier_local_oob() {
         let instructions = vec![(0, Instruction::Iload(5)), (2, Instruction::Return)];

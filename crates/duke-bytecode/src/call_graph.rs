@@ -179,6 +179,46 @@ mod tests {
         assert!(cg.contains("graph TD"));
     }
 
+
+    #[test]
+    fn test_extract_method_ref_interface_methodref() {
+        use duke_classfile::CpEntry;
+
+        // InterfaceMethodref where the internal NameAndType is valid
+        let cf_im = ClassFile {
+            major_version: 61,
+            minor_version: 0,
+            constant_pool: vec![
+                None, // 0
+                Some(CpEntry::Class {
+                    name_index: CpIndex(2),
+                }), // 1
+                Some(CpEntry::Utf8("java/lang/Runnable".to_string())), // 2
+                Some(CpEntry::Utf8("run".to_string())), // 3
+                Some(CpEntry::Utf8("()V".to_string())), // 4
+                Some(CpEntry::NameAndType {
+                    name_index: CpIndex(3),
+                    descriptor_index: CpIndex(4),
+                }), // 5
+                Some(CpEntry::InterfaceMethodref {
+                    class_index: CpIndex(1),
+                    name_and_type_index: CpIndex(5),
+                }), // 6
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(0),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+
+        let extracted = extract_method_ref(&cf_im, CpIndex(6)).unwrap();
+        assert_eq!(extracted.0, "java/lang/Runnable");
+        assert_eq!(extracted.1, "run");
+        assert_eq!(extracted.2, "()V");
+    }
     #[test]
     fn test_resolve_class_name_errors() {
         let cf = ClassFile {

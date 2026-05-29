@@ -47,3 +47,10 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-29 - Coverage of Bytecode Call Graph Edge Cases
+**Learning:** Found an uncovered edge case parsing `InterfaceMethodref` in `call_graph::extract_method_ref`. The `CpEntry` match pattern needed coverage for this path to accurately process Java interface method references.
+**Action:** Adding tests using manual `ClassFile` generation with explicitly populated Constant Pools covering multiple nested entries (`Methodref`, `InterfaceMethodref`, and the underlying `NameAndType` and `Utf8` strings) successfully verifies correct structural bytecode decoding behaviour.
+
+## 2024-05-29 - Coverage of JImage Bounds Checking
+**Learning:** JImage read methods (such as `read_resource` and bounds checking when fetching names from `read_str`) must handle offsets pointing outside uncompressed payload lengths. Hand-crafted malformed `.jimage` metadata headers were necessary to execute these paths safely and confirm safe `Err` propagation instead of out of bounds buffer panics.
+**Action:** Synthesizing truncated / malformed index headers in `.jimage` binary mocks safely hits memory bounds edge cases.
