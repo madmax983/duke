@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Telemetry store testing module
 //!
 //! This module verifies the string formatting logic of the telemetry subsystem.

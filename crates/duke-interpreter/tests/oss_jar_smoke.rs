@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Integration tests for running real-world OSS JARs.
 //! These tests verify that Duke can successfully load, initialize, and execute
 //! unmodified bytecode from third-party libraries like slf4j.
