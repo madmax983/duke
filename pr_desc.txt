@@ -1,0 +1,6 @@
+🌟 Nova: [Code Clone Detection]
+
+💡 **The Spark:** "I noticed we parse bytecode into structured arrays and have a bytecode similarity engine for short snippets. Can we combine them to detect duplicate logic across an entire JAR?"
+🚀 **The Feature:** "Implemented `jar_clones` module to extract instructions from all methods (>= 15 instructions) and pairwise compare them using the existing `similarity` module (>= 90% threshold)."
+🔮 **The Potential:** "Could be used for static analysis audits, refactoring legacy codebases by identifying copy-pasted utility functions, and analyzing compiler output anomalies."
+⚠️ **Risk:** "Low. Isolated in `duke/src/jar_clones.rs` and gated behind the `nova` feature flag in `main.rs`."

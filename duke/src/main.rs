@@ -19,6 +19,8 @@ mod html;
 mod html_jar;
 mod jar_analyze;
 #[cfg(feature = "nova")]
+mod jar_clones;
+#[cfg(feature = "nova")]
 mod jar_diff;
 #[cfg(feature = "nova")]
 mod jar_search;
@@ -319,6 +321,8 @@ fn main() {
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-clones <file.jar>");
         eprintln!("       duke histogram <file.jar>");
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke scan <classfile.class>");
@@ -511,6 +515,22 @@ fn main() {
     if args.len() >= 3 && args[1] == "jar-analyze" {
         jar_analyze::dump_jar_analyze(&args[2]);
         return;
+    }
+    if args.len() >= 2 && args[1] == "jar-clones" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke jar-clones <file.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            jar_clones::dump_jar_clones(&args[2]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: 'jar-clones' command requires the 'nova' feature flag.");
+            std::process::exit(1);
+        }
     }
     if args.len() >= 3 && args[1] == "analyze" {
         dump_analyze(&args[2]);
