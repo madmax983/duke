@@ -41,30 +41,26 @@ pub fn calculate_similarity(seq1: &[Instruction], seq2: &[Instruction]) -> f64 {
         return 0.0;
     }
 
-    let mut dp = vec![vec![0; len2 + 1]; len1 + 1];
-
-    for (i, row) in dp.iter_mut().enumerate().take(len1 + 1) {
-        row[0] = i;
-    }
-    for (j, item) in dp[0].iter_mut().enumerate().take(len2 + 1) {
-        *item = j;
-    }
+    // ⚡ Bolt: Removed 2D vector `vec![vec![...]]` to eliminate O(N) heap allocations
+    // and reduce memory usage from O(M*N) to O(N).
+    let mut dp: Vec<usize> = (0..=len2).collect();
 
     for i in 1..=len1 {
+        let mut prev_diag = dp[0];
+        dp[0] = i;
         for j in 1..=len2 {
+            let old_dp_j = dp[j];
             let cost = usize::from(discriminant(&seq1[i - 1]) != discriminant(&seq2[j - 1]));
 
-            dp[i][j] = std::cmp::min(
-                std::cmp::min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
-                dp[i - 1][j - 1] + cost,
-            );
+            dp[j] = std::cmp::min(std::cmp::min(dp[j] + 1, dp[j - 1] + 1), prev_diag + cost);
+            prev_diag = old_dp_j;
         }
     }
 
     #[allow(clippy::cast_precision_loss)]
     let max_len = std::cmp::max(len1, len2) as f64;
     #[allow(clippy::cast_precision_loss)]
-    let distance = dp[len1][len2] as f64;
+    let distance = dp[len2] as f64;
 
     1.0 - (distance / max_len)
 }

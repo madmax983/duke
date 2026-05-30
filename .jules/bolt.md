@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+## 2024-05-30 - Replace 2D Vec with 1D Vec in DP
+**Learning:** `vec![vec![0; len2 + 1]; len1 + 1]` inside `calculate_similarity` allocated `len1 + 1` separate vectors on the heap, making it O(M) allocations and O(M*N) memory usage.
+**Action:** Replaced it with a single 1D vector of length `len2 + 1` representing the dynamic programming rows, avoiding multiple allocations and improving locality.
