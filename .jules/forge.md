@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**Unresolved imports due to invalid paths and Visual Clutter due to repeated full paths**
+**Learning:** `types::` module doesn't exist under `duke_classfile`, instead `AttributeData`, `CpEntry`, `CpIndex` are re-exported in the top-level module. Repeated usage of full paths like `duke_classfile::ClassFile` makes function parameters cluttered and harder to read.
+**Action:** Always verify paths for correctness and import structs/types directly to clean up function signatures and reduce visual clutter.
