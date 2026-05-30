@@ -674,6 +674,21 @@ mod tests {
     }
 
     #[test]
+    fn should_return_error_for_invalid_cursor_read() {
+        let data = [0x01];
+        let mut cursor = Cursor::new(&data);
+        assert!(cursor.read_u16().is_err());
+        assert!(cursor.read_u32().is_err());
+        assert!(cursor.read_u64().is_err());
+        assert!(cursor.read_f32().is_err());
+        assert!(cursor.read_f64().is_err());
+        assert!(cursor.read_i16().is_err());
+        assert!(cursor.read_i32().is_err());
+        assert!(cursor.read_i64().is_err());
+        assert!(cursor.read_cp_index().is_err());
+    }
+
+    #[test]
     fn test_cursor_read_bytes() {
         let data = [0xAA, 0xBB, 0xCC];
         let mut cursor = Cursor::new(&data);
@@ -682,6 +697,34 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn should_return_error_for_invalid_constant_pool_tag() {
+        let data = [
+            0xCA, 0xFE, 0xBA, 0xBE, // magic
+            0x00, 0x00, 0x00, 0x3D, // minor/major version (61)
+            0x00, 0x02, // cp_count = 2
+            0xFF, // tag = 255 (invalid)
+            0x00, // extra bytes
+        ];
+
+        let mut cursor = Cursor::new(&data);
+        assert!(parse_class_file(&mut cursor).is_err());
+    }
+
+    #[test]
+    fn should_return_error_for_truncated_constant_pool_entry() {
+        let data = [
+            0xCA, 0xFE, 0xBA, 0xBE, // magic
+            0x00, 0x00, 0x00, 0x3D, // minor/major version (61)
+            0x00, 0x02, // cp_count = 2
+            0x07, // tag = 7 (Class)
+                  // missing name_index bytes
+        ];
+
+        let mut cursor = Cursor::new(&data);
+        assert!(parse_class_file(&mut cursor).is_err());
+    }
 
     #[test]
     fn should_return_error_when_cp_index_is_zero() {

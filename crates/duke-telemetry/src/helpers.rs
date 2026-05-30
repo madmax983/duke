@@ -125,6 +125,51 @@ mod tests {
         assert!(json.contains("\"key_2\":\"two\""));
     }
 
+    #[derive(Serialize)]
+    struct CustomKeyedMapWrapper2 {
+        #[serde(serialize_with = "custom_keyed_map2")]
+        map: HashMap<i32, Dummy>,
+    }
+
+    fn custom_keyed_map2<S: serde::Serializer>(
+        map: &HashMap<i32, Dummy>,
+        ser: S,
+    ) -> Result<S::Ok, S::Error> {
+        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+    }
+
+    #[test]
+    fn test_custom_keyed_map2() {
+        use std::collections::HashMap;
+        let mut map: HashMap<i32, Dummy> = HashMap::new();
+        map.insert(1, Dummy { val: 1 });
+        let wrapper = CustomKeyedMapWrapper2 { map };
+        let json = serde_json::to_string(&wrapper).unwrap();
+        assert_eq!(json, "{\"map\":{\"key_1\":{\"val\":1}}}");
+    }
+
+    #[test]
+    fn test_sorted_set_empty() {
+        use std::collections::HashSet;
+        let set: HashSet<String> = HashSet::new();
+        let wrapper = SetWrapper { set };
+        assert_eq!(serde_json::to_string(&wrapper).unwrap(), "{\"set\":[]}");
+    }
+
+    #[test]
+    fn test_sorted_set_populated() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert("3".to_string());
+        set.insert("1".to_string());
+        set.insert("2".to_string());
+        let wrapper = SetWrapper { set };
+        assert_eq!(
+            serde_json::to_string(&wrapper).unwrap(),
+            "{\"set\":[\"1\",\"2\",\"3\"]}"
+        );
+    }
+
     #[test]
     fn test_empty_maps() {
         let empty_map = HashMap::<i32, &'static str>::new();

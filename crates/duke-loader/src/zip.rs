@@ -1319,6 +1319,20 @@ mod tests {
     }
 
     #[test]
+    fn zip_reader_returns_error_for_truncated_zip() {
+        let bytes = vec![0x50, 0x4B, 0x05, 0x06, 0x00, 0x00]; // truncated EOCD
+        let result = ZipReader::from_bytes(bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn zip_reader_returns_error_for_invalid_zip_signature() {
+        let bytes = vec![0x00, 0x01, 0x02, 0x03];
+        let result = ZipReader::from_bytes(bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn get_entry_returns_metadata() {
         let zip = build_stored_zip("test.txt", b"content");
         let reader = ZipReader::from_bytes(zip).expect("should parse");
