@@ -1,0 +1,6 @@
+⚡ Bolt: Eliminate intermediate Vector allocation in `run_main` and `run_jar`
+
+💡 What: Removed the intermediate `Vec<Slot>` allocation (`arg_refs`) when building the Java `String[]` args array in `run_main` and `run_jar`.
+🎯 Why: Creating a `Vec::new()` and pushing each parsed CLI argument into it, only to immediately iterate over it to populate the `String[]` array, causes unnecessary heap allocations and redundant iteration in the hot path of JVM startup.
+📊 Impact: Removes one vector heap allocation per execution and halves the loop iterations needed to process arguments.
+🔬 Measurement: Run `cargo bench` and notice the elimination of the vector allocation.
