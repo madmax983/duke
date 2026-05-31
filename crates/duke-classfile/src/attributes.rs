@@ -51,6 +51,18 @@ pub struct AttributeInfo {
 }
 
 /// Single entry in the `BootstrapMethods` attribute (§4.7.23).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{BootstrapMethodEntry, CpIndex};
+///
+/// let entry = BootstrapMethodEntry {
+///     method_ref: CpIndex(1),
+///     arguments: vec![CpIndex(2), CpIndex(3)],
+/// };
+/// assert_eq!(entry.arguments.len(), 2);
+/// ```
 #[derive(Debug, Clone)]
 pub struct BootstrapMethodEntry {
     /// CP index pointing to a `CONSTANT_MethodHandle`.
@@ -60,6 +72,18 @@ pub struct BootstrapMethodEntry {
 }
 
 /// One parsed runtime annotation instance (§4.7.16.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{Annotation, CpIndex};
+///
+/// let annotation = Annotation {
+///     type_index: CpIndex(1),
+///     element_value_pairs: vec![],
+/// };
+/// assert_eq!(annotation.type_index, CpIndex(1));
+/// ```
 #[derive(Debug, Clone)]
 pub struct Annotation {
     /// Type descriptor of the annotation (`type_index` in the class file).
@@ -69,6 +93,18 @@ pub struct Annotation {
 }
 
 /// One `name=value` pair in an annotation usage (§4.7.16.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ElementValuePair, ElementValue, CpIndex};
+///
+/// let pair = ElementValuePair {
+///     element_name_index: CpIndex(1),
+///     value: ElementValue::ConstValueIndex(CpIndex(2)),
+/// };
+/// assert_eq!(pair.element_name_index, CpIndex(1));
+/// ```
 #[derive(Debug, Clone)]
 pub struct ElementValuePair {
     /// Constant pool index of the element (method) name in the annotation interface.
@@ -78,6 +114,14 @@ pub struct ElementValuePair {
 }
 
 /// Encoded annotation element value (§4.7.16.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ElementValue, CpIndex};
+///
+/// let val = ElementValue::ConstValueIndex(CpIndex(42));
+/// ```
 #[derive(Debug, Clone)]
 pub enum ElementValue {
     /// Primitive/String constant pool reference.
@@ -132,6 +176,24 @@ pub enum AttributeData {
 }
 
 /// Code attribute payload (§4.7.3).
+///
+/// Contains the raw bytecode instructions, local variable configuration,
+/// and exception tables that define a method's runtime behavior.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{CodeAttribute, AttributeData, ExceptionTableEntry, AttributeInfo};
+///
+/// let code_attr = CodeAttribute {
+///     max_stack: 2,
+///     max_locals: 1,
+///     code: vec![0xb1], // return
+///     exception_table: vec![],
+///     attributes: vec![],
+/// };
+/// assert_eq!(code_attr.max_stack, 2);
+/// ```
 #[derive(Debug, Clone)]
 pub struct CodeAttribute {
     /// Maximum depth of the operand stack of this method at any point during execution.
@@ -147,6 +209,20 @@ pub struct CodeAttribute {
 }
 
 /// Exception handler entry within Code attribute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ExceptionTableEntry, CpIndex};
+///
+/// let handler = ExceptionTableEntry {
+///     start_pc: 0,
+///     end_pc: 10,
+///     handler_pc: 15,
+///     catch_type: CpIndex(0),
+/// };
+/// assert_eq!(handler.start_pc, 0);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ExceptionTableEntry {
     /// The start of the range in the `code` array at which the exception handler is active.
@@ -160,6 +236,18 @@ pub struct ExceptionTableEntry {
 }
 
 /// Single entry in a `LineNumberTable` attribute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::LineNumberEntry;
+///
+/// let line = LineNumberEntry {
+///     start_pc: 0,
+///     line_number: 42,
+/// };
+/// assert_eq!(line.line_number, 42);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LineNumberEntry {
     /// The index into the `code` array at which the code for a new line in the original source file begins.
@@ -169,6 +257,21 @@ pub struct LineNumberEntry {
 }
 
 /// Single entry in a `LocalVariableTable` attribute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{LocalVariableEntry, CpIndex};
+///
+/// let local = LocalVariableEntry {
+///     start_pc: 0,
+///     length: 10,
+///     name_index: CpIndex(1),
+///     descriptor_index: CpIndex(2),
+///     index: 0,
+/// };
+/// assert_eq!(local.length, 10);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LocalVariableEntry {
     /// The index into the `code` array at which the local variable must have a value.

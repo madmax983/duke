@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Missing doctests in duke-classfile attributes and constant_pool]
+**Confusion:** Several structs and enums like `ExceptionTableEntry`, `LineNumberEntry`, `LocalVariableEntry`, `BootstrapMethodEntry`, `Annotation`, `ElementValuePair`, `ElementValue`, and `CpEntry` in `duke-classfile` did not have executable doctests in their `///` documentation blocks, making it harder to verify examples and understand the usage.
+**Clarification:** Added `# Examples` with executable doc tests to all remaining undocumented structs and enums in `attributes.rs` and `constant_pool.rs` of `duke-classfile`.
