@@ -13,6 +13,8 @@ mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
 mod deps_graph;
+#[cfg(feature = "nova")]
+mod duplicate_code;
 mod histogram;
 mod html;
 #[cfg(feature = "nova")]
@@ -328,6 +330,8 @@ fn main() {
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("       duke stub <classfile.class>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke duplicate-code <classfile.class>");
+        #[cfg(feature = "nova")]
         eprintln!("       duke dead-code <classfile.class>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-dead-code <file.jar>");
@@ -572,6 +576,8 @@ fn main() {
     match subcommand {
         "dump" => dump_class_file(&class_file),
         "stub" => generate_stubs(&class_file),
+        #[cfg(feature = "nova")]
+        "duplicate-code" => duplicate_code::dump_duplicate_code(&class_file),
         #[cfg(feature = "nova")]
         "dead-code" => dead_code::dump_dead_code(&class_file),
         other => {
