@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Attempting to remove `instr.clone()` in execution loop**
+**Learning:** Found an `instr.clone()` call in the main bytecode execution loop. While profiling indicated it might be slow, attempting to borrow `instr` instead of cloning it fought the borrow checker heavily due to mutations of `frame` and `call_stack` within the same loop body. `Instruction` is 54 bytes and not `Copy`, so making it `Copy` required recursive `Copy` implementations on its internal vectors (which isn't possible).
+**Action:** When a clone happens on a complex enum with internal collections inside a highly mutable loop, consider if the borrow checker will allow it before trying to remove it. Avoid forcing `Copy` on types that inherently hold heap data.
