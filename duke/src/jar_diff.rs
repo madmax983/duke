@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -35,17 +32,17 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     if idx.0 == 0 {
         return "<none>".to_string();
     }
-    let class_entry = cf
+    let Some(CpEntry::Class { name_index }) = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index)
-            .unwrap_or("<invalid utf8>")
-            .to_string()
-    } else {
-        "<not a class ref>".to_string()
-    }
+        .and_then(|s| s.as_ref())
+    else {
+        return "<not a class ref>".to_string();
+    };
+
+    cp_str(cf, *name_index)
+        .unwrap_or("<invalid utf8>")
+        .to_string()
 }
 
 #[cfg(feature = "nova")]
@@ -151,25 +148,27 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
 
     for entry_name in class_entries {
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            #[allow(clippy::collapsible_if)]
-            if let Ok(cf) = parse(&bytes) {
-                let class_name = resolve_class_name(&cf, cf.this_class);
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
 
-                for method in &cf.methods {
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{class_name}::{name_str}{desc_str}");
+        let class_name = resolve_class_name(&cf, cf.this_class);
 
-                    let mut hasher = DefaultHasher::new();
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            code.code.hash(&mut hasher);
-                        }
-                    }
-                    method_hashes.insert(full_name, hasher.finish());
+        for method in &cf.methods {
+            let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
+            let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+            let full_name = format!("{class_name}::{name_str}{desc_str}");
+
+            let mut hasher = DefaultHasher::new();
+            for attr in &method.attributes {
+                if let AttributeData::Code(code) = &attr.data {
+                    code.code.hash(&mut hasher);
                 }
             }
+            method_hashes.insert(full_name, hasher.finish());
         }
     }
     method_hashes
