@@ -40,9 +40,7 @@ pub use verifier::verify;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duke_classfile::{
-        parse, {AttributeData, CpEntry},
-    };
+    use duke_classfile::{AttributeData, CpEntry, parse};
 
     // -----------------------------------------------------------------------
     // Helpers

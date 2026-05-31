@@ -6,9 +6,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
-use duke_classfile::{
-    ClassFile, {AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, ClassFile, CpEntry, CpIndex};
 
 use crate::{Instruction, decode};
 
