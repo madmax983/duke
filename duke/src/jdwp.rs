@@ -7,6 +7,7 @@ const HANDSHAKE: &[u8] = b"JDWP-Handshake";
 const REPLY_FLAG: u8 = 0x80;
 const ERR_NONE: u16 = 0;
 const ERR_NOT_IMPLEMENTED: u16 = 99;
+const ERR_OUT_OF_MEMORY: u16 = 110;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JdwpConfig {
@@ -171,6 +172,13 @@ fn dispatch_command(
             let count = payload
                 .get(8..12)
                 .map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+
+            // Bound count to prevent OOM DOS
+            let max_safe_count = 10_000;
+            if count > max_safe_count {
+                return (ERR_OUT_OF_MEMORY, vec![], false);
+            }
+
             let mut out = Vec::new();
             out.extend_from_slice(&count.to_be_bytes());
             for _ in 0..count {
@@ -185,6 +193,13 @@ fn dispatch_command(
             let slots = payload
                 .get(8..12)
                 .map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+
+            // Bound slots to prevent OOM DOS
+            let max_safe_slots = 10_000;
+            if slots > max_safe_slots {
+                return (ERR_OUT_OF_MEMORY, vec![], false);
+            }
+
             let mut out = Vec::new();
             out.extend_from_slice(&slots.to_be_bytes());
             for _ in 0..slots {
@@ -377,6 +392,24 @@ mod tests {
         assert_eq!(err, ERR_NOT_IMPLEMENTED);
         assert!(data.is_empty());
         assert!(!close);
+    }
+
+    #[test]
+    fn test_dispatch_command_get_values_oom() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+
+        let mut payload = vec![0; 8];
+        payload.extend_from_slice(&1_000_000_u32.to_be_bytes()); // Count 1 million
+
+        // This would OOM or consume excessive memory if not bounded
+        let (err, data, _) = dispatch_command(9, 2, &payload, &req_id, &suspended);
+        assert_eq!(err, 110); // ERR_OUT_OF_MEMORY
+        assert!(data.is_empty());
+
+        let (err_stack, data_stack, _) = dispatch_command(16, 1, &payload, &req_id, &suspended);
+        assert_eq!(err_stack, 110);
+        assert!(data_stack.is_empty());
     }
 
     #[test]

@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2026-06-01 - Testing Network Payload Allocation Bounds
+**Learning:** Blindly trusting unvalidated `length` or `count` fields read from a network payload to pre-allocate collections (`Vec::with_capacity` or loops appending to arrays) is an uncatchable vector for Denial-of-Service OOM errors. Fuzzing or fuzzing-like tests sending massive allocation requests will identify missing boundary limit checks on those inputs.
+**Action:** When inspecting protocol parsers (like JDWP handlers), identify areas constructing collections and bound them to a reasonable size (e.g., `10_000` items) returning protocol-level errors like `ERR_OUT_OF_MEMORY` instead of overflowing or crashing the VM.
