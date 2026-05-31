@@ -1,0 +1,4 @@
+🧨 **The Trigger:** `native_thread_is_interrupted` uses a Time-of-Check to Time-of-Use pattern. It acquires a read lock on `java_thread_hosts()` to find the `host_thread_id`, then releases it. Then it acquires a separate read lock on `interrupted_host_threads()` to check the interrupt status. Concurrently, `unregister_java_host_thread` can acquire the write lock on `java_thread_hosts()` and then `interrupted_host_threads()`, removing the thread. This interleaving means the `is_interrupted` check might lookup a potentially stale `ThreadId`.
+📉 **The Stack Trace:** (Race condition verified by Loom, no direct panic, but logical race)
+🧪 **Reproduction:** Run `RUSTFLAGS="--cfg loom" cargo test --test havoc_interrupted_threads_toctou_loom`
+😈 **Comment:** "Thread-safe is a lie until proven by loom. Separate locks for dependent states is a classic TOCTOU race."
