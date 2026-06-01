@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**[Parsing JVM Method Descriptors]
+**Learning:** Using `chars().peekable()` incurs significant overhead for strictly ASCII format strings due to UTF-8 decoding and peek state management.
+**Action:** Iterate directly on the string as a byte slice `as_bytes()` to parse structural characters directly.

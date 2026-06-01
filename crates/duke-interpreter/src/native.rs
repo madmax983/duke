@@ -23175,41 +23175,50 @@ fn resolve_methodref(cp: &[Option<CpEntry>], idx: usize) -> Result<(String, Stri
 }
 
 /// Count argument slots in a JVM method descriptor like `(ILjava/lang/String;[I)V`.
+/// ⚡ Bolt: Using `as_bytes()` bypasses UTF-8 decoding and peek state overhead,
+/// significantly improving parsing speed for strictly ASCII descriptors.
 fn parse_arg_count(descriptor: &str) -> usize {
     let params = descriptor
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
     let mut count = 0;
-    let mut chars = params.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => count += 1,
-            '[' => {
-                while chars.peek() == Some(&'[') {
-                    chars.next();
+    let bytes = params.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' => {
+                count += 1;
+                i += 1;
+            }
+            b'[' => {
+                while i < bytes.len() && bytes[i] == b'[' {
+                    i += 1;
                 }
-                if chars.peek() == Some(&'L') {
-                    chars.next();
-                    for c2 in chars.by_ref() {
-                        if c2 == ';' {
-                            break;
-                        }
+                if i < bytes.len() && bytes[i] == b'L' {
+                    while i < bytes.len() && bytes[i] != b';' {
+                        i += 1;
                     }
-                } else {
-                    chars.next();
+                } else if i < bytes.len() {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b';' {
+                    i += 1;
                 }
                 count += 1;
             }
-            'L' => {
-                for c2 in chars.by_ref() {
-                    if c2 == ';' {
-                        break;
-                    }
+            b'L' => {
+                while i < bytes.len() && bytes[i] != b';' {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b';' {
+                    i += 1;
                 }
                 count += 1;
             }
-            _ => {}
+            _ => {
+                i += 1;
+            }
         }
     }
     count
@@ -23317,42 +23326,51 @@ fn resolve_cp_string(cp: &[Option<CpEntry>], cp_idx: usize) -> Result<String> {
 
 /// Parse argument type descriptors from a JVM method descriptor like `(IZLjava/lang/String;)V`.
 /// Returns a Vec of single-char type codes: 'I', 'Z', 'L' (for object refs), '[' (for arrays), etc.
+/// ⚡ Bolt: Using `as_bytes()` bypasses UTF-8 decoding and peek state overhead,
+/// significantly improving parsing speed for strictly ASCII descriptors.
 fn parse_arg_types(descriptor: &str) -> Vec<char> {
     let params = descriptor
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
     let mut types = Vec::with_capacity(params.len());
-    let mut chars = params.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => types.push(c),
-            '[' => {
+    let bytes = params.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' => {
+                types.push(bytes[i] as char);
+                i += 1;
+            }
+            b'[' => {
                 // Skip array dimensions and element type.
-                while chars.peek() == Some(&'[') {
-                    chars.next();
+                while i < bytes.len() && bytes[i] == b'[' {
+                    i += 1;
                 }
-                if chars.peek() == Some(&'L') {
-                    chars.next();
-                    for c2 in chars.by_ref() {
-                        if c2 == ';' {
-                            break;
-                        }
+                if i < bytes.len() && bytes[i] == b'L' {
+                    while i < bytes.len() && bytes[i] != b';' {
+                        i += 1;
                     }
-                } else {
-                    chars.next();
+                } else if i < bytes.len() {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b';' {
+                    i += 1;
                 }
                 types.push('[');
             }
-            'L' => {
-                for c2 in chars.by_ref() {
-                    if c2 == ';' {
-                        break;
-                    }
+            b'L' => {
+                while i < bytes.len() && bytes[i] != b';' {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b';' {
+                    i += 1;
                 }
                 types.push('L');
             }
-            _ => {}
+            _ => {
+                i += 1;
+            }
         }
     }
     types
@@ -23529,45 +23547,51 @@ fn autobox_if_needed(
     }
 }
 
+/// ⚡ Bolt: Using `as_bytes()` bypasses UTF-8 decoding and peek state overhead,
+/// significantly improving parsing speed for strictly ASCII descriptors.
 fn parse_arg_descriptors(descriptor: &str) -> Vec<String> {
     let params = descriptor
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
     let mut descriptors = Vec::with_capacity(params.len());
-    let mut chars = params.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => descriptors.push(c.to_string()),
-            '[' => {
-                let mut desc = String::from("[");
-                while chars.peek() == Some(&'[') {
-                    desc.push(chars.next().unwrap_or('['));
-                }
-                if chars.peek() == Some(&'L') {
-                    desc.push(chars.next().unwrap_or('L'));
-                    for c2 in chars.by_ref() {
-                        desc.push(c2);
-                        if c2 == ';' {
-                            break;
-                        }
-                    }
-                } else if let Some(elem) = chars.next() {
-                    desc.push(elem);
-                }
-                descriptors.push(desc);
+    let bytes = params.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        match bytes[i] {
+            b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' => {
+                descriptors.push((bytes[i] as char).to_string());
+                i += 1;
             }
-            'L' => {
-                let mut desc = String::from("L");
-                for c2 in chars.by_ref() {
-                    desc.push(c2);
-                    if c2 == ';' {
-                        break;
-                    }
+            b'[' => {
+                while i < bytes.len() && bytes[i] == b'[' {
+                    i += 1;
                 }
-                descriptors.push(desc);
+                if i < bytes.len() && bytes[i] == b'L' {
+                    while i < bytes.len() && bytes[i] != b';' {
+                        i += 1;
+                    }
+                } else if i < bytes.len() {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b';' {
+                    i += 1;
+                }
+                descriptors.push(params[start..i].to_string());
             }
-            _ => {}
+            b'L' => {
+                while i < bytes.len() && bytes[i] != b';' {
+                    i += 1;
+                }
+                if i < bytes.len() && bytes[i] == b';' {
+                    i += 1;
+                }
+                descriptors.push(params[start..i].to_string());
+            }
+            _ => {
+                i += 1;
+            }
         }
     }
     descriptors
