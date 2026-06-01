@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -56,6 +53,23 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Computes and prints a structural diff between two JAR files.
+///
+/// **Why it exists:** When upgrading dependencies or deploying new versions, it's often
+/// unclear what exactly changed inside a JAR. This function performs a bytecode-aware
+/// comparison, identifying methods that were added, removed, or modified between two
+/// versions of a JAR file.
+///
+/// This helps developers quickly audit library updates for unexpected or missing logic.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Assumes 'v1.jar' and 'v2.jar' exist on the filesystem
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// dump_jar_diff("v1.jar", "v2.jar");
+/// ```
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);

@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-25 - [Missing Documentation Fixes]
+**Confusion:** The `dump_jar_diff` function in `duke/src/jar_diff.rs` was entirely missing documentation. Furthermore, several test files (`havoc_classfile_proptest.rs`) failed due to `missing_docs` being enforced during strict clippy checks.
+**Clarification:** Added comprehensive documentation to `dump_jar_diff`, including an explanation of *why* it exists and an executable example showing basic usage. Also suppressed the `missing_docs` lint in `havoc_classfile_proptest.rs` as test files do not need crate-level documentation blocks.
