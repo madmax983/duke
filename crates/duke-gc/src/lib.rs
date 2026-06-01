@@ -19,7 +19,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use duke_runtime::{Error, Result, Slot};
 
-pub(crate) mod host;
+mod host;
 mod mermaid;
 pub use host::{HostFileHandle, HostProcessHandle, SpawnedProcessIds};
 

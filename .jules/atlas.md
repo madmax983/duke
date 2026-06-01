@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[Encapsulate Workspace Crates Root Modules]**
+**Tangle:** The root `lib.rs` for many crates (duke-bytecode, duke-classfile, duke-loader, duke-runtime, duke-telemetry, duke-gc, duke-interpreter) exported their internal submodules as `pub(crate) mod` instead of `mod`, leaking the internal hierarchy locally despite being in the same crate and not providing any meaningful API encapsulation.
+**Blueprint:** Refactored `pub(crate) mod` to `mod` across all core library crates to ensure the modules themselves are private, while keeping re-exported specific items (`pub use`) as the intended public or crate-level facade. Fixed an unresolved import `types` in `duke/src/jar_diff.rs` caused by this cleanup.

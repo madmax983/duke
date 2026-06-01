@@ -15,12 +15,12 @@
 //! println!("Methods: {}", class_file.methods.len());
 //! ```
 
-pub(crate) mod access_flags;
-pub(crate) mod attributes;
-pub(crate) mod class;
-pub(crate) mod constant_pool;
-pub(crate) mod error;
-pub(crate) mod parser;
+mod access_flags;
+mod attributes;
+mod class;
+mod constant_pool;
+mod error;
+mod parser;
 
 pub use crate::attributes::*;
 pub use crate::class::*;

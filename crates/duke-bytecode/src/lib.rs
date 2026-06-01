@@ -9,18 +9,18 @@
 //! - `error` — [`DecodeError`] and [`VerifyError`]
 
 #[cfg(feature = "nova")]
-pub(crate) mod basic_block;
-pub(crate) mod call_graph;
-pub(crate) mod cfg;
-pub(crate) mod decoder;
-pub(crate) mod error;
-pub(crate) mod instruction;
-pub(crate) mod opcodes;
+mod basic_block;
+mod call_graph;
+mod cfg;
+mod decoder;
+mod error;
+mod instruction;
+mod opcodes;
 #[cfg(feature = "nova")]
-pub(crate) mod reachability;
+mod reachability;
 #[cfg(feature = "nova")]
-pub(crate) mod similarity;
-pub(crate) mod verifier;
+mod similarity;
+mod verifier;
 
 #[cfg(feature = "nova")]
 pub use basic_block::{BasicBlock, build_basic_blocks};

@@ -11,12 +11,12 @@
 
 use std::path::{Path, PathBuf};
 
-pub(crate) mod bootstrap;
-pub(crate) mod directory;
-pub(crate) mod error;
-pub(crate) mod jimage;
-pub(crate) mod manifest;
-pub(crate) mod zip;
+mod bootstrap;
+mod directory;
+mod error;
+mod jimage;
+mod manifest;
+mod zip;
 
 pub use bootstrap::{BootstrapLoader, ClasspathEntry};
 pub use directory::DirectoryLoader;
