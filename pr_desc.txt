@@ -1,0 +1,13 @@
+🔭 Vantage: Spec for Thread Context ClassLoader
+
+👤 User Story:
+"As a Java Application Developer running my code on Duke, I want the VM to support `java.lang.Thread.getContextClassLoader()`, so that my frameworks (like slf4j or Spring) can dynamically load classes from the appropriate classloader, even if the framework classes themselves were loaded by a parent classloader."
+
+✅ Acceptance Criteria:
+- Must implement the native bridges required by `java.lang.Thread.getContextClassLoader()` and `java.lang.Thread.setContextClassLoader(ClassLoader cl)`.
+- A newly created thread must inherit the context classloader from its parent thread.
+- The main thread must have its context classloader initialized to the default system classloader.
+
+🚫 Out of Scope:
+- Implementing full `SecurityManager` permission checks.
+- Implementing other custom classloaders beyond what is needed to expose the TCCL property on Threads.
