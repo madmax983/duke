@@ -21,6 +21,19 @@
 pub struct CpIndex(pub u16);
 
 /// All constant pool entry kinds defined in JVM SE 21 (§4.4).
+///
+/// This enum represents the different types of constants that can appear in the constant pool.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{CpEntry, CpIndex};
+///
+/// let utf8_entry = CpEntry::Utf8("java/lang/Object".to_string());
+/// let class_entry = CpEntry::Class { name_index: CpIndex(1) };
+///
+/// assert!(matches!(class_entry, CpEntry::Class { .. }));
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum CpEntry {
     /// Tag 1

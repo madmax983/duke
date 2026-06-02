@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-06-03 - [CpEntry Documentation]
+**Confusion:** The `CpEntry` enum lacked executable doctests, making it less clear how constant pool entries are programmatically manipulated.
+**Clarification:** Added a module-level `## Examples` block to `CpEntry` to demonstrate how different constant types are constructed and evaluated.
