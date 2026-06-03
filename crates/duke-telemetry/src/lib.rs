@@ -35,19 +35,19 @@
 //! let json = store.to_json();
 //! ```
 
-pub(crate) mod helpers;
+mod helpers;
 
-pub(crate) mod bytecode_cost;
+mod bytecode_cost;
 pub use bytecode_cost::*;
-pub(crate) mod object_lineage;
+mod object_lineage;
 pub use object_lineage::*;
-pub(crate) mod class_init_dag;
+mod class_init_dag;
 pub use class_init_dag::*;
-pub(crate) mod exception_flow;
+mod exception_flow;
 pub use exception_flow::*;
-pub(crate) mod dispatch_resolution;
+mod dispatch_resolution;
 pub use dispatch_resolution::*;
-pub(crate) mod native_boundary;
+mod native_boundary;
 pub use native_boundary::*;
 
 // -- TelemetryStore --------------------------------------------------------------

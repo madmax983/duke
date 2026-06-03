@@ -1553,9 +1553,7 @@ mod tests {
 
     #[test]
     fn test_generate_native_stubs_code_empty() {
-        use duke_classfile::{
-            ClassAccessFlags, {ClassFile, CpEntry, CpIndex},
-        };
+        use duke_classfile::{ClassAccessFlags, ClassFile, CpEntry, CpIndex};
 
         let cf = ClassFile {
             minor_version: 0,
@@ -1583,7 +1581,7 @@ mod tests {
     #[test]
     fn test_generate_native_stubs_code() {
         use duke_classfile::{
-            ClassAccessFlags, MethodAccessFlags, {ClassFile, CpEntry, CpIndex, MethodInfo},
+            ClassAccessFlags, ClassFile, CpEntry, CpIndex, MethodAccessFlags, MethodInfo,
         };
 
         let cf = ClassFile {
