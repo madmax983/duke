@@ -170,40 +170,48 @@ pub fn parse(bytes: &[u8]) -> Result<ClassFile> {
 // Class file structure
 // ---------------------------------------------------------------------------
 
+fn parse_interfaces(c: &mut Cursor<'_>) -> Result<Vec<CpIndex>> {
+    let count = c.read_u16()?;
+    let mut interfaces = Vec::with_capacity(c.safe_capacity(count as usize, 2));
+    for _ in 0..count {
+        interfaces.push(c.read_cp_index()?);
+    }
+    Ok(interfaces)
+}
+
+fn parse_fields(c: &mut Cursor<'_>, cp_len: usize) -> Result<Vec<FieldInfo>> {
+    let count = c.read_u16()?;
+    let mut fields = Vec::with_capacity(c.safe_capacity(count as usize, 8));
+    for _ in 0..count {
+        fields.push(parse_field(c, cp_len)?);
+    }
+    Ok(fields)
+}
+
+fn parse_methods(c: &mut Cursor<'_>, cp_len: usize) -> Result<Vec<MethodInfo>> {
+    let count = c.read_u16()?;
+    let mut methods = Vec::with_capacity(c.safe_capacity(count as usize, 8));
+    for _ in 0..count {
+        methods.push(parse_method(c, cp_len)?);
+    }
+    Ok(methods)
+}
+
 fn parse_class_members(
     c: &mut Cursor<'_>,
     minor_version: u16,
     major_version: u16,
     constant_pool: Vec<Option<CpEntry>>,
 ) -> Result<ClassFile> {
-    let cp_len = constant_pool.len(); // for bounds validation helpers
+    let cp_len = constant_pool.len();
 
     let access_flags = ClassAccessFlags::from_bits_truncate(c.read_u16()?);
     let this_class = c.read_cp_index()?;
     let super_class = c.read_cp_index()?;
 
-    // interfaces
-    let interfaces_count = c.read_u16()?;
-    let mut interfaces = Vec::with_capacity(c.safe_capacity(interfaces_count as usize, 2));
-    for _ in 0..interfaces_count {
-        interfaces.push(c.read_cp_index()?);
-    }
-
-    // fields
-    let fields_count = c.read_u16()?;
-    let mut fields = Vec::with_capacity(c.safe_capacity(fields_count as usize, 8));
-    for _ in 0..fields_count {
-        fields.push(parse_field(c, cp_len)?);
-    }
-
-    // methods
-    let methods_count = c.read_u16()?;
-    let mut methods = Vec::with_capacity(c.safe_capacity(methods_count as usize, 8));
-    for _ in 0..methods_count {
-        methods.push(parse_method(c, cp_len)?);
-    }
-
-    // class-level attributes
+    let interfaces = parse_interfaces(c)?;
+    let fields = parse_fields(c, cp_len)?;
+    let methods = parse_methods(c, cp_len)?;
     let attributes = parse_attributes(c, cp_len)?;
 
     Ok(ClassFile {
@@ -220,8 +228,7 @@ fn parse_class_members(
     })
 }
 
-fn parse_class_file(c: &mut Cursor<'_>) -> Result<ClassFile> {
-    // §4.1 — magic
+fn parse_header(c: &mut Cursor<'_>) -> Result<(u16, u16)> {
     let magic = c.read_u32()?;
     if magic != MAGIC {
         return Err(Error::BadMagic { got: magic });
@@ -235,7 +242,11 @@ fn parse_class_file(c: &mut Cursor<'_>) -> Result<ClassFile> {
             minor: minor_version,
         });
     }
+    Ok((minor_version, major_version))
+}
 
+fn parse_class_file(c: &mut Cursor<'_>) -> Result<ClassFile> {
+    let (minor_version, major_version) = parse_header(c)?;
     let constant_pool = parse_constant_pool(c)?;
     parse_class_members(c, minor_version, major_version, constant_pool)
 }
