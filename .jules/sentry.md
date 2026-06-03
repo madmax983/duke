@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-06-02 - Added `test_nested_boot_inf_lib_archive`
+**Learning:** `is_nested_boot_inf_lib_archive` handles corner cases of BOOT-INF resolution within JAR files. Tested `.jar`, `.zip` and `.txt`.
+**Action:** Ensure tests target internal parsing functions that filter nested dependencies in JAR/ZIP formats.

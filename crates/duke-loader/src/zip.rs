@@ -1611,4 +1611,21 @@ mod proptests {
             let _ = reader.read_entry_info(&info);
         }
     }
+
+    #[test]
+    fn test_nested_boot_inf_lib_archive() {
+        assert!(super::is_nested_boot_inf_lib_archive(
+            "BOOT-INF/lib/foo.jar"
+        ));
+        assert!(super::is_nested_boot_inf_lib_archive(
+            "BOOT-INF/lib/foo.zip"
+        ));
+        assert!(!super::is_nested_boot_inf_lib_archive(
+            "BOOT-INF/lib/foo.txt"
+        ));
+        assert!(!super::is_nested_boot_inf_lib_archive(
+            "BOOT-INF/classes/foo.jar"
+        ));
+        assert!(!super::is_nested_boot_inf_lib_archive("foo.jar"));
+    }
 }
