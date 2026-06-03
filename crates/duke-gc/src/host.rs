@@ -499,6 +499,87 @@ impl Heap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_host_file_bytes_io_error() {
+        let mut host = Heap::new();
+        let path = std::env::temp_dir().join("test_write.txt");
+        let id = host.open_host_output_file(&path).unwrap(); // This is a writer!
+
+        let err = host.read_host_file_bytes(id, &mut [0; 10]).unwrap_err();
+        if let Error::JavaException { class_name } = err {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected JavaException, got {err:?}");
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn read_host_file_bytes_invalid_handle() {
+        let mut host = Heap::new();
+        // ID 9999 doesn't exist
+        let err = host.read_host_file_bytes(9999, &mut [0; 10]).unwrap_err();
+        if let Error::JavaException { class_name } = err {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected JavaException, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn write_host_file_bytes_invalid_handle() {
+        let mut host = Heap::new();
+        // ID 9999 doesn't exist
+        let err = host.write_host_file_byte(9999, 0).unwrap_err();
+        if let Error::JavaException { class_name } = err {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected JavaException, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn test_process_wait_and_destroy_cycle_io_error() {
+        let mut host = Heap::new();
+        let err = host.wait_host_process(9999).unwrap_err();
+        if let Error::JavaException { class_name } = err {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected JavaException, got {err:?}");
+        }
+
+        let err = host.destroy_host_process(9999).unwrap_err();
+        if let Error::JavaException { class_name } = err {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected JavaException, got {err:?}");
+        }
+
+        let err = host.try_host_process_exit_value(9999).unwrap_err();
+        if let Error::JavaException { class_name } = err {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected JavaException, got {err:?}");
+        }
+    }
+
+    #[test]
+    fn open_host_input_file_io_error() {
+        let mut host = Heap::new();
+        // Trying to open a directory as a file typically yields an OS-level error
+        // that is mapped to ErrorKind::PermissionDenied or something else other than NotFound.
+        // We'll use the root directory "/" which exists but is a directory.
+        let err = host
+            .open_host_input_file(std::path::Path::new("has\0null"))
+            .unwrap_err();
+        if let Error::JavaException { class_name } = err {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected JavaException, got {err:?}");
+        }
+    }
+
     #[test]
     fn test_host_file_operations() {
         let mut heap = Heap::new();

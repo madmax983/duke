@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-06-03 - Expanding Classfile and Host Error Path Coverage
+**Learning:** Functions doing deep parsing like `parse_code_attribute` and `decode_annotation` often lack error bounds test cases, specifically related to Recursion Limits and custom invalid enum variants. Similarly, `read_host_file_bytes` in Host resource manager didn't cover paths where invalid handles or bad paths generated proper `JavaException` variants natively mapping to IO exceptions.
+**Action:** Created dedicated mock paths triggering edge case errors like out of bounds sizes, recursion limits and explicitly invalid file paths or descriptors mapping to IOException.

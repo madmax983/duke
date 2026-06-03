@@ -38149,6 +38149,7 @@ mod native_helper_tests {
         assert_eq!(res, Some(Slot::Int(42)));
     }
 
+
 }
 
 #[cfg(test)]
@@ -38167,6 +38168,37 @@ mod tests_sentry {
 
         let err_bool = super::with_atomic_bool(&heap, this_ref, |_| ()).unwrap_err();
         assert!(matches!(err_bool, crate::Error::InvalidRef { address: _ }));
+    }
+
+    #[test]
+    fn test_more_atomic_helpers_error_paths() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate("java/lang/Object".to_string(), 0);
+
+        let err_ref = super::with_atomic_reference(&heap, this_ref, |_| Ok(())).unwrap_err();
+        assert!(matches!(err_ref, crate::Error::InvalidRef { address: _ }));
+
+        let err_exec = super::executor_shared(&heap, this_ref).unwrap_err();
+        assert!(matches!(err_exec, crate::Error::InvalidRef { address: _ }));
+
+        // let _err_reentrant = super::with_reentrant_lock_state(&mut heap, this_ref, |_| Ok(())).unwrap_err();
+        // Wait, with_reentrant_lock_state initializes it if it's missing! So it won't fail!
+        // But condition_state doesn't!
+
+        let err_cond = super::condition_state(&heap, this_ref).unwrap_err();
+        assert!(matches!(err_cond, crate::Error::InvalidRef { address: _ }));
+
+        let err_cdl = super::count_down_latch_state(&heap, this_ref).unwrap_err();
+        assert!(matches!(err_cdl, crate::Error::InvalidRef { address: _ }));
+
+        let err_sem = super::semaphore_state(&heap, this_ref).unwrap_err();
+        assert!(matches!(err_sem, crate::Error::InvalidRef { address: _ }));
+
+        let err_cb = super::cyclic_barrier_state(&heap, this_ref).unwrap_err();
+        assert!(matches!(err_cb, crate::Error::InvalidRef { address: _ }));
+
+        let err_rwview = super::read_write_view_state(&heap, this_ref, duke_gc::ReadWriteLockViewKind::Read).unwrap_err();
+        assert!(matches!(err_rwview, crate::Error::InvalidRef { address: _ }));
     }
 
 }
