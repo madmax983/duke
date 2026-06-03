@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Pre-allocating HashMaps for Known Workloads**
+**Learning:** Initializing `HashMap` without `with_capacity` when the total size is known ahead of time (like iterating over exactly `N` `blocks` into `pc_to_block` for a CFG) introduces unnecessary heap reallocations.
+**Action:** Use `HashMap::with_capacity(size)` instead of `HashMap::new()` when the final size is known during operations like graph building.
