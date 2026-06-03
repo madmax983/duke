@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +15,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<duke_classfile::CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +35,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<duke_classfile::CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -56,6 +53,20 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Analyzes two JAR archives and visualizes their structural evolution.
+///
+/// This function acts as a diffing engine for bytecode, extracting and hashing
+/// the parsed method structures to reveal which functions were added, removed,
+/// or altered between two versions of a Java application.
+///
+/// # Examples
+///
+/// ```no_run
+/// use duke::dump_jar_diff;
+///
+/// // Compare a library before and after an upgrade to identify binary incompatibilities.
+/// dump_jar_diff("library-1.0.jar", "library-2.0.jar");
+/// ```
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);

@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Tests for the JAR analysis and security scan functionalities.
 use std::process::Command;
 use std::path::PathBuf;
 
