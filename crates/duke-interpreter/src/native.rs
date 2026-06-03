@@ -14620,9 +14620,13 @@ pub(crate) fn native_string_indexof_from(
     let target_obj = heap.get(target_ref)?;
     let s = this_obj.string_value.as_deref().unwrap_or_default();
     let target = target_obj.string_value.as_deref().unwrap_or_default();
-    let search_in = if from < s.len() { &s[from..] } else { "" };
+    let byte_from = s.char_indices().nth(from).map_or(s.len(), |(i, _)| i);
+    let search_in = if byte_from < s.len() { &s[byte_from..] } else { "" };
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    let result = search_in.find(target).map_or(-1, |i| (from + i) as i32);
+    let result = search_in.find(target).map_or(-1, |byte_offset| {
+        let actual_byte_index = byte_from + byte_offset;
+        s[..actual_byte_index].chars().count() as i32
+    });
     Ok(Some(Slot::Int(result)))
 }
 
@@ -14639,13 +14643,18 @@ pub(crate) fn native_string_last_indexof_from(
     let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
     let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
-    let search_in = if from + sub_str.len() < this_str.len() {
-        &this_str[..from + sub_str.len()]
-    } else {
-        &this_str
-    };
+    let byte_from = this_str.char_indices().nth(from).map_or(this_str.len(), |(i, _)| i);
+    let safe_end = (byte_from + sub_str.len()).min(this_str.len());
+    let mut actual_end = safe_end;
+    while actual_end > 0 && !this_str.is_char_boundary(actual_end) {
+        actual_end -= 1;
+    }
+
+    let search_in = &this_str[..actual_end];
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    let result = search_in.rfind(sub_str.as_str()).map_or(-1, |i| i as i32);
+    let result = search_in.rfind(sub_str.as_str()).map_or(-1, |byte_offset| {
+        this_str[..byte_offset].chars().count() as i32
+    });
     Ok(Some(Slot::Int(result)))
 }
 
@@ -38169,4 +38178,51 @@ mod tests_sentry {
         assert!(matches!(err_bool, crate::Error::InvalidRef { address: _ }));
     }
 
+}
+
+#[cfg(test)]
+mod havoc_string_split_tests {
+    use super::*;
+    use duke_gc::Heap;
+
+    #[test]
+    fn test_string_indexof_split_char() {
+        let mut heap = Heap::new();
+        let s = "🦀rust"; // 🦀 is 4 bytes
+        let s_ref = heap.allocate_string(s.to_string());
+
+        let target = "ust";
+        let target_ref = heap.allocate_string(target.to_string());
+
+        let args = [
+            Slot::Reference(Some(s_ref)),
+            Slot::Reference(Some(target_ref)),
+            Slot::Int(1), // fromIndex
+        ];
+
+        let mut out = std::io::sink();
+        let mut control = NativeControl::default();
+        let _ = native_string_indexof_from(&args, &mut heap, &mut out, &mut control);
+    }
+
+    #[test]
+    fn test_string_last_indexof_split_char() {
+        let mut heap = Heap::new();
+        let s = "🦀rust"; // 🦀 is 4 bytes
+        let s_ref = heap.allocate_string(s.to_string());
+
+        let target = "r"; // length 1 byte
+        let target_ref = heap.allocate_string(target.to_string());
+
+        // from = 0 -> search in `this_str[..0+1]` -> `this_str[..1]`, splitting the 4-byte 🦀.
+        let args = [
+            Slot::Reference(Some(s_ref)),
+            Slot::Reference(Some(target_ref)),
+            Slot::Int(0), // fromIndex
+        ];
+
+        let mut out = std::io::sink();
+        let mut control = NativeControl::default();
+        let _ = native_string_last_indexof_from(&args, &mut heap, &mut out, &mut control);
+    }
 }
