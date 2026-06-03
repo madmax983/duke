@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**[Refactor `if let Some` to Let-Else Guard Clauses]**
+**Learning:** Found multiple instances of `if let Some(x) = y { ... } else { return z; }` in `duke/src/` (e.g., `analyze.rs`, `cycle_detect.rs`, `dead_code.rs`, `deps_graph.rs`, `jar_analyze.rs`, `jar_diff.rs`, `html.rs`, `audit.rs`, `simulate.rs`). This pattern adds unnecessary nesting and visual noise.
+**Action:** Always refactor these into guard clauses using Rust's `let-else` syntax (`let Some(x) = y else { return z; };`), which flattens the code structure and improves readability according to Forge's favored moves.

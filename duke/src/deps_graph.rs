@@ -23,11 +23,10 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
         .constant_pool
         .get(idx.0 as usize)
         .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
-    } else {
-        "<not a class ref>"
-    }
+    let Some(CpEntry::Class { name_index }) = class_entry else {
+        return "<not a class ref>";
+    };
+    cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
 }
 
 use std::fmt::Write;
@@ -58,16 +57,17 @@ pub fn generate_deps_graph(cf: &ClassFile) -> String {
     let this_name = resolve_class_name(cf, cf.this_class);
 
     for (i, entry) in cf.constant_pool.iter().enumerate() {
-        if let Some(CpEntry::Class { .. }) = entry {
-            #[allow(clippy::cast_possible_truncation)]
-            let idx = CpIndex(i as u16);
-            if idx != cf.this_class {
-                let ref_name = resolve_class_name(cf, idx);
-                if ref_name != "<invalid utf8>" && ref_name != "<not a class ref>" {
-                    let safe_this = this_name.replace('/', "_");
-                    let safe_ref = ref_name.replace('/', "_");
-                    let _ = writeln!(out, "    {safe_this} --> {safe_ref};");
-                }
+        let Some(CpEntry::Class { .. }) = entry else {
+            continue;
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let idx = CpIndex(i as u16);
+        if idx != cf.this_class {
+            let ref_name = resolve_class_name(cf, idx);
+            if ref_name != "<invalid utf8>" && ref_name != "<not a class ref>" {
+                let safe_this = this_name.replace('/', "_");
+                let safe_ref = ref_name.replace('/', "_");
+                let _ = writeln!(out, "    {safe_this} --> {safe_ref};");
             }
         }
     }

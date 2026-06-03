@@ -32,11 +32,10 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
         .constant_pool
         .get(idx.0 as usize)
         .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
-    } else {
-        "<not a class ref>"
-    }
+    let Some(CpEntry::Class { name_index }) = class_entry else {
+        return "<not a class ref>";
+    };
+    cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -108,16 +107,18 @@ pub fn dump_dead_code(cf: &ClassFile) {
                             _ => None,
                         };
 
-                        if let Some(idx) = target_idx {
-                            if let Some((target_class, target_method, target_descriptor)) =
-                                extract_method_ref(cf, idx)
-                            {
-                                if target_class == class_name {
-                                    called_methods.insert(format!(
-                                        "{target_class}::{target_method}{target_descriptor}"
-                                    ));
-                                }
-                            }
+                        let Some(idx) = target_idx else {
+                            continue;
+                        };
+                        let Some((target_class, target_method, target_descriptor)) =
+                            extract_method_ref(cf, idx)
+                        else {
+                            continue;
+                        };
+                        if target_class == class_name {
+                            called_methods.insert(format!(
+                                "{target_class}::{target_method}{target_descriptor}"
+                            ));
                         }
                     }
                 }
@@ -200,18 +201,17 @@ pub fn dump_jar_dead_code(jar_path: &str) {
                                         _ => None,
                                     };
 
-                                    if let Some(idx) = target_idx {
-                                        if let Some((
-                                            target_class,
-                                            target_method,
-                                            target_descriptor,
-                                        )) = extract_method_ref(&cf, idx)
-                                        {
-                                            called_methods.insert(format!(
-                                                "{target_class}::{target_method}{target_descriptor}"
-                                            ));
-                                        }
-                                    }
+                                    let Some(idx) = target_idx else {
+                                        continue;
+                                    };
+                                    let Some((target_class, target_method, target_descriptor)) =
+                                        extract_method_ref(&cf, idx)
+                                    else {
+                                        continue;
+                                    };
+                                    called_methods.insert(format!(
+                                        "{target_class}::{target_method}{target_descriptor}"
+                                    ));
                                 }
                             }
                         }

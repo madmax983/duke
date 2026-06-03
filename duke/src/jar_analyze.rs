@@ -38,13 +38,12 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
         .constant_pool
         .get(idx.0 as usize)
         .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index)
-            .unwrap_or("<invalid utf8>")
-            .to_string()
-    } else {
-        "<not a class ref>".to_string()
-    }
+    let Some(CpEntry::Class { name_index }) = class_entry else {
+        return "<not a class ref>".to_string();
+    };
+    cp_str(cf, *name_index)
+        .unwrap_or("<invalid utf8>")
+        .to_string()
 }
 
 /// Prints a static analysis summary of an entire JAR file to standard output.

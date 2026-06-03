@@ -25,11 +25,10 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
         .constant_pool
         .get(idx.0 as usize)
         .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
-    } else {
-        "<not a class ref>"
-    }
+    let Some(CpEntry::Class { name_index }) = class_entry else {
+        return "<not a class ref>";
+    };
+    cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
 }
 
 /// Generates a static analysis report for the given class file.
