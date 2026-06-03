@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 /// Tracks the total number of calls, the distinct receiver classes seen (polymorphism),
 /// and the overhead of finding the appropriate method implementation within the class hierarchy.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::DispatchStat;
@@ -44,7 +44,7 @@ pub struct DispatchStat {
 /// Tracks polymorphism and dispatch overhead at every dynamic call site in the VM
 /// to help identify opportunities for inline caching or other optimizations.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::DispatchResolutionStore;
@@ -77,7 +77,7 @@ impl DispatchResolutionStore {
     /// - `hierarchy_walk`: True if the method implementation was found by walking
     ///   up the superclass chain; false if it was found directly on `resolved_class`.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::DispatchResolutionStore;

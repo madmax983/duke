@@ -10,7 +10,7 @@
 /// Records the class of the exception, where it was thrown, and where it was
 /// eventually caught (if at all). Also tracks the number of times it was re-thrown.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::ExceptionEvent;
@@ -41,7 +41,7 @@ pub struct ExceptionEvent {
 /// Tracks the paths taken by thrown exceptions through the VM's call stack,
 /// providing insight into the error handling overhead of the application.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::ExceptionFlowStore;
@@ -67,7 +67,7 @@ impl ExceptionFlowStore {
     /// - `throw_method`: The method executing the `athrow` instruction.
     /// - `throw_pc`: Program counter of the `athrow` instruction.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::ExceptionFlowStore;
@@ -100,7 +100,7 @@ impl ExceptionFlowStore {
     /// - `catch_method`: The method where the exception handler matched.
     /// - `handler_pc`: The starting program counter of the exception handler block.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::ExceptionFlowStore;

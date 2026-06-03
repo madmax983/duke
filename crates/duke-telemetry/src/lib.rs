@@ -58,7 +58,7 @@ pub use native_boundary::*;
 /// the VM to pass it around, update it during execution, and serialize
 /// it into a unified report at shutdown.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::TelemetryStore;
@@ -85,6 +85,14 @@ pub struct TelemetryStore {
 
 impl TelemetryStore {
     /// Creates a new, empty telemetry store.
+    ///
+    /// ## Examples
+    ///
+    /// ```
+    /// use duke_telemetry::TelemetryStore;
+    ///
+    /// let store = TelemetryStore::new();
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -92,11 +100,11 @@ impl TelemetryStore {
 
     /// Serialize the entire telemetry dataset into a JSON string.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// Panics if serialization to JSON fails (which should never happen for these basic types).
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::TelemetryStore;
@@ -120,7 +128,7 @@ impl TelemetryStore {
     ///
     /// Returns an error if writing to `w` fails.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::TelemetryStore;
@@ -253,7 +261,7 @@ impl TelemetryStore {
     /// This exporter provides a GitHub-flavored Markdown representation of the telemetry
     /// data, making it easy to paste into PRs or issues for performance analysis.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::TelemetryStore;
@@ -266,6 +274,10 @@ impl TelemetryStore {
     /// assert!(md.contains("# Duke VM Telemetry Report"));
     /// assert!(md.contains("java/lang/System"));
     /// ```
+    ///
+    /// ## Panics
+    ///
+    /// Panics if formatting the string fails (which should not happen).
     #[must_use]
     pub fn to_markdown_report(&self) -> String {
         use std::fmt::Write;

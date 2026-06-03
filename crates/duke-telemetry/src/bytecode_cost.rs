@@ -12,7 +12,7 @@ use std::collections::HashMap;
 /// Keeps a running total of how many times a particular execution site or opcode
 /// was visited, and the total wall-clock time spent inside that instruction.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::OpcodeStat;
@@ -38,7 +38,7 @@ pub struct OpcodeStat {
 /// and hot spots in specific methods by aggregating statistics globally
 /// (by opcode name) and locally (by class, method, and instruction index).
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::BytecodeCostStore;
@@ -70,7 +70,7 @@ impl BytecodeCostStore {
     /// - `pc`: The program counter (instruction index) within the method.
     /// - `elapsed_ns`: How long the instruction took to execute, in nanoseconds.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::BytecodeCostStore;

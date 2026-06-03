@@ -14,7 +14,7 @@ use std::collections::HashMap;
 /// Keeps track of the most recently allocated class at this site and the total
 /// number of objects it created.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::AllocationSite;
@@ -39,7 +39,7 @@ pub struct AllocationSite {
 /// Records the allocating class and method alongside the PC offset of the `new` instruction,
 /// to trace the origin of high allocation rates back to the source code.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::ObjectLineageStore;
@@ -67,7 +67,7 @@ impl ObjectLineageStore {
     /// - `pc`: Program counter of the allocation site.
     /// - `class_allocated`: The class name of the instantiated object.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::ObjectLineageStore;

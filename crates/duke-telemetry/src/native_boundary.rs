@@ -13,7 +13,7 @@ use std::collections::HashMap;
 /// Records the number of times the native method was called, the total wall-clock time
 /// spent executing the native code, and how often it returned an error to the VM.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::NativeStat;
@@ -39,7 +39,7 @@ pub struct NativeStat {
 ///
 /// Groups native method execution statistics by their defining class and method names.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::NativeBoundaryStore;
@@ -68,7 +68,7 @@ impl NativeBoundaryStore {
     /// - `elapsed_ns`: How long the native execution took, in nanoseconds.
     /// - `is_err`: True if the method failed (e.g., returned a `Error` or threw an exception).
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::NativeBoundaryStore;

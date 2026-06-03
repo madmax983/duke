@@ -10,7 +10,7 @@
 /// Records the class name, what triggered its initialization, and how long
 /// the initialization took to execute.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::ClinitEvent;
@@ -38,7 +38,7 @@ pub struct ClinitEvent {
 /// Captures the directed acyclic graph (DAG) of class initializations, allowing
 /// analysis of slow startup times due to heavy static initializers and dependency chains.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```
 /// use duke_telemetry::ClassInitDagStore;
@@ -63,7 +63,7 @@ impl ClassInitDagStore {
     /// - `triggered_by`: The name of the class whose execution triggered this initialization.
     /// - `duration_ns`: Total time spent executing the `<clinit>` method.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::ClassInitDagStore;
@@ -82,7 +82,7 @@ impl ClassInitDagStore {
 
     /// Export the initialization DAG to a Graphviz DOT format string.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::ClassInitDagStore;
@@ -92,6 +92,10 @@ impl ClassInitDagStore {
     /// let dot = store.to_dot();
     /// assert!(dot.contains("digraph ClassInitDag"));
     /// ```
+    ///
+    /// ## Panics
+    ///
+    /// Panics if formatting the string fails (which should not happen).
     #[must_use]
     pub fn to_dot(&self) -> String {
         use std::fmt::Write;
@@ -116,7 +120,7 @@ impl ClassInitDagStore {
 
     /// Export the initialization DAG to a Mermaid flowchart string.
     ///
-    /// # Examples
+    /// ## Examples
     ///
     /// ```
     /// use duke_telemetry::ClassInitDagStore;
@@ -126,6 +130,10 @@ impl ClassInitDagStore {
     /// let mermaid = store.to_mermaid();
     /// assert!(mermaid.contains("graph TD;"));
     /// ```
+    ///
+    /// ## Panics
+    ///
+    /// Panics if formatting the string fails (which should not happen).
     #[must_use]
     pub fn to_mermaid(&self) -> String {
         use std::fmt::Write;
