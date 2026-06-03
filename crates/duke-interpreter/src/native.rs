@@ -4342,13 +4342,18 @@ pub(crate) fn native_arraylist_add_all(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let src_ref = extract_ref_arg(args, 1)?;
-    let src_size = match heap.get(src_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => return Ok(Some(Slot::Int(0))),
+
+    let (src_size, modified) = {
+        let obj = heap.get(src_ref)?;
+        let size = match obj.fields.first() {
+            Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
+            _ => return Ok(Some(Slot::Int(0))),
+        };
+        (size, size > 0)
     };
-    let elems: Vec<Slot> = heap.get(src_ref)?.fields[1..=src_size].to_vec();
-    let modified = !elems.is_empty();
-    for elem in elems {
+
+    for i in 1..=src_size {
+        let elem = heap.get(src_ref)?.fields[i];
         native_arraylist_add(&[Slot::Reference(Some(this_ref)), elem], heap, out, control)?;
     }
     Ok(Some(Slot::Int(i32::from(modified))))
@@ -4363,12 +4368,15 @@ pub(crate) fn native_hashmap_put_all(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let src_ref = extract_ref_arg(args, 1)?;
-    let fields = heap.get(src_ref)?.fields.clone();
-    // fields[0] = size, fields[1..] = k0, v0, k1, v1, ...
     let mut i = 1;
-    while i + 1 < fields.len() {
-        let k = fields[i];
-        let v = fields[i + 1];
+    loop {
+        let (k, v) = {
+            let obj = heap.get(src_ref)?;
+            if i + 1 >= obj.fields.len() {
+                break;
+            }
+            (obj.fields[i], obj.fields[i + 1])
+        };
         native_hashmap_put(&[Slot::Reference(Some(this_ref)), k, v], heap, out, control)?;
         i += 2;
     }
@@ -5436,11 +5444,16 @@ pub(crate) fn native_stream_of(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let elems: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
-    let n = i32::try_from(elems.len()).unwrap_or(0);
-    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    let len = heap.get(arr_ref)?.fields.len();
+    let n = i32::try_from(len).unwrap_or(0);
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), len + 1);
+
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
-    heap.get_mut(stream_ref)?.fields.extend(elems);
+    for i in 0..len {
+        let val = heap.get(arr_ref)?.fields[i];
+        heap.get_mut(stream_ref)?.fields[i+1] = val;
+    }
+
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 
@@ -27987,11 +28000,11 @@ pub(crate) fn native_pattern_split_limit(
 }
 
 fn matcher_pattern_input(heap: &duke_gc::Heap, m_ref: u64) -> Result<Option<(u64, u64)>> {
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
+    let obj = heap.get(m_ref)?;
+    let Some(Slot::Reference(Some(pat_ref))) = obj.fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(None);
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
+    let Some(Slot::Reference(Some(input_ref))) = obj.fields.get(MATCHER_INPUT_FIELD).copied() else {
         return Ok(None);
     };
     Ok(Some((pat_ref, input_ref)))
@@ -29395,11 +29408,11 @@ fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
 }
 
 fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(props_ref)?.fields.clone();
+    let obj = heap.get(props_ref)?;
     let mut entries = Vec::new();
     let mut idx = PROPERTIES_ENTRIES_START;
-    while idx + 1 < fields.len() {
-        entries.push((fields[idx], fields[idx + 1]));
+    while idx + 1 < obj.fields.len() {
+        entries.push((obj.fields[idx], obj.fields[idx + 1]));
         idx += 2;
     }
     Ok(entries)
@@ -30257,11 +30270,11 @@ fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
 }
 
 fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(map_ref)?.fields.clone();
-    let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
+    let obj = heap.get(map_ref)?;
+    let mut entries = Vec::with_capacity(obj.fields.len().saturating_sub(1) / 2);
     let mut i = 1usize;
-    while i + 1 < fields.len() {
-        entries.push((fields[i], fields[i + 1]));
+    while i + 1 < obj.fields.len() {
+        entries.push((obj.fields[i], obj.fields[i + 1]));
         i += 2;
     }
     Ok(entries)
