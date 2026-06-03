@@ -33,6 +33,29 @@ use crate::constant_pool::CpIndex;
 /// assert_eq!(class_file.major_version, 65);
 /// ```
 #[derive(Debug, Clone)]
+/// Represents a parsed Java Class File.
+///
+/// See JVM SE 21 (§4.1) for details on the structure.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ClassFile, ClassAccessFlags, CpIndex};
+///
+/// let cf = ClassFile {
+///     minor_version: 0,
+///     major_version: 65,
+///     constant_pool: vec![],
+///     access_flags: ClassAccessFlags::empty(),
+///     this_class: CpIndex(0),
+///     super_class: CpIndex(0),
+///     interfaces: vec![],
+///     fields: vec![],
+///     methods: vec![],
+///     attributes: vec![],
+/// };
+/// assert_eq!(cf.major_version, 65);
+/// ```
 pub struct ClassFile {
     /// Minor version of the class file format.
     pub minor_version: u16,

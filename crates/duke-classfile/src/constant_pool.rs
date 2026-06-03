@@ -22,6 +22,21 @@ pub struct CpIndex(pub u16);
 
 /// All constant pool entry kinds defined in JVM SE 21 (§4.4).
 #[derive(Debug, Clone, PartialEq)]
+/// Represents an entry in the constant pool.
+///
+/// See JVM SE 21 (§4.4) for details on the constant pool structure.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::CpEntry;
+///
+/// let entry = CpEntry::Integer(42);
+/// match entry {
+///     CpEntry::Integer(val) => assert_eq!(val, 42),
+///     _ => panic!("Expected Integer"),
+/// }
+/// ```
 pub enum CpEntry {
     /// Tag 1
     Utf8(String),

@@ -36,3 +36,10 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Proptest File Missing Docs]
+**Confusion:** The proptest file `crates/duke-classfile/tests/havoc_classfile_proptest.rs` generated a missing documentation warning.
+**Clarification:** Added `#![allow(missing_docs)]` to the test file to suppress the warning, as integration test files do not need full crate documentation.
+
+## 2024-05-25 - [jar_diff type inference]
+**Confusion:** The script duke/src/jar_diff.rs was failing to compile under `--all-features` due to missing type inference for closures operating on `Option`. It was also incorrectly trying to import types from `duke_classfile::types`.
+**Clarification:** Removed the bad import. Added explicit type annotations (`&Option<CpEntry>`) to the `.and_then` closures.
