@@ -1,0 +1,29 @@
+<<<<<<< SEARCH
+use duke_classfile::{
+    parse,
+    types::{AttributeData, CpEntry, CpIndex},
+};
+=======
+use duke_classfile::{
+    parse,
+    AttributeData, CpEntry, CpIndex,
+};
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|slot| slot.as_ref())
+=======
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|s| s.as_ref());
+=======
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
+>>>>>>> REPLACE
