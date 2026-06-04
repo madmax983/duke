@@ -49,10 +49,11 @@ fn synthetic_field(name: &str, descriptor: &str, is_static: bool) -> FieldEntry 
 
 fn jul_allocate_level(heap: &mut duke_gc::Heap, name: &str, value: i32) -> Slot {
     let level_ref = heap.allocate("java/util/logging/Level".to_string(), 1);
-    if let Ok(level) = heap.get_mut(level_ref) {
-        level.fields[0] = Slot::Int(value);
-        level.string_value = Some(name.to_string());
-    }
+    let Ok(level) = heap.get_mut(level_ref) else {
+        return Slot::Reference(Some(level_ref));
+    };
+    level.fields[0] = Slot::Int(value);
+    level.string_value = Some(name.to_string());
     Slot::Reference(Some(level_ref))
 }
 
@@ -65,10 +66,11 @@ fn jul_allocate_simple_formatter(heap: &mut duke_gc::Heap) -> Slot {
 fn jul_allocate_console_handler(heap: &mut duke_gc::Heap, level_slot: Slot) -> Slot {
     let handler_ref = heap.allocate("java/util/logging/ConsoleHandler".to_string(), 2);
     let formatter = jul_allocate_simple_formatter(heap);
-    if let Ok(handler) = heap.get_mut(handler_ref) {
-        handler.fields[0] = level_slot;
-        handler.fields[1] = formatter;
-    }
+    let Ok(handler) = heap.get_mut(handler_ref) else {
+        return Slot::Reference(Some(handler_ref));
+    };
+    handler.fields[0] = level_slot;
+    handler.fields[1] = formatter;
     Slot::Reference(Some(handler_ref))
 }
 
@@ -89,15 +91,16 @@ fn jul_allocate_logger(
     let name_slot = name.map_or(Slot::Reference(None), |logger_name| {
         Slot::Reference(Some(heap.allocate_string(logger_name.to_string())))
     });
-    if let Ok(logger) = heap.get_mut(logger_ref) {
-        logger.fields[0] = name_slot;
-        logger.fields[1] = level_slot;
-        logger.fields[2] = Slot::Int(i32::from(use_parent_handlers));
-        logger.fields[3] = parent_slot;
-        logger.fields[4] = Slot::Int(i32::try_from(handlers.len()).unwrap_or(i32::MAX));
-        for (idx, handler) in handlers.iter().copied().enumerate() {
-            logger.fields[LOGGER_HANDLERS_START + idx] = handler;
-        }
+    let Ok(logger) = heap.get_mut(logger_ref) else {
+        return Slot::Reference(Some(logger_ref));
+    };
+    logger.fields[0] = name_slot;
+    logger.fields[1] = level_slot;
+    logger.fields[2] = Slot::Int(i32::from(use_parent_handlers));
+    logger.fields[3] = parent_slot;
+    logger.fields[4] = Slot::Int(i32::try_from(handlers.len()).unwrap_or(i32::MAX));
+    for (idx, handler) in handlers.iter().copied().enumerate() {
+        logger.fields[LOGGER_HANDLERS_START + idx] = handler;
     }
     Slot::Reference(Some(logger_ref))
 }
@@ -109,15 +112,16 @@ fn jul_bootstrap_insert_logger(
     logger_slot: Slot,
 ) {
     let name_slot = Slot::Reference(Some(heap.allocate_string(name.to_string())));
-    if let Ok(manager) = heap.get_mut(manager_ref) {
-        let next_count = match manager.fields.get(1) {
-            Some(Slot::Int(count)) => count.saturating_add(1),
-            _ => 1,
-        };
-        manager.fields[1] = Slot::Int(next_count);
-        manager.fields.push(name_slot);
-        manager.fields.push(logger_slot);
-    }
+    let Ok(manager) = heap.get_mut(manager_ref) else {
+        return;
+    };
+    let next_count = match manager.fields.get(1) {
+        Some(Slot::Int(count)) => count.saturating_add(1),
+        _ => 1,
+    };
+    manager.fields[1] = Slot::Int(next_count);
+    manager.fields.push(name_slot);
+    manager.fields.push(logger_slot);
 }
 
 /// Registers Duke's deliberately small `java.util.logging` surface.

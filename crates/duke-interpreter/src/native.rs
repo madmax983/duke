@@ -172,30 +172,26 @@ fn box_primitive_slot(slot: Slot, heap: &mut duke_gc::Heap) -> Slot {
     match slot {
         Slot::Int(v) => {
             let r = heap.allocate("java/lang/Integer".to_string(), 1);
-            if let Ok(obj) = heap.get_mut(r) {
-                obj.fields[0] = Slot::Int(v);
-            }
+            let Ok(obj) = heap.get_mut(r) else { return Slot::Reference(Some(r)); };
+            obj.fields[0] = Slot::Int(v);
             Slot::Reference(Some(r))
         }
         Slot::Long(v) => {
             let r = heap.allocate("java/lang/Long".to_string(), 1);
-            if let Ok(obj) = heap.get_mut(r) {
-                obj.fields[0] = Slot::Long(v);
-            }
+            let Ok(obj) = heap.get_mut(r) else { return Slot::Reference(Some(r)); };
+            obj.fields[0] = Slot::Long(v);
             Slot::Reference(Some(r))
         }
         Slot::Double(v) => {
             let r = heap.allocate("java/lang/Double".to_string(), 1);
-            if let Ok(obj) = heap.get_mut(r) {
-                obj.fields[0] = Slot::Double(v);
-            }
+            let Ok(obj) = heap.get_mut(r) else { return Slot::Reference(Some(r)); };
+            obj.fields[0] = Slot::Double(v);
             Slot::Reference(Some(r))
         }
         Slot::Float(v) => {
             let r = heap.allocate("java/lang/Float".to_string(), 1);
-            if let Ok(obj) = heap.get_mut(r) {
-                obj.fields[0] = Slot::Float(v);
-            }
+            let Ok(obj) = heap.get_mut(r) else { return Slot::Reference(Some(r)); };
+            obj.fields[0] = Slot::Float(v);
             Slot::Reference(Some(r))
         }
         other => other, // already a reference
