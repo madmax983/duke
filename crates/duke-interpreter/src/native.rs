@@ -1465,13 +1465,11 @@ pub(crate) fn native_jul_log_manager_get_logger_names(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let manager_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(manager_ref)?.fields.clone();
     let count = jul_manager_count(heap, manager_ref);
     let names: Vec<Slot> = (0..count)
         .map(|idx| {
-            fields
-                .get(JUL_MANAGER_LOGGERS_START + idx * 2)
-                .copied()
+            heap.get(manager_ref)
+                .map(|obj| obj.fields.get(JUL_MANAGER_LOGGERS_START + idx * 2).copied().unwrap_or(Slot::Reference(None)))
                 .unwrap_or(Slot::Reference(None))
         })
         .collect();
@@ -16019,8 +16017,7 @@ pub(crate) fn native_collections_frequency(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => return Ok(Some(Slot::Int(0))),
     };
-    let fields = heap.get(coll_ref)?.fields[1..=size].to_vec();
-    let count = fields
+    let count = heap.get(coll_ref)?.fields[1..=size]
         .iter()
         .filter(|s| slots_equal(s, &target, heap))
         .count();
@@ -25690,11 +25687,10 @@ pub(crate) fn native_arrays_copy_of_range_int(
         _ => 0,
     };
     let new_len = to.saturating_sub(from);
-    let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
     for i in 0..new_len {
-        heap.get_mut(dst_ref)?.fields[i] =
-            src_fields.get(from + i).copied().unwrap_or(Slot::Int(0));
+        let val = heap.get(src_ref)?.fields.get(from + i).copied().unwrap_or(Slot::Int(0));
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -27987,13 +27983,16 @@ pub(crate) fn native_pattern_split_limit(
 }
 
 fn matcher_pattern_input(heap: &duke_gc::Heap, m_ref: u64) -> Result<Option<(u64, u64)>> {
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(None);
+    let pat_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_PATTERN_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
-        return Ok(None);
+    let input_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_INPUT_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
+    let Some(pat_ref) = pat_ref_opt else { return Ok(None); };
+    let Some(input_ref) = input_ref_opt else { return Ok(None); };
     Ok(Some((pat_ref, input_ref)))
 }
 
@@ -28135,18 +28134,14 @@ pub(crate) fn native_matcher_find(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Int(0)));
+    let pat_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_PATTERN_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
-    let input_slot = fields
-        .get(MATCHER_INPUT_FIELD)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
-    let Slot::Reference(Some(input_ref)) = input_slot else {
-        return Ok(Some(Slot::Int(0)));
-    };
-    let pos = match fields.get(MATCHER_POS_FIELD).copied() {
+    let input_slot = heap.get(m_ref)?.fields.get(MATCHER_INPUT_FIELD).copied().unwrap_or(Slot::Reference(None));
+    let Some(pat_ref) = pat_ref_opt else { return Ok(Some(Slot::Int(0))); };
+    let Slot::Reference(Some(input_ref)) = input_slot else { return Ok(Some(Slot::Int(0))); };
+    let pos = match heap.get(m_ref)?.fields.get(MATCHER_POS_FIELD).copied() {
         Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
         _ => 0,
     };
@@ -28174,13 +28169,16 @@ pub(crate) fn native_matcher_matches(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Int(0)));
+    let pat_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_PATTERN_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
-        return Ok(Some(Slot::Int(0)));
+    let input_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_INPUT_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
+    let Some(pat_ref) = pat_ref_opt else { return Ok(Some(Slot::Int(0))); };
+    let Some(input_ref) = input_ref_opt else { return Ok(Some(Slot::Int(0))); };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
@@ -28455,13 +28453,16 @@ pub(crate) fn native_matcher_replace_all(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
+    let pat_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_PATTERN_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
+    let input_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_INPUT_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
+    let Some(pat_ref) = pat_ref_opt else { return Ok(Some(Slot::Reference(None))); };
+    let Some(input_ref) = input_ref_opt else { return Ok(Some(Slot::Reference(None))); };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
@@ -28484,13 +28485,16 @@ pub(crate) fn native_matcher_replace_first(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
+    let pat_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_PATTERN_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
+    let input_ref_opt = match heap.get(m_ref)?.fields.get(MATCHER_INPUT_FIELD).copied() {
+        Some(Slot::Reference(Some(r))) => Some(r),
+        _ => None,
     };
+    let Some(pat_ref) = pat_ref_opt else { return Ok(Some(Slot::Reference(None))); };
+    let Some(input_ref) = input_ref_opt else { return Ok(Some(Slot::Reference(None))); };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = heap
         .get(input_ref)?
@@ -29467,15 +29471,15 @@ fn properties_get_property_slot(
     props_ref: u64,
     key: Slot,
 ) -> Result<Slot> {
-    let fields = heap.get(props_ref)?.fields.clone();
-    if let Some(idx) = properties_entry_index(&fields, &key, heap) {
-        let value = fields[idx + 1];
+    let i_opt = properties_entry_index(&heap.get(props_ref)?.fields, &key, heap);
+    if let Some(idx) = i_opt {
+        let value = heap.get(props_ref)?.fields[idx + 1];
         if slot_is_java_string(heap, value) {
             return Ok(value);
         }
     }
 
-    match fields.get(PROPERTIES_DEFAULTS_FIELD).copied() {
+    match heap.get(props_ref)?.fields.get(PROPERTIES_DEFAULTS_FIELD).copied() {
         Some(Slot::Reference(Some(defaults_ref))) => {
             properties_get_property_slot(heap, defaults_ref, key)
         }
@@ -30257,7 +30261,7 @@ fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
 }
 
 fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(map_ref)?.fields.clone();
+    let fields = &heap.get(map_ref)?.fields;
     let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
     let mut i = 1usize;
     while i + 1 < fields.len() {
