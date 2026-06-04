@@ -50,6 +50,7 @@ pub fn decode(code: &[u8]) -> Result<Vec<(usize, Instruction)>> {
 // ---------------------------------------------------------------------------
 // Cursor
 // ---------------------------------------------------------------------------
+/// A simple cursor for reading a bytecode slice sequentially.
 struct Cursor<'a> {
     data: &'a [u8],
     pos: usize,

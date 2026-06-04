@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-25 - [Native Registry Structs Documentation]
+**Confusion:** The `NativeStackFrame` and `NativeControl` structs in `duke-interpreter` lacked documentation, creating confusion around how native Rust methods interact with the JVM's execution state, construct stack traces, and request thread actions.
+**Clarification:** Added documentation to both structs. Clarified that `NativeStackFrame` is used for mapping execution state to source locations for exceptions, and `NativeControl` is the mechanism for native methods to issue out-of-band commands to the interpreter engine.
