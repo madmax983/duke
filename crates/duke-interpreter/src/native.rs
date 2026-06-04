@@ -23180,36 +23180,46 @@ fn parse_arg_count(descriptor: &str) -> usize {
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
+    let bytes = params.as_bytes();
     let mut count = 0;
-    let mut chars = params.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => count += 1,
-            '[' => {
-                while chars.peek() == Some(&'[') {
-                    chars.next();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' => {
+                count += 1;
+                i += 1;
+            }
+            b'[' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] == b'[' {
+                    i += 1;
                 }
-                if chars.peek() == Some(&'L') {
-                    chars.next();
-                    for c2 in chars.by_ref() {
-                        if c2 == ';' {
-                            break;
-                        }
+                if i < bytes.len() && bytes[i] == b'L' {
+                    i += 1;
+                    while i < bytes.len() && bytes[i] != b';' {
+                        i += 1;
                     }
-                } else {
-                    chars.next();
+                    if i < bytes.len() {
+                        i += 1; // skip ';'
+                    }
+                } else if i < bytes.len() {
+                    i += 1; // skip primitive char
                 }
                 count += 1;
             }
-            'L' => {
-                for c2 in chars.by_ref() {
-                    if c2 == ';' {
-                        break;
-                    }
+            b'L' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b';' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1; // skip ';'
                 }
                 count += 1;
             }
-            _ => {}
+            _ => {
+                i += 1;
+            }
         }
     }
     count
@@ -23322,37 +23332,46 @@ fn parse_arg_types(descriptor: &str) -> Vec<char> {
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
+    let bytes = params.as_bytes();
     let mut types = Vec::with_capacity(params.len());
-    let mut chars = params.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => types.push(c),
-            '[' => {
-                // Skip array dimensions and element type.
-                while chars.peek() == Some(&'[') {
-                    chars.next();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' => {
+                types.push(bytes[i] as char);
+                i += 1;
+            }
+            b'[' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] == b'[' {
+                    i += 1;
                 }
-                if chars.peek() == Some(&'L') {
-                    chars.next();
-                    for c2 in chars.by_ref() {
-                        if c2 == ';' {
-                            break;
-                        }
+                if i < bytes.len() && bytes[i] == b'L' {
+                    i += 1;
+                    while i < bytes.len() && bytes[i] != b';' {
+                        i += 1;
                     }
-                } else {
-                    chars.next();
+                    if i < bytes.len() {
+                        i += 1; // skip ';'
+                    }
+                } else if i < bytes.len() {
+                    i += 1; // skip primitive char
                 }
                 types.push('[');
             }
-            'L' => {
-                for c2 in chars.by_ref() {
-                    if c2 == ';' {
-                        break;
-                    }
+            b'L' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b';' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1; // skip ';'
                 }
                 types.push('L');
             }
-            _ => {}
+            _ => {
+                i += 1;
+            }
         }
     }
     types
@@ -23534,40 +23553,48 @@ fn parse_arg_descriptors(descriptor: &str) -> Vec<String> {
         .strip_prefix('(')
         .and_then(|s| s.split_once(')'))
         .map_or("", |(p, _)| p);
+    let bytes = params.as_bytes();
     let mut descriptors = Vec::with_capacity(params.len());
-    let mut chars = params.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            'B' | 'C' | 'D' | 'F' | 'I' | 'J' | 'S' | 'Z' => descriptors.push(c.to_string()),
-            '[' => {
-                let mut desc = String::from("[");
-                while chars.peek() == Some(&'[') {
-                    desc.push(chars.next().unwrap_or('['));
-                }
-                if chars.peek() == Some(&'L') {
-                    desc.push(chars.next().unwrap_or('L'));
-                    for c2 in chars.by_ref() {
-                        desc.push(c2);
-                        if c2 == ';' {
-                            break;
-                        }
-                    }
-                } else if let Some(elem) = chars.next() {
-                    desc.push(elem);
-                }
-                descriptors.push(desc);
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'B' | b'C' | b'D' | b'F' | b'I' | b'J' | b'S' | b'Z' => {
+                descriptors.push((bytes[i] as char).to_string());
+                i += 1;
             }
-            'L' => {
-                let mut desc = String::from("L");
-                for c2 in chars.by_ref() {
-                    desc.push(c2);
-                    if c2 == ';' {
-                        break;
-                    }
+            b'[' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] == b'[' {
+                    i += 1;
                 }
-                descriptors.push(desc);
+                if i < bytes.len() && bytes[i] == b'L' {
+                    i += 1;
+                    while i < bytes.len() && bytes[i] != b';' {
+                        i += 1;
+                    }
+                    if i < bytes.len() {
+                        i += 1; // skip ';'
+                    }
+                } else if i < bytes.len() {
+                    i += 1; // skip primitive char
+                }
+                descriptors.push(params[start..i].to_string());
             }
-            _ => {}
+            b'L' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b';' {
+                    i += 1;
+                }
+                if i < bytes.len() {
+                    i += 1; // skip ';'
+                }
+                descriptors.push(params[start..i].to_string());
+            }
+            _ => {
+                i += 1;
+            }
         }
     }
     descriptors
