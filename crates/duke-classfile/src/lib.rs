@@ -24,10 +24,13 @@ pub(crate) mod parser;
 
 pub use crate::attributes::*;
 pub use crate::class::*;
-pub use crate::constant_pool::*;
 pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, Result};
 pub use parser::parse;
+
+/// Re-exports of core types. Formerly exported under the `types` module.
+pub use crate::attributes::AttributeData;
+pub use crate::constant_pool::{CpEntry, CpIndex};
 
 #[cfg(test)]
 mod tests {
