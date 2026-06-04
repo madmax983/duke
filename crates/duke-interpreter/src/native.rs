@@ -18282,11 +18282,11 @@ pub fn execute(
     max_locals: u16,
 ) -> Result<Option<Slot>> {
     // Build PC → instruction-index map for O(1) branch resolution.
-    let pc_to_idx: HashMap<usize, usize> = instructions
-        .iter()
-        .enumerate()
-        .map(|(i, &(pc, _))| (pc, i))
-        .collect();
+    // ⚡ Bolt: Eliminate HashMap reallocation overhead by pre-computing capacity.
+    let mut pc_to_idx: HashMap<usize, usize> = HashMap::with_capacity(instructions.len());
+    for (i, &(pc, _)) in instructions.iter().enumerate() {
+        pc_to_idx.insert(pc, i);
+    }
 
     let mut frame = Frame::new(usize::from(max_stack), usize::from(max_locals), args)?;
     let mut idx: usize = 0;
@@ -21601,11 +21601,11 @@ fn build_method_entries(cf: &duke_classfile::ClassFile) -> Vec<MethodEntry> {
                     }
                 })
                 .collect();
-            let pc_to_idx_map: std::collections::HashMap<usize, usize> = instructions
-                .iter()
-                .enumerate()
-                .map(|(i, &(pc, _))| (pc, i))
-                .collect();
+            // ⚡ Bolt: Eliminate HashMap reallocation overhead by pre-computing capacity.
+            let mut pc_to_idx_map: std::collections::HashMap<usize, usize> = std::collections::HashMap::with_capacity(instructions.len());
+            for (i, &(pc, _)) in instructions.iter().enumerate() {
+                pc_to_idx_map.insert(pc, i);
+            }
             Some(MethodEntry {
                 name,
                 descriptor,

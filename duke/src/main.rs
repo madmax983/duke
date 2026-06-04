@@ -795,7 +795,8 @@ fn run_main(
     bootstrap_stdlib(&mut registry, &mut heap);
 
     // Build String[] args array on the heap.
-    let mut arg_refs: Vec<Slot> = Vec::new();
+    // ⚡ Bolt: Use pre-allocated Vec to avoid heap reallocations when setting up application args
+    let mut arg_refs: Vec<Slot> = Vec::with_capacity(string_args.len());
     for arg in &string_args {
         let r = heap.allocate_string((*arg).to_string());
         arg_refs.push(Slot::Reference(Some(r)));
@@ -889,7 +890,8 @@ fn run_jar(
     }
 
     // Build String[] args array on the heap.
-    let mut arg_refs: Vec<Slot> = Vec::new();
+    // ⚡ Bolt: Use pre-allocated Vec to avoid heap reallocations when setting up application args
+    let mut arg_refs: Vec<Slot> = Vec::with_capacity(string_args.len());
     for arg in string_args {
         let r = heap.allocate_string((*arg).to_string());
         arg_refs.push(Slot::Reference(Some(r)));
