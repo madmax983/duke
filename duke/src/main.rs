@@ -13,6 +13,8 @@ mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
 mod deps_graph;
+#[cfg(feature = "nova")]
+mod dom_dump;
 mod histogram;
 mod html;
 #[cfg(feature = "nova")]
@@ -315,6 +317,8 @@ fn main() {
         eprintln!("       duke cfg <classfile.class> <method>");
         eprintln!("       duke bbcfg <classfile.class> <method>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke dom <classfile.class> <method>");
+        #[cfg(feature = "nova")]
         eprintln!("       duke shortest-path <classfile.class> <method> <start_pc> <target_pc>");
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
@@ -463,6 +467,15 @@ fn main() {
     // Dispatch `bbcfg`: dump basic block control flow graph for a method.
     if args.len() >= 4 && args[1] == "bbcfg" {
         dump_bbcfg(&args[2], &args[3]);
+        return;
+    }
+
+    // Dispatch `dom`: dump dominator tree for a method.
+    if args.len() >= 4 && args[1] == "dom" {
+        #[cfg(feature = "nova")]
+        dom_dump::dump_dom(&args[2], &args[3]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'dom' command requires the 'nova' feature flag.");
         return;
     }
 
