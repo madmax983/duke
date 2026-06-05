@@ -1,10 +1,15 @@
+//! JAR Bytecode Diff Analysis module.
+//!
+//! This module provides capabilities to compare two Java `.jar` files at the bytecode level.
+//! Instead of a simple binary diff, it parses `.class` files, extracts method bytecodes,
+//! hashes them, and determines which methods were added, removed, or modified.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, AttributeData, CpEntry, CpIndex,
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
@@ -18,7 +23,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +43,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -56,6 +61,24 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Dumps a detailed method-level bytecode diff between two `.jar` files.
+///
+/// This function reads classes from both `jar1_path` and `jar2_path`, hashes the bytecode of each method,
+/// and computes the differences. The results are printed to standard output.
+///
+/// ## Examples
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "nova")]
+/// # {
+/// # use duke::jar_diff::dump_jar_diff;
+/// dump_jar_diff("old_version.jar", "new_version.jar");
+/// # }
+/// ```
+///
+/// ## Panics
+///
+/// This function will panic if an internal unwrapping fails during parsing, although it attempts to gracefully handle unparseable `.class` files.
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);
