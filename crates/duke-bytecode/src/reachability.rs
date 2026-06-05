@@ -42,11 +42,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// Optimization: Pre-allocate capacity of 2 since branch targets and fallthroughs max out at two.
 /// Reduces dynamic reallocation overhead during CFG construction.
 pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
-    if let Some((last_pc, last_instr)) = block.instructions.last() {
-        last_instr.control_flow_targets(*last_pc, Some(block.end_pc))
-    } else {
-        Vec::new()
-    }
+    let Some((last_pc, last_instr)) = block.instructions.last() else {
+        return Vec::new();
+    };
+    last_instr.control_flow_targets(*last_pc, Some(block.end_pc))
 }
 
 /// Finds all dead (unreachable) basic blocks starting from the given entry PC.
@@ -101,13 +100,14 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
     }
 
     while let Some(current_pc) = queue.pop_front() {
-        if let Some(block) = block_map.get(&current_pc) {
-            let successors = get_successors(block);
-            for next_pc in successors {
-                if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
-                    visited.insert(next_pc);
-                    queue.push_back(next_pc);
-                }
+        let Some(block) = block_map.get(&current_pc) else {
+            continue;
+        };
+        let successors = get_successors(block);
+        for next_pc in successors {
+            if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
+                visited.insert(next_pc);
+                queue.push_back(next_pc);
             }
         }
     }
@@ -192,13 +192,14 @@ pub fn find_shortest_path(
             break;
         }
 
-        if let Some(block) = block_map.get(&current_pc) {
-            for next_pc in get_successors(block) {
-                if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
-                    visited.insert(next_pc);
-                    parents.insert(next_pc, current_pc);
-                    queue.push_back(next_pc);
-                }
+        let Some(block) = block_map.get(&current_pc) else {
+            continue;
+        };
+        for next_pc in get_successors(block) {
+            if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
+                visited.insert(next_pc);
+                parents.insert(next_pc, current_pc);
+                queue.push_back(next_pc);
             }
         }
     }

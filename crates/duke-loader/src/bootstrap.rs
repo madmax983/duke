@@ -134,9 +134,10 @@ impl ClassLoader for BootstrapLoader {
         }
         // Application classes: classpath entries (directories and JARs)
         for entry in &self.classpath {
-            if let Ok(bytes) = entry.find_class(name) {
-                return Ok(bytes);
-            }
+            let Ok(bytes) = entry.find_class(name) else {
+                continue;
+            };
+            return Ok(bytes);
         }
         Err(Error::NotFound {
             name: name.to_string(),

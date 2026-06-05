@@ -263,9 +263,8 @@ fn decode_math_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
         _ => unreachable!(),
     })
 }
-#[allow(clippy::unnecessary_wraps)]
-fn decode_conversion_op(opcode: u8) -> Result<Instruction> {
-    Ok(match opcode {
+fn decode_conversion_op(opcode: u8) -> Instruction {
+    match opcode {
         op::I2L => Instruction::I2l,
         op::I2F => Instruction::I2f,
         op::I2D => Instruction::I2d,
@@ -282,7 +281,7 @@ fn decode_conversion_op(opcode: u8) -> Result<Instruction> {
         op::I2C => Instruction::I2c,
         op::I2S => Instruction::I2s,
         _ => unreachable!(),
-    })
+    }
 }
 fn decode_control_flow_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     Ok(match opcode {
@@ -393,7 +392,6 @@ fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
 #[allow(clippy::too_many_lines)]
 fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     match opcode {
@@ -412,7 +410,7 @@ fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> 
             _ => unreachable!(),
         }),
         op::IADD..=op::IINC => decode_math_op(c, opcode),
-        op::I2L..=op::I2S => decode_conversion_op(opcode),
+        op::I2L..=op::I2S => Ok(decode_conversion_op(opcode)),
         op::LCMP..=op::RETURN => decode_control_flow_op(c, opcode, pc),
         op::GETSTATIC..=op::MONITOREXIT => decode_object_invoke_op(c, opcode, pc),
         op::WIDE => decode_wide(c, pc),
