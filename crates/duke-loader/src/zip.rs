@@ -808,6 +808,283 @@ fn parse_central_directory(
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
+
+    #[test]
+    fn test_zip_loader_find_resource_nested_success() {
+        let nested_jar = build_stored_zip("Test.txt", b"data");
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/nested.jar", &nested_jar)]);
+        let tmp = std::env::temp_dir().join("duke_test_zip_resource_nested.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+
+        let data = loader.find_resource("Test.txt").unwrap();
+        assert_eq!(data, b"data");
+
+        let resources = loader.find_resources("Test.txt").unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0], b"data");
+
+        let entry = loader.find_resource_entry("Test.txt").unwrap();
+        assert_eq!(entry.bytes, b"data");
+
+        let entries = loader.find_resource_entries("Test.txt").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].bytes, b"data");
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_entries_boot_inf() {
+        let zip = build_stored_zip("BOOT-INF/classes/Test.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resource_entries_boot_inf.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+
+        let entry = loader.find_resource_entry("Test.txt").unwrap();
+        assert_eq!(entry.bytes, b"data");
+
+        let entries = loader.find_resource_entries("Test.txt").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].bytes, b"data");
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_entries_errors() {
+        let mut nested_jar = build_stored_zip("Test.txt", b"data");
+        nested_jar[0] ^= 0xFF; // Corrupt local header signature
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+        let tmp = std::env::temp_dir().join("duke_test_zip_nested_res_err.jar");
+        std::fs::write(&tmp, &outer_zip).unwrap();
+
+        let loader = ZipLoader::open(&tmp).expect("should open outer zip");
+
+        let err = loader.find_resources("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+
+        let err = loader.find_resource_entry("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+
+        let err = loader.find_resource_entries("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_not_found() {
+        let zip = build_stored_zip("Test.class", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resource_not_found.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+        let err = loader.find_resource("missing_resource.txt").unwrap_err();
+        assert!(matches!(err, super::Error::NotFound { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_success() {
+        let zip = build_stored_zip("Test.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resource_success.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+        let data = loader.find_resource("Test.txt").unwrap();
+        assert_eq!(data, b"data");
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_boot_inf_success() {
+        let zip = build_stored_zip("BOOT-INF/classes/Test.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resource_boot_inf.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+        let data = loader.find_resource("Test.txt").unwrap();
+        assert_eq!(data, b"data");
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resources_success() {
+        let zip = build_stored_zip("Test.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resources.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+        let resources = loader.find_resources("Test.txt").unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0], b"data");
+
+        let empty = loader.find_resources("missing.txt").unwrap();
+        assert!(empty.is_empty());
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_entry_success() {
+        let zip = build_stored_zip("Test.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resource_entry.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+        let entry = loader.find_resource_entry("Test.txt").unwrap();
+        assert_eq!(entry.bytes, b"data");
+
+        let err = loader.find_resource_entry("missing.txt").unwrap_err();
+        assert!(matches!(err, super::Error::NotFound { .. }));
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_entries_success() {
+        let zip = build_stored_zip("Test.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resource_entries.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+        let entries = loader.find_resource_entries("Test.txt").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].bytes, b"data");
+
+        let empty = loader.find_resource_entries("missing.txt").unwrap();
+        assert!(empty.is_empty());
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_loader_read_entry_error_propagation() {
+        let mut zip_data = build_stored_zip("Test.txt", b"data");
+        zip_data[0] ^= 0xFF;
+
+        let reader = ZipReader::from_bytes(zip_data).unwrap();
+        let loader = ZipLoader {
+            container_spec: "dummy.jar".to_string(),
+            reader,
+            nested_libs: vec![],
+        };
+
+        let err = loader.find_resources("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+
+        let err = loader.find_resource_entry("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+
+        let err = loader.find_resource_entries("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+    }
+
+    #[test]
+    fn test_zip_loader_read_entry_error_propagation_boot_inf() {
+        let mut zip_data = build_stored_zip("BOOT-INF/classes/Test.txt", b"data");
+        zip_data[0] ^= 0xFF;
+
+        let reader = ZipReader::from_bytes(zip_data).unwrap();
+        let loader = ZipLoader {
+            container_spec: "dummy.jar".to_string(),
+            reader,
+            nested_libs: vec![],
+        };
+
+        let err = loader.find_resources("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+
+        let err = loader.find_resource_entry("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+
+        let err = loader.find_resource_entries("Test.txt").unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { .. }));
+    }
+
+    #[test]
+    fn test_zip_cd_entry_extends_past_cd_bounds() {
+        let mut zip_data = Vec::new();
+        let central_dir_offset = 0;
+        let cd_signature: u32 = 0x0201_4b50;
+        zip_data.extend_from_slice(&cd_signature.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 24]);
+        zip_data.extend_from_slice(&10_u16.to_le_bytes());
+        zip_data.extend_from_slice(&10_u16.to_le_bytes());
+        zip_data.extend_from_slice(&0_u16.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 12]);
+        zip_data.extend_from_slice(b"Test.class");
+        let actual_cd_size = (zip_data.len() as u32) - central_dir_offset;
+
+        let eocd_signature: u32 = 0x0605_4b50;
+        zip_data.extend_from_slice(&eocd_signature.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 4]);
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        let fake_cd_size = actual_cd_size;
+        zip_data.extend_from_slice(&fake_cd_size.to_le_bytes());
+        zip_data.extend_from_slice(&central_dir_offset.to_le_bytes());
+        zip_data.extend_from_slice(&0_u16.to_le_bytes());
+
+        let err = ZipReader::from_bytes(zip_data).unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { ref msg } if msg == "central directory entry extends past CD bounds"));
+    }
+
+    #[test]
+    fn test_zip_loader_find_resources_boot_inf_success() {
+        let zip = build_stored_zip("BOOT-INF/classes/Test.txt", b"data");
+        let tmp = std::env::temp_dir().join("duke_test_zip_resources_boot_inf.jar");
+        std::fs::write(&tmp, &zip).unwrap();
+        let loader = ZipLoader::open(&tmp).expect("should open zip");
+        let resources = loader.find_resources("Test.txt").unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0], b"data");
+        std::fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_zip_local_header_truncated_read_entry_info() {
+        let mut zip_data = Vec::new();
+        let cd_offset: u32 = 0;
+
+        let mut eocd = Vec::new();
+        let eocd_signature: u32 = 0x0605_4b50;
+        eocd.extend_from_slice(&eocd_signature.to_le_bytes());
+        eocd.extend_from_slice(&[0; 4]);
+        eocd.extend_from_slice(&1_u16.to_le_bytes());
+        eocd.extend_from_slice(&1_u16.to_le_bytes());
+        eocd.extend_from_slice(&0_u32.to_le_bytes());
+        eocd.extend_from_slice(&cd_offset.to_le_bytes());
+        eocd.extend_from_slice(&0_u16.to_le_bytes());
+
+        let mut cd = Vec::new();
+        let cd_signature: u32 = 0x0201_4b50;
+        cd.extend_from_slice(&cd_signature.to_le_bytes());
+        cd.extend_from_slice(&[0; 24]);
+        cd.extend_from_slice(&10_u16.to_le_bytes());
+        cd.extend_from_slice(&0_u16.to_le_bytes());
+        cd.extend_from_slice(&0_u16.to_le_bytes());
+        cd.extend_from_slice(&[0; 8]);
+
+        let local_hdr_offset = 0_u32;
+        cd.extend_from_slice(&local_hdr_offset.to_le_bytes());
+        cd.extend_from_slice(b"Test.class");
+
+        let eocd_cd_size_offset = 12;
+        eocd[eocd_cd_size_offset..eocd_cd_size_offset+4].copy_from_slice(&(cd.len() as u32).to_le_bytes());
+
+        zip_data.extend_from_slice(&LOCAL_SIGNATURE.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 25]);
+
+        let file_len = 29 + cd.len() + eocd.len();
+        let bad_local_hdr_offset = file_len as u32 - 10;
+        cd[42..46].copy_from_slice(&bad_local_hdr_offset.to_le_bytes());
+
+        let actual_cd_offset = zip_data.len() as u32;
+        eocd[16..20].copy_from_slice(&actual_cd_offset.to_le_bytes());
+
+        let mut final_data = zip_data;
+        final_data.extend_from_slice(&cd);
+        final_data.extend_from_slice(&eocd);
+
+        let reader = ZipReader::from_bytes(final_data).expect("valid EOCD and CD");
+        let info = reader.get_entry("Test.class").unwrap();
+        let err = reader.read_entry_info(info).unwrap_err();
+        assert!(matches!(err, super::Error::ZipFormat { ref msg } if msg.contains("is truncated")));
+    }
+
     use super::*;
 
     #[test]
