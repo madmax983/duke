@@ -51,6 +51,19 @@ pub struct AttributeInfo {
 }
 
 /// Single entry in the `BootstrapMethods` attribute (§4.7.23).
+///
+/// Bootstraps method logic, required for the `invokedynamic` opcode.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::{BootstrapMethodEntry, CpIndex};
+///
+/// let bme = BootstrapMethodEntry {
+///     method_ref: CpIndex(1),
+///     arguments: vec![],
+/// };
+/// assert_eq!(bme.method_ref.0, 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct BootstrapMethodEntry {
     /// CP index pointing to a `CONSTANT_MethodHandle`.
@@ -60,6 +73,19 @@ pub struct BootstrapMethodEntry {
 }
 
 /// One parsed runtime annotation instance (§4.7.16.1).
+///
+/// Used to represent a Java annotation structure such as `@Deprecated`.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::{Annotation, CpIndex};
+///
+/// let annotation = Annotation {
+///     type_index: CpIndex(1),
+///     element_value_pairs: vec![],
+/// };
+/// assert_eq!(annotation.type_index.0, 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct Annotation {
     /// Type descriptor of the annotation (`type_index` in the class file).
@@ -69,6 +95,20 @@ pub struct Annotation {
 }
 
 /// One `name=value` pair in an annotation usage (§4.7.16.1).
+///
+/// For example, `@MyAnnotation(key = "value")` generates an `ElementValuePair`
+/// mapping `"key"` to `"value"`.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::{ElementValuePair, ElementValue, CpIndex};
+///
+/// let pair = ElementValuePair {
+///     element_name_index: CpIndex(1),
+///     value: ElementValue::ConstValueIndex(CpIndex(2)),
+/// };
+/// assert_eq!(pair.element_name_index.0, 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ElementValuePair {
     /// Constant pool index of the element (method) name in the annotation interface.
@@ -78,6 +118,18 @@ pub struct ElementValuePair {
 }
 
 /// Encoded annotation element value (§4.7.16.1).
+///
+/// Represents the value corresponding to an annotation property.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::{ElementValue, CpIndex};
+///
+/// let val = ElementValue::ConstValueIndex(CpIndex(2));
+/// if let ElementValue::ConstValueIndex(index) = val {
+///     assert_eq!(index.0, 2);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub enum ElementValue {
     /// Primitive/String constant pool reference.
@@ -98,6 +150,28 @@ pub enum ElementValue {
 }
 
 /// Typed attribute payload.
+///
+/// This enum represents the strongly-typed payload of an attribute recognized by the JVM.
+/// Attributes that the parser does not understand are kept as raw byte arrays in the `Raw` variant.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{AttributeData, CodeAttribute};
+///
+/// let code_attr = CodeAttribute {
+///     max_stack: 2,
+///     max_locals: 1,
+///     code: vec![0xb1], // return
+///     exception_table: vec![],
+///     attributes: vec![],
+/// };
+///
+/// let payload = AttributeData::Code(code_attr);
+/// if let AttributeData::Code(c) = payload {
+///     assert_eq!(c.max_stack, 2);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub enum AttributeData {
     /// Code attribute (§4.7.3) — method bytecode.
@@ -132,6 +206,22 @@ pub enum AttributeData {
 }
 
 /// Code attribute payload (§4.7.3).
+///
+/// Represents the bytecode implementing a Java method.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::CodeAttribute;
+///
+/// let code = CodeAttribute {
+///     max_stack: 2,
+///     max_locals: 1,
+///     code: vec![0xb1], // return
+///     exception_table: vec![],
+///     attributes: vec![],
+/// };
+/// assert_eq!(code.code.len(), 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct CodeAttribute {
     /// Maximum depth of the operand stack of this method at any point during execution.
@@ -147,6 +237,21 @@ pub struct CodeAttribute {
 }
 
 /// Exception handler entry within Code attribute.
+///
+/// Describes the scope and handler logic for a `try`/`catch`/`finally` block.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::{ExceptionTableEntry, CpIndex};
+///
+/// let entry = ExceptionTableEntry {
+///     start_pc: 0,
+///     end_pc: 10,
+///     handler_pc: 15,
+///     catch_type: CpIndex(1),
+/// };
+/// assert_eq!(entry.handler_pc, 15);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ExceptionTableEntry {
     /// The start of the range in the `code` array at which the exception handler is active.
@@ -160,6 +265,19 @@ pub struct ExceptionTableEntry {
 }
 
 /// Single entry in a `LineNumberTable` attribute.
+///
+/// Maps a bytecode index to a source file line number for debugging.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::LineNumberEntry;
+///
+/// let line = LineNumberEntry {
+///     start_pc: 5,
+///     line_number: 42,
+/// };
+/// assert_eq!(line.line_number, 42);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LineNumberEntry {
     /// The index into the `code` array at which the code for a new line in the original source file begins.
@@ -169,6 +287,22 @@ pub struct LineNumberEntry {
 }
 
 /// Single entry in a `LocalVariableTable` attribute.
+///
+/// Correlates a local variable frame index to its source name and type.
+///
+/// # Examples
+/// ```
+/// use duke_classfile::{LocalVariableEntry, CpIndex};
+///
+/// let lvt = LocalVariableEntry {
+///     start_pc: 0,
+///     length: 10,
+///     name_index: CpIndex(1),
+///     descriptor_index: CpIndex(2),
+///     index: 0,
+/// };
+/// assert_eq!(lvt.index, 0);
+/// ```
 #[derive(Debug, Clone)]
 pub struct LocalVariableEntry {
     /// The index into the `code` array at which the local variable must have a value.
