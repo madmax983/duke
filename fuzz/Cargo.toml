@@ -1,0 +1,42 @@
+[package]
+name = "duke-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+duke-loader = { path = "../crates/duke-loader" }
+tempfile = "3"
+
+[[bin]]
+name = "zip_reader"
+path = "fuzz_targets/zip_reader.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "directory_loader"
+path = "fuzz_targets/directory_loader.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "jimage_reader"
+path = "fuzz_targets/jimage_reader.rs"
+test = false
+doc = false
+
+[workspace]
+
+[[bin]]
+name = "bytecode_cost"
+path = "fuzz_targets/bytecode_cost.rs"
+test = false
+doc = false
+
+[dependencies.duke-telemetry]
+path = "../crates/duke-telemetry"

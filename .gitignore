@@ -4,3 +4,5 @@ mutants.out.old/
 .claude/
 profile.json.gz
 output_html_dir/
+fuzz/target
+fuzz/corpus
