@@ -390,7 +390,7 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
     }
 
     // Map PC to Block ID (start_pc) for edge resolution
-    let mut pc_to_block = std::collections::HashMap::new();
+    let mut pc_to_block = std::collections::HashMap::with_capacity(blocks.len());
     for block in blocks {
         pc_to_block.insert(block.start_pc, block.start_pc);
     }
