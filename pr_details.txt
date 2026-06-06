@@ -4,3 +4,13 @@ Body:
 💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
 🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
 🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+
+Title: 🔭 Vantage: Spec for Thread.getContextClassLoader()
+Body:
+👤 **User Story:** "As a Java Framework Developer running my code on Duke, I want the VM to support `Thread.getContextClassLoader()`, so that my application or library can dynamically load user-specific classes and resources using the appropriate classloader for the current execution context."
+✅ **Acceptance Criteria:**
+  - Must implement `Thread.getContextClassLoader()` to return the classloader associated with the current thread.
+  - Must implement `Thread.setContextClassLoader(ClassLoader)` to allow frameworks to update the context loader.
+  - Must correctly initialize the TCCL of the main thread to the application classloader during VM startup.
+  - Child threads must inherit the TCCL from their parent thread when created.
+🚫 **Out of Scope:** Implementing custom classloaders (e.g., `URLClassLoader`).
