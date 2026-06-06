@@ -67,17 +67,19 @@ pub struct ClassFile {
 ///
 /// # Examples
 ///
+/// Inspecting a field's signature:
+///
 /// ```
-/// use duke_classfile::{FieldInfo, CpIndex};
-/// use duke_classfile::FieldAccessFlags;
+/// use duke_classfile::{FieldInfo, CpIndex, FieldAccessFlags};
 ///
 /// let field = FieldInfo {
-///     access_flags: FieldAccessFlags::PUBLIC,
+///     access_flags: FieldAccessFlags::PUBLIC | FieldAccessFlags::FINAL,
 ///     name_index: CpIndex(1),
 ///     descriptor_index: CpIndex(2),
 ///     attributes: vec![],
 /// };
-/// assert!(field.access_flags.contains(FieldAccessFlags::PUBLIC));
+///
+/// assert!(field.access_flags.contains(FieldAccessFlags::FINAL));
 /// ```
 #[derive(Debug, Clone)]
 pub struct FieldInfo {
@@ -101,17 +103,19 @@ pub struct FieldInfo {
 ///
 /// # Examples
 ///
+/// Inspecting a method's signature:
+///
 /// ```
-/// use duke_classfile::{MethodInfo, CpIndex};
-/// use duke_classfile::MethodAccessFlags;
+/// use duke_classfile::{MethodInfo, CpIndex, MethodAccessFlags};
 ///
 /// let method = MethodInfo {
-///     access_flags: MethodAccessFlags::PUBLIC,
+///     access_flags: MethodAccessFlags::PUBLIC | MethodAccessFlags::STATIC,
 ///     name_index: CpIndex(3),
 ///     descriptor_index: CpIndex(4),
 ///     attributes: vec![],
 /// };
-/// assert!(method.access_flags.contains(MethodAccessFlags::PUBLIC));
+///
+/// assert!(method.access_flags.contains(MethodAccessFlags::STATIC));
 /// ```
 #[derive(Debug, Clone)]
 pub struct MethodInfo {

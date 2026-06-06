@@ -119,23 +119,45 @@ impl<'a> Cursor<'a> {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Parse a JVM `.class` file from raw bytes.
+/// Parses a complete `ClassFile` from a byte slice.
 ///
-/// Returns a fully-parsed [`ClassFile`] or a [`Error`] describing
-/// exactly why the input is invalid.
+/// This is the primary entrypoint for the `duke-classfile` crate. It reads a Java `.class`
+/// file byte sequence according to the JVM Specification §4. It decodes the constant pool,
+/// fields, methods, and attributes.
+///
+/// # Returns
+///
+/// Returns a fully decoded [`ClassFile`] struct on success.
 ///
 /// # Errors
 ///
-/// Returns an error if the input is truncated, has an invalid magic number,
-/// an unsupported version, or any structural inconsistency.
+/// Returns an [`Error`] if the bytes are malformed, truncated, or contain unsupported features.
+///
+/// # Panics
+///
+/// This function relies exclusively on a bounds-checked `Cursor` and will **never** panic,
+/// even on maliciously crafted or randomized input.
 ///
 /// # Examples
+///
+/// Decoding a valid class file:
+///
+/// ```no_run
+/// use duke_classfile::parse;
+///
+/// let bytes = std::fs::read("HelloWorld.class").unwrap();
+/// match parse(&bytes) {
+///     Ok(class_file) => println!("Class decoded successfully!"),
+///     Err(e) => eprintln!("Failed to decode class: {}", e),
+/// }
+/// ```
+///
+/// Decoding an invalid byte stream:
 ///
 /// ```
 /// use duke_classfile::parse;
 ///
-/// // Create a minimal but invalid class file (wrong magic)
-/// let bytes = [0x00, 0x00, 0x00, 0x00];
+/// let bytes = vec![0x00, 0x00, 0x00, 0x00]; // Missing 0xCAFEBABE magic
 /// let result = parse(&bytes);
 /// assert!(result.is_err());
 /// ```

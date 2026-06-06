@@ -1,3 +1,5 @@
+//! Property-based testing for duke-classfile parser
+
 use proptest::prelude::*;
 
 proptest! {
