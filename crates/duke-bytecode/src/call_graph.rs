@@ -119,7 +119,13 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
         let name_str = cp_str(cf, method.name_index).unwrap_or("<invalid>");
         let desc_str = cp_str(cf, method.descriptor_index).unwrap_or("<invalid>");
 
-        let source_id = format!("{this_class_name}::{name_str}{desc_str}");
+        // ⚡ Bolt: Eliminate intermediate format! allocation
+        let mut source_id =
+            String::with_capacity(this_class_name.len() + 2 + name_str.len() + desc_str.len());
+        source_id.push_str(this_class_name);
+        source_id.push_str("::");
+        source_id.push_str(name_str);
+        source_id.push_str(desc_str);
 
         for attr in &method.attributes {
             if let AttributeData::Code(code) = &attr.data
@@ -139,7 +145,22 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
                         && let Some((target_class, target_method, target_descriptor)) =
                             extract_method_ref(cf, idx)
                     {
-                        edges.insert(format!("    \"{source_id}\" --> \"{target_class}::{target_method}{target_descriptor}\""));
+                        // ⚡ Bolt: Eliminate intermediate format! allocation. Fixed capacity base to 15.
+                        let mut edge = String::with_capacity(
+                            15 + source_id.len()
+                                + target_class.len()
+                                + target_method.len()
+                                + target_descriptor.len(),
+                        );
+                        edge.push_str("    \"");
+                        edge.push_str(&source_id);
+                        edge.push_str("\" --> \"");
+                        edge.push_str(&target_class);
+                        edge.push_str("::");
+                        edge.push_str(&target_method);
+                        edge.push_str(&target_descriptor);
+                        edge.push('"');
+                        edges.insert(edge);
                     }
                 }
             }

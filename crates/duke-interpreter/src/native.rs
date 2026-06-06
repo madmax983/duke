@@ -14538,7 +14538,8 @@ pub(crate) fn native_string_substring(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        let char_count = s.chars().count();
+        // ⚡ Bolt: Fast-path ASCII strings to O(1) length check, avoiding O(N) UTF-8 decoding
+        let char_count = if s.is_ascii() { s.len() } else { s.chars().count() };
         if begin > char_count {
             return Err(Error::ArrayIndexOutOfBounds {
                 index: i32::try_from(begin).unwrap_or(i32::MAX),
@@ -14568,7 +14569,8 @@ pub(crate) fn native_string_substring_range(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        let char_count = s.chars().count();
+        // ⚡ Bolt: Fast-path ASCII strings to O(1) length check, avoiding O(N) UTF-8 decoding
+        let char_count = if s.is_ascii() { s.len() } else { s.chars().count() };
         if begin > end || end > char_count {
             return Err(Error::ArrayIndexOutOfBounds {
                 index: i32::try_from(end).unwrap_or(i32::MAX),
@@ -14794,7 +14796,8 @@ pub(crate) fn native_string_tochararray(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let char_count = s.chars().count();
+    // ⚡ Bolt: Fast-path ASCII strings to O(1) length check, avoiding O(N) UTF-8 decoding
+    let char_count = if s.is_ascii() { s.len() } else { s.chars().count() };
     let arr_ref = heap.allocate("[C".to_string(), char_count);
     for (i, c) in s.chars().enumerate() {
         heap.get_mut(arr_ref)?.fields[i] = Slot::Int(c as i32);
@@ -16139,17 +16142,21 @@ pub(crate) fn native_string_concat(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s1 = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let other_ref = extract_ref_arg(args, 1)?;
-    let s2 = heap
-        .get(other_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
-    // ⚡ Bolt: Eliminate intermediate format! allocation
-    let mut combined = String::with_capacity(s1.len() + s2.len());
-    combined.push_str(&s1);
-    combined.push_str(&s2);
+
+    // ⚡ Bolt: Avoid cloning string values from the heap by using `as_deref()`
+    // inside a block scope, satisfying the borrow checker for subsequent `allocate_string`.
+    let combined = {
+        let obj1 = heap.get(this_ref)?;
+        let s1 = obj1.string_value.as_deref().unwrap_or_default();
+        let obj2 = heap.get(other_ref)?;
+        let s2 = obj2.string_value.as_deref().unwrap_or_default();
+        let mut combined = String::with_capacity(s1.len() + s2.len());
+        combined.push_str(s1);
+        combined.push_str(s2);
+        combined
+    };
+
     let r = heap.allocate_string(combined);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -24168,7 +24175,8 @@ pub(crate) fn native_sb_set_length(
         .get_mut(this_ref)?
         .string_value
         .get_or_insert_with(String::new);
-    let char_count = buf.chars().count();
+    // ⚡ Bolt: Fast-path ASCII strings to O(1) length check, avoiding O(N) UTF-8 decoding
+    let char_count = if buf.is_ascii() { buf.len() } else { buf.chars().count() };
     if new_len < char_count {
         if let Some((byte_idx, _)) = buf.char_indices().nth(new_len) {
             buf.truncate(byte_idx);
@@ -26136,7 +26144,8 @@ pub(crate) fn native_string_index_of_char(
             heap.get(this_ref).ok().and_then(|o| {
                 o.string_value
                     .as_deref()
-                    .map(|s| s[..byte_pos].chars().count())
+                    // ⚡ Bolt: Fast-path ASCII strings to O(1) length check, avoiding O(N) UTF-8 decoding
+                    .map(|s| if s[..byte_pos].is_ascii() { byte_pos } else { s[..byte_pos].chars().count() })
             })
         });
     let result = idx.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
@@ -26156,7 +26165,8 @@ pub(crate) fn native_string_last_index_of(
     let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
     let result = this_str
         .rfind(sub_str.as_str())
-        .and_then(|byte_pos| i32::try_from(this_str[..byte_pos].chars().count()).ok())
+        // ⚡ Bolt: Fast-path ASCII strings to O(1) length check, avoiding O(N) UTF-8 decoding
+        .and_then(|byte_pos| i32::try_from(if this_str[..byte_pos].is_ascii() { byte_pos } else { this_str[..byte_pos].chars().count() }).ok())
         .unwrap_or(-1);
     Ok(Some(Slot::Int(result)))
 }

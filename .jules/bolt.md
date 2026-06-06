@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+## 2026-06-06 - Fast-Path String Operations & Elimination of format! Macros
+**Learning:** The `format!` macro introduces significant allocation and string parsing overhead for simple concatenations. Similarly, `s.chars().count()` forces an O(N) UTF-8 decoding pass. However, applying documentation comments (`///`) to internal statements like `let` bindings causes `clippy::unused_doc_comments` failures because rustdoc only processes item-level docs.
+**Action:** Next time, replace `format!` with `String::with_capacity()` plus `push_str()` for known concatenations, and use `if s.is_ascii() { s.len() } else { s.chars().count() }` to O(1) fast-path ascii lengths. When documenting these statement-level optimizations, always use standard comments (`//`) to avoid clippy warnings.
