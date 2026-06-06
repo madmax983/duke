@@ -1,0 +1,9 @@
+🛡️ Sentry: [test coverage improvement]
+
+🎯 Target: `duke-loader/src/zip.rs`
+
+💣 Risk: Untested edge cases during standard ZIP classloading or ZIP parsing (like buffer truncations) might cause silent logic errors or uncaught panics.
+
+🧪 Strategy: Added specific targeted tests checking for error flows to make sure missing data paths and bounds checks error cleanly. Additionally added tests for `find_resource` on nested JAR files.
+
+🔬 Verification: Run `cargo test -p duke-loader`.

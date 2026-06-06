@@ -1474,6 +1474,145 @@ mod tests {
     }
 
     #[test]
+    fn test_cd_entry_length_overflow() {
+        let mut zip_data = Vec::new();
+        let central_dir_offset = 0;
+        let cd_signature: u32 = 0x0201_4b50;
+        zip_data.extend_from_slice(&cd_signature.to_le_bytes()); // CD signature
+        zip_data.extend_from_slice(&[0; 24]);
+        let name = b"abcde";
+        zip_data.extend_from_slice(&(5_u16).to_le_bytes()); // filename len
+        zip_data.extend_from_slice(&u16::MAX.to_le_bytes()); // extra len (cause overflow/out of bounds)
+        zip_data.extend_from_slice(&u16::MAX.to_le_bytes()); // comment len
+        zip_data.extend_from_slice(&[0; 8]);
+        zip_data.extend_from_slice(&0_u32.to_le_bytes()); // local header offset
+        zip_data.extend_from_slice(name);
+
+        let central_dir_size = (zip_data.len() as u32) - central_dir_offset;
+        let eocd_signature: u32 = 0x0605_4b50;
+        zip_data.extend_from_slice(&eocd_signature.to_le_bytes());
+        zip_data.extend_from_slice(&[0; 4]);
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        zip_data.extend_from_slice(&1_u16.to_le_bytes());
+        zip_data.extend_from_slice(&central_dir_size.to_le_bytes());
+        zip_data.extend_from_slice(&central_dir_offset.to_le_bytes());
+        zip_data.extend_from_slice(&0_u16.to_le_bytes());
+
+        let err = ZipReader::from_bytes(zip_data).unwrap_err();
+        assert!(
+            matches!(err, Error::ZipFormat { ref msg } if msg == "central directory entry extends past CD bounds" || msg == "central directory entry length overflow")
+        );
+    }
+
+    struct TempFile(std::path::PathBuf);
+    impl TempFile {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(name);
+            Self(path)
+        }
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            std::fs::remove_file(&self.0).ok();
+        }
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource() {
+        let fake_res = b"hello world";
+        let zip = build_stored_zip("config.properties", fake_res);
+        let tmp = TempFile::new("duke_test_find_resource.jar");
+        std::fs::write(tmp.path(), &zip).unwrap();
+
+        let loader = ZipLoader::open(tmp.path()).expect("should open");
+
+        // 1. Find resource in root
+        let bytes = loader
+            .find_resource("config.properties")
+            .expect("should find resource");
+        assert_eq!(bytes, fake_res);
+
+        // 2. Resource not found
+        let err = loader.find_resource("missing.properties").unwrap_err();
+        assert!(matches!(err, Error::NotFound { .. }));
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_boot_inf() {
+        let fake_res = b"hello world";
+        let zip = build_stored_zip("BOOT-INF/classes/config.properties", fake_res);
+        let tmp = TempFile::new("duke_test_find_resource_boot_inf.jar");
+        std::fs::write(tmp.path(), &zip).unwrap();
+
+        let loader = ZipLoader::open(tmp.path()).expect("should open");
+
+        // Find resource in BOOT-INF/classes
+        let bytes = loader
+            .find_resource("config.properties")
+            .expect("should find resource");
+        assert_eq!(bytes, fake_res);
+    }
+
+    #[test]
+    fn test_zip_loader_find_resource_nested() {
+        let fake_res = b"hello world";
+        let nested_jar = build_stored_zip("config.properties", fake_res);
+        let outer_zip = build_multi_entry_zip(&[("BOOT-INF/lib/dependency.jar", &nested_jar)]);
+        let tmp = TempFile::new("duke_test_find_resource_nested.jar");
+        std::fs::write(tmp.path(), &outer_zip).unwrap();
+
+        let loader = ZipLoader::open(tmp.path()).expect("should open");
+
+        // Find resource in nested jar
+        let bytes = loader
+            .find_resource("config.properties")
+            .expect("should find resource");
+        assert_eq!(bytes, fake_res);
+    }
+
+    #[test]
+    fn test_zip_loader_find_resources() {
+        let fake_res1 = b"hello 1";
+        let fake_res2 = b"hello 2";
+        let fake_res3 = b"hello 3";
+        let nested_jar = build_stored_zip("config.properties", fake_res3);
+        let outer_zip = build_multi_entry_zip(&[
+            ("config.properties", fake_res1),
+            ("BOOT-INF/classes/config.properties", fake_res2),
+            ("BOOT-INF/lib/dependency.jar", &nested_jar),
+        ]);
+        let tmp = TempFile::new("duke_test_find_resources.jar");
+        std::fs::write(tmp.path(), &outer_zip).unwrap();
+
+        let loader = ZipLoader::open(tmp.path()).expect("should open");
+
+        let resources = loader
+            .find_resources("config.properties")
+            .expect("should find resources");
+        assert_eq!(resources.len(), 3);
+        assert_eq!(resources[0], fake_res1);
+        assert_eq!(resources[1], fake_res2);
+        assert_eq!(resources[2], fake_res3);
+    }
+
+    #[test]
+    fn test_zip_loader_find_resources_not_found() {
+        let zip = build_stored_zip("other.txt", b"foo");
+        let tmp = TempFile::new("duke_test_find_resources_missing.jar");
+        std::fs::write(tmp.path(), &zip).unwrap();
+
+        let loader = ZipLoader::open(tmp.path()).expect("should open");
+
+        let resources = loader
+            .find_resources("missing.properties")
+            .expect("should succeed returning empty");
+        assert_eq!(resources.len(), 0);
+    }
+
+    #[test]
     fn test_zip_missing_eocd() {
         let zip_bytes = vec![0u8; 100];
         let err = ZipReader::from_bytes(zip_bytes).unwrap_err();
