@@ -4,7 +4,7 @@
 //! that all channels and their custom serialization logic (e.g. `keyed_map`, `sorted_set`)
 //! are properly executed and do not panic or fail.
 
-#![allow(missing_docs)]
+#![allow(missing_docs, unused_imports)]
 
 use duke_telemetry::TelemetryStore;
 
