@@ -2,7 +2,10 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
+use duke_classfile::{
+    parse,
+    AttributeData, CpEntry, CpIndex,
+};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};

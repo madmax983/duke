@@ -120,8 +120,7 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
         let desc_str = cp_str(cf, method.descriptor_index).unwrap_or("<invalid>");
 
         // ⚡ Bolt: Eliminate intermediate format! allocation
-        let mut source_id =
-            String::with_capacity(this_class_name.len() + 2 + name_str.len() + desc_str.len());
+        let mut source_id = String::with_capacity(this_class_name.len() + 2 + name_str.len() + desc_str.len());
         source_id.push_str(this_class_name);
         source_id.push_str("::");
         source_id.push_str(name_str);
@@ -147,10 +146,7 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
                     {
                         // ⚡ Bolt: Eliminate intermediate format! allocation. Fixed capacity base to 15.
                         let mut edge = String::with_capacity(
-                            15 + source_id.len()
-                                + target_class.len()
-                                + target_method.len()
-                                + target_descriptor.len(),
+                            15 + source_id.len() + target_class.len() + target_method.len() + target_descriptor.len()
                         );
                         edge.push_str("    \"");
                         edge.push_str(&source_id);
