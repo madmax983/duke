@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod clone_detect;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -307,6 +309,8 @@ fn main() {
         #[cfg(feature = "nova")]
         eprintln!("       duke cycle-detect <file.jar>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke clone-detect <file.jar>");
+        #[cfg(feature = "nova")]
         eprintln!("       duke audit <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
         #[cfg(feature = "nova")]
@@ -442,6 +446,15 @@ fn main() {
             None
         };
         dump_html(&args[2], output_path);
+        return;
+    }
+
+    // Dispatch `clone-detect`
+    if args.len() >= 3 && args[1] == "clone-detect" {
+        #[cfg(feature = "nova")]
+        clone_detect::dump_clone_detect(&args[2]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'clone-detect' command requires the 'nova' feature flag.");
         return;
     }
 
