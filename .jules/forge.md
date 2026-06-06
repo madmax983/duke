@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**Forge - Refactor Imports and Type Declarations**
+**Learning:** The import 'use duke_classfile::types::{AttributeData, CpEntry, CpIndex};' was actually invalid since 'types' wasn't exported. Additionally, type inference failed causing E0282, requiring explicit closure parameter typing.
+**Action:** Ensure that types are properly imported from the crate root and properly add explicit types on closures to satisfy the compiler when doing refactoring. When removing clippy attributes, make sure to fully implement the fix like early returns.
