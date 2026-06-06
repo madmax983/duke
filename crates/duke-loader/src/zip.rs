@@ -1612,3 +1612,19 @@ mod proptests {
         }
     }
 }
+
+#[cfg(test)]
+mod tests_sentry {
+    use super::*;
+
+    #[test]
+    fn test_zip_reader_read_entry_not_found() {
+        let archive_data = vec![
+            0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        let reader = ZipReader::from_bytes(archive_data).unwrap();
+        let res = reader.read_entry("nonexistent.txt");
+        assert!(matches!(res, Err(Error::NotFound { .. })));
+    }
+}

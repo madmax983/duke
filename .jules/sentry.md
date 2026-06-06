@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2026-06-06 - Cargo Tarpaulin Output Parsing
+**Learning:** When using `cargo tarpaulin` to measure code coverage programmatically, it's best to specify `--out Json` to generate `tarpaulin-report.json` rather than parsing `lcov.info`, which may lack coverage data for modules guarded by features.
+**Action:** Always use `cargo tarpaulin --all-features --out Json` when analyzing untested code, and ensure you parse the JSON report appropriately.

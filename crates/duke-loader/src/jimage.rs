@@ -983,3 +983,78 @@ mod tests_oob {
         }
     }
 }
+
+#[cfg(test)]
+mod tests_sentry {
+    use super::*;
+
+    #[test]
+    fn test_parse_header_unsupported_version() {
+        let mut data = vec![0; HEADER_SIZE];
+        data[0..4].copy_from_slice(&JIMAGE_MAGIC.to_le_bytes()); // valid magic
+        data[4..8].copy_from_slice(&999u32.to_le_bytes()); // invalid version
+
+        let res = parse_header(&data);
+        assert!(matches!(res, Err(Error::JImageFormat { .. })));
+        if let Err(Error::JImageFormat { msg }) = res {
+            assert!(msg.contains("unsupported jimage version:"));
+        }
+    }
+
+    #[test]
+    fn test_split_class_name_no_slash() {
+        let (pkg, name) = split_class_name("Foo");
+        assert_eq!(pkg, "");
+        assert_eq!(name, "Foo");
+    }
+
+    #[test]
+    fn test_read_str_index_out_of_bounds() {
+        // str_offset + idx_usize > data.len()
+        let data = vec![0, 1, 2, 3];
+        let str_offset = 2;
+        let idx = 10;
+        let res = read_str(&data, str_offset, idx);
+        assert_eq!(res, "");
+    }
+
+    #[test]
+    fn test_build_index_missing_location() {
+        let data = vec![0; HEADER_SIZE];
+        let res = build_index(&data, 0, 10, 10, 10);
+        assert_eq!(res.len(), 0);
+    }
+
+    #[test]
+    fn test_read_resource_decompress_error() {
+        let mut data = vec![0; HEADER_SIZE];
+        data[0..4].copy_from_slice(&0xCAFE_DADA_u32.to_le_bytes()); // magic
+        data[4..8].copy_from_slice(&0x0001_0000_u32.to_le_bytes()); // version
+        data[16..20].copy_from_slice(&1u32.to_le_bytes()); // table_length = 1
+        data[20..24].copy_from_slice(&0u32.to_le_bytes()); // locations_size
+        data[24..28].copy_from_slice(&0u32.to_le_bytes()); // strings_size
+
+        let mut reader = JImageReader {
+            data: data.clone(),
+            index: std::collections::HashMap::new(),
+            data_offset: HEADER_SIZE,
+            resource_count: 0,
+        };
+
+        // Inject a fake index entry pointing to some invalid zip data
+        reader.index.insert(
+            "test".to_string(),
+            ResourceInfo {
+                uncompressed: 100,
+                compressed: 10,
+                offset: 0,
+            },
+        );
+
+        // Let's add the data
+        reader.data.extend_from_slice(&[0; 10]); // Invalid deflate stream
+
+        let res = reader.read_resource("test");
+        assert!(matches!(res, Err(Error::Decompress { .. })));
+    }
+}
