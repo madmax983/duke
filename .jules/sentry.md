@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2025-02-28 - Testing Conditional Compilation Paths
+**Learning:** Functions exclusively gated behind `#[cfg(feature = "...")]` might show up as 0% coverage in raw `lcov.info` runs unless the correct `--features` flags are passed to the coverage tool. However, even when tested within their source files, exporting integration tests (like JSON serialization endpoints) explicitly in the `tests/` directory guarantees the public API is rigorously checked and helps bypass internal macro masking.
+**Action:** When a public struct has a conditionally compiled feature (like `to_json`), write integration tests in the `tests/` directory that are also gated by that feature, to ensure the macro expansion and internal helpers execute fully against the public interface.
