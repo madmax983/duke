@@ -404,7 +404,7 @@ impl ZipLoader {
     /// * The archive uses unsupported features (like ZIP64 or encryption).
     pub fn open(path: &Path) -> Result<Self> {
         let container_spec = path_to_file_url(path);
-        Self::from_reader(ZipReader::open(path)?, container_spec)
+        Self::from_reader(ZipReader::open(path)?, container_spec, 0)
     }
 
     /// Access the underlying reader.
@@ -427,8 +427,13 @@ impl ZipLoader {
         &self.reader
     }
 
-    fn from_reader(reader: ZipReader, container_spec: String) -> Result<Self> {
-        let nested_libs = nested_boot_inf_lib_loaders(&reader, &container_spec)?;
+    fn from_reader(reader: ZipReader, container_spec: String, depth: usize) -> Result<Self> {
+        if depth >= 32 {
+            return Err(Error::ZipFormat {
+                msg: "nested JAR depth limit exceeded".to_string(),
+            });
+        }
+        let nested_libs = nested_boot_inf_lib_loaders(&reader, &container_spec, depth)?;
         Ok(Self {
             reader,
             container_spec,
@@ -596,7 +601,11 @@ impl ClassLoader for ZipLoader {
     }
 }
 
-fn nested_boot_inf_lib_loaders(reader: &ZipReader, container_spec: &str) -> Result<Vec<ZipLoader>> {
+fn nested_boot_inf_lib_loaders(
+    reader: &ZipReader,
+    container_spec: &str,
+    depth: usize,
+) -> Result<Vec<ZipLoader>> {
     let mut nested_entry_names: Vec<&str> = reader
         .entry_names()
         .filter(|name| is_nested_boot_inf_lib_archive(name))
@@ -616,6 +625,7 @@ fn nested_boot_inf_lib_loaders(reader: &ZipReader, container_spec: &str) -> Resu
         nested_libs.push(ZipLoader::from_reader(
             ZipReader::from_bytes(nested_bytes)?,
             nested_container_spec,
+            depth + 1,
         )?);
     }
     Ok(nested_libs)
@@ -814,7 +824,7 @@ mod tests {
     fn test_zip_loader_reader() {
         let zip_bytes = build_stored_zip("test.txt", b"hello world");
         let reader = ZipReader::from_bytes(zip_bytes).expect("valid zip");
-        let loader = ZipLoader::from_reader(reader, "file://memory/test.zip".to_string())
+        let loader = ZipLoader::from_reader(reader, "file://memory/test.zip".to_string(), 0)
             .expect("valid zip");
         let r = loader.reader();
         assert_eq!(r.data.len(), 125);
@@ -824,7 +834,7 @@ mod tests {
     fn zip_loader_resource_entry_reports_jar_url() {
         let zip_bytes = build_stored_zip("META-INF/messages.txt", b"hello");
         let reader = ZipReader::from_bytes(zip_bytes).expect("valid zip");
-        let loader = ZipLoader::from_reader(reader, "file://memory/test.zip".to_string())
+        let loader = ZipLoader::from_reader(reader, "file://memory/test.zip".to_string(), 0)
             .expect("valid zip");
         let resource = loader
             .find_resource_entry("META-INF/messages.txt")
