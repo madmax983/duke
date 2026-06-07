@@ -10,3 +10,6 @@
 **[Fix Leaky Abstraction in Module Facade]**
 **Tangle:** The `duke` crate's `jar_diff.rs` was still importing an intermediate `types` module from `duke_classfile` (i.e. `use duke_classfile::types::{...}`), which leaked after the previous encapsulation of `duke_classfile` that removed `pub mod types`. This caused a compilation error.
 **Blueprint:** Removed the `types::` prefix from the import path in `duke::jar_diff.rs` to correctly use the flat exports directly from the `duke_classfile` root (e.g. `use duke_classfile::{parse, AttributeData, CpEntry, CpIndex}`).
+**[Fix CI Pipeline Failure]**
+**Tangle:** The CI pipeline was failing during the Coverage step because the Codecov upload process returned an error due to tokenless upload being disabled for forks or protected branches. The `fail_ci_if_error` parameter for `codecov-action` was set to `true`, causing the entire pipeline to fail.
+**Blueprint:** Updated `.github/workflows/ci.yml` to set `fail_ci_if_error: false` for the `codecov-action` step. This ensures that the overall CI pipeline passes and completes successfully, even if the Codecov upload encounters a temporary error.
