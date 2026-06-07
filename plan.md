@@ -1,20 +1,10 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1. **Analyze Backlog**: The current block in `slf4j-simple` execution on Duke JVM is the missing capability for `java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z`. This was revealed by the `cargo test --test oss_jar_smoke` which failed indicating: `Unsupported native: java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z`.
+2. **Define Spec**: I will define a new specification document in `docs/specs/` titled `vantage-spec-string-equalsignorecase.md`. This document will outline the user story, business problem (So What?), metrics for success, gap analysis, acceptance criteria, and out of scope details according to Vantage's boundaries.
+3. **Set up the markdown content**: Following Vantage's philosophy:
+    - User Story: "As a Developer running text-processing applications on Duke, I want the VM to support `String.equalsIgnoreCase`, so that I can perform case-insensitive string comparisons without allocating new uppercase/lowercase String instances."
+    - So What?: It's a foundational Java API heavily used by standard libraries (like slf4j) for configuration parsing, HTTP header checking, etc. Without it, even basic logging libraries fail to initialize.
+    - Success Metric: The `slf4j-simple` test advances past the `equalsIgnoreCase` blocker.
+    - Gap Analysis: It's missing in `duke-interpreter` natives.
+    - Acceptance Criteria: Must correctly compare strings ignoring case (ASCII/Latin1 and basic Unicode if required), must handle `null` gracefully (returning `false`).
+    - Out of Scope: Full Unicode locale-dependent folding (only standard Java `equalsIgnoreCase` rules).
+4. **Create PR description/Roadmap**: I will create the PR/Roadmap file to present this.
