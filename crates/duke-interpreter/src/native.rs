@@ -16156,7 +16156,7 @@ pub(crate) fn native_string_concat(
 
 /// Formats a single boxed slot value using the given format specifier.
 /// Apply width/alignment/flags to an already-formatted value string.
-fn apply_format_width(s: String, width: usize, left_align: bool, zero_pad: bool) -> String {
+fn apply_format_width(mut s: String, width: usize, left_align: bool, zero_pad: bool) -> String {
     // Havoc: bounds check width to prevent OOM
     let max_width = 1024 * 1024 * 128; // 128 MB
     let width = width.min(max_width);
@@ -16165,18 +16165,29 @@ fn apply_format_width(s: String, width: usize, left_align: bool, zero_pad: bool)
         return s;
     }
     let pad = width - s.len();
+
+    // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
     if left_align {
-        format!("{s}{}", " ".repeat(pad))
+        s.reserve_exact(pad);
+        s.extend(std::iter::repeat_n(' ', pad));
+        s
     } else if zero_pad {
-        // zero-pad: insert zeros after optional sign
+        let mut out = String::with_capacity(width);
         if s.starts_with('-') || s.starts_with('+') {
             let (sign, rest) = s.split_at(1);
-            format!("{sign}{}{rest}", "0".repeat(pad))
+            out.push_str(sign);
+            out.extend(std::iter::repeat_n('0', pad));
+            out.push_str(rest);
         } else {
-            format!("{}{s}", "0".repeat(pad))
+            out.extend(std::iter::repeat_n('0', pad));
+            out.push_str(&s);
         }
+        out
     } else {
-        format!("{}{s}", " ".repeat(pad))
+        let mut out = String::with_capacity(width);
+        out.extend(std::iter::repeat_n(' ', pad));
+        out.push_str(&s);
+        out
     }
 }
 

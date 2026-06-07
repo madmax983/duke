@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Eliminate Intermediate String Allocations with `reserve_exact` and `repeat_n`**
+**Learning:** When using `format!` with `" ".repeat(pad)` to right-justify or left-justify strings, multiple intermediate heap allocations occur (one for the repeated string, one for the format macro).
+**Action:** Replace `format!("{s}{}", " ".repeat(pad))` with an in-place `s.reserve_exact(pad); s.extend(std::iter::repeat_n(' ', pad));` to eliminate all intermediate allocations and reuse the existing string buffer. Use `std::iter::repeat_n` instead of `.take()` to satisfy clippy.
