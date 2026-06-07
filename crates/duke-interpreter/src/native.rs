@@ -29395,7 +29395,7 @@ fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
 }
 
 fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(props_ref)?.fields.clone();
+    let fields = &heap.get(props_ref)?.fields;
     let mut entries = Vec::new();
     let mut idx = PROPERTIES_ENTRIES_START;
     while idx + 1 < fields.len() {
@@ -29467,8 +29467,8 @@ fn properties_get_property_slot(
     props_ref: u64,
     key: Slot,
 ) -> Result<Slot> {
-    let fields = heap.get(props_ref)?.fields.clone();
-    if let Some(idx) = properties_entry_index(&fields, &key, heap) {
+    let fields = &heap.get(props_ref)?.fields;
+    if let Some(idx) = properties_entry_index(fields, &key, heap) {
         let value = fields[idx + 1];
         if slot_is_java_string(heap, value) {
             return Ok(value);
@@ -29498,7 +29498,7 @@ fn properties_collect_name_slots(
     props_ref: u64,
     names: &mut Vec<Slot>,
 ) -> Result<()> {
-    let fields = heap.get(props_ref)?.fields.clone();
+    let fields = &heap.get(props_ref)?.fields;
     if let Some(Slot::Reference(Some(defaults_ref))) = fields.get(PROPERTIES_DEFAULTS_FIELD) {
         properties_collect_name_slots(heap, *defaults_ref, names)?;
     }
@@ -30257,7 +30257,7 @@ fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
 }
 
 fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(map_ref)?.fields.clone();
+    let fields = &heap.get(map_ref)?.fields;
     let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
     let mut i = 1usize;
     while i + 1 < fields.len() {
@@ -30481,9 +30481,9 @@ pub(crate) fn native_concurrent_hashmap_replace_key_value(
     let replacement = chm_non_null_arg(args, 3)?;
     let lock = concurrent_hashmap_lock(heap, this_ref)?;
     let _guard = concurrent_hashmap_guard(&lock);
-    let fields = heap.get(this_ref)?.fields.clone();
-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
-        let actual = fields[i + 1];
+    let i_opt = find_hashmap_entry_index(&heap.get(this_ref)?.fields, &key, heap);
+    if let Some(i) = i_opt {
+        let actual = heap.get(this_ref)?.fields[i + 1];
         if slots_equal(&actual, &expected, heap) {
             heap.get_mut(this_ref)?.fields[i + 1] = replacement;
             return Ok(Some(Slot::Int(1)));
@@ -31184,9 +31184,10 @@ fn string_array_from_slot(slot: Slot, heap: &duke_gc::Heap) -> Result<Vec<String
     let Slot::Reference(Some(array_ref)) = slot else {
         return Err(Error::NullPointerException);
     };
-    let elements = heap.get(array_ref)?.fields.clone();
+    let elements = &heap.get(array_ref)?.fields;
     elements
-        .into_iter()
+        .iter()
+        .copied()
         .map(|element| match element {
             Slot::Reference(Some(string_ref)) => string_value_from_ref(heap, string_ref),
             _ => Err(Error::NullPointerException),
@@ -31821,11 +31822,10 @@ pub(crate) fn native_collections_swap(
     // fields[0] = size, elements at fields[1..=size]
     let fi = i + 1;
     let fj = j + 1;
-    let fields = heap.get(list_ref)?.fields.clone();
-    let len = fields.len();
+    let len = heap.get(list_ref)?.fields.len();
     if fi < len && fj < len {
-        let vi = fields[fi];
-        let vj = fields[fj];
+        let vi = heap.get(list_ref)?.fields[fi];
+        let vj = heap.get(list_ref)?.fields[fj];
         heap.get_mut(list_ref)?.fields[fi] = vj;
         heap.get_mut(list_ref)?.fields[fj] = vi;
     }
@@ -37766,9 +37766,9 @@ pub(crate) fn native_hashmap_remove_key_value(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let expected_val = extract_slot_arg(args, 2);
-    let fields = heap.get(this_ref)?.fields.clone();
-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
-        let actual_val = fields[i + 1];
+    let i_opt = find_hashmap_entry_index(&heap.get(this_ref)?.fields, &key, heap);
+    if let Some(i) = i_opt {
+        let actual_val = heap.get(this_ref)?.fields[i + 1];
         if slots_equal(&actual_val, &expected_val, heap) {
             native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
             return Ok(Some(Slot::Int(1)));

@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Refactoring fields clone out**
+**Learning:** Calling `.clone()` on `fields` from heap objects like `heap.get(this_ref)?.fields.clone()` inside JVM native implementations (which is a `Vec<Slot>`) causes a completely unnecessary heap allocation and array copy on many critical hot paths (e.g. Map operations, String manipulations).
+**Action:** Replace `let fields = heap.get(this_ref)?.fields.clone();` with a direct reference `let fields = &heap.get(this_ref)?.fields;`. However, be extremely careful not to hold this immutable borrow open when subsequently mutating the heap (e.g., via `heap.get_mut()`). To avoid borrow checker panics, scope the immutable borrow, extract needed information (like indices using `find_hashmap_entry_index`), drop the borrow (e.g., using `let i_opt = ...; if let Some(i) = i_opt`), and then safely retrieve mutable borrows. Use `.iter().copied()` instead of `.into_iter()` when working with the borrowed array.
