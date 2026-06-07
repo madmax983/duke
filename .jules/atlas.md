@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[Fix Leaky Abstraction in Module Facade]**
+**Tangle:** The `duke` crate's `jar_diff.rs` was still importing an intermediate `types` module from `duke_classfile` (i.e. `use duke_classfile::types::{...}`), which leaked after the previous encapsulation of `duke_classfile` that removed `pub mod types`. This caused a compilation error.
+**Blueprint:** Removed the `types::` prefix from the import path in `duke::jar_diff.rs` to correctly use the flat exports directly from the `duke_classfile` root (e.g. `use duke_classfile::{parse, AttributeData, CpEntry, CpIndex}`).
