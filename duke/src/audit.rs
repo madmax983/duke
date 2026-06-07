@@ -78,7 +78,7 @@ fn resolve_method_ref(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<(S
 }
 
 #[cfg(feature = "nova")]
-#[allow(clippy::print_stdout, clippy::collapsible_if, clippy::use_debug)]
+#[allow(clippy::print_stdout, clippy::use_debug)]
 pub fn dump_jar_audit(jar_path: &str) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         eprintln!("duke: failed to open JAR '{jar_path}': {e}");
@@ -100,48 +100,53 @@ pub fn dump_jar_audit(jar_path: &str) {
 
     for entry_name in class_entries {
         let class_name_internal = &entry_name[..entry_name.len() - 6];
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = parse(&bytes) {
-                let this_class = resolve_class_name(&cf, cf.this_class);
-                for method in &cf.methods {
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{this_class}::{name_str}{desc_str}");
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
 
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            if let Ok(instructions) = decode(&code.code) {
-                                for (pc, instr) in instructions {
-                                    let method_ref_idx = match instr {
-                                        Instruction::Invokevirtual(idx)
-                                        | Instruction::Invokespecial(idx)
-                                        | Instruction::Invokestatic(idx) => Some(idx),
-                                        Instruction::Invokeinterface { index, .. } => Some(index),
-                                        _ => None,
-                                    };
+        let this_class = resolve_class_name(&cf, cf.this_class);
+        for method in &cf.methods {
+            let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
+            let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+            let full_name = format!("{this_class}::{name_str}{desc_str}");
 
-                                    if let Some(idx) = method_ref_idx {
-                                        if let Some((target_class, target_method)) =
-                                            resolve_method_ref(&cf, idx)
-                                        {
-                                            if target_class == "java/lang/System"
-                                                && target_method == "exit"
-                                            {
-                                                findings.push(format!("  [!] System.exit() called in {full_name} @ {pc}"));
-                                            } else if target_class == "java/lang/Runtime"
-                                                && target_method == "exec"
-                                            {
-                                                findings.push(format!("  [!] Runtime.exec() called in {full_name} @ {pc}"));
-                                            } else if target_class == "java/lang/reflect/Method"
-                                                && target_method == "invoke"
-                                            {
-                                                findings.push(format!("  [!] Method.invoke() (Reflection) used in {full_name} @ {pc}"));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+            for attr in &method.attributes {
+                let AttributeData::Code(code) = &attr.data else {
+                    continue;
+                };
+                let Ok(instructions) = decode(&code.code) else {
+                    continue;
+                };
+
+                for (pc, instr) in instructions {
+                    let method_ref_idx = match instr {
+                        Instruction::Invokevirtual(idx)
+                        | Instruction::Invokespecial(idx)
+                        | Instruction::Invokestatic(idx) => Some(idx),
+                        Instruction::Invokeinterface { index, .. } => Some(index),
+                        _ => None,
+                    };
+
+                    let Some(idx) = method_ref_idx else {
+                        continue;
+                    };
+                    let Some((target_class, target_method)) = resolve_method_ref(&cf, idx) else {
+                        continue;
+                    };
+
+                    if target_class == "java/lang/System" && target_method == "exit" {
+                        findings.push(format!("  [!] System.exit() called in {full_name} @ {pc}"));
+                    } else if target_class == "java/lang/Runtime" && target_method == "exec" {
+                        findings.push(format!("  [!] Runtime.exec() called in {full_name} @ {pc}"));
+                    } else if target_class == "java/lang/reflect/Method"
+                        && target_method == "invoke"
+                    {
+                        findings.push(format!(
+                            "  [!] Method.invoke() (Reflection) used in {full_name} @ {pc}"
+                        ));
                     }
                 }
             }

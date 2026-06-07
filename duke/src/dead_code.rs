@@ -74,11 +74,7 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
-#[allow(
-    unexpected_cfgs,
-    clippy::collapsible_if,
-    clippy::items_after_statements
-)]
+#[allow(unexpected_cfgs, clippy::items_after_statements)]
 pub fn dump_dead_code(cf: &ClassFile) {
     let mut defined_methods = HashSet::new();
     let mut called_methods = HashSet::new();
@@ -97,29 +93,33 @@ pub fn dump_dead_code(cf: &ClassFile) {
         }
 
         for attr in &method.attributes {
-            if let AttributeData::Code(code) = &attr.data {
-                if let Ok(instructions) = decode(&code.code) {
-                    for (_, instr) in instructions {
-                        let target_idx = match instr {
-                            Instruction::Invokevirtual(idx)
-                            | Instruction::Invokespecial(idx)
-                            | Instruction::Invokestatic(idx)
-                            | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
-                            _ => None,
-                        };
+            let AttributeData::Code(code) = &attr.data else {
+                continue;
+            };
+            let Ok(instructions) = decode(&code.code) else {
+                continue;
+            };
+            for (_, instr) in instructions {
+                let target_idx = match instr {
+                    Instruction::Invokevirtual(idx)
+                    | Instruction::Invokespecial(idx)
+                    | Instruction::Invokestatic(idx)
+                    | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
+                    _ => None,
+                };
 
-                        if let Some(idx) = target_idx {
-                            if let Some((target_class, target_method, target_descriptor)) =
-                                extract_method_ref(cf, idx)
-                            {
-                                if target_class == class_name {
-                                    called_methods.insert(format!(
-                                        "{target_class}::{target_method}{target_descriptor}"
-                                    ));
-                                }
-                            }
-                        }
-                    }
+                let Some(idx) = target_idx else {
+                    continue;
+                };
+                let Some((target_class, target_method, target_descriptor)) =
+                    extract_method_ref(cf, idx)
+                else {
+                    continue;
+                };
+                if target_class == class_name {
+                    called_methods.insert(format!(
+                        "{target_class}::{target_method}{target_descriptor}"
+                    ));
                 }
             }
         }
@@ -148,7 +148,6 @@ pub fn dump_dead_code(cf: &ClassFile) {
 #[allow(
     unexpected_cfgs,
     clippy::cast_precision_loss,
-    clippy::collapsible_if,
     clippy::case_sensitive_file_extension_comparisons,
     clippy::items_after_statements
 )]
@@ -170,52 +169,56 @@ pub fn dump_jar_dead_code(jar_path: &str) {
             continue;
         }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = duke_classfile::parse(&bytes) {
-                total_classes += 1;
-                let class_name = resolve_class_name(&cf, cf.this_class);
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = duke_classfile::parse(&bytes) else {
+            continue;
+        };
 
-                for method in &cf.methods {
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{class_name}::{name_str}{desc_str}");
+        total_classes += 1;
+        let class_name = resolve_class_name(&cf, cf.this_class);
 
-                    defined_methods.insert(full_name.clone());
+        for method in &cf.methods {
+            let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
+            let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+            let full_name = format!("{class_name}::{name_str}{desc_str}");
 
-                    if name_str == "main" || name_str == "<clinit>" || name_str == "<init>" {
-                        called_methods.insert(full_name);
-                    }
+            defined_methods.insert(full_name.clone());
 
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            if let Ok(instructions) = decode(&code.code) {
-                                for (_, instr) in instructions {
-                                    let target_idx = match instr {
-                                        Instruction::Invokevirtual(idx)
-                                        | Instruction::Invokespecial(idx)
-                                        | Instruction::Invokestatic(idx)
-                                        | Instruction::Invokeinterface { index: idx, .. } => {
-                                            Some(idx)
-                                        }
-                                        _ => None,
-                                    };
+            if name_str == "main" || name_str == "<clinit>" || name_str == "<init>" {
+                called_methods.insert(full_name);
+            }
 
-                                    if let Some(idx) = target_idx {
-                                        if let Some((
-                                            target_class,
-                                            target_method,
-                                            target_descriptor,
-                                        )) = extract_method_ref(&cf, idx)
-                                        {
-                                            called_methods.insert(format!(
-                                                "{target_class}::{target_method}{target_descriptor}"
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+            for attr in &method.attributes {
+                let AttributeData::Code(code) = &attr.data else {
+                    continue;
+                };
+                let Ok(instructions) = decode(&code.code) else {
+                    continue;
+                };
+
+                for (_, instr) in instructions {
+                    let target_idx = match instr {
+                        Instruction::Invokevirtual(idx)
+                        | Instruction::Invokespecial(idx)
+                        | Instruction::Invokestatic(idx)
+                        | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
+                        _ => None,
+                    };
+
+                    let Some(idx) = target_idx else {
+                        continue;
+                    };
+                    let Some((target_class, target_method, target_descriptor)) =
+                        extract_method_ref(&cf, idx)
+                    else {
+                        continue;
+                    };
+
+                    called_methods.insert(format!(
+                        "{target_class}::{target_method}{target_descriptor}"
+                    ));
                 }
             }
         }
