@@ -4,7 +4,7 @@
 #[cfg(feature = "nova")]
 use duke_classfile::{
     parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    AttributeData, CpEntry, CpIndex,
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
@@ -18,7 +18,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +38,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -68,13 +68,9 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let mut modified = Vec::new();
     let mut unchanged = 0;
 
-    for k in keys2.difference(&keys1) {
-        added.push((*k).clone());
-    }
+    added.extend(keys2.difference(&keys1).map(|&s| s.clone()));
 
-    for k in keys1.difference(&keys2) {
-        removed.push((*k).clone());
-    }
+    removed.extend(keys1.difference(&keys2).map(|&s| s.clone()));
 
     for k in keys1.intersection(&keys2) {
         if map1.get(*k) == map2.get(*k) {
@@ -150,26 +146,24 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
         .collect();
 
     for entry_name in class_entries {
-        let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            #[allow(clippy::collapsible_if)]
-            if let Ok(cf) = parse(&bytes) {
-                let class_name = resolve_class_name(&cf, cf.this_class);
+        let Some(class_name_internal) = entry_name.strip_suffix(".class") else { continue; };
+        let Ok(bytes) = loader.find_class(class_name_internal) else { continue; };
+        let Ok(cf) = parse(&bytes) else { continue; };
 
-                for method in &cf.methods {
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{class_name}::{name_str}{desc_str}");
+        let class_name = resolve_class_name(&cf, cf.this_class);
 
-                    let mut hasher = DefaultHasher::new();
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            code.code.hash(&mut hasher);
-                        }
-                    }
-                    method_hashes.insert(full_name, hasher.finish());
+        for method in &cf.methods {
+            let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
+            let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+            let full_name = format!("{class_name}::{name_str}{desc_str}");
+
+            let mut hasher = DefaultHasher::new();
+            for attr in &method.attributes {
+                if let AttributeData::Code(code) = &attr.data {
+                    code.code.hash(&mut hasher);
                 }
             }
+            method_hashes.insert(full_name, hasher.finish());
         }
     }
     method_hashes

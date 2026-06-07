@@ -447,152 +447,107 @@ impl ZipLoader {
     }
 }
 
-impl ClassLoader for ZipLoader {
-    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
-        // Pre-allocate a single buffer large enough for the longest path
-        // "BOOT-INF/classes/".len() == 17, ".class".len() == 6. Total = 23
-        let mut entry_name = String::with_capacity(name.len() + 23);
-
-        // Try standard class path: {name}.class
-        entry_name.push_str(name);
-        entry_name.push_str(".class");
-        match self.reader.read_entry(&entry_name) {
+impl ZipLoader {
+    /// Helper to find a single item, abstracting the retry logic and nested library fallback.
+    fn try_find_single<T, F, N>(&self, name: &str, mut process_entry: F, nested_find: N) -> Result<T>
+    where
+        F: FnMut(&str) -> Result<T>,
+        N: Fn(&Self, &str) -> Result<T>,
+    {
+        match process_entry(name) {
             Err(Error::NotFound { .. }) => {}
             result => return result,
         }
 
-        // Try BOOT-INF path: BOOT-INF/classes/{name}.class
-        entry_name.clear();
-        Self::append_boot_inf_classes_path(&mut entry_name, name);
-        entry_name.push_str(".class");
-        match self.reader.read_entry(&entry_name) {
+        let mut boot_inf_name = String::with_capacity(name.len() + 17);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
+        match process_entry(&boot_inf_name) {
             Err(Error::NotFound { .. }) => {}
             result => return result,
         }
 
         for nested_lib in &self.nested_libs {
-            match nested_lib.find_class(name) {
+            match nested_find(nested_lib, name) {
                 Err(Error::NotFound { .. }) => {}
                 result => return result,
             }
         }
+
         Err(Error::NotFound {
             name: name.to_string(),
         })
+    }
+
+    /// Helper to find multiple items, abstracting the accumulation logic.
+    fn try_find_multiple<T, F, N>(&self, name: &str, mut process_entry: F, nested_find: N) -> Result<Vec<T>>
+    where
+        F: FnMut(&str) -> Result<T>,
+        N: Fn(&Self, &str) -> Result<Vec<T>>,
+    {
+        let mut results = Vec::new();
+
+        match process_entry(name) {
+            Ok(item) => results.push(item),
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        let mut boot_inf_name = String::with_capacity(name.len() + 17);
+        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
+        match process_entry(&boot_inf_name) {
+            Ok(item) => results.push(item),
+            Err(Error::NotFound { .. }) => {}
+            Err(err) => return Err(err),
+        }
+
+        for nested_lib in &self.nested_libs {
+            results.extend(nested_find(nested_lib, name)?);
+        }
+
+        Ok(results)
+    }
+}
+
+impl ClassLoader for ZipLoader {
+    fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+        let mut entry_name = String::with_capacity(name.len() + 23);
+
+        let process_entry = |base_name: &str| {
+            entry_name.clear();
+            entry_name.push_str(base_name);
+            entry_name.push_str(".class");
+            self.reader.read_entry(&entry_name)
+        };
+
+        self.try_find_single(name, process_entry, Self::find_class)
     }
 
     fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
-        match self.reader.read_entry(name) {
-            Err(Error::NotFound { .. }) => {}
-            result => return result,
-        }
-
-        // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
-        let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Err(Error::NotFound { .. }) => {}
-            result => return result,
-        }
-
-        for nested_lib in &self.nested_libs {
-            match nested_lib.find_resource(name) {
-                Err(Error::NotFound { .. }) => {}
-                result => return result,
-            }
-        }
-        Err(Error::NotFound {
-            name: name.to_string(),
-        })
+        self.try_find_single(name, |n| self.reader.read_entry(n), Self::find_resource)
     }
 
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
-        let mut resources = Vec::new();
-        match self.reader.read_entry(name) {
-            Ok(bytes) => resources.push(bytes),
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
-        let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Ok(bytes) => resources.push(bytes),
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        for nested_lib in &self.nested_libs {
-            resources.extend(nested_lib.find_resources(name)?);
-        }
-        Ok(resources)
+        self.try_find_multiple(name, |n| self.reader.read_entry(n), Self::find_resources)
     }
 
     fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
-        match self.reader.read_entry(name) {
-            Ok(bytes) => {
-                return Ok(LocatedResource {
-                    bytes,
-                    url: self.resource_url(name),
-                });
-            }
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Ok(bytes) => {
-                return Ok(LocatedResource {
-                    bytes,
-                    url: self.resource_url(&boot_inf_name),
-                });
-            }
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        for nested_lib in &self.nested_libs {
-            match nested_lib.find_resource_entry(name) {
-                Err(Error::NotFound { .. }) => {}
-                result => return result,
-            }
-        }
-
-        Err(Error::NotFound {
-            name: name.to_string(),
-        })
+        let process_entry = |n: &str| {
+            self.reader.read_entry(n).map(|bytes| LocatedResource {
+                bytes,
+                url: self.resource_url(n),
+            })
+        };
+        self.try_find_single(name, process_entry, Self::find_resource_entry)
     }
 
     fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
-        let mut resources = Vec::new();
-        match self.reader.read_entry(name) {
-            Ok(bytes) => resources.push(LocatedResource {
+        let process_entry = |n: &str| {
+            self.reader.read_entry(n).map(|bytes| LocatedResource {
                 bytes,
-                url: self.resource_url(name),
-            }),
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Ok(bytes) => resources.push(LocatedResource {
-                bytes,
-                url: self.resource_url(&boot_inf_name),
-            }),
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        for nested_lib in &self.nested_libs {
-            resources.extend(nested_lib.find_resource_entries(name)?);
-        }
-
-        Ok(resources)
+                url: self.resource_url(n),
+            })
+        };
+        self.try_find_multiple(name, process_entry, Self::find_resource_entries)
     }
 }
 

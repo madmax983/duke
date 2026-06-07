@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**ZipLoader Duplicate Search Logic**
+**Learning:** Found massive duplication across five methods in `ClassLoader for ZipLoader` (`find_class`, `find_resource`, etc.), where each method repeated the exact same try/catch/fallback flow for classpaths, BOOT-INF, and nested libraries.
+**Action:** Extract this flow into higher-order closures (e.g., `try_find_single` and `try_find_multiple`) that take `FnMut` strategies to eliminate boilerplate and unify error handling.
