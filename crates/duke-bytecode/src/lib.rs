@@ -15,10 +15,13 @@ pub(crate) mod cfg;
 pub(crate) mod decoder;
 pub(crate) mod error;
 pub(crate) mod instruction;
+#[cfg(feature = "nova")]
+pub(crate) mod loop_detection;
 pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
 pub(crate) mod reachability;
 #[cfg(feature = "nova")]
+pub use loop_detection::find_back_edges;
 pub(crate) mod similarity;
 pub(crate) mod verifier;
 
