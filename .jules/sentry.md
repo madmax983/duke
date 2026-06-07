@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2025-02-23 - duke-telemetry coverage
+**Learning:** Testing human-readable output formatting (like Markdown or stdout reporting) exposed edge cases and zero-item behaviors that were previously skipped by automated code-coverage bots or ignored due to simple loops. Testing serialization error paths directly uncovered invalid payload states in HashMap wrappers.
+**Action:** When improving telemetry or data structure serialization, explicitly test empty map structures and map outputs via Dummy instances to assert formatting limits and valid output structures.

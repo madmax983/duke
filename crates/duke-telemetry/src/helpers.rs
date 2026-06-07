@@ -126,6 +126,19 @@ mod tests {
     }
 
     #[test]
+    fn test_keyed_map_with_string_keys() {
+        let mut map = HashMap::new();
+        map.insert("java/lang/String".to_string(), Dummy { val: 1 });
+
+        let mut buf = Vec::new();
+        let mut ser = serde_json::Serializer::new(&mut buf);
+        super::ser_helpers::keyed_map(&map, &mut ser, std::clone::Clone::clone).unwrap();
+
+        let json = String::from_utf8(buf).unwrap();
+        assert!(json.contains(r#""java/lang/String":{"val":1}"#));
+    }
+
+    #[test]
     fn test_empty_maps() {
         let empty_map = HashMap::<i32, &'static str>::new();
         let w = MapWrapper { map: empty_map };
@@ -191,6 +204,45 @@ mod tests {
         let w = PairWrapper { map };
         let json = serde_json::to_string(&w).unwrap();
         assert_eq!(json, r#"{"map":{"java/lang/String::intern":{"val":1}}}"#);
+    }
+
+    #[test]
+    fn test_keyed_map_with_data() {
+        let mut map = HashMap::new();
+        map.insert("key1".to_string(), 42);
+        map.insert("key2".to_string(), 100);
+
+        let mut buf = Vec::new();
+        let mut ser = serde_json::Serializer::new(&mut buf);
+        super::ser_helpers::keyed_map(&map, &mut ser, |k| format!("prefix_{k}")).unwrap();
+
+        let json = String::from_utf8(buf).unwrap();
+        assert!(json.contains(r#""prefix_key1":42"#));
+        assert!(json.contains(r#""prefix_key2":100"#));
+    }
+
+    #[test]
+    fn test_site3_empty() {
+        let map: HashMap<(String, String, usize), Dummy> = HashMap::new();
+        let w = Site3Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+    }
+
+    #[test]
+    fn test_site2_u16_empty() {
+        let map: HashMap<(String, u16), Dummy> = HashMap::new();
+        let w = Site2Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+    }
+
+    #[test]
+    fn test_pair_str_empty() {
+        let map: HashMap<(String, String), Dummy> = HashMap::new();
+        let w = PairWrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
     }
 
     #[test]
