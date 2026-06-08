@@ -52,9 +52,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
       - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
-      - name: Import Codecov GPG key
-        run: curl -s https://keybase.io/codecovsecurity/pgp_keys.asc | gpg --import
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v4
         with:
           files: lcov.info
           fail_ci_if_error: true
