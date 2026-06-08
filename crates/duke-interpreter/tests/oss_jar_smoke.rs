@@ -278,17 +278,21 @@ fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
         "smoke should progress past getSystemResourceAsStream, got: {rendered}"
     );
     assert!(
+        !rendered.contains("java/lang/String.equalsIgnoreCase"),
+        "smoke should progress past String.equalsIgnoreCase, got: {rendered}"
+    );
+    assert!(
         is_explicit_missing_slf4j_capability(&rendered),
         "expected explicit next missing capability, got: {rendered}"
     );
     assert_eq!(
-        rendered, "Unsupported native: java/lang/String.equalsIgnoreCase(Ljava/lang/String;)Z",
+        rendered, "Unsupported native: java/util/ArrayList.<init>(I)V",
         "expected the next SLF4J blocker to stay explicit"
     );
 }
 
 #[test]
-#[ignore = "Blocked on String.equalsIgnoreCase after ClassLoader.getSystemResourceAsStream was fixed."]
+#[ignore = "Blocked on ArrayList.<init>(I)V after String.equalsIgnoreCase was fixed."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 
