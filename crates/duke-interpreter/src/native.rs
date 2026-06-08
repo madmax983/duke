@@ -3391,6 +3391,49 @@ pub(crate) fn native_string_equals(
     Ok(Some(Slot::Int(i32::from(this_str == other_str))))
 }
 
+/// Two `char` values are case-insensitively equal per the Java SE 21
+/// `String.equalsIgnoreCase` contract: they match if equal directly, or if
+/// `Character.toUpperCase(c1) == Character.toUpperCase(c2)`, or if
+/// `Character.toLowerCase(c1) == Character.toLowerCase(c2)`. The two-step fold
+/// catches code points the naive ASCII rule misses (e.g. the KELVIN SIGN
+/// `U+212A` lower-cases to `'k'`).
+fn chars_equal_ignore_case(c1: char, c2: char) -> bool {
+    c1 == c2 || c1.to_uppercase().eq(c2.to_uppercase()) || c1.to_lowercase().eq(c2.to_lowercase())
+}
+
+/// Native: `String.equalsIgnoreCase(String)` — locale-independent
+/// case-insensitive comparison using Java SE 21's two-step fold.
+pub(crate) fn native_string_equalsignorecase(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    // Null argument -> false: "Returns true if and only if the argument is not
+    // null and ..." (Java SE 21 contract).
+    let Ok(other_ref) = extract_ref_arg(args, 1) else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let this_obj = heap.get(this_ref)?;
+    let other_obj = heap.get(other_ref)?;
+    let this_str = this_obj.string_value.as_deref().unwrap_or_default();
+    let other_str = other_obj.string_value.as_deref().unwrap_or_default();
+    // Fast path: identical content (also covers receiver-equals-self).
+    if this_str == other_str {
+        return Ok(Some(Slot::Int(1)));
+    }
+    // Length mismatch -> false without folding characters.
+    if this_str.chars().count() != other_str.chars().count() {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let equal = this_str
+        .chars()
+        .zip(other_str.chars())
+        .all(|(a, b)| chars_equal_ignore_case(a, b));
+    Ok(Some(Slot::Int(i32::from(equal))))
+}
+
 /// Native: `String.charAt(int)` — returns char at index as int.
 #[allow(clippy::cast_sign_loss)]
 pub(crate) fn native_string_char_at(

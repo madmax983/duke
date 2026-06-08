@@ -51,6 +51,7 @@ wrap_simple_native_for_tests!(
     native_string_concat,
     native_string_contains,
     native_string_equals,
+    native_string_equalsignorecase,
     native_string_format,
     native_string_indexof,
     native_string_replace_charsequence,
@@ -4105,6 +4106,36 @@ fn main_hello_with_args() {
     .unwrap();
     assert_eq!(result, None);
     assert_eq!(String::from_utf8_lossy(&out), "Alice\nBob\n");
+}
+
+// ---- Issue #854: String.equalsIgnoreCase fixture ----
+
+#[test]
+fn string_equals_ignore_case_fixture_prints_ok() {
+    let mut registry = ClassRegistry::new();
+    registry.register(load_class("StringEqualsIgnoreCase.class"));
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader = fixtures_loader();
+
+    // Build empty String[] array on the heap for main.
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+    let main_args = vec![Slot::Reference(Some(arr_ref))];
+
+    let mut out: Vec<u8> = Vec::new();
+    let result = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut out,
+        "StringEqualsIgnoreCase",
+        "main",
+        "([Ljava/lang/String;)V",
+        &main_args,
+    )
+    .unwrap();
+    assert_eq!(result, None);
+    assert_eq!(String::from_utf8_lossy(&out).trim(), "OK");
 }
 
 // ---- Phase 16: PrintAll integration tests ----
@@ -10907,6 +10938,44 @@ fn native_string_equals_null_other_returns_false() {
     .unwrap()
     .unwrap();
     assert_eq!(result, Slot::Int(0));
+}
+
+// ---------------------------------------------------------------------------
+// native_string_equalsignorecase (issue #854)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn native_string_equalsignorecase_covers_contract() {
+    let mut heap = duke_gc::Heap::new();
+    let mut out: Vec<u8> = Vec::new();
+
+    // Helper: allocate two strings and run the native, returning the bool result.
+    let mut run = |heap: &mut duke_gc::Heap, a: &str, b: Option<&str>| -> i32 {
+        let this = heap.allocate_string(a.to_string());
+        let other = b.map_or(Slot::Reference(None), |s| {
+            Slot::Reference(Some(heap.allocate_string(s.to_string())))
+        });
+        match native_string_equalsignorecase(&[Slot::Reference(Some(this)), other], heap, &mut out)
+            .unwrap()
+            .unwrap()
+        {
+            Slot::Int(v) => v,
+            other => panic!("expected Int, got {other:?}"),
+        }
+    };
+
+    // Null arg -> false.
+    assert_eq!(run(&mut heap, "INFO", None), 0);
+    // Length mismatch -> false.
+    assert_eq!(run(&mut heap, "abc", Some("ab")), 0);
+    // ASCII case fold.
+    assert_eq!(run(&mut heap, "INFO", Some("info")), 1);
+    assert_eq!(run(&mut heap, "Info", Some("iNfO")), 1);
+    assert_eq!(run(&mut heap, "info", Some("warn")), 0);
+    // Two-step locale-independent fold: KELVIN SIGN (U+212A) folds to 'k'.
+    assert_eq!(run(&mut heap, "k", Some("\u{212A}")), 1);
+    // Reflexive on identical content.
+    assert_eq!(run(&mut heap, "hello", Some("hello")), 1);
 }
 
 // ---------------------------------------------------------------------------

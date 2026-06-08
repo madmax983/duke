@@ -34,4 +34,4 @@ Duke now vendors a hermetic OSS smoke harness under `tests/fixtures/oss-jars/` s
 
 | JAR | Version(s) | Status | Last-tested phase | Notes |
 | --- | --- | --- | --- | --- |
-| `slf4j-simple` | `slf4j-simple-2.0.13` + `slf4j-api-2.0.13` | Blocked (`oss_jar_smoke` future-canary is `#[ignore]`) | `Phase 117` + [#695](https://github.com/madmax983/duke/issues/695) | Progressed past `System.getSecurityManager()` and `AccessController.doPrivileged(...)`; current blocker: `java/lang/Thread.getContextClassLoader()Ljava/lang/ClassLoader;` |
+| `slf4j-simple` | `slf4j-simple-2.0.13` + `slf4j-api-2.0.13` | Blocked (`oss_jar_smoke` future-canary is `#[ignore]`) | [#854](https://github.com/madmax983/duke/issues/854) | Progressed past `System.getSecurityManager()`, `AccessController.doPrivileged(...)`, `Thread.getContextClassLoader()`, `ClassLoader.getSystemResourceAsStream(...)`, and `String.equalsIgnoreCase(...)`; current blocker: `java/util/ArrayList.<init>(I)V` |

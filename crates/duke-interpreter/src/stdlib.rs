@@ -2886,6 +2886,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Object;)Z",
         native_string_equals,
     );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "equalsIgnoreCase",
+        "(Ljava/lang/String;)Z",
+        native_string_equalsignorecase,
+    );
     registry
         .natives_mut()
         .register("java/lang/String", "charAt", "(I)C", native_string_char_at);
