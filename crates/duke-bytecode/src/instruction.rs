@@ -1567,4 +1567,18 @@ mod tests {
         assert!(!Instruction::Ifeq(0).is_unconditional_jump());
         assert!(!Instruction::Nop.is_unconditional_jump());
     }
+
+    #[test]
+    fn test_wide_instruction_mnemonics() {
+        assert_eq!(Instruction::IstoreW(0).mnemonic(), "wide istore");
+        assert_eq!(Instruction::LstoreW(0).mnemonic(), "wide lstore");
+        assert_eq!(Instruction::FstoreW(0).mnemonic(), "wide fstore");
+        assert_eq!(Instruction::DstoreW(0).mnemonic(), "wide dstore");
+        assert_eq!(Instruction::AstoreW(0).mnemonic(), "wide astore");
+        assert_eq!(Instruction::RetW(0).mnemonic(), "wide ret");
+        assert_eq!(
+            Instruction::IincW { index: 0, value: 0 }.mnemonic(),
+            "wide iinc"
+        );
+    }
 }
