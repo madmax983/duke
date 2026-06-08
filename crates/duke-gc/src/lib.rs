@@ -878,6 +878,22 @@ impl Heap {
 
     // ── Heap stats ───────────────────────────────────────────────────────────
 
+    /// Fast-path to get the string value without cloning.
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidRef` if the object reference is invalid.
+    pub fn get_string_value(&self, r: u64) -> Result<Option<&str>> {
+        Ok(self.get(r)?.string_value.as_deref())
+    }
+
+    /// Fast-path to get the fields without cloning.
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidRef` if the object reference is invalid.
+    pub fn get_fields(&self, r: u64) -> Result<&[Slot]> {
+        Ok(&self.get(r)?.fields)
+    }
+
     /// Returns the total number of live objects across both generations.
     ///
     /// # Examples

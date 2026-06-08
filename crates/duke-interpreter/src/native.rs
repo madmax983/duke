@@ -310,6 +310,11 @@ fn path_from_string_slot(
     Ok(std::path::PathBuf::from(path))
 }
 
+
+fn string_value_from_ref_fast(heap: &duke_gc::Heap, string_ref: u64) -> Result<&str> {
+    heap.get_string_value(string_ref)?.ok_or(Error::NullPointerException)
+}
+
 fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> Result<String> {
     heap.get(string_ref)?
         .string_value
@@ -563,7 +568,7 @@ fn jul_manager_find_logger_by_name(
         let Some(Slot::Reference(Some(name_ref))) = fields.get(name_idx).copied() else {
             continue;
         };
-        if string_value_from_ref(heap, name_ref)? == name
+        if string_value_from_ref_fast(heap, name_ref)? == name
             && let Some(Slot::Reference(Some(logger_ref))) = fields.get(logger_idx).copied()
         {
             return Ok(Some(logger_ref));
@@ -1992,8 +1997,8 @@ fn charset_from_name_ref(
     string_ref: u64,
     error_for_unknown: fn(&str) -> Error,
 ) -> Result<StandardCharset> {
-    let name = string_value_from_ref(heap, string_ref)?;
-    charset_for_name(&name).ok_or_else(|| error_for_unknown(&name))
+    let name = string_value_from_ref_fast(heap, string_ref)?;
+    charset_for_name(name).ok_or_else(|| error_for_unknown(name))
 }
 
 fn charset_from_arg(
@@ -2472,7 +2477,7 @@ fn file_path_from_ref(file_ref: u64, heap: &duke_gc::Heap) -> Result<std::path::
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(Error::NullPointerException),
     };
-    Ok(std::path::PathBuf::from(string_value_from_ref(
+    Ok(std::path::PathBuf::from(string_value_from_ref_fast(
         heap, path_ref,
     )?))
 }
@@ -5479,7 +5484,7 @@ pub(crate) fn native_stream_of(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let elems: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
+    let elems: Vec<Slot> = heap.get_fields(arr_ref)?.to_vec();
     let n = i32::try_from(elems.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
@@ -5789,7 +5794,7 @@ pub(crate) fn native_stream_collect(
         heap.get_mut(set_ref)?.fields[0] = Slot::Int(0);
         for elem in elems {
             // Check for duplicate before inserting
-            let set_fields = heap.get(set_ref)?.fields.clone();
+            let set_fields = heap.get_fields(set_ref)?;
             let set_size = match set_fields.first() {
                 Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
                 _ => 0,
@@ -5943,10 +5948,10 @@ pub(crate) fn native_stream_collect(
                     vec![val_fn, elem],
                 )?
                 .unwrap_or(Slot::Reference(None));
-            let fields = heap.get(map_ref)?.fields.clone();
-            if let Some(i) = find_hashmap_entry_index(&fields, &k, heap) {
+            let i_opt = find_hashmap_entry_index(heap.get_fields(map_ref)?, &k, heap);
+            if let Some(i) = i_opt {
                 // Duplicate key — apply merge function: merge(existing, new)
-                let existing = fields[i + 1];
+                let existing = heap.get_fields(map_ref)?[i + 1];
                 let merged = ops
                     .invoke(
                         heap,
@@ -9517,8 +9522,8 @@ pub(crate) fn native_url_class_loader_load_class(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
-    let binary_name = string_value_from_ref(heap, name_ref)?;
-    let internal_name = binary_name_to_internal_name(&binary_name);
+    let binary_name = string_value_from_ref_fast(heap, name_ref)?;
+    let internal_name = binary_name_to_internal_name(binary_name);
 
     if let Some(class_key) = ops.ensure_parent_loaded(&internal_name)? {
         let class_ref = allocate_class_object(heap, &class_key)?;
@@ -9590,7 +9595,7 @@ pub(crate) fn native_paths_get(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let first_ref = extract_ref_arg(args, 0)?;
-    let mut path = std::path::PathBuf::from(string_value_from_ref(heap, first_ref)?);
+    let mut path = std::path::PathBuf::from(string_value_from_ref_fast(heap, first_ref)?);
     let more_slot = extract_slot_arg(args, 1);
     match more_slot {
         Slot::Reference(Some(array_ref)) => {
@@ -9599,7 +9604,7 @@ pub(crate) fn native_paths_get(
                 let Slot::Reference(Some(segment_ref)) = segment else {
                     return Err(Error::NullPointerException);
                 };
-                path.push(string_value_from_ref(heap, segment_ref)?);
+                path.push(string_value_from_ref_fast(heap, segment_ref)?);
             }
         }
         Slot::Reference(None) => {}
@@ -9669,9 +9674,9 @@ pub(crate) fn native_attributes_get_value(
     else {
         return Err(Error::NullPointerException);
     };
-    let manifest_text = string_value_from_ref(heap, raw_ref)?;
-    let key = string_value_from_ref(heap, key_ref)?;
-    let result = manifest_attribute_value(manifest_text.as_bytes(), &key)
+    let manifest_text = string_value_from_ref_fast(heap, raw_ref)?;
+    let key = string_value_from_ref_fast(heap, key_ref)?;
+    let result = manifest_attribute_value(manifest_text.as_bytes(), key)
         .map_or(Slot::Reference(None), |value| {
             Slot::Reference(Some(heap.allocate_string(value)))
         });
@@ -15607,7 +15612,7 @@ pub(crate) fn native_arrays_stream_object(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let elems: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
+    let elems: Vec<Slot> = heap.get_fields(arr_ref)?.to_vec();
     let n = i32::try_from(elems.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(n);
@@ -26737,7 +26742,7 @@ pub(crate) fn native_base64_decoder_decode_string(
 ) -> Result<Option<Slot>> {
     let variant = base64_variant_arg(args, heap)?;
     let input_ref = extract_ref_arg(args, 1)?;
-    let input = string_value_from_ref(heap, input_ref)?;
+    let input = string_value_from_ref_fast(heap, input_ref)?;
     let decoded = decode_base64(input.as_bytes(), variant)?;
     let array_ref = alloc_byte_array(heap, &decoded);
     Ok(Some(Slot::Reference(Some(array_ref))))
@@ -27014,12 +27019,14 @@ pub(crate) fn native_message_digest_get_instance(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let algorithm_ref = extract_ref_arg(args, 0)?;
-    let algorithm = string_value_from_ref(heap, algorithm_ref)?;
-    let canonical = require_digest_algorithm(&algorithm)?;
-    let canonical_ref = heap.allocate_string(canonical.to_string());
+    let canonical_string = {
+        let algorithm = string_value_from_ref_fast(heap, algorithm_ref)?;
+        require_digest_algorithm(algorithm)?.to_string()
+    };
+    let canonical_ref = heap.allocate_string(canonical_string.clone());
     let digest_ref = heap.allocate("java/security/MessageDigest".to_string(), 2);
     let digest = heap.get_mut(digest_ref)?;
-    digest.string_value = Some(canonical.to_string());
+    digest.string_value = Some(canonical_string);
     digest.fields[MESSAGE_DIGEST_ALGORITHM_FIELD] = Slot::Reference(Some(canonical_ref));
     digest.fields[MESSAGE_DIGEST_BUFFER_FIELD] = Slot::Reference(None);
     Ok(Some(Slot::Reference(Some(digest_ref))))
@@ -27289,8 +27296,8 @@ pub(crate) fn native_security_get_provider(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let name_ref = extract_ref_arg(args, 0)?;
-    let name = string_value_from_ref(heap, name_ref)?;
-    if !is_duke_provider_name(&name) {
+    let name = string_value_from_ref_fast(heap, name_ref)?;
+    if !is_duke_provider_name(name) {
         return Ok(Some(Slot::Reference(None)));
     }
     let provider_ref = allocate_duke_provider(heap);
@@ -27524,8 +27531,10 @@ pub(crate) fn native_uuid_from_string(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let text_ref = extract_ref_arg(args, 0)?;
-    let text = string_value_from_ref(heap, text_ref)?;
-    let (msb, lsb) = parse_uuid_string(&text)?;
+    let (msb, lsb) = {
+        let text = string_value_from_ref_fast(heap, text_ref)?;
+        parse_uuid_string(text)?
+    };
     let uuid_ref = allocate_uuid(heap, msb, lsb)?;
     Ok(Some(Slot::Reference(Some(uuid_ref))))
 }
@@ -30300,7 +30309,7 @@ fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
 }
 
 fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(map_ref)?.fields.clone();
+    let fields = heap.get_fields(map_ref)?;
     let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
     let mut i = 1usize;
     while i + 1 < fields.len() {
@@ -30524,9 +30533,9 @@ pub(crate) fn native_concurrent_hashmap_replace_key_value(
     let replacement = chm_non_null_arg(args, 3)?;
     let lock = concurrent_hashmap_lock(heap, this_ref)?;
     let _guard = concurrent_hashmap_guard(&lock);
-    let fields = heap.get(this_ref)?.fields.clone();
-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
-        let actual = fields[i + 1];
+    let i_opt = find_hashmap_entry_index(heap.get_fields(this_ref)?, &key, heap);
+    if let Some(i) = i_opt {
+        let actual = heap.get_fields(this_ref)?[i + 1];
         if slots_equal(&actual, &expected, heap) {
             heap.get_mut(this_ref)?.fields[i + 1] = replacement;
             return Ok(Some(Slot::Int(1)));
@@ -37809,9 +37818,9 @@ pub(crate) fn native_hashmap_remove_key_value(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let expected_val = extract_slot_arg(args, 2);
-    let fields = heap.get(this_ref)?.fields.clone();
-    if let Some(i) = find_hashmap_entry_index(&fields, &key, heap) {
-        let actual_val = fields[i + 1];
+    let i_opt = find_hashmap_entry_index(heap.get_fields(this_ref)?, &key, heap);
+    if let Some(i) = i_opt {
+        let actual_val = heap.get_fields(this_ref)?[i + 1];
         if slots_equal(&actual_val, &expected_val, heap) {
             native_hashmap_remove(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
             return Ok(Some(Slot::Int(1)));
