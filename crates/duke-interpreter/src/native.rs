@@ -5656,19 +5656,14 @@ pub(crate) fn native_stream_collect(
         joined.push_str(&prefix);
         let mut first = true;
         for s in &elems {
-            #[allow(clippy::collapsible_if)]
-            if let Slot::Reference(Some(r)) = s {
-                #[allow(clippy::collapsible_if)]
-                if let Ok(obj) = heap.get(*r) {
-                    if let Some(s_val) = &obj.string_value {
-                        if !first {
-                            joined.push_str(&delim);
-                        }
-                        joined.push_str(s_val);
-                        first = false;
-                    }
-                }
+            let Slot::Reference(Some(r)) = s else { continue; };
+            let Ok(obj) = heap.get(*r) else { continue; };
+            let Some(s_val) = &obj.string_value else { continue; };
+            if !first {
+                joined.push_str(&delim);
             }
+            joined.push_str(s_val);
+            first = false;
         }
         joined.push_str(&suffix);
 

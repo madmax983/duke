@@ -1,6 +1,6 @@
 use duke_bytecode::decode;
 use duke_classfile::{
-    parse, {AttributeData, CpEntry, CpIndex},
+    parse, AttributeData, CpEntry, CpIndex,
 };
 use std::process;
 
@@ -55,25 +55,26 @@ pub fn dump_search(path: &str, query: &str) {
         let full_name = format!("{name_str}{desc_str}");
 
         for attr in &method.attributes {
-            if let AttributeData::Code(code) = &attr.data {
-                #[allow(clippy::collapsible_if)]
-                if let Ok(instructions) = decode(&code.code) {
-                    let mut found_in_method = false;
-                    for (pc, instr) in instructions {
-                        let mnemonic = instr.mnemonic().to_lowercase();
-                        if mnemonic.contains(&query_lower) {
-                            if !found_in_method {
-                                println!("Method: {full_name}");
-                                found_in_method = true;
-                                found_any = true;
-                            }
-                            println!("  {pc:>4}: {mnemonic}");
-                        }
+            let AttributeData::Code(code) = &attr.data else {
+                continue;
+            };
+            let Ok(instructions) = decode(&code.code) else {
+                continue;
+            };
+            let mut found_in_method = false;
+            for (pc, instr) in instructions {
+                let mnemonic = instr.mnemonic().to_lowercase();
+                if mnemonic.contains(&query_lower) {
+                    if !found_in_method {
+                        println!("Method: {full_name}");
+                        found_in_method = true;
+                        found_any = true;
                     }
-                    if found_in_method {
-                        println!();
-                    }
+                    println!("  {pc:>4}: {mnemonic}");
                 }
+            }
+            if found_in_method {
+                println!();
             }
         }
     }

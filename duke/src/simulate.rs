@@ -32,16 +32,17 @@ pub fn dump_simulate(path: &str, method_name: &str) {
     if let Some(target) = target {
         println!("Simulating execution of method '{method_name}'...");
         for attr in &target.attributes {
-            #[allow(clippy::collapsible_if)]
-            if let AttributeData::Code(code) = &attr.data {
-                if let Ok(decoded) = decode(&code.code) {
-                    println!("--- Instruction Trace ---");
-                    for (pc, instr) in decoded {
-                        println!("PC {pc:>3}: Executing {}", instr.mnemonic());
-                    }
-                    println!("--- End Trace ---");
-                }
+            let AttributeData::Code(code) = &attr.data else {
+                continue;
+            };
+            let Ok(decoded) = decode(&code.code) else {
+                continue;
+            };
+            println!("--- Instruction Trace ---");
+            for (pc, instr) in decoded {
+                println!("PC {pc:>3}: Executing {}", instr.mnemonic());
             }
+            println!("--- End Trace ---");
         }
     } else {
         println!("duke: method '{method_name}' not found");

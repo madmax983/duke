@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**[Flatten Nested Loop Blocks]
+**Learning:** Functions in `scan.rs`, `search.rs`, `simulate.rs`, `jar_diff.rs` and `native.rs` had "Pyramids of Doom" using nested `if let` matching inside loops, and disabling the `clippy::collapsible_if` lint to silence warnings. This created excessive nesting that hurt readability.
+**Action:** Replace nested `if let` blocks inside loops with idiomatic let-else pattern guard clauses (`let Ok(val) = result else { continue; };`). This dramatically flattens the structure and removes the need for `#[allow(clippy::collapsible_if)]`.
