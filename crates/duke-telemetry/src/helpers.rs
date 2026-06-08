@@ -23,7 +23,29 @@ pub mod ser_helpers {
         map_ser.end()
     }
 
-    /// `HashMap<(class, method, pc), V>` → `"class::method@pc"`.
+    /// Serializes a `HashMap` with a 3-tuple key into a string key formatted as `"class::method@pc"`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Serialize)]
+    /// struct Dummy { val: i32 }
+    ///
+    /// #[derive(Serialize)]
+    /// struct Wrapper {
+    ///     #[serde(serialize_with = "duke_telemetry::helpers::ser_helpers::site3")]
+    ///     map: HashMap<(String, String, usize), Dummy>,
+    /// }
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert(("java/lang/String".to_string(), "intern".to_string(), 42), Dummy { val: 1 });
+    /// let w = Wrapper { map };
+    /// let json = serde_json::to_string(&w).unwrap();
+    /// assert_eq!(json, r#"{"map":{"java/lang/String::intern@42":{"val":1}}}"#);
+    /// ```
     pub fn site3<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String, usize), V>,
         ser: S,
@@ -31,7 +53,29 @@ pub mod ser_helpers {
         keyed_map(map, ser, |(c, m, pc)| format!("{c}::{m}@{pc}"))
     }
 
-    /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
+    /// Serializes a `HashMap` with a 2-tuple key into a string key formatted as `"class@cp"`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Serialize)]
+    /// struct Dummy { val: i32 }
+    ///
+    /// #[derive(Serialize)]
+    /// struct Wrapper {
+    ///     #[serde(serialize_with = "duke_telemetry::helpers::ser_helpers::site2_u16")]
+    ///     map: HashMap<(String, u16), Dummy>,
+    /// }
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert(("java/lang/String".to_string(), 42), Dummy { val: 1 });
+    /// let w = Wrapper { map };
+    /// let json = serde_json::to_string(&w).unwrap();
+    /// assert_eq!(json, r#"{"map":{"java/lang/String@42":{"val":1}}}"#);
+    /// ```
     pub fn site2_u16<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, u16), V>,
         ser: S,
@@ -39,7 +83,29 @@ pub mod ser_helpers {
         keyed_map(map, ser, |(c, cp)| format!("{c}@{cp}"))
     }
 
-    /// `HashMap<(class, method), V>` → `"class::method"`.
+    /// Serializes a `HashMap` with a 2-tuple string key into a string key formatted as `"class::method"`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Serialize)]
+    /// struct Dummy { val: i32 }
+    ///
+    /// #[derive(Serialize)]
+    /// struct Wrapper {
+    ///     #[serde(serialize_with = "duke_telemetry::helpers::ser_helpers::pair_str")]
+    ///     map: HashMap<(String, String), Dummy>,
+    /// }
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert(("java/lang/String".to_string(), "intern".to_string()), Dummy { val: 1 });
+    /// let w = Wrapper { map };
+    /// let json = serde_json::to_string(&w).unwrap();
+    /// assert_eq!(json, r#"{"map":{"java/lang/String::intern":{"val":1}}}"#);
+    /// ```
     pub fn pair_str<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String), V>,
         ser: S,
@@ -48,6 +114,27 @@ pub mod ser_helpers {
     }
 
     /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Serialize)]
+    /// struct Wrapper {
+    ///     #[serde(serialize_with = "duke_telemetry::helpers::ser_helpers::sorted_set")]
+    ///     set: HashSet<String>,
+    /// }
+    ///
+    /// let mut set = HashSet::new();
+    /// set.insert("b".to_string());
+    /// set.insert("a".to_string());
+    /// set.insert("c".to_string());
+    /// let w = Wrapper { set };
+    /// let json = serde_json::to_string(&w).unwrap();
+    /// assert_eq!(json, r#"{"set":["a","b","c"]}"#);
+    /// ```
     pub fn sorted_set<S: serde::Serializer>(
         set: &std::collections::HashSet<String>,
         ser: S,
