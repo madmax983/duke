@@ -598,4 +598,73 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_report_coverage() {
+        let mut store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("No class initialization events recorded."));
+        assert!(s.contains("No exception flow events recorded."));
+
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let idx = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store.exception_flow.record_catch(idx, "Foo", "bar", 20);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let mut buf2 = Vec::new();
+        store.print_report(&mut buf2).unwrap();
+        let s2 = String::from_utf8(buf2).unwrap();
+        assert!(s2.contains("iadd"));
+        assert!(s2.contains("java/lang/String (triggered by: java/lang/System, 500ns)"));
+        assert!(s2.contains("java/lang/Exception"));
+        assert!(s2.contains("calls=1"));
+        assert!(s2.contains("errors=1"));
+    }
+
+    #[test]
+    fn test_to_markdown_report_coverage() {
+        let mut store = crate::TelemetryStore::default();
+        let s = store.to_markdown_report();
+        assert!(s.contains("No class initialization events recorded."));
+        assert!(s.contains("No exception flow events recorded."));
+
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let idx = store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store.exception_flow.record_catch(idx, "Foo", "bar", 20);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let s2 = store.to_markdown_report();
+        assert!(s2.contains("`iadd`"));
+        assert!(s2.contains("```mermaid"));
+        assert!(s2.contains("`java/lang/Exception`"));
+        assert!(s2.contains("`java/lang/String.intern`"));
+    }
 }
