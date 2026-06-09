@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[jar_diff dependency]**
+**Tangle:** `duke/src/jar_diff.rs` attempted to import types like `AttributeData`, `CpEntry`, `CpIndex` through the `types` module of `duke_classfile`, which doesn't exist. It also had a closure inference issue due to missing type hints on `Option<CpEntry>`.
+**Blueprint:** Removed the `types::` prefix for `duke_classfile` imports since they're exported at the crate root, and explicitly typed the closures `|slot: &Option<CpEntry>|` and `|s: &Option<CpEntry>|` resolving the inference problem.
