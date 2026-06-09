@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**[Refactored Pyramid of Doom on fields.first()]
+**Learning:** `crates/duke-interpreter/src/native.rs` had dozens of repetitions of `match heap.get(ref)?.fields.first() { Some(Slot::Int(v)) => *v, _ => 0 }`. This is an unidiomatic "Pyramid of Doom" that masked the underlying intent of extracting a primitive field value.
+**Action:** Created and used `extract_int_field_or_zero`, `extract_usize_field_or_zero`, and `extract_long_field_or_zero` to compress 4 lines of matching boilerplate into a single line, vastly improving readability.

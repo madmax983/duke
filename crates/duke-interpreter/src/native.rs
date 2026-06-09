@@ -134,6 +134,30 @@ fn extract_first_field_arg(heap: &duke_gc::Heap, obj_ref: u64) -> Result<Slot> {
 }
 
 #[inline]
+fn extract_int_field_or_zero(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> Result<i32> {
+    Ok(match heap.get(obj_ref)?.fields.get(idx) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    })
+}
+
+#[inline]
+fn extract_usize_field_or_zero(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> Result<usize> {
+    Ok(match heap.get(obj_ref)?.fields.get(idx) {
+        Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
+        _ => 0,
+    })
+}
+
+#[inline]
+fn extract_long_field_or_zero(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> Result<i64> {
+    Ok(match heap.get(obj_ref)?.fields.get(idx) {
+        Some(Slot::Long(v)) => *v,
+        _ => 0,
+    })
+}
+
+#[inline]
 fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> Result<i32> {
     match heap.get(obj_ref)?.fields.first() {
         Some(Slot::Int(id)) => Ok(*id),
@@ -4481,10 +4505,7 @@ pub(crate) fn native_linked_list_init_collection(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let src_ref = extract_ref_arg(args, 1)?;
-    let src_size = match heap.get(src_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let src_size = extract_usize_field_or_zero(heap, src_ref, 0)?;
     let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[1..=src_size].to_vec();
     let n = i32::try_from(src_elems.len()).unwrap_or(0);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(n);
@@ -4532,10 +4553,7 @@ pub(crate) fn native_linked_list_add_first(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let obj = heap.get_mut(this_ref)?;
     // Shift existing elements right by one.
     obj.fields.insert(1, elem);
@@ -4562,10 +4580,7 @@ pub(crate) fn native_linked_list_peek_first(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let size = extract_int_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -4580,10 +4595,7 @@ pub(crate) fn native_linked_list_peek_last(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -4598,10 +4610,7 @@ pub(crate) fn native_linked_list_remove_first(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -4621,10 +4630,7 @@ pub(crate) fn native_linked_list_remove_last(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -4644,10 +4650,7 @@ pub(crate) fn native_linked_list_poll(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -4699,10 +4702,7 @@ pub(crate) fn native_hashmap_for_each(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let consumer_ref = extract_ref_arg(args, 1)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     // Snapshot key-val pairs (fields[1,2], fields[3,4], ...)
     let pairs: Vec<(Slot, Slot)> = (0..size)
         .map(|i| {
@@ -4738,10 +4738,7 @@ pub(crate) fn native_hashmap_replace_all(
     let this_ref = extract_ref_arg(args, 0)?;
     let fn_ref = extract_ref_arg(args, 1)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     // Snapshot keys (values will be mutated in place).
     let keys: Vec<Slot> = (0..size)
         .map(|i| {
@@ -4840,10 +4837,7 @@ pub(crate) fn native_treemap_put(
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let val = extract_slot_arg(args, 2);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     // Check for existing key — update in place.
     for i in 0..size {
         let existing_key = heap.get(this_ref)?.fields[1 + i * 2];
@@ -4880,10 +4874,7 @@ pub(crate) fn native_treemap_get(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     for i in 0..size {
         let ek = heap.get(this_ref)?.fields[1 + i * 2];
         if treemap_keys_equal(ek, key, heap) {
@@ -4930,10 +4921,7 @@ pub(crate) fn native_treemap_first_key(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let size = extract_int_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -4950,10 +4938,7 @@ pub(crate) fn native_treemap_last_key(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -4971,10 +4956,7 @@ pub(crate) fn native_treemap_remove(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     for i in 0..size {
         let ek = heap.get(this_ref)?.fields[1 + i * 2];
         if treemap_keys_equal(ek, key, heap) {
@@ -5011,10 +4993,7 @@ pub(crate) fn native_treemap_head_map(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let to_key = extract_slot_arg(args, 1);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let result = heap.allocate("java/util/TreeMap".to_string(), 1);
     heap.get_mut(result)?.fields[0] = Slot::Int(0);
     let mut count = 0usize;
@@ -5040,10 +5019,7 @@ pub(crate) fn native_treemap_tail_map(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let from_key = extract_slot_arg(args, 1);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let result = heap.allocate("java/util/TreeMap".to_string(), 1);
     heap.get_mut(result)?.fields[0] = Slot::Int(0);
     let mut count = 0usize;
@@ -5196,10 +5172,7 @@ pub(crate) fn native_treeset_add(
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let elem_key = treeset_slot_sort_key(elem, heap);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     // Check for duplicate.
     for i in 0..size {
         let ex = heap.get(this_ref)?.fields[1 + i];
@@ -5243,10 +5216,7 @@ pub(crate) fn native_treeset_contains(
         Slot::Int(v) => Some(v.to_string()),
         _ => None,
     };
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     for i in 0..size {
         let ex = heap.get(this_ref)?.fields[1 + i];
         let ex_str = match &ex {
@@ -5299,10 +5269,7 @@ pub(crate) fn native_treeset_last(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -5346,10 +5313,7 @@ pub(crate) fn native_collections_min(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let coll_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(coll_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, coll_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -5391,10 +5355,7 @@ pub(crate) fn native_collections_max(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let coll_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(coll_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, coll_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -5458,10 +5419,7 @@ pub(crate) fn native_collections_fill(
 ) -> Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let value = extract_slot_arg(args, 1);
-    let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, list_ref, 0)?;
     for i in 1..=size {
         heap.get_mut(list_ref)?.fields[i] = value;
     }
@@ -5495,10 +5453,7 @@ pub(crate) fn native_arraylist_stream(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let size = extract_int_field_or_zero(heap, list_ref, 0)?;
     let elems: Vec<Slot> =
         heap.get(list_ref)?.fields[1..=usize::try_from(size).unwrap_or(0)].to_vec();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
@@ -5536,10 +5491,7 @@ pub(crate) fn native_stream_filter(
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let mut kept: Vec<Slot> = Vec::new();
@@ -5576,10 +5528,7 @@ pub(crate) fn native_stream_map(
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut mapped: Vec<Slot> = Vec::with_capacity(elems.len());
@@ -5616,10 +5565,7 @@ pub(crate) fn native_stream_for_each(
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
     for elem in elems {
@@ -5649,10 +5595,7 @@ pub(crate) fn native_stream_collect(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let size = extract_int_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> =
         heap.get(stream_ref)?.fields[1..=usize::try_from(size).unwrap_or(0)].to_vec();
 
@@ -5762,10 +5705,7 @@ pub(crate) fn native_stream_collect(
                 // Append elem to existing list
                 let list_slot = extract_field_arg(heap, map_ref, ki + 1)?;
                 if let Slot::Reference(Some(list_ref)) = list_slot {
-                    let list_size = match heap.get(list_ref)?.fields.first() {
-                        Some(Slot::Int(n)) => *n,
-                        _ => 0,
-                    };
+                    let list_size = extract_int_field_or_zero(heap, list_ref, 0)?;
                     heap.get_mut(list_ref)?.fields.push(elem);
                     heap.get_mut(list_ref)?.fields[0] = Slot::Int(list_size + 1);
                 }
@@ -5798,10 +5738,7 @@ pub(crate) fn native_stream_collect(
                 .iter()
                 .any(|s| slots_equal(s, &elem, heap));
             if !already {
-                let cur_size = match heap.get(set_ref)?.fields.first() {
-                    Some(Slot::Int(n)) => *n,
-                    _ => 0,
-                };
+                let cur_size = extract_int_field_or_zero(heap, set_ref, 0)?;
                 heap.get_mut(set_ref)?.fields.push(elem);
                 heap.get_mut(set_ref)?.fields[0] = Slot::Int(cur_size + 1);
             }
@@ -5846,10 +5783,7 @@ pub(crate) fn native_stream_collect(
             // Box primitives so the map stores References (Object contract).
             let k = box_primitive_slot(k_raw, heap);
             let v = box_primitive_slot(v_raw, heap);
-            let cur_size = match heap.get(map_ref)?.fields.first() {
-                Some(Slot::Int(n)) => *n,
-                _ => 0,
-            };
+            let cur_size = extract_int_field_or_zero(heap, map_ref, 0)?;
             heap.get_mut(map_ref)?.fields.push(k);
             heap.get_mut(map_ref)?.fields.push(v);
             heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
@@ -5893,10 +5827,7 @@ pub(crate) fn native_stream_collect(
                 .unwrap_or(Slot::Reference(None));
             let k = box_primitive_slot(k_raw, heap);
             let v = box_primitive_slot(v_raw, heap);
-            let cur_size = match heap.get(map_ref)?.fields.first() {
-                Some(Slot::Int(n)) => *n,
-                _ => 0,
-            };
+            let cur_size = extract_int_field_or_zero(heap, map_ref, 0)?;
             heap.get_mut(map_ref)?.fields.push(k);
             heap.get_mut(map_ref)?.fields.push(v);
             heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
@@ -5959,10 +5890,7 @@ pub(crate) fn native_stream_collect(
                     .unwrap_or(Slot::Reference(None));
                 heap.get_mut(map_ref)?.fields[i + 1] = merged;
             } else {
-                let cur_size = match heap.get(map_ref)?.fields.first() {
-                    Some(Slot::Int(n)) => *n,
-                    _ => 0,
-                };
+                let cur_size = extract_int_field_or_zero(heap, map_ref, 0)?;
                 heap.get_mut(map_ref)?.fields.push(k);
                 heap.get_mut(map_ref)?.fields.push(v);
                 heap.get_mut(map_ref)?.fields[0] = Slot::Int(cur_size + 1);
@@ -5993,10 +5921,7 @@ pub(crate) fn native_stream_collect(
             )?;
             let is_true = matches!(result, Some(Slot::Int(n)) if n != 0);
             let target = if is_true { true_list } else { false_list };
-            let cur_size = match heap.get(target)?.fields.first() {
-                Some(Slot::Int(n)) => *n,
-                _ => 0,
-            };
+            let cur_size = extract_int_field_or_zero(heap, target, 0)?;
             heap.get_mut(target)?.fields.push(elem);
             heap.get_mut(target)?.fields[0] = Slot::Int(cur_size + 1);
         }
@@ -6075,10 +6000,7 @@ pub(crate) fn native_stream_collect(
             heap.get_mut(list_ref)?.fields[0] = Slot::Int(0);
             for i in 1..=n {
                 let e = heap.get(stream_ref)?.fields[i];
-                let cur = match heap.get(list_ref)?.fields.first() {
-                    Some(Slot::Int(x)) => *x,
-                    _ => 0,
-                };
+                let cur = extract_int_field_or_zero(heap, list_ref, 0)?;
                 heap.get_mut(list_ref)?.fields.push(e);
                 heap.get_mut(list_ref)?.fields[0] = Slot::Int(cur + 1);
             }
@@ -6349,10 +6271,7 @@ pub(crate) fn native_stream_collect(
             if let Some(ki) = found_ki {
                 let list_slot = extract_field_arg(heap, raw_map, ki + 1)?;
                 if let Slot::Reference(Some(list_ref)) = list_slot {
-                    let list_size = match heap.get(list_ref)?.fields.first() {
-                        Some(Slot::Int(n)) => *n,
-                        _ => 0,
-                    };
+                    let list_size = extract_int_field_or_zero(heap, list_ref, 0)?;
                     heap.get_mut(list_ref)?.fields.push(elem);
                     heap.get_mut(list_ref)?.fields[0] = Slot::Int(list_size + 1);
                 }
@@ -6406,10 +6325,7 @@ pub(crate) fn native_stream_collect(
             let tmp_args = vec![Slot::Reference(Some(tmp_stream)), downstream_slot];
             let collected = native_stream_collect(&tmp_args, heap, out, control, ops)?
                 .unwrap_or(Slot::Reference(None));
-            let cur_result_size = match heap.get(result_map)?.fields.first() {
-                Some(Slot::Int(n)) => *n,
-                _ => 0,
-            };
+            let cur_result_size = extract_int_field_or_zero(heap, result_map, 0)?;
             heap.get_mut(result_map)?.fields.push(key);
             heap.get_mut(result_map)?.fields.push(collected);
             heap.get_mut(result_map)?.fields[0] = Slot::Int(cur_result_size + 1);
@@ -6682,10 +6598,7 @@ pub(crate) fn native_stream_distinct(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let mut seen: Vec<Slot> = Vec::new();
     for elem in elems {
@@ -6709,10 +6622,7 @@ pub(crate) fn native_stream_sorted(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     // Insertion sort via compareTo callbacks (stable, O(n²) — fine for test sizes).
     for i in 1..elems.len() {
@@ -6761,10 +6671,7 @@ pub(crate) fn native_stream_any_match(
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     for elem in elems {
@@ -6796,10 +6703,7 @@ pub(crate) fn native_stream_all_match(
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     for elem in elems {
@@ -6831,10 +6735,7 @@ pub(crate) fn native_stream_none_match(
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     for elem in elems {
@@ -6862,10 +6763,7 @@ pub(crate) fn native_stream_find_first(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let opt_ref = heap.allocate("java/util/Optional".to_string(), 1);
     if size > 0 {
         let first = heap.get(stream_ref)?.fields[1];
@@ -6889,10 +6787,7 @@ pub(crate) fn native_stream_reduce(
     let Slot::Reference(Some(op_ref)) = op_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let op_class = heap.get(op_ref)?.class_name.clone();
     let reduce_result_ref = heap.allocate("java/util/Optional".to_string(), 1);
@@ -6933,10 +6828,7 @@ pub(crate) fn native_stream_reduce_with_identity(
         return Ok(Some(identity));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let mut acc = identity;
     for elem in elems {
@@ -7113,10 +7005,7 @@ pub(crate) fn native_stream_peek(
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(Some(Slot::Reference(Some(stream_ref))));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
     for elem in &elems {
@@ -7144,10 +7033,7 @@ pub(crate) fn native_stream_to_array(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     // Arrays use fields directly (no length header); arraylength returns fields.len().
     let arr_ref = heap.allocate("[Ljava/lang/Object;".to_string(), 0);
@@ -7227,10 +7113,7 @@ pub(crate) fn native_stream_limit(
         return Ok(Some(Slot::Reference(Some(out_ref))));
     }
 
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let take = size.min(max_size);
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
@@ -7254,10 +7137,7 @@ pub(crate) fn native_stream_skip(
         Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
         _ => 0,
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let skipped: Vec<Slot> = elems.into_iter().skip(skip_n).collect();
     let new_size = i32::try_from(skipped.len()).unwrap_or(0);
@@ -7280,10 +7160,7 @@ pub(crate) fn native_stream_flat_map(
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut flat: Vec<Slot> = Vec::with_capacity(elems.len());
@@ -7298,10 +7175,7 @@ pub(crate) fn native_stream_flat_map(
         )?;
         if let Some(Slot::Reference(Some(inner_ref))) = inner {
             // inner should be a duke/util/Stream — flatten its elements
-            let inner_size = match heap.get(inner_ref)?.fields.first() {
-                Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-                _ => 0,
-            };
+            let inner_size = extract_usize_field_or_zero(heap, inner_ref, 0)?;
             let inner_elems: Vec<Slot> = heap.get(inner_ref)?.fields[1..=inner_size].to_vec();
             flat.extend(inner_elems);
         }
@@ -7943,10 +7817,7 @@ pub(crate) fn native_arraydeque_push(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     heap.get_mut(this_ref)?.fields.insert(1, elem);
     let new_size = i32::try_from(size + 1).unwrap_or(0);
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(new_size);
@@ -7961,10 +7832,7 @@ pub(crate) fn native_arraydeque_pop(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Err(Error::JavaException {
             class_name: "java/util/NoSuchElementException".to_string(),
@@ -8006,10 +7874,7 @@ pub(crate) fn native_arraydeque_poll(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -8027,10 +7892,7 @@ pub(crate) fn native_arraydeque_peek(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -8081,10 +7943,7 @@ pub(crate) fn native_priorityqueue_offer(
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     // Append, then sift up.
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     heap.get_mut(this_ref)?.fields.push(elem);
     let new_size = size + 1;
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(i32::try_from(new_size).unwrap_or(0));
@@ -8143,10 +8002,7 @@ pub(crate) fn native_priorityqueue_peek(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -8162,10 +8018,7 @@ pub(crate) fn native_priorityqueue_poll(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -15718,10 +15571,7 @@ pub(crate) fn native_stream_map_to_int(
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let mut values = Vec::with_capacity(elems.len());
     for elem in elems {
@@ -15739,10 +15589,7 @@ pub(crate) fn native_stream_map_to_int(
             Slot::Int(n) => values.push(n),
             Slot::Reference(Some(r)) => {
                 // Unbox Integer/Short/Byte if the function returned a boxed type.
-                let n = match heap.get(r)?.fields.first() {
-                    Some(Slot::Int(v)) => *v,
-                    _ => 0,
-                };
+                let n = extract_int_field_or_zero(heap, r, 0)?;
                 values.push(n);
             }
             _ => values.push(0),
@@ -15870,10 +15717,7 @@ fn stream_min_max_by_comparator(
         return Ok(Some(Slot::Reference(Some(r))));
     };
     let cmp_class = heap.get(cmp_ref)?.class_name.clone();
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let opt_r = heap.allocate("java/util/Optional".to_string(), 1);
     if elems.is_empty() {
@@ -25176,10 +25020,7 @@ pub(crate) fn native_arraylist_iter_hasnext(
         Some(Slot::Int(i)) => *i,
         _ => 0,
     };
-    let list_size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(sz)) => *sz,
-        _ => 0,
-    };
+    let list_size = extract_int_field_or_zero(heap, list_ref, 0)?;
     Ok(Some(Slot::Int(i32::from(cursor < list_size))))
 }
 
@@ -25252,10 +25093,7 @@ pub(crate) fn native_arraylist_iter_remove(
         });
     }
     // Remove from backing list: shift elements left, decrement size.
-    let list_size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(sz)) => *sz,
-        _ => 0,
-    };
+    let list_size = extract_int_field_or_zero(heap, list_ref, 0)?;
     let remove_idx = last as usize + 1; // +1 because fields[0] is size
     let list_obj = heap.get_mut(list_ref)?;
     let new_size = (list_size - 1) as usize;
@@ -25820,10 +25658,7 @@ pub(crate) fn native_arraylist_remove_if(
         return Ok(Some(Slot::Int(0)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let mut kept = Vec::with_capacity(elems.len());
     let mut removed = false;
@@ -25910,10 +25745,7 @@ pub(crate) fn native_collections_binary_search(
 ) -> Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
-    let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, list_ref, 0)?;
     let elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
     let mut lo: i64 = 0;
     let mut hi: i64 = i64::try_from(elems.len()).unwrap_or(0) - 1;
@@ -31115,10 +30947,7 @@ pub(crate) fn native_hashset_iter_hasnext(
         Some(Slot::Int(i)) => *i,
         _ => 0,
     };
-    let set_size = match heap.get(set_ref)?.fields.first() {
-        Some(Slot::Int(sz)) => *sz,
-        _ => 0,
-    };
+    let set_size = extract_int_field_or_zero(heap, set_ref, 0)?;
     Ok(Some(Slot::Int(i32::from(cursor < set_size))))
 }
 
@@ -31166,10 +30995,7 @@ pub(crate) fn native_hashset_stream(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
@@ -31547,14 +31373,8 @@ pub(crate) fn native_stream_concat(
 ) -> Result<Option<Slot>> {
     let a_ref = extract_ref_arg(args, 0)?;
     let b_ref = extract_ref_arg(args, 1)?;
-    let a_size = match heap.get(a_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let b_size = match heap.get(b_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let a_size = extract_usize_field_or_zero(heap, a_ref, 0)?;
+    let b_size = extract_usize_field_or_zero(heap, b_ref, 0)?;
     let a_elems: Vec<Slot> = heap.get(a_ref)?.fields[1..=a_size].to_vec();
     let b_elems: Vec<Slot> = heap.get(b_ref)?.fields[1..=b_size].to_vec();
     let total = a_size + b_size;
@@ -31594,10 +31414,7 @@ pub(crate) fn native_stream_take_while(
     else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let mut kept: Vec<Slot> = Vec::new();
@@ -31636,10 +31453,7 @@ pub(crate) fn native_stream_drop_while(
     else {
         return Ok(Some(Slot::Reference(None)));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let mut dropping = true;
@@ -31687,10 +31501,7 @@ pub(crate) fn native_arraylist_for_each(
     else {
         return Ok(None);
     };
-    let size = match heap.get(list_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, list_ref, 0)?;
     let elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
     for elem in elems {
@@ -31720,10 +31531,7 @@ pub(crate) fn native_stream_sorted_comparator(
         return native_stream_sorted(args, heap, out, control, ops);
     };
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     // Insertion sort using the provided comparator.
     for i in 1..elems.len() {
@@ -31934,10 +31742,7 @@ pub(crate) fn native_int_stream_sorted(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let mut vals: Vec<i32> = heap.get(stream_ref)?.fields[1..=size]
         .iter()
         .filter_map(|s| if let Slot::Int(n) = s { Some(*n) } else { None })
@@ -32353,10 +32158,7 @@ pub(crate) fn native_stream_map_to_long(
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let mut values = Vec::with_capacity(elems.len());
     for elem in elems {
@@ -32400,10 +32202,7 @@ pub(crate) fn native_long_stream_sum(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let sum: i64 = heap.get(stream_ref)?.fields[1..=size]
         .iter()
         .map(|s| match s {
@@ -33651,10 +33450,7 @@ pub(crate) fn native_map_copy_of(
     let copy_ref = heap.allocate("java/util/HashMap".to_string(), 1);
     native_hashmap_init(&[Slot::Reference(Some(copy_ref))], heap, out, control)?;
     // Iterate source map's interleaved key-val pairs: fields[0]=size, fields[1..]=k,v,k,v,...
-    let size = match heap.get(src_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, src_ref, 0)?;
     let pairs: Vec<Slot> = heap.get(src_ref)?.fields[1..=size * 2].to_vec();
     let mut i = 0;
     while i + 1 < pairs.len() {
@@ -33771,10 +33567,7 @@ pub(crate) fn native_stream_flat_map_to_int(
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result: Vec<i32> = Vec::new();
@@ -33807,10 +33600,7 @@ pub(crate) fn native_stream_flat_map_to_long(
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
-    let size = match heap.get(stream_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, stream_ref, 0)?;
     let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result: Vec<i64> = Vec::new();
@@ -33898,10 +33688,7 @@ pub(crate) fn native_hashset_for_each(
     else {
         return Ok(None);
     };
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
     for elem in elems {
@@ -35539,10 +35326,7 @@ pub(crate) fn native_arraydeque_peek_last(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -35567,10 +35351,7 @@ pub(crate) fn native_arraydeque_poll_last(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
@@ -35589,10 +35370,7 @@ pub(crate) fn native_arraydeque_contains(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let found = elems.iter().any(|e| slots_equal(e, &target, heap));
     Ok(Some(Slot::Int(i32::from(found))))
@@ -35606,10 +35384,7 @@ pub(crate) fn native_arraydeque_stream(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(size).unwrap_or(0));
@@ -35631,10 +35406,7 @@ pub(crate) fn native_arraydeque_for_each(
         return Err(Error::NullPointerException);
     };
     let cons_class = heap.get(cons_ref)?.class_name.clone();
-    let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let size = extract_usize_field_or_zero(heap, this_ref, 0)?;
     let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
     for elem in elems {
         ops.invoke(
@@ -35741,10 +35513,7 @@ pub(crate) fn native_localdate_get_year(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (year, _, _) = epoch_days_to_ymd(epoch);
     Ok(Some(Slot::Int(year)))
 }
@@ -35757,10 +35526,7 @@ pub(crate) fn native_localdate_get_month_value(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (_, month, _) = epoch_days_to_ymd(epoch);
     #[allow(clippy::cast_possible_wrap)] // month is [1,12], fits i32
     Ok(Some(Slot::Int(month as i32)))
@@ -35774,10 +35540,7 @@ pub(crate) fn native_localdate_get_day_of_month(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (_, _, day) = epoch_days_to_ymd(epoch);
     #[allow(clippy::cast_possible_wrap)] // day is [1,31], fits i32
     Ok(Some(Slot::Int(day as i32)))
@@ -35792,10 +35555,7 @@ pub(crate) fn native_localdate_plus_days(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let days = extract_long_arg(args, 1)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     #[allow(clippy::cast_possible_truncation)] // saturating_add handles out-of-range
     let new_epoch = epoch.saturating_add(days as i32);
     Ok(Some(Slot::Reference(Some(allocate_localdate(heap, new_epoch)?))))
@@ -35810,10 +35570,7 @@ pub(crate) fn native_localdate_minus_days(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let days = extract_long_arg(args, 1)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     #[allow(clippy::cast_possible_truncation)] // saturating_sub handles out-of-range
     let new_epoch = epoch.saturating_sub(days as i32);
     Ok(Some(Slot::Reference(Some(allocate_localdate(heap, new_epoch)?))))
@@ -35828,10 +35585,7 @@ pub(crate) fn native_localdate_plus_months(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let months = extract_long_arg(args, 1)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (y, m, d) = epoch_days_to_ymd(epoch);
     let (ny, nm, nd) = shift_year_month_day(y, m, d, months);
     let new_epoch = ymd_to_epoch_days(ny, nm, nd);
@@ -35847,10 +35601,7 @@ pub(crate) fn native_localdate_plus_years(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let years = extract_long_arg(args, 1)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (y, m, d) = epoch_days_to_ymd(epoch);
     #[allow(clippy::cast_possible_truncation)] // year range is reasonable for Java dates
     let ny = y + years as i32;
@@ -35869,14 +35620,8 @@ pub(crate) fn native_localdate_is_before(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
-    let a = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match heap.get(other_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_field_or_zero(heap, this_ref, 0)?;
+    let b = extract_int_field_or_zero(heap, other_ref, 0)?;
     Ok(Some(Slot::Int(i32::from(a < b))))
 }
 
@@ -35889,14 +35634,8 @@ pub(crate) fn native_localdate_is_after(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
-    let a = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match heap.get(other_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_field_or_zero(heap, this_ref, 0)?;
+    let b = extract_int_field_or_zero(heap, other_ref, 0)?;
     Ok(Some(Slot::Int(i32::from(a > b))))
 }
 
@@ -35909,14 +35648,8 @@ pub(crate) fn native_localdate_is_equal(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
-    let a = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match heap.get(other_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_field_or_zero(heap, this_ref, 0)?;
+    let b = extract_int_field_or_zero(heap, other_ref, 0)?;
     Ok(Some(Slot::Int(i32::from(a == b))))
 }
 
@@ -35928,10 +35661,7 @@ pub(crate) fn native_localdate_to_epoch_day(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Long(i64::from(epoch))))
 }
 
@@ -35943,10 +35673,7 @@ pub(crate) fn native_localdate_to_string(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (y, m, d) = epoch_days_to_ymd(epoch);
     let s = format!("{y:04}-{m:02}-{d:02}");
     let sr = heap.allocate_string(s);
@@ -35962,10 +35689,7 @@ pub(crate) fn native_localdate_minus_months(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let months = extract_long_arg(args, 1)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (year, month, day) = epoch_days_to_ymd(epoch);
     let (new_year, new_month, new_day) = shift_year_month_day(year, month, day, -months);
     let new_epoch = ymd_to_epoch_days(new_year, new_month, new_day);
@@ -35981,10 +35705,7 @@ pub(crate) fn native_localdate_with_year(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let year = extract_int_arg(args, 1)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (_, month, day) = epoch_days_to_ymd(epoch);
     let new_day = day.min(days_in_month(year, month));
     let new_epoch = ymd_to_epoch_days(year, month, new_day);
@@ -36021,10 +35742,7 @@ fn localdate_compare_impl(heap: &duke_gc::Heap, this_ref: u64, other_ref: u64) -
     if other.class_name != "java/time/LocalDate" {
         return Err(class_cast_error());
     }
-    let this_epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let this_epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let other_epoch = match other.fields.first() {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -36079,10 +35797,7 @@ pub(crate) fn native_localdate_hash_code(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Int(epoch)))
 }
 
@@ -36400,10 +36115,7 @@ pub(crate) fn native_duration_get_seconds(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Long(secs)))
 }
 
@@ -36425,10 +36137,7 @@ pub(crate) fn native_duration_to_minutes(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Long(secs / 60)))
 }
 
@@ -36440,10 +36149,7 @@ pub(crate) fn native_duration_to_hours(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Long(secs / 3600)))
 }
 
@@ -36455,10 +36161,7 @@ pub(crate) fn native_duration_to_days(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Long(secs / 86_400)))
 }
 
@@ -36502,10 +36205,7 @@ pub(crate) fn native_duration_is_negative(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Int(i32::from(secs < 0))))
 }
 
@@ -36517,10 +36217,7 @@ pub(crate) fn native_duration_is_zero(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     let nano = match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -36579,10 +36276,7 @@ pub(crate) fn native_duration_between(
                 Some(Slot::Int(v)) => *v,
                 _ => 0,
             };
-            let end_epoch = match heap.get(end_ref)?.fields.first() {
-                Some(Slot::Int(v)) => *v,
-                _ => 0,
-            };
+            let end_epoch = extract_int_field_or_zero(heap, end_ref, 0)?;
             i128::from(end_epoch - start_epoch)
                 * i128::from(SECONDS_PER_DAY_I64)
                 * NANOS_PER_SECOND_I128
@@ -36769,10 +36463,7 @@ pub(crate) fn native_period_get_years(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let v = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let v = extract_int_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Int(v)))
 }
 
@@ -36868,10 +36559,7 @@ pub(crate) fn native_instant_get_epoch_second(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Long(secs)))
 }
 
@@ -36883,10 +36571,7 @@ pub(crate) fn native_instant_to_epoch_milli(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let secs = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Long(v)) => *v,
-        _ => 0,
-    };
+    let secs = extract_long_field_or_zero(heap, this_ref, 0)?;
     let nanos = match heap.get(this_ref)?.fields.get(1) {
         Some(Slot::Int(v)) => *v,
         _ => 0,
@@ -37170,10 +36855,7 @@ pub(crate) fn native_localdatetime_of_date_hms(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let date_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(date_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, date_ref, 0)?;
     let hour = extract_int_arg(args, 1)?;
     let minute = extract_int_arg(args, 2)?;
     let second = extract_int_arg(args, 3)?;
@@ -37204,10 +36886,7 @@ pub(crate) fn native_localdatetime_get_year(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (year, _, _) = epoch_days_to_ymd(epoch);
     Ok(Some(Slot::Int(year)))
 }
@@ -37220,10 +36899,7 @@ pub(crate) fn native_localdatetime_get_month_value(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (_, month, _) = epoch_days_to_ymd(epoch);
     #[allow(clippy::cast_possible_wrap)] // month is [1,12]
     Ok(Some(Slot::Int(month as i32)))
@@ -37237,10 +36913,7 @@ pub(crate) fn native_localdatetime_get_day_of_month(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     let (_, _, day) = epoch_days_to_ymd(epoch);
     #[allow(clippy::cast_possible_wrap)] // day is [1,31]
     Ok(Some(Slot::Int(day as i32)))
@@ -37299,10 +36972,7 @@ pub(crate) fn native_localdatetime_to_local_date(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
     Ok(Some(Slot::Reference(Some(allocate_localdate(heap, epoch)?))))
 }
 
@@ -37315,14 +36985,8 @@ pub(crate) fn native_localdatetime_is_before(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
-    let a_epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b_epoch = match heap.get(other_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a_epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
+    let b_epoch = extract_int_field_or_zero(heap, other_ref, 0)?;
     if a_epoch != b_epoch {
         return Ok(Some(Slot::Int(i32::from(a_epoch < b_epoch))));
     }
@@ -37352,14 +37016,8 @@ pub(crate) fn native_localdatetime_is_after(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let other_ref = extract_ref_arg(args, 1)?;
-    let a_epoch = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b_epoch = match heap.get(other_ref)?.fields.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a_epoch = extract_int_field_or_zero(heap, this_ref, 0)?;
+    let b_epoch = extract_int_field_or_zero(heap, other_ref, 0)?;
     if a_epoch != b_epoch {
         return Ok(Some(Slot::Int(i32::from(a_epoch > b_epoch))));
     }
@@ -37725,14 +37383,8 @@ pub(crate) fn native_collections_disjoint(
     let a_ref = extract_ref_arg(args, 0)?;
     let b_ref = extract_ref_arg(args, 1)?;
     // Both use ArrayList/HashSet layout: fields[0]=size, fields[1..=size]=elements
-    let a_size = match heap.get(a_ref)?.fields.first() {
-        Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
-        _ => 0,
-    };
-    let b_size = match heap.get(b_ref)?.fields.first() {
-        Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
-        _ => 0,
-    };
+    let a_size = extract_usize_field_or_zero(heap, a_ref, 0)?;
+    let b_size = extract_usize_field_or_zero(heap, b_ref, 0)?;
     let a_elems: Vec<Slot> = heap.get(a_ref)?.fields
         [1..=a_size.min(heap.get(a_ref)?.fields.len().saturating_sub(1))]
         .to_vec();
