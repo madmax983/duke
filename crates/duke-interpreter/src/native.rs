@@ -5695,7 +5695,7 @@ pub(crate) fn native_stream_collect(
             });
         }
 
-        let mut joined = String::with_capacity(cap.unwrap());
+        let mut joined = String::with_capacity(cap.unwrap_or(0));
         joined.push_str(&prefix);
         let mut first = true;
         for s in &elems {
@@ -16653,7 +16653,7 @@ pub(crate) fn native_string_split_limit(
         }
     } else {
         let re = regex::Regex::new(&delim)
-            .unwrap_or_else(|_| regex::Regex::new(&regex::escape(&delim)).unwrap());
+            .unwrap_or_else(|_| regex::Regex::new(&regex::escape(&delim)).unwrap_or_else(|_| regex::Regex::new(".*").unwrap()));
         if limit > 0 {
             re.splitn(&s, limit as usize).map(str::to_string).collect()
         } else {
@@ -37650,7 +37650,7 @@ pub(crate) fn native_string_indent(
         let num_lines = s.lines().count().max(1);
         let extra_len = n_usize.checked_mul(num_lines);
 
-        if extra_len.is_none() || extra_len.unwrap().checked_add(s.len()).is_none_or(|l| l > max_size) {
+        if extra_len.is_none() || extra_len.unwrap_or(0).checked_add(s.len()).is_none_or(|l| l > max_size) {
             return Err(Error::JavaException {
                 class_name: "java/lang/OutOfMemoryError".to_string(),
             });
