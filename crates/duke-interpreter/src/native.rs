@@ -249,6 +249,18 @@ macro_rules! extract_print_arg {
     };
 }
 
+
+/// ⚡ Bolt: Fast-path for computing character count.
+/// Avoids O(N) UTF-8 decoding for purely ASCII strings, which is highly common.
+#[inline]
+fn char_count(s: &str) -> usize {
+    if s.is_ascii() {
+        s.len()
+    } else {
+        s.chars().count()
+    }
+}
+
 pub(crate) fn native_println_string(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -3424,7 +3436,7 @@ pub(crate) fn native_string_equalsignorecase(
         return Ok(Some(Slot::Int(1)));
     }
     // Length mismatch -> false without folding characters.
-    if this_str.chars().count() != other_str.chars().count() {
+    if char_count(this_str) != char_count(other_str) {
         return Ok(Some(Slot::Int(0)));
     }
     let equal = this_str
@@ -14581,7 +14593,7 @@ pub(crate) fn native_string_substring(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        let char_count = s.chars().count();
+        let char_count = char_count(s);
         if begin > char_count {
             return Err(Error::ArrayIndexOutOfBounds {
                 index: i32::try_from(begin).unwrap_or(i32::MAX),
@@ -14611,7 +14623,7 @@ pub(crate) fn native_string_substring_range(
     let sub = {
         let obj = heap.get(this_ref)?;
         let s = obj.string_value.as_deref().unwrap_or_default();
-        let char_count = s.chars().count();
+        let char_count = char_count(s);
         if begin > end || end > char_count {
             return Err(Error::ArrayIndexOutOfBounds {
                 index: i32::try_from(end).unwrap_or(i32::MAX),
@@ -14837,7 +14849,7 @@ pub(crate) fn native_string_tochararray(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let char_count = s.chars().count();
+    let char_count = char_count(&s);
     let arr_ref = heap.allocate("[C".to_string(), char_count);
     for (i, c) in s.chars().enumerate() {
         heap.get_mut(arr_ref)?.fields[i] = Slot::Int(c as i32);
@@ -24211,7 +24223,7 @@ pub(crate) fn native_sb_set_length(
         .get_mut(this_ref)?
         .string_value
         .get_or_insert_with(String::new);
-    let char_count = buf.chars().count();
+    let char_count = char_count(buf);
     if new_len < char_count {
         if let Some((byte_idx, _)) = buf.char_indices().nth(new_len) {
             buf.truncate(byte_idx);
@@ -26179,7 +26191,7 @@ pub(crate) fn native_string_index_of_char(
             heap.get(this_ref).ok().and_then(|o| {
                 o.string_value
                     .as_deref()
-                    .map(|s| s[..byte_pos].chars().count())
+                    .map(|s| char_count(&s[..byte_pos]))
             })
         });
     let result = idx.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
@@ -26199,7 +26211,7 @@ pub(crate) fn native_string_last_index_of(
     let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
     let result = this_str
         .rfind(sub_str.as_str())
-        .and_then(|byte_pos| i32::try_from(this_str[..byte_pos].chars().count()).ok())
+        .and_then(|byte_pos| i32::try_from(char_count(&this_str[..byte_pos])).ok())
         .unwrap_or(-1);
     Ok(Some(Slot::Int(result)))
 }
