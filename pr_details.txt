@@ -1,6 +1,4 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+* 🧨 **The Trigger:** "Thread `interrupt_host_thread` race condition caused `interrupted_host_threads` to leak `ThreadId`s."
+* 📉 **The Stack Trace:** "(Loom test `test_interrupted_threads_leak` failed: Memory leak detected in interrupted_host_threads!)"
+* 🧪 **Reproduction:** "Run `cargo test --test havoc_interrupted_threads_leak`."
+* 😈 **Comment:** "You assumed `ThreadId`s would magically clean themselves up. You were wrong."

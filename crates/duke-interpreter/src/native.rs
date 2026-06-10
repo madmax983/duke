@@ -11644,11 +11644,14 @@ fn java_host_key_for_current_host() -> Option<i32> {
         .find_map(|(host_key, mapped_host)| (*mapped_host == host_thread_id).then_some(*host_key))
 }
 
-fn interrupt_host_thread(host_thread_id: std::thread::ThreadId) {
-    interrupted_host_threads()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(host_thread_id);
+fn interrupt_host_thread(host_key: i32, host_thread_id: std::thread::ThreadId) {
+    let hosts = java_thread_hosts().read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if hosts.get(&host_key) == Some(&host_thread_id) {
+        interrupted_host_threads()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(host_thread_id);
+    }
 }
 
 fn current_host_thread_is_interrupted() -> bool {
@@ -13367,7 +13370,7 @@ pub(crate) fn native_thread_interrupt(
     };
     heap.write_field(thread_ref, THREAD_INTERRUPTED_SLOT, Slot::Int(1))?;
     if let Some(host_thread_id) = host_thread_for_java_thread(host_key) {
-        interrupt_host_thread(host_thread_id);
+        interrupt_host_thread(host_key, host_thread_id);
     }
     Ok(None)
 }
@@ -21228,7 +21231,7 @@ fn spawn_java_thread(
             )
         };
         if interrupted_before_start {
-            interrupt_host_thread(host_thread_id);
+            interrupt_host_thread(host_key, host_thread_id);
         }
         let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
         {
