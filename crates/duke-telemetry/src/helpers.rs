@@ -435,4 +435,18 @@ mod tests {
         let res = super::ser_helpers::sorted_set(&set, FailingSerializer);
         assert!(res.is_err());
     }
+
+    #[test]
+    fn test_keyed_map_more_elements() {
+        let mut map = HashMap::new();
+        map.insert(1, "one");
+        map.insert(2, "two");
+        map.insert(3, "three");
+
+        let w = MapWrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains("\"key_1\":\"one\""));
+        assert!(json.contains("\"key_2\":\"two\""));
+        assert!(json.contains("\"key_3\":\"three\""));
+    }
 }

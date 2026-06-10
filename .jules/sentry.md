@@ -47,3 +47,10 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-06-10 - Telemetry Iterator and Printing Edge Cases
+**Learning:** `cargo tarpaulin` can highlight missing coverage on specific lines corresponding to closures and iterator actions if not explicitly tested with sufficient items (e.g., more than 10 elements for `.take(10)` or enough elements inside maps).
+**Action:** Use specific tests to target loops and iterators with boundary data (like > 10 items) to guarantee execution of those specific closure paths.
+
+## 2024-06-10 - Testing formatting variables with Clippy
+**Learning:** When using tests that dynamically build format strings in loops, always check the `clippy::uninlined_format_args` lint to avoid `format!("op{}", i)` and instead use `format!("op{i}")`.
+**Action:** Ensure that new tests are immediately checked with `cargo clippy --all-targets --all-features -- -D warnings` specifically to catch inline formatting violations before pushing.

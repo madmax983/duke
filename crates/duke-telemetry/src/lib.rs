@@ -598,4 +598,78 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_markdown_methods_with_more_than_10_elements() {
+        let mut store = TelemetryStore::default();
+
+        for i in 0..11 {
+            let opcode = Box::leak(format!("op{i}").into_boxed_str());
+            store.bytecode_cost.record(opcode, "Foo", "bar", 10, 100);
+        }
+        for i in 0..11 {
+            store
+                .object_lineage
+                .record(&format!("class{i}"), "Foo", 10, "bar");
+        }
+        for i in 0..11 {
+            store
+                .dispatch_resolution
+                .record(&format!("Foo{i}"), 42, "java/lang/String", true);
+        }
+        for i in 0..11 {
+            store
+                .native_boundary
+                .record_call(&format!("class{i}"), "intern", 100, true);
+        }
+
+        let mut out = String::new();
+        store.markdown_bytecode_cost(&mut out);
+        store.markdown_object_lineage(&mut out);
+        store.markdown_dispatch_resolution(&mut out);
+        store.markdown_native_boundary(&mut out);
+
+        assert_eq!(out.matches("| `op").count(), 10);
+        assert_eq!(out.matches("::Foo` @10").count(), 10);
+        assert_eq!(out.matches("`[cp42] |").count(), 10);
+        assert_eq!(out.matches(".intern` |").count(), 10);
+    }
+
+    #[test]
+    fn test_print_methods_with_more_than_10_elements() {
+        let mut store = TelemetryStore::default();
+
+        for i in 0..11 {
+            let opcode = Box::leak(format!("op{i}").into_boxed_str());
+            store.bytecode_cost.record(opcode, "Foo", "bar", 10, 100);
+        }
+        for i in 0..11 {
+            store
+                .object_lineage
+                .record(&format!("class{i}"), "Foo", 10, "bar");
+        }
+        for i in 0..11 {
+            store
+                .dispatch_resolution
+                .record(&format!("Foo{i}"), 42, "java/lang/String", true);
+        }
+        for i in 0..11 {
+            store
+                .native_boundary
+                .record_call(&format!("class{i}"), "intern", 100, true);
+        }
+
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        store.print_object_lineage(&mut buf).unwrap();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        store.print_native_boundary(&mut buf).unwrap();
+
+        let s = String::from_utf8(buf).unwrap();
+
+        assert_eq!(s.matches("count=").count(), 10);
+        assert_eq!(s.matches("allocs 1 of bar").count(), 10);
+        assert_eq!(s.matches("[cp42] calls=").count(), 10);
+        assert_eq!(s.matches(".intern calls=").count(), 10);
+    }
 }
