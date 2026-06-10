@@ -1,6 +1,4 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+💡 What: Introduced a zero-cost wrapper `DisplayKey` that implements `Display` by delegating directly to Serde's `Serializer::collect_str(self)`. Updated `ser_helpers::keyed_map` to take closures instead of dynamically formatting keys as `String`s.
+🎯 Why: Inside `duke-telemetry/src/helpers.rs`, the `keyed_map` logic was executing `format!` macros for every key serialized dynamically. This resulted in a high volume of intermediate `String` heap allocations on the hot path for telemetry.
+📊 Impact: Completely eliminates intermediate string allocations for telemetry map keys. Since telemetry records a lot of structured string paths (`class::method@pc`), this massively reduces heap churn during serialization.
+🔬 Measurement: Run `cargo bench --manifest-path crates/duke-telemetry/Cargo.toml` and trace allocation profiles under load.
