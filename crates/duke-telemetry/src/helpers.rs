@@ -5,6 +5,29 @@ pub mod ser_helpers {
 
     use serde::{Serialize, ser::SerializeMap};
 
+    struct DisplayAdapter<'a, K, F>(&'a K, &'a F);
+
+    impl<K, F> Serialize for DisplayAdapter<'_, K, F>
+    where
+        F: Fn(&K, &mut std::fmt::Formatter) -> std::fmt::Result,
+    {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.collect_str(self)
+        }
+    }
+
+    impl<K, F> std::fmt::Display for DisplayAdapter<'_, K, F>
+    where
+        F: Fn(&K, &mut std::fmt::Formatter) -> std::fmt::Result,
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            (self.1)(self.0, f)
+        }
+    }
+
     /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.
     ///
     /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
@@ -14,11 +37,12 @@ pub mod ser_helpers {
         K: Eq + std::hash::Hash,
         V: Serialize,
         S: serde::Serializer,
-        F: Fn(&K) -> String,
+        F: Fn(&K, &mut std::fmt::Formatter) -> std::fmt::Result,
     {
         let mut map_ser = ser.serialize_map(Some(map.len()))?;
         for (k, v) in map {
-            map_ser.serialize_entry(&key_fn(k), v)?;
+            let adapter = DisplayAdapter(k, &key_fn);
+            map_ser.serialize_entry(&adapter, v)?;
         }
         map_ser.end()
     }
@@ -28,7 +52,7 @@ pub mod ser_helpers {
         map: &HashMap<(String, String, usize), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, m, pc)| format!("{c}::{m}@{pc}"))
+        keyed_map(map, ser, |(c, m, pc), f| write!(f, "{c}::{m}@{pc}"))
     }
 
     /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
@@ -36,7 +60,7 @@ pub mod ser_helpers {
         map: &HashMap<(String, u16), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, cp)| format!("{c}@{cp}"))
+        keyed_map(map, ser, |(c, cp), f| write!(f, "{c}@{cp}"))
     }
 
     /// `HashMap<(class, method), V>` → `"class::method"`.
@@ -44,7 +68,7 @@ pub mod ser_helpers {
         map: &HashMap<(String, String), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, m)| format!("{c}::{m}"))
+        keyed_map(map, ser, |(c, m), f| write!(f, "{c}::{m}"))
     }
 
     /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
@@ -103,26 +127,7 @@ mod tests {
         map: &HashMap<i32, &'static str>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
-    }
-
-    #[test]
-    fn test_empty_serialize() {
-        let empty_map = HashMap::<i32, &'static str>::new();
-        let w = MapWrapper { map: empty_map };
-        let json = serde_json::to_string(&w).unwrap();
-        assert_eq!(json, r#"{"map":{}}"#);
-    }
-    #[test]
-    fn test_keyed_map() {
-        let mut map = HashMap::new();
-        map.insert(1, "one");
-        map.insert(2, "two");
-
-        let w = MapWrapper { map };
-        let json = serde_json::to_string(&w).unwrap();
-        assert!(json.contains("\"key_1\":\"one\""));
-        assert!(json.contains("\"key_2\":\"two\""));
+        super::ser_helpers::keyed_map(map, ser, |k, f| write!(f, "key_{k}"))
     }
 
     #[test]
@@ -155,6 +160,22 @@ mod tests {
         };
         let json_set = serde_json::to_string(&empty_set).unwrap();
         assert_eq!(json_set, r#"{"set":[]}"#);
+    }
+
+    #[test]
+    fn test_keyed_map() {
+        let mut map = HashMap::new();
+        map.insert(1, "one");
+        map.insert(2, "two");
+
+        let w = MapWrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        // Since we iterate HashMap, the order could be either one first or two first.
+        // So we parse back as a JSON value to assert equality reliably.
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let expected: serde_json::Value =
+            serde_json::from_str(r#"{"map":{"key_1":"one","key_2":"two"}}"#).unwrap();
+        assert_eq!(parsed, expected);
     }
 
     #[test]
@@ -244,7 +265,7 @@ mod tests {
         map: &HashMap<i32, FailingDummy>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+        super::ser_helpers::keyed_map(map, ser, |k, f| write!(f, "key_{k}"))
     }
 
     #[test]
