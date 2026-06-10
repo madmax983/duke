@@ -52,11 +52,11 @@ pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
         // Add edges
         let next_pc = instructions.get(i + 1).map(|(p, _)| *p);
         for (target, label) in instr.control_flow_edges(*pc, next_pc) {
-            if let Some(label) = label {
-                let _ = writeln!(cfg, "    node{pc} -->|{label}| node{target}");
+            let _ = if let Some(label) = label {
+                writeln!(cfg, "    node{pc} -->|{label}| node{target}")
             } else {
-                let _ = writeln!(cfg, "    node{pc} --> node{target}");
-            }
+                writeln!(cfg, "    node{pc} --> node{target}")
+            };
         }
     }
 
@@ -417,11 +417,11 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
                 None
             };
             for (target, label) in last_instr.control_flow_edges(*last_pc, next_pc) {
-                if let Some(label) = label {
-                    let _ = writeln!(cfg, "    block{block_id} -->|{label}| block{target}");
+                let _ = if let Some(label) = label {
+                    writeln!(cfg, "    block{block_id} -->|{label}| block{target}")
                 } else {
-                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
-                }
+                    writeln!(cfg, "    block{block_id} --> block{target}")
+                };
             }
         }
     }

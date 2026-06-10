@@ -817,24 +817,18 @@ impl Instruction {
         if let Some(offset) = self.unconditional_jump_target() {
             targets.push((current_pc as isize + offset) as usize);
             if self.is_subroutine_call() {
-                if let Some(next) = next_pc {
-                    targets.push(next);
-                }
+                targets.extend(next_pc);
             }
         } else if let Some(offset) = self.conditional_branch_target() {
             targets.push((current_pc as isize + offset) as usize);
-            if let Some(next) = next_pc {
-                targets.push(next);
-            }
+            targets.extend(next_pc);
         } else if let Some((default, pairs)) = self.switch_targets() {
             targets.push((current_pc as isize + default as isize) as usize);
             for (_, offset) in pairs {
                 targets.push((current_pc as isize + offset as isize) as usize);
             }
         } else {
-            if let Some(next) = next_pc {
-                targets.push(next);
-            }
+            targets.extend(next_pc);
         }
         targets
     }
