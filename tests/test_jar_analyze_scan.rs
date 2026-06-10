@@ -1,10 +1,8 @@
-#![allow(missing_docs)]
+//! Integration tests for the jar-analyze and jar-scan CLI commands.
 use std::process::Command;
-use std::path::PathBuf;
-
 #[test]
 fn test_dump_jar_analyze_and_scan() {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut p = std::env::current_dir().unwrap();
     p.push("spring-boot-loader-3.5.12.jar");
 
     let jar_path = p.to_str().unwrap();
