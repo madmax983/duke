@@ -85,3 +85,14 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**Refactoring nested match blocks with guard clauses**
+**Learning:** In `duke-classfile/src/parser.rs`, I noticed deep nesting caused by sequential `match` blocks when unpacking `AttributeData`.
+**Action:** Used `let else` guard clauses to handle early returns/continues, which effectively flattens the execution flow and drastically improves code readability without altering behavior. This aligns with the "guard clauses" move.
+
+**Option handling with Iterator extend**
+**Learning:** In `duke-bytecode/src/instruction.rs`, there were multiple instances of `if let Some(x) = y { targets.push(x) }` which added unnecessary branching and lines of code.
+**Action:** Replaced these blocks with `targets.extend(next_pc)` (and mapped `Option`s), leveraging the fact that `Option` implements `IntoIterator`. This makes the code shorter and more idiomatic.
+
+**Removing unnecessary Result wrappers**
+**Learning:** In `duke-bytecode/src/decoder.rs`, `decode_conversion_op` returned a `Result<Instruction>` even though it could only ever succeed (all variants matched explicitly to valid instructions), requiring `#[allow(clippy::unnecessary_wraps)]`.
+**Action:** Changed the signature to return `Instruction` directly, removed the `clippy` suppression, and handled the `Ok()` wrapping at the call site in `decode_one`.
