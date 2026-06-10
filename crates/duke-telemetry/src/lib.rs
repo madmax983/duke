@@ -601,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_markdown_methods_with_more_than_10_elements() {
-        let mut store = TelemetryStore::default();
+        let mut store = crate::TelemetryStore::default();
 
         for i in 0..11 {
             let opcode = Box::leak(format!("op{i}").into_boxed_str());
@@ -637,7 +637,7 @@ mod tests {
 
     #[test]
     fn test_print_methods_with_more_than_10_elements() {
-        let mut store = TelemetryStore::default();
+        let mut store = crate::TelemetryStore::default();
 
         for i in 0..11 {
             let opcode = Box::leak(format!("op{i}").into_boxed_str());
