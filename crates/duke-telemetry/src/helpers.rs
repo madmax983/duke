@@ -435,4 +435,16 @@ mod tests {
         let res = super::ser_helpers::sorted_set(&set, FailingSerializer);
         assert!(res.is_err());
     }
+
+    #[test]
+    fn test_sorted_set_success() {
+        let mut set = HashSet::new();
+        set.insert("b".to_string());
+        set.insert("a".to_string());
+        set.insert("c".to_string());
+
+        let w = SetWrapper { set };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"set":["a","b","c"]}"#);
+    }
 }

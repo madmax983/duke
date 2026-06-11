@@ -598,4 +598,38 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_class_init_dag_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_class_init_dag(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("No class initialization events recorded."));
+    }
+
+    #[test]
+    fn test_print_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_exception_flow(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("No exception flow events recorded."));
+    }
+
+    #[test]
+    fn test_markdown_class_init_dag_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut out = String::new();
+        store.markdown_class_init_dag(&mut out);
+        assert!(out.contains("No class initialization events recorded."));
+    }
+
+    #[test]
+    fn test_markdown_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut out = String::new();
+        store.markdown_exception_flow(&mut out);
+        assert!(out.contains("No exception flow events recorded."));
+    }
 }
