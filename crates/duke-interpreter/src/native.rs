@@ -3826,10 +3826,7 @@ pub(crate) fn native_throwable_init_string(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_optional_string_arg_value(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
@@ -3843,10 +3840,7 @@ pub(crate) fn native_throwable_init_string_cause(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_optional_string_arg_value(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     // Store cause in fields[0] (Throwable.cause field)
     if let Some(&cause_slot) = args.get(2)
@@ -7780,10 +7774,7 @@ pub(crate) fn native_string_init_copy(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let src_val = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let src_val = extract_optional_string_arg_value(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = src_val;
     Ok(None)
 }
@@ -8425,10 +8416,7 @@ pub(crate) fn native_enum_init(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let name_slot = extract_slot_arg(args, 1);
-    let ordinal = match args.get(2) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let ordinal = extract_int_arg(args, 2).unwrap_or(0);
     let obj = heap.get_mut(this_ref)?;
     if obj.fields.len() >= 2 {
         obj.fields[0] = name_slot;
@@ -11372,10 +11360,7 @@ pub(crate) fn native_system_exit(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let code = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 1,
-    };
+    let code = extract_int_arg(args, 0).unwrap_or(1);
     Err(Error::SystemExit { code })
 }
 
@@ -14765,10 +14750,7 @@ pub(crate) fn native_string_compareto_object(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => str_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = str_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = str_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.as_str().cmp(b.as_str())))))
 }
@@ -15020,10 +15002,7 @@ pub(crate) fn native_integer_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => int_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = int_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = int_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
@@ -15580,14 +15559,8 @@ pub(crate) fn native_arrays_stream_int_range(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_int_arg(args, 1).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    let to = extract_int_arg(args, 2).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
     let arr_obj = heap.get(arr_ref)?;
     let values: Vec<i32> = arr_obj
         .fields
@@ -15760,10 +15733,7 @@ pub(crate) fn native_int_stream_reduce_identity(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let identity = match args.get(1) {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let identity = extract_int_arg(args, 1).unwrap_or(0);
     let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(identity)));
@@ -16637,10 +16607,7 @@ pub(crate) fn native_string_split_limit(
         .string_value
         .clone()
         .unwrap_or_default();
-    let limit = match args.get(2) {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let limit = extract_int_arg(args, 2).unwrap_or(0);
     #[allow(clippy::cast_sign_loss)] // limit is validated > 0 before the cast
     let parts: Vec<String> = if delim.is_empty() {
         let chars: Vec<String> = s.chars().map(|c| c.to_string()).collect();
@@ -17495,10 +17462,7 @@ pub(crate) fn native_long_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => long_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = long_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = long_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
@@ -17594,10 +17558,7 @@ pub(crate) fn native_float_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => float_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = float_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = float_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
 }
@@ -17666,10 +17627,7 @@ pub(crate) fn native_boolean_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => bool_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = bool_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = bool_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
@@ -17809,6 +17767,14 @@ fn parse_i128_decode(s: &str) -> Result<i128> {
     Ok(if negative { -magnitude } else { magnitude })
 }
 
+
+fn extract_optional_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> Result<Option<String>> {
+    match args.get(index) {
+        Some(Slot::Reference(Some(r))) => Ok(heap.get(*r)?.string_value.clone()),
+        _ => Ok(None),
+    }
+}
+
 fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> Result<String> {
     let str_ref = extract_ref_arg(args, index)?;
     Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
@@ -17918,10 +17884,7 @@ pub(crate) fn native_byte_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => byte_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = byte_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = byte_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
@@ -18020,10 +17983,7 @@ pub(crate) fn native_short_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => short_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = short_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = short_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
@@ -18043,10 +18003,7 @@ pub(crate) fn native_char_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => char_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = char_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = char_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     Ok(Some(Slot::Int(ordering_to_int(a.cmp(&b)))))
 }
@@ -18059,14 +18016,9 @@ pub(crate) fn native_char_digit(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let ch = match args.first() {
-        Some(Slot::Int(n)) => (*n).cast_unsigned(),
-        _ => return Ok(Some(Slot::Int(-1))),
-    };
-    let radix = match args.get(1) {
-        Some(Slot::Int(n)) => (*n).cast_unsigned(),
-        _ => 10,
-    };
+    let Ok(ch_int) = extract_int_arg(args, 0) else { return Ok(Some(Slot::Int(-1))); };
+    let ch = ch_int.cast_unsigned();
+    let radix = extract_int_arg(args, 1).ok().map(|n| n.cast_unsigned()).unwrap_or(10);
     let result = char::from_u32(ch)
         .and_then(|c| c.to_digit(radix))
         .map_or(-1, u32::cast_signed);
@@ -23914,10 +23866,7 @@ pub(crate) fn native_sb_init_string(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let init_str = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
-        _ => String::new(),
-    };
+    let init_str = extract_optional_string_arg_value(args, 1, heap)?.unwrap_or_default();
     let obj = heap.get_mut(this_ref)?;
     obj.string_value = Some(init_str);
     Ok(None)
@@ -25580,10 +25529,7 @@ pub(crate) fn native_double_compareto(
             _ => Err(Error::NullPointerException),
         }
     };
-    let a = match args.first() {
-        Some(s) => double_val(s)?,
-        None => return Err(Error::NullPointerException),
-    };
+    let a = double_val(args.first().ok_or(Error::NullPointerException)?)?;
     let b = double_val(args.get(1).ok_or(Error::NullPointerException)?)?;
     // Use total_cmp: implements Java's total order where NaN > +∞ > … > -∞.
     Ok(Some(Slot::Int(ordering_to_int(a.total_cmp(&b)))))
@@ -25724,14 +25670,8 @@ pub(crate) fn native_arrays_copy_of_range_int(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_int_arg(args, 1).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    let to = extract_int_arg(args, 2).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
     let new_len = to.saturating_sub(from);
     let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
@@ -25750,14 +25690,8 @@ pub(crate) fn native_arrays_copy_of_range_object(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_int_arg(args, 1).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    let to = extract_int_arg(args, 2).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
     let new_len = to.saturating_sub(from);
     let (src_class, src_fields) = {
         let obj = heap.get(src_ref)?;
@@ -25781,14 +25715,8 @@ pub(crate) fn native_arraylist_sub_list(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_int_arg(args, 1).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    let to = extract_int_arg(args, 2).ok().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
     let new_len = to.saturating_sub(from);
     // ArrayList layout: fields[0]=size, fields[1..]=elements
     let src_elems: Vec<Slot> = {
@@ -34216,14 +34144,8 @@ pub(crate) fn native_integer_compare(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_arg(args, 0).unwrap_or(0);
+    let b = extract_int_arg(args, 1).unwrap_or(0);
     Ok(Some(Slot::Int(a.cmp(&b) as i32)))
 }
 
@@ -34235,14 +34157,8 @@ pub(crate) fn native_integer_max(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_arg(args, 0).unwrap_or(0);
+    let b = extract_int_arg(args, 1).unwrap_or(0);
     Ok(Some(Slot::Int(a.max(b))))
 }
 
@@ -34254,14 +34170,8 @@ pub(crate) fn native_integer_min(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_arg(args, 0).unwrap_or(0);
+    let b = extract_int_arg(args, 1).unwrap_or(0);
     Ok(Some(Slot::Int(a.min(b))))
 }
 
