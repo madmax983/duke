@@ -9,16 +9,49 @@ pub mod ser_helpers {
     ///
     /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
     /// collection, avoiding heap allocations and hashing overhead during telemetry generation.
-    pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
+    struct MapKeyWrapper<'a, K, F> {
+        key: &'a K,
+        fmt_fn: &'a F,
+    }
+
+    impl<K, F> std::fmt::Display for MapKeyWrapper<'_, K, F>
+    where
+        F: Fn(&K, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            (self.fmt_fn)(self.key, f)
+        }
+    }
+
+    impl<K, F> Serialize for MapKeyWrapper<'_, K, F>
+    where
+        F: Fn(&K, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
+    {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(self)
+        }
+    }
+
+    /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `fmt_fn`.
+    ///
+    /// ⚡ Bolt: Using `SerializeMap` and `collect_str` directly removes the intermediate `HashMap`
+    /// collection and intermediate String allocations via `format!`.
+    pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, fmt_fn: F) -> Result<S::Ok, S::Error>
     where
         K: Eq + std::hash::Hash,
         V: Serialize,
         S: serde::Serializer,
-        F: Fn(&K) -> String,
+        F: Fn(&K, &mut std::fmt::Formatter<'_>) -> std::fmt::Result,
     {
         let mut map_ser = ser.serialize_map(Some(map.len()))?;
         for (k, v) in map {
-            map_ser.serialize_entry(&key_fn(k), v)?;
+            map_ser.serialize_entry(
+                &MapKeyWrapper {
+                    key: k,
+                    fmt_fn: &fmt_fn,
+                },
+                v,
+            )?;
         }
         map_ser.end()
     }
@@ -28,7 +61,7 @@ pub mod ser_helpers {
         map: &HashMap<(String, String, usize), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, m, pc)| format!("{c}::{m}@{pc}"))
+        keyed_map(map, ser, |(c, m, pc), f| write!(f, "{c}::{m}@{pc}"))
     }
 
     /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
@@ -36,7 +69,7 @@ pub mod ser_helpers {
         map: &HashMap<(String, u16), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, cp)| format!("{c}@{cp}"))
+        keyed_map(map, ser, |(c, cp), f| write!(f, "{c}@{cp}"))
     }
 
     /// `HashMap<(class, method), V>` → `"class::method"`.
@@ -44,7 +77,7 @@ pub mod ser_helpers {
         map: &HashMap<(String, String), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, m)| format!("{c}::{m}"))
+        keyed_map(map, ser, |(c, m), f| write!(f, "{c}::{m}"))
     }
 
     /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
@@ -103,7 +136,7 @@ mod tests {
         map: &HashMap<i32, &'static str>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+        super::ser_helpers::keyed_map(map, ser, |k, f| write!(f, "key_{k}"))
     }
 
     #[test]
@@ -244,7 +277,7 @@ mod tests {
         map: &HashMap<i32, FailingDummy>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+        super::ser_helpers::keyed_map(map, ser, |k, f| write!(f, "key_{k}"))
     }
 
     #[test]
