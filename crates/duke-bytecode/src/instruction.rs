@@ -816,10 +816,8 @@ impl Instruction {
         let mut targets = Vec::with_capacity(2);
         if let Some(offset) = self.unconditional_jump_target() {
             targets.push((current_pc as isize + offset) as usize);
-            if self.is_subroutine_call() {
-                if let Some(next) = next_pc {
-                    targets.push(next);
-                }
+            if let (true, Some(next)) = (self.is_subroutine_call(), next_pc) {
+                targets.push(next);
             }
         } else if let Some(offset) = self.conditional_branch_target() {
             targets.push((current_pc as isize + offset) as usize);
@@ -861,11 +859,9 @@ impl Instruction {
         let mut edges = Vec::with_capacity(2);
         if let Some(offset) = self.unconditional_jump_target() {
             edges.push(((current_pc as isize + offset) as usize, None));
-            if self.is_subroutine_call() {
-                if let Some(next) = next_pc {
-                    edges.push((next, Some("false".to_string())));
-                    edges[0].1 = Some("true".to_string());
-                }
+            if let (true, Some(next)) = (self.is_subroutine_call(), next_pc) {
+                edges.push((next, Some("false".to_string())));
+                edges[0].1 = Some("true".to_string());
             }
         } else if let Some(offset) = self.conditional_branch_target() {
             edges.push((

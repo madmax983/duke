@@ -1038,21 +1038,22 @@ impl Heap {
         // Scan remembered-set old-gen objects for young refs.
         // ⚡ Bolt: Avoid intermediate vector allocation by iterating directly
         for &old_idx in &self.remembered_set {
-            if let Some(Some(obj)) = self.old.get(old_idx) {
-                worklist.extend(
-                    obj.fields
-                        .iter()
-                        .filter_map(Slot::as_reference)
-                        .filter(|r| r & OLD_BIT == 0)
-                        .map(|r| usize::try_from(r).unwrap()),
-                );
-                if let Some(child) = obj
-                    .atomic_payload
-                    .as_ref()
-                    .and_then(AtomicPayload::young_reference_child)
-                {
-                    worklist.push(child);
-                }
+            let Some(Some(obj)) = self.old.get(old_idx) else {
+                continue;
+            };
+            worklist.extend(
+                obj.fields
+                    .iter()
+                    .filter_map(Slot::as_reference)
+                    .filter(|r| r & OLD_BIT == 0)
+                    .map(|r| usize::try_from(r).unwrap()),
+            );
+            if let Some(child) = obj
+                .atomic_payload
+                .as_ref()
+                .and_then(AtomicPayload::young_reference_child)
+            {
+                worklist.push(child);
             }
         }
 

@@ -261,7 +261,8 @@ impl Frame {
     /// assert_eq!(frame.pop_ref().unwrap(), 1);
     /// ```
     pub fn pop_ref(&mut self) -> Result<u64> {
-        match self.pop()? {
+        let slot = self.pop()?;
+        match slot {
             Slot::Reference(Some(r)) => Ok(r),
             Slot::Reference(None) => Err(Error::NullPointerException),
             other => Err(Error::TypeMismatch {

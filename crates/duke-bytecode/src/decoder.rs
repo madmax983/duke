@@ -285,6 +285,13 @@ fn decode_conversion_op(opcode: u8) -> Result<Instruction> {
     })
 }
 fn decode_control_flow_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
+    if opcode == op::TABLESWITCH {
+        return decode_tableswitch(c, pc);
+    }
+    if opcode == op::LOOKUPSWITCH {
+        return decode_lookupswitch(c, pc);
+    }
+
     Ok(match opcode {
         // -- Comparisons -----------------------------------------------------
         op::LCMP => Instruction::Lcmp,
@@ -310,10 +317,6 @@ fn decode_control_flow_op(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<I
         op::GOTO => Instruction::Goto(c.read_i16()?),
         op::JSR => Instruction::Jsr(c.read_i16()?),
         op::RET => Instruction::Ret(c.read_u8()?),
-        // -- Tableswitch (§6.5 tableswitch) ----------------------------------
-        op::TABLESWITCH => return decode_tableswitch(c, pc),
-        // -- Lookupswitch (§6.5 lookupswitch) --------------------------------
-        op::LOOKUPSWITCH => return decode_lookupswitch(c, pc),
         // -- Returns ---------------------------------------------------------
         op::IRETURN => Instruction::Ireturn,
         op::LRETURN => Instruction::Lreturn,
@@ -394,23 +397,28 @@ fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
 }
 
 #[allow(clippy::unnecessary_wraps)]
+fn decode_stack_op(opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
+        op::POP => Instruction::Pop,
+        op::POP2 => Instruction::Pop2,
+        op::DUP => Instruction::Dup,
+        op::DUP_X1 => Instruction::DupX1,
+        op::DUP_X2 => Instruction::DupX2,
+        op::DUP2 => Instruction::Dup2,
+        op::DUP2_X1 => Instruction::Dup2X1,
+        op::DUP2_X2 => Instruction::Dup2X2,
+        op::SWAP => Instruction::Swap,
+        _ => unreachable!(),
+    })
+}
+
+#[allow(clippy::unnecessary_wraps)]
 #[allow(clippy::too_many_lines)]
 fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     match opcode {
         op::NOP..=op::LDC2_W => decode_constant_op(c, opcode),
         op::ILOAD..=op::SASTORE => decode_load_store_op(c, opcode),
-        op::POP..=op::SWAP => Ok(match opcode {
-            op::POP => Instruction::Pop,
-            op::POP2 => Instruction::Pop2,
-            op::DUP => Instruction::Dup,
-            op::DUP_X1 => Instruction::DupX1,
-            op::DUP_X2 => Instruction::DupX2,
-            op::DUP2 => Instruction::Dup2,
-            op::DUP2_X1 => Instruction::Dup2X1,
-            op::DUP2_X2 => Instruction::Dup2X2,
-            op::SWAP => Instruction::Swap,
-            _ => unreachable!(),
-        }),
+        op::POP..=op::SWAP => decode_stack_op(opcode),
         op::IADD..=op::IINC => decode_math_op(c, opcode),
         op::I2L..=op::I2S => decode_conversion_op(opcode),
         op::LCMP..=op::RETURN => decode_control_flow_op(c, opcode, pc),

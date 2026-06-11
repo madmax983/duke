@@ -409,19 +409,21 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         let _ = writeln!(cfg, "    block{block_id}[\"{node_label}\"]");
 
         // Edge definition based on the last instruction
-        if let Some((last_pc, last_instr)) = block.instructions.last() {
-            let next_block_id = block.end_pc;
-            let next_pc = if pc_to_block.contains_key(&next_block_id) {
-                Some(next_block_id)
+        let Some((last_pc, last_instr)) = block.instructions.last() else {
+            continue;
+        };
+
+        let next_block_id = block.end_pc;
+        let next_pc = if pc_to_block.contains_key(&next_block_id) {
+            Some(next_block_id)
+        } else {
+            None
+        };
+        for (target, label) in last_instr.control_flow_edges(*last_pc, next_pc) {
+            if let Some(label) = label {
+                let _ = writeln!(cfg, "    block{block_id} -->|{label}| block{target}");
             } else {
-                None
-            };
-            for (target, label) in last_instr.control_flow_edges(*last_pc, next_pc) {
-                if let Some(label) = label {
-                    let _ = writeln!(cfg, "    block{block_id} -->|{label}| block{target}");
-                } else {
-                    let _ = writeln!(cfg, "    block{block_id} --> block{target}");
-                }
+                let _ = writeln!(cfg, "    block{block_id} --> block{target}");
             }
         }
     }
