@@ -598,4 +598,140 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_bytecode_cost_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store.bytecode_cost.record(
+                Box::leak(format!("iadd{i}").into_boxed_str()),
+                "Foo",
+                "bar",
+                10,
+                100,
+            );
+        }
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("iadd"));
+        let line_count = s.lines().count();
+        // 1 header + 10 lines + 1 empty trailing line
+        assert_eq!(line_count, 12);
+    }
+
+    #[test]
+    fn test_markdown_bytecode_cost_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store.bytecode_cost.record(
+                Box::leak(format!("iadd{i}").into_boxed_str()),
+                "Foo",
+                "bar",
+                10,
+                100,
+            );
+        }
+        let mut out = String::new();
+        store.markdown_bytecode_cost(&mut out);
+        let line_count = out.lines().count();
+        // 1 header + 1 empty + 1 table header + 1 separator + 10 items + 1 empty
+        assert_eq!(line_count, 15);
+    }
+
+    #[test]
+    fn test_print_object_lineage_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store
+                .object_lineage
+                .record("java/lang/String", "Foo", i, "bar");
+        }
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String"));
+        let line_count = s.lines().count();
+        assert_eq!(line_count, 12);
+    }
+
+    #[test]
+    fn test_markdown_object_lineage_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store
+                .object_lineage
+                .record("java/lang/String", "Foo", i, "bar");
+        }
+        let mut out = String::new();
+        store.markdown_object_lineage(&mut out);
+        let line_count = out.lines().count();
+        assert_eq!(line_count, 15);
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store.dispatch_resolution.record(
+                "Foo",
+                u16::try_from(i).unwrap(),
+                "java/lang/String",
+                true,
+            );
+        }
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo"));
+        let line_count = s.lines().count();
+        assert_eq!(line_count, 12);
+    }
+
+    #[test]
+    fn test_markdown_dispatch_resolution_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store.dispatch_resolution.record(
+                "Foo",
+                u16::try_from(i).unwrap(),
+                "java/lang/String",
+                true,
+            );
+        }
+        let mut out = String::new();
+        store.markdown_dispatch_resolution(&mut out);
+        let line_count = out.lines().count();
+        assert_eq!(line_count, 15);
+    }
+
+    #[test]
+    fn test_print_native_boundary_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store
+                .native_boundary
+                .record_call("java/lang/String", &format!("intern{i}"), 100, true);
+        }
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String"));
+        let line_count = s.lines().count();
+        assert_eq!(line_count, 12);
+    }
+
+    #[test]
+    fn test_markdown_native_boundary_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store
+                .native_boundary
+                .record_call("java/lang/String", &format!("intern{i}"), 100, true);
+        }
+        let mut out = String::new();
+        store.markdown_native_boundary(&mut out);
+        let line_count = out.lines().count();
+        assert_eq!(line_count, 15);
+    }
 }

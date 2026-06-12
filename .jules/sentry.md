@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Format and Serialization Output Gaps
+**Learning:** Functions that generate user-facing outputs might fail testing because error flows only occur when standard types wrap custom objects. Also, format outputs (like testing empty reports vs populated reports) requires full mock states or testing for length boundaries inside iterator consumers like `take(10)`. To properly test the `take(10)` loop truncation, we need to populate test stores with more than 10 unique elements (e.g. 15) and assert that exactly 10 output lines are produced in addition to headers.
+**Action:** Add specific unit tests that push loops and iterators past their cutoff bounds (like `take(10)`) to verify the correct truncation behavior. Use dynamic values or `Box::leak` if unique `&'static str` arguments are required.
