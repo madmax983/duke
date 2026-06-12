@@ -1,5 +1,5 @@
-## 2024-05-24 - [Classfile Annotation parsing OOM due to deep recursion]
-**The Trigger:** A class file containing a deeply nested `RuntimeVisibleAnnotations` attribute (e.g. nested arrays inside annotations inside annotations).
-**The Stack Trace:** The process panics with `stack overflow` or crashes due to OOM when allocating vectors at each recursion level, or exceeds system limits.
-**Reproduction:** Run `cargo test --test havoc_classfile_annotation_oom` (which we added and fixed).
-**Comment:** "You assumed the JVM specification limit of annotation depth was naturally bounded by the class file size, but deep nesting of `[` arrays with 1 element allows exponential stack growth compared to byte size. You were wrong."
+## 2025-02-12 - Telemetry OOM DOS fix
+**The Trigger:** Calling native methods with many distinct, unique string combinations resulting in an unbounded accumulation of strings in the `NativeBoundaryStore` stats map.
+**The Stack Trace:** Panic due to OOM when the memory allocation exceeded the limits.
+**Reproduction:** A simple loop generating `1_000_000` unique classes in a test triggered OOM easily.
+**Comment:** Memory structures that grow dynamically based on untrusted or external input MUST have explicit capacity bounds (or an LRU cache) to prevent resource exhaustion attacks.

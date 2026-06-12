@@ -81,14 +81,29 @@ impl NativeBoundaryStore {
     /// assert_eq!(stat.total_ns, 100);
     /// ```
     pub fn record_call(&mut self, class: &str, method: &str, elapsed_ns: u64, is_err: bool) {
+        if self.by_method.len() >= 10_000 {
+            // Hot path optimization: check if it already exists before allocating the tuple.
+            // Since we can't easily lookup by (&str, &str), we do the allocation.
+            // The OOM protection is still valid because we drop the allocation if it's new.
+            let key = (class.to_string(), method.to_string());
+            if let Some(stat) = self.by_method.get_mut(&key) {
+                stat.calls = stat.calls.saturating_add(1);
+                stat.total_ns = stat.total_ns.saturating_add(elapsed_ns);
+                if is_err {
+                    stat.errors = stat.errors.saturating_add(1);
+                }
+            }
+            return;
+        }
+
         let stat = self
             .by_method
             .entry((class.to_string(), method.to_string()))
             .or_default();
-        stat.calls += 1;
-        stat.total_ns += elapsed_ns;
+        stat.calls = stat.calls.saturating_add(1);
+        stat.total_ns = stat.total_ns.saturating_add(elapsed_ns);
         if is_err {
-            stat.errors += 1;
+            stat.errors = stat.errors.saturating_add(1);
         }
     }
 }
